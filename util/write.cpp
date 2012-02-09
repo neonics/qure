@@ -23,6 +23,9 @@ int main( int argc, char * argv[] )
 
 	memset(boot_buf, 0, 512);
 
+        h_out = open( out_name, O_RDWR|O_CREAT|O_BINARY);
+	printf("Opened %s, handle %d\n", out_name, h_out );
+
  	if ( boot_name )
 	{
 		printf(" reading boot sector: %s\n", boot_name );
@@ -32,23 +35,32 @@ int main( int argc, char * argv[] )
 			printf( "not found: %a\n", boot_name );
 			return 1;
 		}
+		int flen = lseek( h_in, 0, SEEK_END );
+		if ( flen > 512 )
+		{
+			printf( "Warning: bootsector too large: %d bytes\n", flen );
+		}
+		
+		lseek( h_in, 0, SEEK_SET );
 
 		printf( "Opened %s: %d\n", boot_name, h_in );
 
-		int rd = read(h_in, boot_buf, 510);
-
+		int rd = read(h_in, boot_buf, 512);
 		printf( "Read %d bytes from %s\n", rd, boot_name );
-		close(h_in);
 		
 		boot_buf[510] = 0x55;
 		boot_buf[511] = 0xaa;
+
+		flen -= rd;
+		while ( flen > 0 )
+		{
+			rd = read( h_in, boot_buf, 512 );
+			flen -= rd;
+		}
+
+		close(h_in);
 	}
 
-        h_out = open( out_name, O_RDWR|O_CREAT|O_BINARY);
-
-	printf("Opened %s, handle %d\n", out_name, h_out );
-
-        //lseek(h_out, 0, SEEK_CUR);
         out_offs += write(h_out, boot_buf, 512);
 
 	memset( boot_buf, 0, 512);
@@ -68,11 +80,9 @@ bool parse_args( int argc, char ** argv )
 	bool ok = true;
 	for ( int i = 1; ok && i < argc; i ++ )
 	{
-	printf(" * parsing arg '%s'\n", argv[i] );
 		if ( strcmp( argv[i], "-b" ) == 0 )
 		{
-			if ( ++i < argc )
-				boot_name = argv[i];
+			if ( ++i < argc ) boot_name = argv[i];
 			else ok = false;
 		}
 		else if ( strcmp( argv[i], "-o" ) == 0 )

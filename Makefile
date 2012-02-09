@@ -13,7 +13,7 @@ os.iso: init build/boot.img
 	#-hard-disk-boot 
 
 init:
-	mkdir -p build/
+	mkdir -p build/ root/boot/
 
 clean:
 	rm -rf build/ os.iso root/boot/build.img
@@ -32,11 +32,14 @@ ifeq ($(ASSEMBLER),FASM)
 	cp other-assemblers/bootloader-fasm.bin $@
 else
 ifeq ($(ASSEMBLER),GAS)
-	/bin/as -o build/bootloader.o bootloader.s
+	/bin/as -R -n --warn --fatal-warnings -o build/bootloader.o bootloader.s
 	objcopy -O binary build/bootloader.o $@
 endif
 endif
 
 
-build/write.exe: write.cpp
+
+# Utility - Build Assistance
+
+build/write.exe: util/write.cpp
 	gcc $< -o $@

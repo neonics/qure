@@ -1,0 +1,12 @@
+other-assemblers/	other-assemblers (FASM etc. sources)
+  bootloader-fasm.asm	first attempt
+bootloader.s		bootloader source
+root/			the root of the OS filesystem, the boot disk
+os.iso			main output: bootdisk
+Makefile		automate building
+build/			temporary build files
+TODO			Compromises: current status, feature, optimization
+.git/			version control
+util/			build assistance
+FILES			this file
+NOTES|HISTORY|git log	...
