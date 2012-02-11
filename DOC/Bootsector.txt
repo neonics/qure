@@ -1,0 +1,103 @@
+=== ISO9660 Image Booting
+
+* Floppy Emulation
+
+	genisoimage -b IMAGE
+
+	This argument is required for all ISO9660 image booting.
+	If the image size equals a traditional floppy disk,
+	i.e. 144*10240, floppy emulation is used.
+
+	The bootdevice (register dx) is 0, the first floppy. Any real
+	floppy drives present are shifted.
+
+* No Emulation
+
+	genisoimage -no-emul-boot -boot-load-size SECTORS
+
+	No emulation. Able to specify a number of sectors to be loaded
+	by the BIOS. The entire boot image is stored on disk, even
+	if it is larger than the number of sectors.
+
+	The bootdevice is E0, however, the specification says
+	it will be between 81 and FF. However, the harddisks
+	are also shifted forward...
+	If there is one harddisk present, 81 indicates the cd.
+	If there are two harddisks present, 81 may indicate
+	the second harddisk, or the disk image. 80 then can
+	indicate the first harddisk, or the image.
+
+* HDD Emulation
+
+	Not tested.
+
+
+A bootloader that would work regardless, would not rely on BIOS,
+or the ISO format, to have the boot image loaded beyond the first sector.
+
+On an ISO image we can safely assume that the image is contiguous,
+and access it using the BIOS and the drive identifier in register dl.
+
+On a harddisk, the sectors after sector 0 are undefined. The partition
+table present in the bootsector (which is then called MBR), indicates
+the disk format.
+
+Thus, to be able to use one universal bootloader for booting from
+CD, floppy, or existing disk, we can only rely on 440 bytes of
+storage.
+
+The partition table for a harddisk is able to reserve space,
+and if installing on an empty HDD we can then use this function
+to reserve space for the boot image before the partitions.
+
+Since the BIOS only provides for reading more than one sector for
+CD images, not for HDD images, this code then has to be present
+within the bootloader.
+
+=== Segmentation
+
+First attempt then is to have the bootloader code load the succeeding
+sectors.
+
+The bootsector should know the size of the entire boot image.
+
+This can be done by having one source file, bootloader.S,
+which defines a label equalling the number of sectors.
+Also this allows to use the same address space for the entire image.
+
+A second sourcefile may define itself as at origin 512.
+They cannot then be included, if the second uses GNU AS, and
+uses .text and .data, as data from the second sector will end up
+in the first sector.
+
+It is then required to have both the code and the data present
+in the first sector. This can be done in various ways:
+* using only .text in the first sector
+* disallowing using .data in succeeding sectors.
+* using only .text throughout, using subsections.
+
+=== Loading succeeding sectors
+
+Assuming that the entire image has been constructed to use the same
+address space, i.e. is contiguous, and code any sector can correctly
+reference any other sector.
+
+Assuming further, for the first attempt, that the image itself
+is contiguous on disk, including it's first sector.
+
+The code then is a simple loop to load a number of sectors,
+incrementing the load address.
+
+Potential bug: Since this is 'self modifying code',
+  cache flushing may be required.
+
+
+* Loading contiguous block anywhere on the boot medium
+
+* Loading contiguous block anywhere
+
+* Loading filesystem specific, possibly discontinuous block
+
+Limitation: BIOS can have limited capacity to address storage.
+
+

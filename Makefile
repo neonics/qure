@@ -1,12 +1,20 @@
+SECTORS := $(shell perl -e 'use POSIX; print ceil((-s "build/boot.bin") * 1.0 / 512)')
+
+ISO_ARGS = -boot-load-seg 0
+ISO_ARGS += -boot-load-size $(SECTORS)
+#ISO_ARGS += -hard-disk-boot
+ISO_ARGS += -no-emul-boot
+
 ALL: os.iso
 
 os.iso: init build/boot.img
 	@echo Generating $@
+	@echo "Sectors: $(SECTORS)"
 	@cp build/boot.img root/boot/boot.img
-	@genisoimage -o os.iso \
-	-r -b boot/boot.img \
-	root/
-
+	genisoimage -o os.iso \
+		-r -b boot/boot.img \
+		$(ISO_ARGS) \
+		root/ 
 	#-J -boot-info-table 
 	#-boot-load-size 2884 \
 	#-no-emul-boot \
@@ -36,7 +44,6 @@ ifeq ($(ASSEMBLER),GAS)
 	objcopy -O binary build/bootloader.o $@
 endif
 endif
-
 
 
 # Utility - Build Assistance

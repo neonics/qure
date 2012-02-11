@@ -1,3 +1,9 @@
+/**
+ * Creates a zero-filled file of given length, marking the first sector
+ * as a bootsector, optionally overlaying a bootsector file that may
+ * be longer than 512 bytes.
+ */
+
 #include <sys/types.h> /* unistd.h needs this */
 #include <unistd.h>    /* contains read/write */
 #include <fcntl.h>
@@ -10,6 +16,37 @@ char * out_name = NULL;
 char * boot_name = NULL;
 bool parse_args( int argc, char ** argv);
 
+
+char boot_buf[512];
+int h_out, h_in = -1;
+int out_offs = 0;
+int sector = 0;
+int outlen = 144 * 10240;
+
+int next()
+{
+	memset(boot_buf, 0, 512);
+
+	if ( h_in >= 0 )
+	{
+		int rd = read(h_in, boot_buf, 512);
+		printf( "Read %d bytes from %s\n", rd, boot_name );
+		if ( rd < 512 )
+		{
+			close( h_in );
+			h_in = -1;
+		}
+	}
+
+	if ( sector++ == 0 )
+	{
+		boot_buf[510] = 0x55;
+		boot_buf[511] = 0xaa;
+	}
+
+	return sector * 512 <= outlen;
+}
+
 int main( int argc, char * argv[] )
 {
 	if ( !parse_args( argc, argv ) )
@@ -17,18 +54,13 @@ int main( int argc, char * argv[] )
 	
 	printf("Creating image %s\n", out_name );
 
-        char boot_buf[512];
-        int h_out, h_in;
-	int out_offs = 0;
-
-	memset(boot_buf, 0, 512);
 
         h_out = open( out_name, O_RDWR|O_CREAT|O_BINARY);
 	printf("Opened %s, handle %d\n", out_name, h_out );
 
  	if ( boot_name )
 	{
-		printf(" reading boot sector: %s\n", boot_name );
+		printf("Reading boot image: %s\n", boot_name );
 		h_in = open( boot_name, O_RDONLY );
 		if ( h_in <= 0 )
 		{
@@ -38,37 +70,16 @@ int main( int argc, char * argv[] )
 		int flen = lseek( h_in, 0, SEEK_END );
 		if ( flen > 512 )
 		{
-			printf( "Warning: bootsector too large: %d bytes\n", flen );
+			printf( "Warning: image larger than bootsector (512): %d bytes\n", flen );
 		}
 		
 		lseek( h_in, 0, SEEK_SET );
-
-		printf( "Opened %s: %d\n", boot_name, h_in );
-
-		int rd = read(h_in, boot_buf, 512);
-		printf( "Read %d bytes from %s\n", rd, boot_name );
-		
-		boot_buf[510] = 0x55;
-		boot_buf[511] = 0xaa;
-
-		flen -= rd;
-		while ( flen > 0 )
-		{
-			rd = read( h_in, boot_buf, 512 );
-			flen -= rd;
-		}
-
-		close(h_in);
 	}
 
-        out_offs += write(h_out, boot_buf, 512);
-
-	memset( boot_buf, 0, 512);
-
-
-	for ( ; out_offs < 144 * 1024 * 10; out_offs += sizeof( boot_buf) )
-		write( h_out, boot_buf, sizeof( boot_buf ) );
-
+	while ( next() )
+	{
+		out_offs += write(h_out, boot_buf, 512);
+	}
 
         close(h_out);
 

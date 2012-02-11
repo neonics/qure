@@ -1,52 +1,37 @@
 .intel_syntax noprefix
 
-.data
-#.align 2, 0x90, 1
-data:
+# layout:
+# 0000-0xxx: text, xxx < 0x200 (512)
+# 0xxx-0200:.text d0
+# 0200-....: sector1
 
-.data 
-regnames$: .asciz "csipdsesfsgsssaxbxcxdxsidibpsp"
+# Only .text with subsections is used.
 
 .bss
-#.offset -0x10
-. = 512
-registers$:
-r_cs: .word 0
-r_ip: .word 0
-r_ds: .word 0
-r_es: .word 0
-r_fs: .word 0
-r_gs: .word 0
-r_ss: .word 0
+	registers$:
+	r_cs: .word 0
+	r_ip: .word 0
+	r_ds: .word 0
+	r_es: .word 0
+	r_fs: .word 0
+	r_gs: .word 0
+	r_ss: .word 0
 
-r_ax: .word 0
-r_bx: .word 0
-r_cx: .word 0
-r_dx: .word 0
-r_si: .word 0
-r_di: .word 0
-r_bp: .word 0
-r_sp: .word 0
-bss_end$:
+	r_ax: .word 0
+	r_bx: .word 0
+	r_cx: .word 0
+	r_dx: .word 0
+	r_si: .word 0
+	r_di: .word 0
+	r_bp: .word 0
+	r_sp: .word 0
+	bss_end$:
 
-/*
-r_cs: .word 0
-r_ip: .word 0
-r_ds: .word 0
-r_es: .word 0
-r_fs: .word 0
-r_gs: .word 0
-r_ss: .word 0
+.EQU c0, 0
+.EQU d0, 1
+.EQU c1, 2
+.EQU d1, 3
 
-r_ax: .word 0
-r_bx: .word 0
-r_cx: .word 0
-r_dx: .word 0
-r_si: .word 0
-r_di: .word 0
-r_bp: .word 0
-r_sp: .word 0
-*/
 .text
 .code16
 .global start
@@ -81,6 +66,11 @@ start:
 	mov	[r_bp], bp
 	mov	[r_sp], sp
 
+
+	mov	ax, 0xf000
+	call	cls	# side effect: set up es:di to b800:0000
+
+
 .if 0
 savecursor$:
 .bss
@@ -91,19 +81,17 @@ savecursor$:
 	mov	bh, 0
 	int	0x10
 	mov	[cursor_form], cx
-	# hide cursor
+hidecursor$:
 	mov	ah, 1
 	mov	cx, 0x2706
 	int	0x10
 .endif
-	mov	ax, 0xf000
-	call	cls
+
+
+
 
 
 printhello$:
-.data
-	hello$: .asciz "Hello!"
-.text
 	inc	ah
 	mov	si, offset hello$
 	call	print
@@ -113,12 +101,33 @@ printhello$:
 	inc	ah
 
 
+
+
+
 .equ LIST_DRIVES, 1
 .if LIST_DRIVES
 	call	listdrives$
-.endif
+
+
 
 # detect boot medium
+.text d0
+txt_drive$:
+txt_hdd$:	.asciz "HDD"
+txt_floppy$:	.asciz "Floppy"
+txt_cd$:	.asciz "CD"
+.text
+
+	mov	al, [r_dx]
+	test	al, 0x80
+	jz	0f
+	and	al, 0x7f
+	add	al, 'C'
+	jmp	1f
+0:	add	al, 'A'
+1:	stosw
+
+.endif
 
 
 /*
@@ -142,30 +151,9 @@ loadsector:
 	#mov	ss, ax
 */
 
-
-writebootsector:
-.data
-msg_bootsect_written: .asciz "Bootsect Written"
-.text
-	push	ax
-	mov	ax, 0x0301	# func 3, 1 sectors
-	xor	cx, cx 		# cylinder=0, sector = 0
-	mov	dx, 0x0080	# dl = first HDD
-	push	es
-	mov	bx, ds
-	mov	es, bx
-	mov	bx, [r_ip]
-	int	0x13
-	pop	es
-	mov	dx, ax
-	pop	ax
-	call	printhex 
-	#mov	si, offset msg_disk_error
-	jc	0f
-	#inc	ah
-	#mov	si, offset msg_bootsect_written
-0:	#inc	ah
-	#call	print
+	call	test
+	#mov si, offset hello$
+	#call print
 
 halt:	hlt
 	jmp	halt
@@ -186,7 +174,7 @@ listdrives$:
 	jl	0b
 
 print_drive_info:
-.data
+.text d0
 msg_disk_error: .asciz "DiskERR "
 .text
 	push	dx
@@ -288,6 +276,10 @@ print:
 
 
 printregisters:
+.text d0
+regnames$: .asciz "csipdsesfsgsssaxbxcxdxsidibpsp"
+.text
+
 	mov	si, offset regnames$
 	mov	bx, offset registers$
 1:	call	newline
@@ -320,18 +312,81 @@ cls:
 	xor	di, di
 	ret
 
-# if include: todo: check if link-order for multiple .s files can be specified in as
-#.include "print.s"
+.EQU bs_code_end, .
+.text d0
+data:
+	hello$: .asciz "Hello!"
 
-.data 1
+.text d0 
+. = 440
+	.ascii "MBR$"
 . = 446
-mbr:
-status$:	.byte 0x80	# bootable
-chs_start$:	.byte 0, 1, 0	# head, sector, cylinder
-part_type$:	.byte 0		# partition type
-chs_end$:	.byte 0, 1, 0
-lba_first$:	.byte 0, 0, 0, 0
-numsec$:	.byte 0,0,0,0
+	mbr:
+	status$:	.byte 0x80	# bootable
+	chs_start$:	.byte 0, 1, 0	# head, sector, cylinder
+	part_type$:	.byte 0		# partition type
+	chs_end$:	.byte 0, 1, 0
+	lba_first$:	.byte 0, 0, 0, 0
+	numsec$:	.byte 0,0,0,0
 . = 512 - 2
-.byte 0x55, 0xaa
+	.byte 0x55, 0xaa
 end:
+
+
+
+#############################################################################
+# .text d0 is offset 512
+# .code is before that, and should not be used from this point on.
+#
+#############################################################################
+# Problem: .text is contiguous, .text d0 follows it.
+# need to reset .text segment to start at 512, and .text d0 to follow that.
+# use other name for text segment. 
+
+.text c1
+. = 512
+
+.equ BIG_BOOTSECT, 1
+.if BIG_BOOTSECT
+
+
+.text d1
+bigboot$: .asciz "Big Bootsector!"
+.text c1
+
+test:
+	mov	si, offset bigboot$
+	call	print
+	ret
+
+
+
+writebootsector:
+
+.text d1
+msg_bootsect_written: .asciz "Bootsect Written"
+.text c1
+	.byte '@'
+	.byte '@'
+	push	ax
+	mov	ax, 0x0301	# func 3, 1 sectors
+	xor	cx, cx 		# cylinder=0, sector = 0
+	mov	dx, 0x0080	# dl = first HDD
+	push	es
+	mov	bx, ds
+	mov	es, bx
+	mov	bx, [r_ip]
+	int	0x13
+	pop	es
+	mov	dx, ax
+	pop	ax
+	call	printhex 
+	#mov	si, offset msg_disk_error
+	jc	0f
+	#inc	ah
+	#mov	si, offset msg_bootsect_written
+0:	#inc	ah
+	#call	print
+
+
+.endif
