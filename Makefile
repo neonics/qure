@@ -61,3 +61,5 @@ build/asm.exe: util/asm.y util/asm.l
 	flex -DBISON -o build/asm.lex.c asm.y
 	gcc -o $@ build/asm.lex.c build/asm.parser.c
 
+build/malloc.exe: util/malloc.cpp
+	gcc -std=c++0x -o $@ $<
