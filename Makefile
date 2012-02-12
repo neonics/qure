@@ -5,7 +5,9 @@ ISO_ARGS += -boot-load-size $(SECTORS)
 #ISO_ARGS += -hard-disk-boot
 ISO_ARGS += -no-emul-boot
 
-ALL: os.iso
+.PHONY: all clean init
+
+all: os.iso
 
 os.iso: init build/boot.img
 	@echo Generating $@
@@ -49,6 +51,8 @@ endif
 
 # Utility - Build Assistance
 
+util:	init build/write.exe build/asm.exe build/malloc.exe
+
 build/write.exe: util/write.cpp
 	gcc $< -o $@
 
@@ -57,8 +61,8 @@ build/asm.exe: util/asm.y util/asm.l
 	@#flex -o build/asm.lex.c $<
 	@#gcc build/asm.lex.c -o $@
 	@# -d: gen header file -v report state -t debug
-	bison -d -v -t -o build/asm.parser.c asm.l
-	flex -DBISON -o build/asm.lex.c asm.y
+	bison -d -v -t -o build/asm.parser.c util/asm.l
+	flex -DBISON -o build/asm.lex.c util/asm.y
 	gcc -o $@ build/asm.lex.c build/asm.parser.c
 
 build/malloc.exe: util/malloc.cpp
