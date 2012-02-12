@@ -11,7 +11,7 @@ os.iso: init build/boot.img
 	@echo Generating $@
 	@echo "Sectors: $(SECTORS)"
 	@cp build/boot.img root/boot/boot.img
-	genisoimage -o os.iso \
+	@genisoimage -o os.iso \
 		-r -b boot/boot.img \
 		$(ISO_ARGS) \
 		root/ 
@@ -21,7 +21,8 @@ os.iso: init build/boot.img
 	#-hard-disk-boot 
 
 init:
-	mkdir -p build/ root/boot/
+	[ -d build/ ] || mkdir -p build/
+	[ -d root/boot/ ] || mkdir -p root/boot/
 
 clean:
 	rm -rf build/ os.iso root/boot/build.img
@@ -50,3 +51,13 @@ endif
 
 build/write.exe: util/write.cpp
 	gcc $< -o $@
+
+
+build/asm.exe: util/asm.y util/asm.l
+	@#flex -o build/asm.lex.c $<
+	@#gcc build/asm.lex.c -o $@
+	@# -d: gen header file -v report state -t debug
+	bison -d -v -t -o build/asm.parser.c asm.l
+	flex -DBISON -o build/asm.lex.c asm.y
+	gcc -o $@ build/asm.lex.c build/asm.parser.c
+
