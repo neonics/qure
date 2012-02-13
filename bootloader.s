@@ -1,36 +1,8 @@
 .intel_syntax noprefix
 
-# layout:
-# 0000-0xxx: text, xxx < 0x200 (512)
-# 0xxx-0200:.text d0
-# 0200-....: sector1
-
-# Only .text with subsections is used.
-
-.bss
-	registers$:
-	r_cs: .word 0
-	r_ip: .word 0
-	r_ds: .word 0
-	r_es: .word 0
-	r_fs: .word 0
-	r_gs: .word 0
-	r_ss: .word 0
-
-	r_ax: .word 0
-	r_bx: .word 0
-	r_cx: .word 0
-	r_dx: .word 0
-	r_si: .word 0
-	r_di: .word 0
-	r_bp: .word 0
-	r_sp: .word 0
-	bss_end$:
-
-.EQU c0, 0
-.EQU d0, 1
-.EQU c1, 2
-.EQU d1, 3
+# Layout:
+# 0000-0200: sector 0. Only .text/.bss used. subsections/.data prohibited.
+# 0200-....: all allowed.
 
 .text
 .code16
@@ -70,63 +42,22 @@ start:
 	mov	ax, 0xf000
 	call	cls	# side effect: set up es:di to b800:0000
 
-
-.if 0
-savecursor$:
-.bss
-	cursor: .word 0
-	cursor_form: .word 0
-.text
-	mov	ah, 3
-	mov	bh, 0
-	int	0x10
-	mov	[cursor_form], cx
-hidecursor$:
-	mov	ah, 1
-	mov	cx, 0x2706
-	int	0x10
-.endif
-
-
-
-
-
-printhello$:
+      printhello$:
 	inc	ah
 	mov	si, offset hello$
+	call	print
+	mov	dx, ds
 	call	print
 
 	inc	ah
 	call	printregisters
-	inc	ah
-
-
-
 
 
 .equ LIST_DRIVES, 1
 .if LIST_DRIVES
+	inc	ah
 	call	listdrives$
-
-
-
-# detect boot medium
-.text d0
-txt_drive$:
-txt_hdd$:	.asciz "HDD"
-txt_floppy$:	.asciz "Floppy"
-txt_cd$:	.asciz "CD"
-.text
-
-	mov	al, [r_dx]
-	test	al, 0x80
-	jz	0f
-	and	al, 0x7f
-	add	al, 'C'
-	jmp	1f
-0:	add	al, 'A'
-1:	stosw
-
+	call	printbootdrive$
 .endif
 
 
@@ -151,16 +82,22 @@ loadsector:
 	#mov	ss, ax
 */
 
-	call	test
-	#mov si, offset hello$
-	#call print
+	mov	dx, 0xf0f0
+	call	printhex
+	call	writebootsector
+	mov	dx, 0x0f0f
+	call	printhex
 
 halt:	hlt
 	jmp	halt
 
+.include "print.s"
+
 
 .if LIST_DRIVES
 listdrives$:
+
+
 	mov	dx, 0
 0:	call	print_drive_info
 	inc	dl
@@ -172,13 +109,13 @@ listdrives$:
 	inc	dl
 	cmp	dl, 0x84
 	jl	0b
+	ret
 
+msg_disk_error$: .asciz "DiskERR "
 print_drive_info:
-.text d0
-msg_disk_error: .asciz "DiskERR "
-.text
-	push	dx
-	call	printhex2
+
+	push	dx	
+	call	printhex2 # dl: drive number
 	push	ax
 	push	es
 	push	di
@@ -188,27 +125,28 @@ msg_disk_error: .asciz "DiskERR "
 	mov	es,di
 	int	0x13
 	jnc 	0f
-	inc	bh
+	inc	bh	# es:di, ax, dx, bx
 0:	mov	bp, es
 	mov	fs, bp
 	mov	bp, di
 	pop	di
 	pop	es
 	mov	gs, ax
-	pop	ax
+	pop	ax	# fs:bp, gs, dx
 
 	or	bh, bh
 	jz 	0f
-	mov	si, offset msg_disk_error
+	mov	si, offset msg_disk_error$
 	inc	ah
 	call	print
 	dec	ah
-0:	call	printhex # dx
-	mov	dx, gs # ax
+			# dh: heads dl: harddisks
+0:	call	printhex
+	mov	dx, gs	# ah: retcode al:?
 	call	printhex
-	mov	dx, bx
+	mov	dx, bx	# bl: floppy drive type
 	call	printhex2
-	mov	dx, cx
+	mov	dx, cx	# cx[7:6]cx[15:8]: last cylinder, cx[5:0] sectors/track
 	call	printhex
 	mov	dx, fs
 	call	printhex
@@ -219,105 +157,29 @@ msg_disk_error: .asciz "DiskERR "
 	call	newline
 	pop	dx
 	ret
+
+txt_drive$:	.asciz "Drive "
+printbootdrive$:
+	mov	si, offset txt_drive$;
+	call	print
+
+	mov	al, [r_dx]
+	test	al, 0x80
+	jz	0f
+	and	al, 0x7f
+	add	al, 'C'
+	jmp	1f
+0:	add	al, 'A'
+1:	stosw
+	call	newline
+
 .endif
 
-
-# arg: es:di screen ptr
-# arg: ax: number
-# uses: ax, dx, di
-
-# arg: dx
-printhex2:
-	push	cx
-	push	dx
-	mov	cx, 2
-	shl	dx, 8
-	jmp	0f
-printhex:
-	push	cx
-	push	dx
-	mov	cx, 4
-0:	rol	dx, 4
-	mov	al, dl
-	and	al, 0xf
-	cmp	al, 10
-	jl	1f
-	add	al, 'A' - '0' - 10
-1:	add	al, '0'
-	stosw
-	loopnz	0b
-
-	add	di, 2
-	pop	dx
-	pop	cx
-	ret
-	
-newline:
-	push	ax
-	push	dx
-	mov	ax, di
-	mov	dx, 160
-	div	dl
-	mul	dl
-	add	ax, dx
-	mov	di, ax
-	pop	dx
-	pop	ax
-	ret
-
-
-print:
-	lodsb
-0:	stosw
-	lodsb
-	test	al, al
-	jnz	0b
-	ret
-
-
-printregisters:
-.text d0
-regnames$: .asciz "csipdsesfsgsssaxbxcxdxsidibpsp"
-.text
-
-	mov	si, offset regnames$
-	mov	bx, offset registers$
-1:	call	newline
-0:
-	lodsb
-	or	al, al
-	jz	0f
-	stosw
-	lodsb
-	stosw
-	mov	al, ':'
-	stosw
-	mov	dx, [bx]
-	add	bx, 2
-	call	printhex
-
-	cmp	bx, offset r_ss
-	jz	1b
-
-	jmp	0b
-0:	call	newline
-	ret
-
-cls:
-	mov	di, 0xb800
-	mov	es, di
-	xor	di, di
-	mov	cx, 80 * 25 # 7f0
-	rep	stosw
-	xor	di, di
-	ret
-
 .EQU bs_code_end, .
-.text d0
+
 data:
 	hello$: .asciz "Hello!"
 
-.text d0 
 . = 440
 	.ascii "MBR$"
 . = 446
@@ -330,8 +192,7 @@ data:
 	numsec$:	.byte 0,0,0,0
 . = 512 - 2
 	.byte 0x55, 0xaa
-end:
-
+#end:
 
 
 #############################################################################
@@ -343,50 +204,128 @@ end:
 # need to reset .text segment to start at 512, and .text d0 to follow that.
 # use other name for text segment. 
 
-.text c1
+.text
 . = 512
 
 .equ BIG_BOOTSECT, 1
 .if BIG_BOOTSECT
 
 
-.text d1
-bigboot$: .asciz "Big Bootsector!"
-.text c1
-
-test:
-	mov	si, offset bigboot$
-	call	print
-	ret
-
-
-
+msg_bootsect_written$: .asciz "Bootsector Written"
 writebootsector:
+	mov	dx, 0xa0a0
+	mov	ah, 0xf0
+	call	printhex
+	#ignored.. and yet without it it doesnt work..
+	#ret
+	nop
 
-.text d1
-msg_bootsect_written: .asciz "Bootsect Written"
-.text c1
-	.byte '@'
-	.byte '@'
-	push	ax
-	mov	ax, 0x0301	# func 3, 1 sectors
-	xor	cx, cx 		# cylinder=0, sector = 0
+
 	mov	dx, 0x0080	# dl = first HDD
+	call	printhex
+	xor	ah, ah		# reset
+	int	0x13
+	jnc	0f
+	mov	si, offset msg_disk_error$
+	call	print
+0:	mov	dl, ah
+	mov	ah, 0xf7
+	call	printhex2
+
+
 	push	es
 	mov	bx, ds
 	mov	es, bx
+
+	/*
+.bss
+	diskformat_buf$: .space 512
+.text c1
+	mov	di, offset diskformat_buf$
+	mov	cx, 512
+	xor	ax, ax
+	rep	stosw
+	// call int 13h format sector
+	*/
+
+	#mov	ax, 0x0500	# format
+
+	mov	dx, 0x0080	# dl = first HDD
+	xor	cx, cx 		# cylinder=0, sector = 0
+	mov	ax, 0x0301	# write 1 sector
 	mov	bx, [r_ip]
 	int	0x13
 	pop	es
+	pushf
+	pusha
+	call	printregisters2;
+	popa
 	mov	dx, ax
-	pop	ax
+	mov	ah, 0xf0
 	call	printhex 
-	#mov	si, offset msg_disk_error
+	popf
+	mov	si, offset msg_disk_error$
 	jc	0f
-	#inc	ah
-	#mov	si, offset msg_bootsect_written
-0:	#inc	ah
-	#call	print
+	inc	ah
+	mov	si, offset msg_bootsect_written$
+0:	inc	ah
+	call	print
+
+	ret
 
 
 .endif
+
+
+
+
+
+printregisters2:
+	pushf
+	pusha
+	push	ss
+	push	gs
+	push	fs
+	push	es
+	push	ds
+	push	cs
+
+	call	newline
+
+
+	mov	si, offset regnames$
+	mov	bx, sp
+	mov	ah, 0xf3
+	mov	cx, 17
+	mov	dx, cx
+	call	printhex
+
+0:	lodsb
+	stosw
+	lodsb
+	stosw
+
+	mov	al, ':'
+	stosw
+
+	mov	dx, ss:[bx]
+	add	bx, 2
+	call	printhex
+	cmp	cx, 10
+	jne	1f
+	call	newline
+1:
+
+	loopnz	0b
+
+	call	newline
+
+	pop	ax # cs
+	pop	ds
+	pop	es
+	pop	fs
+	pop	gs
+	pop	ss
+	popa
+	popf
+	ret

@@ -37,7 +37,7 @@ build/boot.img: build/boot.bin build/write.exe
 ASSEMBLER=GAS
 
 
-build/boot.bin: bootloader.s other-assemblers/bootloader-fasm.asm
+build/boot.bin: bootloader.s print.s other-assemblers/bootloader-fasm.asm
 ifeq ($(ASSEMBLER),FASM)
 	d:/apps/fasm/FASM.EXE other-assemblers/bootloader-fasm.asm $@
 	cp other-assemblers/bootloader-fasm.bin $@
