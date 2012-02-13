@@ -4,39 +4,63 @@
 # 0000-0200: sector 0. Only .text/.bss used. subsections/.data prohibited.
 # 0200-....: all allowed.
 
+.bss
+.equ BSS_START, .
+# appended at end; at current references are not relocated, so segment
+# register gs is holding an address.
+# Even forward referencing the END_CODE here is not supported by gas,
+# and so a constant is required here.
+# First: implement using gs: for bss. Use stack, to be safe, as it is
+# supposed to be BEFORE the start:.
 .text
 .code16
-.global start
 start:
+	call	printregisters
+	jmp	halt
+
+
 	cli
 
+	# start state:
+	# all segment registers are zero.
+	# stack pointer is 100h. seems wrong.
+	
+
 	# set up ds, es, ss
+	push	sp	# strange loop
 	push	dx
 	push	ax
 	push	ds
-	call	1f
-1:	pop	ax
-	sub	ax, 1b - start
+	call	1f	#
+1:	pop	ax	#
 	push	ax
-	shr	ax, 4
+	# stack: ip@start ds ax dx sp
+
+	sub	ax, 1b - start
+	shr	ax, 4	# ds used for data references due to nonrelocation support; require use of 'lodsb' (no locsb? check register encoding in opcode)
 	mov	ds, ax
 
-	mov	[r_cs], cs
-	pop	[r_ip]
-	pop	[r_ds]
-	mov	[r_es], es
-	mov	[r_fs], fs
-	mov	[r_gs], gs
-	mov	[r_ss], ss
+	sub	sp, BSS_SIZE
+	mov	ax, sp
+	shr	ax, 4
+	mov	gs, ax	# gs:.bss: (un)allocated uninitialized (zeroed) space
 
-	pop	[r_ax]
-	mov	[r_bx], bx
-	mov	[r_cx], cx
-	pop	[r_dx]
-	mov	[r_si], si
-	mov	[r_di], di
-	mov	[r_bp], bp
-	mov	[r_sp], sp
+	mov	gs:[r_cs], cs
+	pop	gs:[r_ip]	# check ip@start
+	pop	gs:[r_ds]	# check ds
+	mov	gs:[r_es], es
+	mov	gs:[r_fs], fs
+	mov	gs:[r_gs], gs
+	mov	gs:[r_ss], ss
+
+	pop	gs:[r_ax]	# check ax
+	mov	gs:[r_bx], bx
+	mov	gs:[r_cx], cx
+	pop	gs:[r_dx]	# check dx
+	mov	gs:[r_si], si
+	mov	gs:[r_di], di
+	mov	gs:[r_bp], bp
+	pop	gs:[r_sp] 	# strange loop mirror
 
 
 	mov	ax, 0xf000
@@ -47,47 +71,60 @@ start:
 	mov	si, offset hello$
 	call	print
 	mov	dx, ds
-	call	print
+	call	printhex
+	mov	dx, ss
+	mov	dx, BSS_SIZE
+	call	printhex
+
+	mov	dx, gs
+	call	printhex
+	mov	dx, offset r_cx
+	call	printhex
+	mov	dx, offset CODE_SIZE
+	call	printhex
 
 	inc	ah
 	call	printregisters
 
 
-.equ LIST_DRIVES, 1
+.equ LIST_DRIVES, 0
 .if LIST_DRIVES
 	inc	ah
 	call	listdrives$
 	call	printbootdrive$
 .endif
 
+	mov	dx, 0xf001
+	call	printhex
 
+	push	es
+
+	push	ds
+	pop	es	
+
+	mov	bx, 512	
 /*
 loadsector:
-	push	ax
-	push	es
-	mov	ax, 0x0201
-	mov	cx, 0x0001
-	mov	dx, [r_dx]
-	mov	bx, ds
-	mov	es, bx
-	mov	bx, [r_ip]
-	add	bx, 512
-
-
-	pop	es
+	mov	ax, 0x0201	# ah = 02 read sectors al = 1 sector
+	xor	dh, dh		# head 0
+	int	0x13		# load sector to es:bx
+	mov	dx, ax		# save result; cf=1 err; ah=11:cl=burst,
 	pop	ax
 
 
-	#xor	ax, ax
-	#mov	ss, ax
+	pop	es
+	call	printhex
 */
 
+	#xor	ax, ax
+	#mov	ss, ax
+/*
 	mov	dx, 0xf0f0
 	call	printhex
 	call	writebootsector
 	mov	dx, 0x0f0f
 	call	printhex
-
+*/
 halt:	hlt
 	jmp	halt
 
@@ -163,7 +200,7 @@ printbootdrive$:
 	mov	si, offset txt_drive$;
 	call	print
 
-	mov	al, [r_dx]
+	mov	al, gs:[r_dx]
 	test	al, 0x80
 	jz	0f
 	and	al, 0x7f
@@ -253,7 +290,7 @@ writebootsector:
 	mov	dx, 0x0080	# dl = first HDD
 	xor	cx, cx 		# cylinder=0, sector = 0
 	mov	ax, 0x0301	# write 1 sector
-	mov	bx, [r_ip]
+	mov	bx, gs:[r_ip]
 	int	0x13
 	pop	es
 	pushf
@@ -280,7 +317,8 @@ writebootsector:
 
 
 
-printregisters2:
+printregisters:
+	# use the value on stack as ip register
 	pushf
 	pusha
 	push	ss
@@ -290,15 +328,30 @@ printregisters2:
 	push	ds
 	push	cs
 
+	# assume nothing
+	push	0xb800		# set up screen
+	pop	es
+	xor	di, di
+	mov	ah, 0x0f
+	mov	dx, 0x1337	# test screen
+	call	printhex
+
+	# set up ds for lodsb
+	mov	bp, sp 
+	mov	bx, ss:[bp + 30]	# load ip
+	shr	bx, 4
+	mov	ds, bx
+
+
 	call	newline
+	mov	dx, 0xfa11
+	call	printhex
 
 
 	mov	si, offset regnames$
 	mov	bx, sp
-	mov	ah, 0xf3
-	mov	cx, 17
-	mov	dx, cx
-	call	printhex
+	mov	ah, 0x08
+	mov	cx, 16	# 6 seg 9 gu 1 flags 1 ip
 
 0:	lodsb
 	stosw
@@ -329,3 +382,7 @@ printregisters2:
 	popa
 	popf
 	ret
+
+.equ CODE_SIZE, .
+.bss
+.equ BSS_SIZE, .

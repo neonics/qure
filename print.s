@@ -80,8 +80,6 @@ print:
 	ret
 
 
-
-
 regnames$:
 .ascii "cs"
 .ascii "ds"
@@ -99,7 +97,7 @@ regnames$:
 .ascii "di"
 .ascii "fl"
 .ascii "ip"
-.equ REGDATA, . - regnames$  # results to 0x0f, rather than 32
+#.equ REGDATA, . - regnames$  # results to 0x0f, rather than 32
 .byte 0
 .bss
 registers$:
@@ -121,8 +119,9 @@ r_di: .word 0
 r_fl: .word 0
 r_ip: .word 0
 .text
-printregisters:
 
+/*
+printregisters:
 	mov	si, offset regnames$
 	mov	bx, offset registers$
 1:	call	newline
@@ -135,7 +134,7 @@ printregisters:
 	stosw
 	mov	al, ':'
 	stosw
-	mov	dx, [bx]
+	mov	dx, gs:[bx]
 	add	bx, 2
 	call	printhex
 
@@ -146,3 +145,4 @@ printregisters:
 0:	call	newline
 	ret
 
+*/
