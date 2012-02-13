@@ -80,25 +80,9 @@ print:
 	ret
 
 
-regnames$:
-.ascii "cs"
-.ascii "ds"
-.ascii "es"
-.ascii "fs"
-.ascii "gs"
-.ascii "ss"
-.ascii "ax"
-.ascii "cx"
-.ascii "dx"
-.ascii "bx"
-.ascii "sp"
-.ascii "bp"
-.ascii "si"
-.ascii "di"
-.ascii "fl"
-.ascii "ip"
 #.equ REGDATA, . - regnames$  # results to 0x0f, rather than 32
 .byte 0
+/*
 .bss
 registers$:
 r_cs: .word 0
@@ -120,7 +104,6 @@ r_fl: .word 0
 r_ip: .word 0
 .text
 
-/*
 printregisters:
 	mov	si, offset regnames$
 	mov	bx, offset registers$

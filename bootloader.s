@@ -18,6 +18,24 @@ start:	# assume ss:sp has 32 free bytes
 	call	printregisters
 0:	jmp	halt
 
+regnames$:
+.ascii "cs"
+.ascii "ds"
+.ascii "es"
+.ascii "fs"
+.ascii "gs"
+.ascii "ss"
+.ascii "fl"
+.ascii "ax"
+.ascii "cx"
+.ascii "dx"
+.ascii "bx"
+.ascii "sp"
+.ascii "bp"
+.ascii "si"
+.ascii "di"
+.ascii "ip"
+
 printregisters:
 # result:
 # 1337
@@ -28,8 +46,8 @@ printregisters:
 # ds = (ip - 3 ) >> 4
 # 
 	# use the value on stack as ip register
-	pushf
 	pusha
+	pushf
 	push	ss
 	push	gs
 	push	fs
@@ -75,7 +93,7 @@ printregisters:
 	add	bx, 2
 	call	printhex
 
-	cmp	cx, 11
+	cmp	cx, 10
 	jne	1f
 	call	newline
 1: 	loopnz	0b
@@ -88,8 +106,8 @@ printregisters:
 	pop	fs
 	pop	gs
 	pop	ss
-	popa
 	popf
+	popa
 0:	ret
 
 
