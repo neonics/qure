@@ -14,9 +14,84 @@
 # supposed to be BEFORE the start:.
 .text
 .code16
-start:
+start:	# assume ss:sp has 32 free bytes
 	call	printregisters
-	jmp	halt
+0:	jmp	halt
+
+printregisters:
+# result:
+# 1337
+# FA11 cs:0000 ds:0000 fs:0000 gs:0000 ss:0000 ax:7BE0
+# cx:000E dx:0000 bx:7BFC sp:00E0 bp:00E0 si:0100 di:AA55 fl:0206 ip:7C03
+
+# cs:ip = 0:7C03
+# ds = (ip - 3 ) >> 4
+# 
+	# use the value on stack as ip register
+	pushf
+	pusha
+	push	ss
+	push	gs
+	push	fs
+	push	es
+	push	ds
+	push	cs
+
+	# assume nothing
+	push	0xb800		# set up screen
+	pop	es
+	xor	di, di
+	mov	ah, 0x0f
+	mov	dx, 0x1337	# test screen
+	call	printhex
+
+	# set up ds for lodsb
+	mov	bp, sp 
+	mov	bx, ss:[bp + 30]	# load ip
+	sub	bx, 0b - start		# adjust start
+	shr	bx, 4			# convert to segment
+	mov	ds, bx
+
+	call	newline
+	mov	dx, 0xfa11
+	call	printhex
+
+	call	newline
+	mov	bx, sp
+	mov	ax, 0x0800 # ah color, al = 0: pop stack
+
+	mov	si, offset regnames$
+	mov	cx, 16	# 6 seg 9 gu 1 flags 1 ip
+
+0:	lodsb
+	stosw
+	lodsb
+	stosw
+
+	mov	al, ':'
+	stosw
+
+	mov	dx, ss:[bx]
+	add	bx, 2
+	call	printhex
+
+	cmp	cx, 11
+	jne	1f
+	call	newline
+1: 	loopnz	0b
+
+	call	newline
+
+	pop	ax # cs
+	pop	ds
+	pop	es
+	pop	fs
+	pop	gs
+	pop	ss
+	popa
+	popf
+0:	ret
+
 
 
 	cli
@@ -212,6 +287,13 @@ printbootdrive$:
 
 .endif
 
+
+
+
+
+
+
+
 .EQU bs_code_end, .
 
 data:
@@ -313,75 +395,6 @@ writebootsector:
 
 .endif
 
-
-
-
-
-printregisters:
-	# use the value on stack as ip register
-	pushf
-	pusha
-	push	ss
-	push	gs
-	push	fs
-	push	es
-	push	ds
-	push	cs
-
-	# assume nothing
-	push	0xb800		# set up screen
-	pop	es
-	xor	di, di
-	mov	ah, 0x0f
-	mov	dx, 0x1337	# test screen
-	call	printhex
-
-	# set up ds for lodsb
-	mov	bp, sp 
-	mov	bx, ss:[bp + 30]	# load ip
-	shr	bx, 4
-	mov	ds, bx
-
-
-	call	newline
-	mov	dx, 0xfa11
-	call	printhex
-
-
-	mov	si, offset regnames$
-	mov	bx, sp
-	mov	ah, 0x08
-	mov	cx, 16	# 6 seg 9 gu 1 flags 1 ip
-
-0:	lodsb
-	stosw
-	lodsb
-	stosw
-
-	mov	al, ':'
-	stosw
-
-	mov	dx, ss:[bx]
-	add	bx, 2
-	call	printhex
-	cmp	cx, 10
-	jne	1f
-	call	newline
-1:
-
-	loopnz	0b
-
-	call	newline
-
-	pop	ax # cs
-	pop	ds
-	pop	es
-	pop	fs
-	pop	gs
-	pop	ss
-	popa
-	popf
-	ret
 
 .equ CODE_SIZE, .
 .bss
