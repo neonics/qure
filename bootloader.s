@@ -72,6 +72,7 @@ regnames$:
 	mov	bp, sp 
 	mov	bx, ss:[bp + 30]	# load ip
 	sub	bx, 0b - black		# adjust start
+	mov	ss:[bp + 30], bx	# restore
 	shr	bx, 4			# convert to segment
 	mov	ds, bx
 	# now, offsets are relative to the code. This requires that no base
@@ -276,8 +277,8 @@ white:
 preparereadsector$:
 	# reset drive, retry loop
 	mov	cx, 3
-	xor	ah, ah
-0:	int	0x13
+0:	xor	ah, ah
+	int	0x13
 	jnc	0f
 	loop	0b
 0:
@@ -289,13 +290,13 @@ preparereadsector$:
 	pop	es	
 	mov	bx, 512	
 
-	#calculate nr of sectors
-	mov	cx, offset CODE_SIZE # can't make constant?
-	shr	cx, 9
-	inc	cx
+	# calculate nr of sectors to load
+.equ LOADBYTES, CODE_SIZE - sector1
+.equ PARTIALSECTOR, (LOADBYTES & 0x1ff > 0) * -1	
+.equ SECTORS, (LOADBYTES >> 9) + PARTIALSECTOR
 loadsectors$:
-	mov	ax, 0x0201	# ah = 02 read sectors al = 1 sector
-	#mov	cx, 0x0002	# cyl 0, sector 2! offset 200h in img
+	mov	ax, (2 << 8) + SECTORS	# ah = 02 read sectors al = # sectors
+	mov	cx, 0x0002	# cyl 0, sector 2! offset 200h in img
 	xor	dh, dh		# head 0
 	int	0x13		# load sector to es:bx
 
@@ -413,13 +414,14 @@ listdrives$:
 	cmp	dl, 0x84
 	jl	0b
 
+#	call	writebootsector
 
 	jmp	halt
 
 
 msg_disk_error$: .asciz "DiskERR "
 print_drive_info:
-
+	push	bp
 	push	dx	
 	call	printhex2 # dl: drive number
 	push	ax
@@ -462,6 +464,7 @@ print_drive_info:
 	
 	call	newline
 	pop	dx
+	pop	bp
 	ret
 
 txt_drive$:	.asciz "Drive "
@@ -483,28 +486,10 @@ printbootdrive$:
 
 
 
+.data
 msg_bootsect_written$: .asciz "Bootsector Written"
+.text
 writebootsector:
-	mov	dx, 0xa0a0
-	mov	ah, 0xf0
-	call	printhex
-	#ignored.. and yet without it it doesnt work..
-	#ret
-	nop
-
-
-	mov	dx, 0x0080	# dl = first HDD
-	call	printhex
-	xor	ah, ah		# reset
-	int	0x13
-	jnc	0f
-	mov	si, offset msg_disk_error$
-	call	print
-0:	mov	dl, ah
-	mov	ah, 0xf7
-	call	printhex2
-
-
 	push	es
 	mov	bx, ds
 	mov	es, bx
@@ -523,26 +508,21 @@ writebootsector:
 	#mov	ax, 0x0500	# format
 
 	mov	dx, 0x0080	# dl = first HDD
-	xor	cx, cx 		# cylinder=0, sector = 0
-	mov	ax, 0x0301	# write 1 sector
-	mov	bx, gs:[r_ip]
+	mov	cx, 1		# cylinder=0, sector = 1
+	mov	ax, (3<<8) + SECTORS +1 # ah = 3 write al sectors
+	mov	bx, ss:[bp + 30 ]
 	int	0x13
 	pop	es
-	pushf
-	pusha
-	call	printregisters2;
-	popa
+	jc	fail
+
 	mov	dx, ax
 	mov	ah, 0xf0
 	call	printhex 
-	popf
-	mov	si, offset msg_disk_error$
-	jc	0f
-	inc	ah
+
 	mov	si, offset msg_bootsect_written$
-0:	inc	ah
 	call	print
 
+	ret
 
 .equ CODE_SIZE, .
 .bss
