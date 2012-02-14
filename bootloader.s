@@ -14,36 +14,49 @@
 # supposed to be BEFORE the start:.
 .text
 .code16
-start:	# assume ss:sp has 32 free bytes
-	call	printregisters
-0:	jmp	halt
+black:	# ss:sp points to the end of the first sector.
+	# backup sp
+	#mov	sp, 512	# make it so, regardless of bios
+	call	0f
+0:	pop	sp
+	and	sp, ~15
+	add	sp, 0x2000
+	call	1f
+0:	hlt
+	jmp	0b
 
 regnames$:
-.ascii "cs"
-.ascii "ds"
-.ascii "es"
-.ascii "fs"
-.ascii "gs"
-.ascii "ss"
-.ascii "fl"
-.ascii "ax"
-.ascii "cx"
-.ascii "dx"
-.ascii "bx"
-.ascii "sp"
-.ascii "bp"
-.ascii "si"
-.ascii "di"
-.ascii "ip"
+.ascii "cs"	# 0
+.ascii "ds"	# 2
+.ascii "es"	# 4
+.ascii "fs"	# 6
+.ascii "gs"	# 8
+.ascii "ss"	# 10
 
-printregisters:
+.ascii "fl"	# 12
+
+.ascii "di"	# 14
+.ascii "si"	# 16
+.ascii "bp"	# 18
+.ascii "sp"	# 20
+.ascii "bx"	# 22
+.ascii "dx"	# 24
+.ascii "cx"	# 26
+.ascii "ax"	# 28
+.ascii "ip"	# 30
+
+.ascii "c.p.a.zstidoppn."
+
+1:
 # result:
 # 1337
-# FA11 cs:0000 ds:0000 fs:0000 gs:0000 ss:0000 ax:7BE0
-# cx:000E dx:0000 bx:7BFC sp:00E0 bp:00E0 si:0100 di:AA55 fl:0206 ip:7C03
+# FA11
+# cs:0000 ds:0000 fs:0000 gs:0000 ss:0000 fl:0206
+# di:7BE0 si:000E bp:0000 sp:7BFE bx:00E0 dx:00E0 cx:0100 ax:AA55 ip:7C03
 
 # cs:ip = 0:7C03
 # ds = (ip - 3 ) >> 4
+# sp runs into the code, end of segment
 # 
 	# use the value on stack as ip register
 	pusha
@@ -55,6 +68,18 @@ printregisters:
 	push	ds
 	push	cs
 
+	# set up ds for lodsb, do not assume loaded at 0x7c00
+	mov	bp, sp 
+	mov	bx, ss:[bp + 30]	# load ip
+	sub	bx, 0b - black		# adjust start
+	shr	bx, 4			# convert to segment
+	mov	ds, bx
+	# now, offsets are relative to the code. This requires that no base
+	# address (or 0) is specified when creating the binary.
+
+	# restore startaddress:
+	mov	word ptr [startaddress], 0x55aa  # TODO: CHECK
+
 	# assume nothing
 	push	0xb800		# set up screen
 	pop	es
@@ -63,20 +88,10 @@ printregisters:
 	mov	dx, 0x1337	# test screen
 	call	printhex
 
-	# set up ds for lodsb
-	mov	bp, sp 
-	mov	bx, ss:[bp + 30]	# load ip
-	sub	bx, 0b - start		# adjust start
-	shr	bx, 4			# convert to segment
-	mov	ds, bx
-
-	call	newline
-	mov	dx, 0xfa11
-	call	printhex
-
 	call	newline
 	mov	bx, sp
-	mov	ax, 0x0800 # ah color, al = 0: pop stack
+	inc	ah
+	sar	ah, 1 	# color
 
 	mov	si, offset regnames$
 	mov	cx, 16	# 6 seg 9 gu 1 flags 1 ip
@@ -85,7 +100,6 @@ printregisters:
 	stosw
 	lodsb
 	stosw
-
 	mov	al, ':'
 	stosw
 
@@ -100,6 +114,86 @@ printregisters:
 
 	call	newline
 
+.if 1	
+	jmp	white	# keep registers on stack
+.else
+	pop	ax # cs
+	pop	ds
+	pop	es
+	pop	fs
+	pop	gs
+	pop	ss
+	popa
+	ret
+.endif
+
+printregisters:
+	pusha
+	pushf
+	push	ss
+	push	gs
+	push	fs
+	push	es
+	push	ds
+	push	cs
+
+	# assume es:di is valid
+
+	call	newline
+	mov	bx, sp
+
+	mov	si, offset regnames$
+	mov	cx, 16	# 6 seg 9 gu 1 flags 1 ip
+
+0:	mov	ah, 0xf0
+	lodsb
+	stosw
+	lodsb
+	stosw
+
+	mov	ah, 0xf8
+	mov	al, ':'
+	stosw
+
+	mov	ah, 0xf1
+	mov	dx, ss:[bx]
+	add	bx, 2
+
+	call	printhex
+
+	cmp	cx, 10
+	jne	1f
+.if 0
+	# print flag characters
+	push	bx
+	push	si
+	push	cx
+
+	mov	si, offset regnames$ + 32 # flags
+	mov	cx, 16
+2:	lodsb
+	mov	bl, dl
+	and	bl, 1
+	jz	3f
+	add	al, 'A' - 'a'
+3:	shl	bl, 1
+	add	ah, bl
+	stosw
+	sub	ah, bl
+	shr	dx, 1
+	loop	2b
+	
+	pop	cx
+	pop	si
+	pop	bx
+.endif
+
+	call	newline
+
+1: 	loopnz	0b
+
+	call	newline
+
 	pop	ax # cs
 	pop	ds
 	pop	es
@@ -107,54 +201,32 @@ printregisters:
 	pop	gs
 	pop	ss
 	popf
+.if 0
+	mov	[tmp_di$], di
 	popa
-0:	ret
+	mov	di, [tmp_di$]
+	ret
+tmp_di$: .word 0
+.else
+	pop	ax	# manual pop to preserve di
+	pop	si
+	pop	bp
+	pop	ax	# ignore sp
+	pop	bx
+	pop	dx
+	pop	cx
+	pop	ax
+	ret
+.endif
 
-
-
+# stack setup at 0:0x9c00
+# sp is 32 bytes below that, pointing to the registers starting
+# with ip, the return address of the 1337 loader, which then simply
+# halts.
+white: 	
 	cli
 
-	# start state:
-	# all segment registers are zero.
-	# stack pointer is 100h. seems wrong.
-	
-
-	# set up ds, es, ss
-	push	sp	# strange loop
-	push	dx
-	push	ax
-	push	ds
-	call	1f	#
-1:	pop	ax	#
-	push	ax
-	# stack: ip@start ds ax dx sp
-
-	sub	ax, 1b - start
-	shr	ax, 4	# ds used for data references due to nonrelocation support; require use of 'lodsb' (no locsb? check register encoding in opcode)
-	mov	ds, ax
-
-	sub	sp, BSS_SIZE
-	mov	ax, sp
-	shr	ax, 4
-	mov	gs, ax	# gs:.bss: (un)allocated uninitialized (zeroed) space
-
-	mov	gs:[r_cs], cs
-	pop	gs:[r_ip]	# check ip@start
-	pop	gs:[r_ds]	# check ds
-	mov	gs:[r_es], es
-	mov	gs:[r_fs], fs
-	mov	gs:[r_gs], gs
-	mov	gs:[r_ss], ss
-
-	pop	gs:[r_ax]	# check ax
-	mov	gs:[r_bx], bx
-	mov	gs:[r_cx], cx
-	pop	gs:[r_dx]	# check dx
-	mov	gs:[r_si], si
-	mov	gs:[r_di], di
-	mov	gs:[r_bp], bp
-	pop	gs:[r_sp] 	# strange loop mirror
-
+	# bp = sp = saved registers ( 9BE0; top: 9C00 = 7C00 + 2000 )
 
 	mov	ax, 0xf000
 	call	cls	# side effect: set up es:di to b800:0000
@@ -163,68 +235,169 @@ printregisters:
 	inc	ah
 	mov	si, offset hello$
 	call	print
-	mov	dx, ds
+
+.if 0
+	mov	ah, 0xf4
+
+	mov	dx, sp
 	call	printhex
-	mov	dx, ss
-	mov	dx, BSS_SIZE
+	mov	dx, bp
 	call	printhex
 
-	mov	dx, gs
+	mov	dx, offset CODE_SIZE	# 268h
 	call	printhex
-	mov	dx, offset r_cx
-	call	printhex
-	mov	dx, offset CODE_SIZE
+	mov	dx, BSS_SIZE		# E8
 	call	printhex
 
+     rainbow$:
+	call	newline
+	mov	ax, 0x00 << 8 | 254
+	mov	cx, 4
+1:	push	cx
+	mov	cx, 256 / 4
+0:	stosw
 	inc	ah
-	call	printregisters
-
-
-.equ LIST_DRIVES, 0
-.if LIST_DRIVES
-	inc	ah
-	call	listdrives$
-	call	printbootdrive$
+	loop	0b
+	pop	cx
+	call	newline
+	loop	1b
 .endif
 
-	mov	dx, 0xf001
+	mov	ah, 0xf8
+	
+	mov	dx, 0x1337
 	call	printhex
 
+	call	printregisters
+
+	mov	dx, [bp+24]	# load dx - boot drive
+	#call	printhex
+
+preparereadsector$:
+	# reset drive, retry loop
+	mov	cx, 3
+	xor	ah, ah
+0:	int	0x13
+	jnc	0f
+	loop	0b
+0:
+
+	# setup es:bx
 	push	es
 
 	push	ds
 	pop	es	
-
 	mov	bx, 512	
-/*
-loadsector:
+
+	#calculate nr of sectors
+	mov	cx, offset CODE_SIZE # can't make constant?
+	shr	cx, 9
+	inc	cx
+loadsectors$:
 	mov	ax, 0x0201	# ah = 02 read sectors al = 1 sector
+	#mov	cx, 0x0002	# cyl 0, sector 2! offset 200h in img
 	xor	dh, dh		# head 0
 	int	0x13		# load sector to es:bx
-	mov	dx, ax		# save result; cf=1 err; ah=11:cl=burst,
-	pop	ax
-
 
 	pop	es
-	call	printhex
-*/
 
-	#xor	ax, ax
-	#mov	ss, ax
-/*
-	mov	dx, 0xf0f0
+	jc	fail
+
+	mov	dx, ax
+	mov	ah, 0xf6
 	call	printhex
-	call	writebootsector
-	mov	dx, 0x0f0f
+
+.if 0	# dump sector 1
+	inc	ah
+	mov	si, offset sector1
+	mov	cx, 8
+0:	mov	dx, ds:[si]
 	call	printhex
-*/
+	add	si, 2
+	loop	0b
+.endif
+
+	jmp 	sector1
+
 halt:	hlt
 	jmp	halt
+
+fail:	mov	bx, ax		# save bios int result code
+	mov	ah, 0xf4
+	mov	dx, 0xfa11
+	call	printhex
+	mov	ah, 0xf2
+	mov	dx, bx
+	call	printhex
+	call	printregisters
 
 .include "print.s"
 
 
-.if LIST_DRIVES
+
+
+
+
+
+.EQU bs_code_end, .
+
+data:
+	hello$: .asciz "Hello!"
+
+. = 440
+	.ascii "MBR$"
+. = 446
+	mbr:
+	status$:	.byte 0x80	# bootable
+	chs_start$:	.byte 0, 1, 0	# head, sector, cylinder
+	part_type$:	.byte 0		# partition type
+	chs_end$:	.byte 0, 1, 0
+	lba_first$:	.byte 0, 0, 0, 0
+	numsec$:	.byte 0,0,0,0
+. = 512 - 2
+startaddress:	.byte 0x55, 0xaa	# the value is required during boot,
+					# and with VirtualBox the first push
+					# will overwrite this value.
+					# ax contains aa55 already,
+					# so restore to make writebootsect
+					# work.
+#end:
+
+
+#############################################################################
+# .text d0 is offset 512
+# .code is before that, and should not be used from this point on.
+#
+#############################################################################
+# Problem: .text is contiguous, .text d0 follows it.
+# need to reset .text segment to start at 512, and .text d0 to follow that.
+# use other name for text segment. 
+
+.text
+. = 512
+
+.equ BIG_BOOTSECT, 1
+.if BIG_BOOTSECT
+
+.data
+msg_sector1$: .asciz "Exceeded sector limitation!"
+.text
+sector1:
+	mov	ah, 0xf3
+	mov	si, offset msg_sector1$
+	call	print
+	call	newline
+
+
+## XXX not called as yet!
+	# set up gs for .bss
+	sub	sp, offset BSS_SIZE # not an offset but otherwise [..]
+	mov	ax, sp
+	shr	ax, 4
+	mov	gs, ax	# gs:.bss: (un)allocated uninitialized (zeroed) space
+
+
+	mov	ah, 0xf2
 listdrives$:
 
 
@@ -239,7 +412,10 @@ listdrives$:
 	inc	dl
 	cmp	dl, 0x84
 	jl	0b
-	ret
+
+
+	jmp	halt
+
 
 msg_disk_error$: .asciz "DiskERR "
 print_drive_info:
@@ -307,47 +483,6 @@ printbootdrive$:
 
 
 
-
-
-
-
-
-.EQU bs_code_end, .
-
-data:
-	hello$: .asciz "Hello!"
-
-. = 440
-	.ascii "MBR$"
-. = 446
-	mbr:
-	status$:	.byte 0x80	# bootable
-	chs_start$:	.byte 0, 1, 0	# head, sector, cylinder
-	part_type$:	.byte 0		# partition type
-	chs_end$:	.byte 0, 1, 0
-	lba_first$:	.byte 0, 0, 0, 0
-	numsec$:	.byte 0,0,0,0
-. = 512 - 2
-	.byte 0x55, 0xaa
-#end:
-
-
-#############################################################################
-# .text d0 is offset 512
-# .code is before that, and should not be used from this point on.
-#
-#############################################################################
-# Problem: .text is contiguous, .text d0 follows it.
-# need to reset .text segment to start at 512, and .text d0 to follow that.
-# use other name for text segment. 
-
-.text
-. = 512
-
-.equ BIG_BOOTSECT, 1
-.if BIG_BOOTSECT
-
-
 msg_bootsect_written$: .asciz "Bootsector Written"
 writebootsector:
 	mov	dx, 0xa0a0
@@ -407,11 +542,6 @@ writebootsector:
 	mov	si, offset msg_bootsect_written$
 0:	inc	ah
 	call	print
-
-	ret
-
-
-.endif
 
 
 .equ CODE_SIZE, .

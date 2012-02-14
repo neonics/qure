@@ -1,9 +1,9 @@
 SECTORS := $(shell perl -e 'use POSIX; print ceil((-s "build/boot.bin") * 1.0 / 512)')
 
 ISO_ARGS = -boot-load-seg 0
-ISO_ARGS += -boot-load-size $(SECTORS)
-#ISO_ARGS += -hard-disk-boot
-ISO_ARGS += -no-emul-boot
+#ISO_ARGS += -boot-load-size $(SECTORS)
+#ISO_ARGS += -no-emul-boot
+##ISO_ARGS += -hard-disk-boot
 
 .PHONY: all clean init
 
@@ -13,7 +13,7 @@ os.iso: init build/boot.img
 	@echo Generating $@
 	@echo "Sectors: $(SECTORS)"
 	@cp build/boot.img root/boot/boot.img
-	@genisoimage -o os.iso \
+	genisoimage -o os.iso \
 		-r -b boot/boot.img \
 		$(ISO_ARGS) \
 		root/ 

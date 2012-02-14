@@ -1,4 +1,3 @@
-
 cls:
 	mov	di, 0xb800
 	mov	es, di
@@ -81,7 +80,6 @@ print:
 
 
 #.equ REGDATA, . - regnames$  # results to 0x0f, rather than 32
-.byte 0
 /*
 .bss
 registers$:

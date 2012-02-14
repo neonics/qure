@@ -3,7 +3,7 @@ alias disasm d:/apps/nasm-2.09.10/ndisasm.exe
 alias vm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe
 alias stopvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe controlvm \"OS Test\" poweroff
 alias startvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe startvm \"OS Test\"
-alias vmtest "make && startvm && perl -e '<>' && stopvm"
+alias testvm "make && startvm && perl -e '<>' && stopvm"
 alias blsource objdump -Mi8086,intel-mnemonic -d build/bootloader.o
 alias vmdisk vm modifyvm \"OS Test\" --boot1 disk --boot2 none --boot3 none
 alias vmcd vm modifyvm \"OS Test\" --boot1 disk --boot2 dvd --boot3 none
