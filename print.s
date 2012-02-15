@@ -1,3 +1,4 @@
+.global cls
 cls:
 	mov	di, 0xb800
 	mov	es, di
@@ -31,12 +32,14 @@ hidecursor$:
 # uses: ax, dx, di
 
 # arg: dx
+.global printhex2
 printhex2:
 	push	cx
 	push	dx
 	mov	cx, 2
 	shl	dx, 8
 	jmp	0f
+.global printhex
 printhex:
 	push	cx
 	push	dx
@@ -56,6 +59,7 @@ printhex:
 	pop	cx
 	ret
 	
+.global newline
 newline:
 	push	ax
 	push	dx
@@ -69,7 +73,17 @@ newline:
 	pop	ax
 	ret
 
-
+.global println
+.if !1337
+0:	call	newline
+	ret
+println:push 	offset 0b
+.else
+println:call print
+	call	newline
+	ret
+.endif
+.global print
 print:
 	lodsb
 0:	stosw
