@@ -3,7 +3,7 @@ SECTORS := $(shell perl -e 'use POSIX; print ceil((-s "build/boot.bin") * 1.0 / 
 ISO_ARGS = -boot-load-seg 0
 #ISO_ARGS += -boot-load-size $(SECTORS)
 #ISO_ARGS += -no-emul-boot
-##ISO_ARGS += -hard-disk-boot
+#ISO_ARGS += -hard-disk-boot
 
 .PHONY: all clean init
 
@@ -37,7 +37,7 @@ build/boot.img: build/boot.bin build/write.exe
 ASSEMBLER=GAS
 
 
-build/boot.bin: bootloader.s print.s sector1.s pmode.s
+build/boot.bin: bootloader.s print.s sector1.s pmode.s floppy.s print32.s
 #other-assemblers/bootloader-fasm.asm
 ifeq ($(ASSEMBLER),FASM)
 	d:/apps/fasm/FASM.EXE other-assemblers/bootloader-fasm.asm $@

@@ -5,4 +5,4 @@ start:
       mov [es:1], byte 0x1f
 loop1: jmp loop1
 
-db 144 * 10240 - $  dup 0
+#db 144 * 10240 - $  dup 0

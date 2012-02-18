@@ -1,29 +1,35 @@
 .intel_syntax noprefix
 
 # Layout:
-# 0000-0200: sector 0. Only .text/.bss used. subsections/.data prohibited.
+# 0000-0200: sector 0. Only .text used. subsections/.data prohibited.
 # 0200-....: all allowed.
 
-.bss
-.equ BSS_START, .
-# appended at end; at current references are not relocated, so segment
-# register gs is holding an address.
-# Even forward referencing the END_CODE here is not supported by gas,
-# and so a constant is required here.
-# First: implement using gs: for bss. Use stack, to be safe, as it is
-# supposed to be BEFORE the start:.
+
+.equ BLACK_PRINT_REGISTERS, 0
+
+.equ WHITE, 1
+.equ WHITE_PRESSKEY, 0
+.equ WHITE_PRINTREGISTERS_PRINT_FLAGS, 0
+
+.equ SECTOR1, 1	
+#######################################################
+
 .text
 .code16
 black:	# ss:sp points to the end of the first sector.
 	# backup sp
 	#mov	sp, 512	# make it so, regardless of bios
+	mov	cs:[sp_bkp$], sp
+	mov	sp, 512	# use the 0x55aa signature
 	call	0f
 0:	pop	sp
 	and	sp, ~15
 	add	sp, 0x2000
 	call	1f
-0:	hlt
-	jmp	0b
+halt:	hlt
+	jmp	halt
+
+sp_bkp$:.word 0
 
 regnames$:
 .ascii "cs"	# 0
@@ -78,8 +84,8 @@ regnames$:
 	# now, offsets are relative to the code. This requires that no base
 	# address (or 0) is specified when creating the binary.
 
-	# restore startaddress:
-	mov	word ptr [startaddress], 0x55aa  # TODO: CHECK
+	# restore sig$ as it is used as stack for the first call
+	mov	word ptr [sig$], 0x55aa
 
 	# assume nothing
 	push	0xb800		# set up screen
@@ -90,6 +96,7 @@ regnames$:
 	call	printhex
 
 	call	newline
+.if BLACK_PRINT_REGISTERS
 	mov	bx, sp
 	inc	ah
 	sar	ah, 1 	# color
@@ -112,10 +119,11 @@ regnames$:
 	jne	1f
 	call	newline
 1: 	loopnz	0b
-
 	call	newline
+.endif
 
-.if 1	
+
+.if WHITE
 	jmp	white	# keep registers on stack
 .else
 	pop	ax # cs
@@ -127,6 +135,10 @@ regnames$:
 	popa
 	ret
 .endif
+
+############################################################################
+
+.if WHITE
 
 printregisters:
 	pusha
@@ -164,7 +176,8 @@ printregisters:
 
 	cmp	cx, 10
 	jne	1f
-.if 0
+
+.if WHITE_PRINTREGISTERS_PRINT_FLAGS
 	# print flag characters
 	push	bx
 	push	si
@@ -220,13 +233,21 @@ tmp_di$: .word 0
 	ret
 .endif
 
+.if WHITE_PRESSKEY
+msg_presskey$: .asciz "Press key"
+.endif
 # stack setup at 0:0x9c00
 # sp is 32 bytes below that, pointing to the registers starting
 # with ip, the return address of the 1337 loader, which then simply
 # halts.
 white: 	
-	cli
-
+	#cli
+.if WHITE_PRESSKEY
+	mov	si, offset msg_presskey$
+	call	print
+	xor	ah, ah
+	int	0x16
+.endif
 	# bp = sp = saved registers ( 9BE0; top: 9C00 = 7C00 + 2000 )
 
 	mov	ax, 0xf000
@@ -236,7 +257,7 @@ white:
 	inc	ah
 	mov	si, offset hello$
 	call	print
-
+	
 .if 0
 	mov	ah, 0xf4
 
@@ -246,8 +267,6 @@ white:
 	call	printhex
 
 	mov	dx, offset CODE_SIZE	# 268h
-	call	printhex
-	mov	dx, BSS_SIZE		# E8
 	call	printhex
 
      rainbow$:
@@ -265,10 +284,9 @@ white:
 .endif
 
 	mov	ah, 0xf8
-#	mov	dx, 0x1337
-#	call	printhex
-
 	call	printregisters
+
+###################################################################
 
 	mov	dx, [bp+24]	# load dx - boot drive
 	call	printhex
@@ -282,24 +300,38 @@ preparereadsector$:
 	loop	0b
 0:
 
-	# setup es:bx
-	push	es
-
-	push	ds
-	pop	es	
-	mov	bx, 512	
 
 	# calculate nr of sectors to load
-.equ LOADBYTES, CODE_SIZE - sector1
+.equ LOADBYTES, CODE_SIZE - sector1$
 .equ PARTIALSECTOR, (LOADBYTES & 0x1ff > 0) * -1	
 .global SECTORS
 .equ SECTORS, (LOADBYTES >> 9) + PARTIALSECTOR
 loadsectors$:
-	mov	ax, (2 << 8) + SECTORS	# ah = 02 read sectors al = # sectors
+.if 0
 	mov	cx, 0x0002	# cyl 0, sector 2! offset 200h in img
 	xor	dh, dh		# head 0
-	int	0x13		# load sector to es:bx
+.else
 
+# find bootable partition
+	mov	si, offset mbr
+	mov	cx, 4
+0:	test	[si], byte ptr 0x80
+	jnz	1f
+	add	si, 16 # partition table size - 1
+	loop	0b
+	jmp	fail
+1:
+	mov	dh, [si + 1] # [chs_start$]
+	mov	cx, [si + 2] # [chs_start$+1]
+	inc	cl	# skip bootsector itself
+	call	printregisters
+.endif
+	push	es	# set up es:bs
+	push	ds
+	pop	es	
+	mov	bx, 512	
+	mov	ax, (2 << 8) + SECTORS	# ah = 02 read sectors al = # sectors
+	int	0x13		# load sector to es:bx
 	pop	es
 
 	jc	fail
@@ -308,9 +340,9 @@ loadsectors$:
 	mov	ah, 0xf6
 	call	printhex
 
-.if 0	# dump sector 1
+.if 1	# dump sector 1
 	inc	ah
-	mov	si, offset sector1
+	mov	si, offset sector1$
 	mov	cx, 8
 0:	mov	dx, ds:[si]
 	call	printhex
@@ -318,12 +350,14 @@ loadsectors$:
 	loop	0b
 .endif
 
-	mov	dx, 0xcafe
-	call	printhex
-	jmp 	sector1
+	#mov	dx, 0xcafe
+	#call	printhex
 
-halt:	hlt
+.if SECTOR1
+	jmp 	sector1$
+.else
 	jmp	halt
+.endif
 
 fail:	mov	bx, ax		# save bios int result code
 	mov	ah, 0xf4
@@ -333,61 +367,56 @@ fail:	mov	bx, ax		# save bios int result code
 	mov	dx, bx
 	call	printhex
 	call	printregisters
+	jmp	halt
 
 .include "print.s"
 
-
-
-
-
-
+.endif # WHITE
+############################################################################
 
 .EQU bs_code_end, .
 
 data:
 	hello$: .asciz "Hello!"
 
-. = 440
-	.ascii "MBR$"
+#. = 440
+#	.ascii "MBR$"
 . = 446
+# use this too for floppies...
 	mbr:
-	status$:	.byte 0x80	# bootable
-	chs_start$:	.byte 0, 1, 0	# head, sector, cylinder
-	part_type$:	.byte 0		# partition type
-	chs_end$:	.byte 0, 1, 0
-	lba_first$:	.byte 0, 0, 0, 0
-	numsec$:	.byte 0,0,0,0
+
+# CHS2LBA( C, H, S ) = (MaxHeadPerCyl * C + H) * MaxSectPerTrack + S - 1
+
+# LBA2CHS( LBA ) = {	C = LBA / ( MaxSectPerTrack * MaxHeadsPerCyl ),
+#			H = ( LBA / MaxSectPerTrack )  % MaxHeadsPerCyl ),
+#			S = ( LBA % MaxSectPerTrack ) + 1
+
+	# 4 entries, int 13 call format:
+	status$:	.byte 0x80	# 80 bootable, 00 not bootable
+	chs_start$:	.byte 0, 1, 0	# [dh, cl, ch]: head, sector, cylinder
+	part_type$:	.byte 6		# partition type
+	chs_end$:	.byte 0x0e,0xbe,0x94	# [dh, cl, ch]
+	lba_first$:	.long 0x3e	# 
+	numsec$:	.byte 0x0c, 0x61, 0x09, 0x00
+
+	# the other 3 partition table entries are zeroed
 . = 512 - 2
-startaddress:	.byte 0x55, 0xaa	# the value is required during boot,
+sig$:	.byte 0x55, 0xaa	# the value is required during boot,
 					# and with VirtualBox the first push
 					# will overwrite this value.
 					# ax contains aa55 already,
 					# so restore to make writebootsect
 					# work.
-#end:
-
 
 #############################################################################
-# .text d0 is offset 512
-# .code is before that, and should not be used from this point on.
-#
-#############################################################################
-# Problem: .text is contiguous, .text d0 follows it.
-# need to reset .text segment to start at 512, and .text d0 to follow that.
-# use other name for text segment. 
-
-.text
 . = 512
-sector1:
 
-.equ BIG_BOOTSECT, 1
-.if BIG_BOOTSECT
+.if SECTOR1
+
+sector1$:
 
 .include "sector1.s"
 
 .endif
 
 .equ CODE_SIZE, .
-.bss
-.global BSS_SIZE
-.equ BSS_SIZE, .

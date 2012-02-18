@@ -34,6 +34,7 @@ hidecursor$:
 # arg: dx
 .global printhex2
 printhex2:
+	push	ax
 	push	cx
 	push	dx
 	mov	cx, 2
@@ -41,6 +42,7 @@ printhex2:
 	jmp	0f
 .global printhex
 printhex:
+	push	ax
 	push	cx
 	push	dx
 	mov	cx, 4
@@ -57,6 +59,7 @@ printhex:
 	add	di, 2
 	pop	dx
 	pop	cx
+	pop	ax
 	ret
 	
 .global newline
@@ -93,51 +96,25 @@ print:
 	ret
 
 
-#.equ REGDATA, . - regnames$  # results to 0x0f, rather than 32
-/*
-.bss
-registers$:
-r_cs: .word 0
-r_ds: .word 0
-r_es: .word 0
-r_fs: .word 0
-r_gs: .word 0
-r_ss: .word 0
-
-r_ax: .word 0
-r_cx: .word 0
-r_dx: .word 0
-r_bx: .word 0
-r_sp: .word 0
-r_bp: .word 0
-r_si: .word 0
-r_di: .word 0
-r_fl: .word 0
-r_ip: .word 0
+# DO NOT USE IN bootloader.s BEFORE SECTOR 1!!
+.macro	PRINT a
+.data
+9: .asciz \a
 .text
+	push	si
+	mov	si, offset 9b
+	call	print
+	pop	si
+.endm
 
-printregisters:
-	mov	si, offset regnames$
-	mov	bx, offset registers$
-1:	call	newline
-0:
-	lodsb
-	or	al, al
-	jz	0f
-	stosw
-	lodsb
-	stosw
-	mov	al, ':'
-	stosw
-	mov	dx, gs:[bx]
-	add	bx, 2
-	call	printhex
+.macro PRINTLN a
+	.data
+	9: .asciz "\a"
+	.text
+	push	si
+	mov	si, offset 9b
+	call	println
+	pop	si
+.endm
 
-	cmp	bx, offset r_ax
-	jz	1b
 
-	jmp	0b
-0:	call	newline
-	ret
-
-*/

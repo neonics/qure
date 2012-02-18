@@ -1,2 +1,20 @@
-* Check Eltorito bootsector specification for CDROM.
+v Check Eltorito bootsector specification for CDROM.
   Currently a floppy is emulated.
+
+  DONE: see DOC/Bootsector.txt
+
+
+BUG: memory dumper doesnt respond to keys
+
+BUG: include acpi.s breaks as
+
+
+TODO: test acpi_poweroff
+
+- bootsector is written at offset 3e on disk (matches the LBA value)
+
+
+
+TODO: filesystem
+
+TODO: load modules/objects/programs

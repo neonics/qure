@@ -80,11 +80,27 @@ gdtr:	.word . - GDT -1
 	.equ SEL_realmodeDS, 32
 
 codeoffset: .long 0
+bkp_reg_cs: .word 0
+bkp_reg_ds: .word 0
+bkp_reg_es: .word 0
+bkp_reg_ss: .word 0
+bkp_reg_sp: .word 0
 
 .text
 .code16
 protected_mode:
+	mov	[bkp_reg_cs], cs
+	mov	[bkp_reg_ds], ds
+	mov	[bkp_reg_es], es
+	mov	[bkp_reg_ss], ss
+	mov	[bkp_reg_sp], sp
+	mov	dx, ss
+	call	printhex
+	mov	es:[di-2], byte ptr ':'
+	mov	dx, sp
+	call	printhex
 
+	PRINTLN "Enabling A20"
 	# enable A20
 	in	al, 0x92	# system control port a, a20 line
 	test	al, 2
@@ -127,16 +143,18 @@ protected_mode:
 	mov	dword ptr gdtr+2, eax
 
 
+	PRINTLN "Loading Global Descriptor Table"
 
 	DATA32 ADDR32 lgdt	gdtr
 
 	cli
 	# set NMI off
 	in	al, 0x70
-	or	al, 0x80
+	or	al, 0x80 # XXX nmi on?
 	out	0x70, al
 	in	al, 0x71
 
+	PRINTLN "Entering Protected-Mode"
 	# init pmode
 	mov	eax, cr0
 	or	al, 1
@@ -181,8 +199,15 @@ PM_entry:
 	mov	ecx, rest_scr #cls
 	mov	ax, 0x0720
 	rep	stosw
-	mov	esi, offset message # print
+
+
 	mov	edi, 0xB8000 + 2*(37 + 12*80)
+	mov	esi, offset message # print
+
+# message doesnt always print... so check offset
+#mov	edx, esi
+#call	printhex8
+
 	mov	ecx, message_1
 	rep	movsb
 
@@ -198,6 +223,7 @@ PM_entry:
 #	in	al, 0x60
 #	stosw
 
+# call this from protected mode!
 real_mode:
 	# ljmp SEL_realmodeCS, offset 0f
 	# 0x66 0xea [long return address] [word sel_16bitcs]
@@ -223,13 +249,56 @@ real_mode:
 	out	0x70, al
 	in	al, 0x71
 
-	# TODO: restore segments ds, ss
-
 	push	0xb800
 	pop	es
 	xor	di, di
 	mov	ah, 0x4f
 	mov	dx, 0x1337
 	call	printhex
+#hlt
+	mov	di, 160
+	mov	dx, cs
+	call	printhex
+	mov	dx, ds
+	call	printhex
+	mov	dx, ss
+	call	printhex
 
-	hlt
+	mov	di, 160 * 2
+	mov	dx, [bkp_reg_cs]
+	call	printhex
+	mov	dx, [bkp_reg_ds]
+	call	printhex
+	mov	dx, [bkp_reg_ss]
+	call	printhex
+
+
+	# restore ds, es, ss
+	mov	ds, [bkp_reg_ds]
+	mov	es, [bkp_reg_es]
+	mov	ss, [bkp_reg_ss]
+
+	# restore cs 
+	push	[bkp_reg_cs]
+	mov	ax, [codeoffset]
+	add	ax, offset 0f
+	push	ax
+	retf
+0:
+	mov	ah, 0x0f
+	mov	dx, 0xc001
+	call	printhex
+	mov	dx, ds
+	call	printhex
+
+	#mov	sp, [bkp_reg_sp]
+	mov	dx, cs
+	call	printhex
+	mov	es:[di-2], byte ptr ':'
+	mov	bp, sp
+	mov	dx, [bp]
+	call	printhex
+
+	call	waitkey
+
+	ret

@@ -101,3 +101,23 @@ Potential bug: Since this is 'self modifying code',
 Limitation: BIOS can have limited capacity to address storage.
 
 
+
+=== Floppy Bootsector
+set stack top to 7c00
+
+Uses INT 1E vector (0000:0078) floppy drive parameters,
+updates it and calls another bios int.
+
+Uses data in sector to seek root of filesystem for kernel - io.sys etc.
+loads it, and executes it.
+
+terminates with int 19 when unsuccesful
+
+=== Hard Disk Bootsector
+
+Relocates itself to 0000:0600.
+
+contains primary partition table; scans itself to see if there is
+an active/bootable partition. If so, loads the first sector of
+the partition at 0000:7c00 and executes that.
+
