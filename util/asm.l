@@ -5,6 +5,8 @@
 #define YYERROR_VERBOSE
 #include "asm.parser.h"
 
+#include "../util/asm.h"
+
 void yyerror( YYLTYPE * locp, const char * fname, char const * s )
 {
 	extern char * curtoken;
@@ -22,9 +24,10 @@ void yyerror( YYLTYPE * locp, const char * fname, char const * s )
 // the second arg this creates is a dummy....
 %parse-param { const char * input_file }
 
-%union {
-	char * text;
-}
+//%union {
+//	char * text;
+//	long value;
+//}
 
 %token <text> COMMENT
 %token <text> ID
@@ -38,7 +41,7 @@ void yyerror( YYLTYPE * locp, const char * fname, char const * s )
 
 input: {printf("EMPTY\n");}
 	| input instruction { printf("[input instruction]\n" ); }
-	| input COMMENT { printf("comment\n" ); }
+	| input COMMENT { printf("comment: %s\n", $<text>2 ); }
 	| END
 ;
 
@@ -54,7 +57,7 @@ instruction:
 	;
 	*/
 
-arg:	REGISTER | memexpr;
+arg:	REGISTER | memexpr | constant;
 
 memexpr:
 	  memexpr_pfx "[" selreg ":" regexpr "]"
@@ -69,10 +72,12 @@ memexpr_pfx:
 selreg: "cs" | "ds" | "es" | "fs" | "gs" | "ss";
 
 regexpr: REGISTER
-	| CONSTANT
+	| constant
 	| regexpr "+" regexpr
 	| REGISTER "*" mulnum
 	;
+
+constant: CONSTANT { printf("CONSTANT: hex %x, dec %d (%s)\n", $<value>$, $<value>$, $<text>$ ); }
 
 mulnum:	"2" | "4" | "8";
 

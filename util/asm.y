@@ -10,6 +10,7 @@ char * curtoken = "<none>";
 	yycolumn += yyleng; \
 	yylval->text = curtoken = strdup(yytext);
 
+#include "../util/asm.h"
 #include "asm.parser.h"
 %}
  
@@ -22,12 +23,15 @@ ID       [a-z][a-z0-9]*
 
 
 %%
-'#'[^\n]+\n	yylval->text = strdup( yytext ); return COMMENT;
 
-{HD}+h|0x{HD}+	yylval->text = strdup( yytext ); return CONSTANT;//printf( "HEX %x (%s)", strtol( yytext, 0, 16 ), yytext );
+#[^\n]+\n	return COMMENT;
+
+{HD}+h|0x{HD}+	yylval->value = strtol( yytext, 0, 16); return CONSTANT;
 
 
 {DIGIT}+   	return CONSTANT;
+
+[01]+b		yylval->value = strtol( yytext, 0, 2); return CONSTANT;
 
 
 {DIGIT}+"."{DIGIT}*        yylval->text = strdup( yytext ); return CONSTANT; //printf( "A float: %s (%g)\n", yytext, atof( yytext ) );
