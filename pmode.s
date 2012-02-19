@@ -112,25 +112,54 @@ protected_mode:
 	# Calulate segments and addresses
 
 	# determine cs:ip since we do not assume to be loaded at any address
-	xor	ebx, ebx # in case cs != 0
-	mov	bx, cs
-	shl	ebx, 4
-	mov	word ptr GDT_realmodeCS+2, bx
+	xor	eax, eax # in case cs != 0
+	mov	ax, cs
+	shl	eax, 4
+
+	push	ax
+	mov	ah, 0xf0
+	PRINT "cs: "
+	mov	edx, eax
+	call	printhex8
+	pop	ax
+
+.macro PH8 m, r
+	push	edx
+	push	ax
+	mov	ah, 0xf0
+	PRINT "\m" 
+	.if \r != edx
+	mov	edx, \r
+	.endif
+	call	printhex8
+	pop	ax
+	pop	edx
+.endm
+	PH8	"Code Base: " eax
+
+	mov	ebx, eax # ebx = cs
+	
+	mov	word ptr GDT_realmodeCS+2, ax
 	shr	eax, 16
-	mov	byte ptr GDT_realmodeCS+4, bl
+	mov	byte ptr GDT_realmodeCS+4, al
 
 	xor	eax, eax
 	call	0f	# determine absolute address
 0:	pop	ax
 	sub	ax, offset 0b
 
-	add	ebx, eax
-	mov	[codeoffset], ebx
+	add	eax, ebx
+	mov	[codeoffset], eax
+
+	PH8 "CodeOffset: " eax
 
 	# dynamically calculate cs/ds and store in GDT realmode descriptors
 	xor	eax, eax
 	mov	ax, ds
 	shl	eax, 4
+
+	PH8 "Data base: " eax
+
 	push	eax	# ds << 4
 	mov	word ptr GDT_realmodeDS+2, ax
 	shr	eax, 16
@@ -141,7 +170,6 @@ protected_mode:
 	pop	eax	# ds << 4
 	add	eax, offset GDT
 	mov	dword ptr gdtr+2, eax
-
 
 	PRINTLN "Loading Global Descriptor Table"
 
@@ -200,16 +228,15 @@ PM_entry:
 	mov	ax, 0x0720
 	rep	stosw
 
-
 	mov	edi, 0xB8000 + 2*(37 + 12*80)
 	mov	esi, offset message # print
 
-# message doesnt always print... so check offset
-#mov	edx, esi
-#call	printhex8
-
 	mov	ecx, message_1
 	rep	movsb
+
+	mov	ah, 0x3f
+	mov	edx, [codeoffset]
+	call	printhex8_32
 
 	# see if this call works in pmode...
 	#xor	ah, ah
@@ -231,8 +258,12 @@ real_mode:
 	# requires self modifying code,
 	# or:
 	push	SEL_realmodeCS
-	mov	eax, [codeoffset]
-	add	eax, offset 0f
+	mov	eax, offset 0f
+	push	ax
+	mov	ah, 0xf2
+	mov	edx, eax
+	call	printhex8_32
+	pop	ax
 	push	eax
 	retf
 .code16

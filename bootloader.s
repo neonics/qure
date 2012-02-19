@@ -4,10 +4,10 @@
 # 0000-0200: sector 0. Only .text used. subsections/.data prohibited.
 # 0200-....: all allowed.
 
-
 .equ BLACK_PRINT_REGISTERS, 0
 
 .equ WHITE, 1
+.equ WHITE_PRINT_HELLO, 1
 .equ WHITE_PRESSKEY, 0
 .equ WHITE_PRINTREGISTERS_PRINT_FLAGS, 0
 
@@ -16,14 +16,39 @@
 
 .text
 .code16
-black:	# ss:sp points to the end of the first sector.
+black:	
+###################################################################
+relocate$:
+
+LOAD_ADDR = 0x10000
+LOAD_SEG =  (LOAD_ADDR >> 4 )
+LOAD_OFFS= LOAD_ADDR & 0xF 
+
+	mov	di, LOAD_SEG
+	mov	es, di
+	#mov	ds, di
+	mov	di, LOAD_OFFS
+	call	0f
+0:	pop	si
+	sub	si, 0b - black
+	mov	cx, 512
+	rep	movsb
+	push	LOAD_SEG
+	push	offset 0f
+	retf
+0:
+###################################################################
+
+
+
+# ss:sp points to the end of the first sector.
 	# backup sp
 	#mov	sp, 512	# make it so, regardless of bios
 	mov	cs:[sp_bkp$], sp
 	mov	sp, 512	# use the 0x55aa signature
 	call	0f
 0:	pop	sp
-	and	sp, ~15
+	and	sp, ~0xff
 	add	sp, 0x2000
 	call	1f
 halt:	hlt
@@ -80,6 +105,8 @@ regnames$:
 	sub	bx, 0b - black		# adjust start
 	mov	ss:[bp + 30], bx	# restore
 	shr	bx, 4			# convert to segment
+	mov	ax, cs
+	add	bx, ax
 	mov	ds, bx
 	# now, offsets are relative to the code. This requires that no base
 	# address (or 0) is specified when creating the binary.
@@ -253,11 +280,13 @@ white:
 	mov	ax, 0xf000
 	call	cls	# side effect: set up es:di to b800:0000
 
+.if WHITE_PRINT_HELLO
       printhello$:
 	inc	ah
 	mov	si, offset hello$
 	call	print
 	
+.endif
 .if 0
 	mov	ah, 0xf4
 
@@ -285,8 +314,6 @@ white:
 
 	mov	ah, 0xf8
 	call	printregisters
-
-###################################################################
 
 	mov	dx, [bp+24]	# load dx - boot drive
 	call	printhex
@@ -350,7 +377,7 @@ loadsectors$:
 	mov	ah, 0xf6
 	call	printhex
 
-.if 1	# dump sector 1
+.if 0	# dump sector 1
 	inc	ah
 	mov	si, offset sector1$
 	mov	cx, 8

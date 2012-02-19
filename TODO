@@ -18,3 +18,11 @@ TODO: test acpi_poweroff
 TODO: filesystem
 
 TODO: load modules/objects/programs
+
+
+
+TODO: have the sector1 code switch to pmode asap,
+and update all the code used to linear addressing.
+pmode needed for ACPI. 
+
+Check writing bootsector.

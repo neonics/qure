@@ -128,4 +128,17 @@ print:	lodsb
 	pop	si
 .endm
 
+.macro PRINTc color, str
+	push	ax
+	mov	ah, \color
+	PRINT	"\str"
+	pop	ax
+.endm
+
+.macro PRINTLNc color, str
+	push	ax
+	mov	ah, \color
+	PRINTLN	"\str"
+	pop	ax
+.endm
 

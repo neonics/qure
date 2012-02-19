@@ -25,10 +25,12 @@ msg_entering_pmode$: .asciz "Entering Protected Mode"
 
 ###################################################
 
+.include "print2.s"
 .include "keycodes.s"
 .include "pmode.s"
 .code16
 .include "gfxmode.s"
+.include "acpi.s"
 
 waitkey:
 	.data
@@ -240,8 +242,6 @@ fmt_buf: .space 512
 # dx: bottom limit: 0 for no limit
 # ds:si data to dump
 hexdump:
-.data
-	msg_dump$: .asciz "Dump: "
 .text
 	push	ax
 	push	bx
@@ -255,13 +255,7 @@ hexdump:
 .equ hexdump_cols$, bp + 6
 .equ hexdump_lines$, bp + 7
 
-	mov	ah, 0x07
-	push	si
-	mov	si, offset msg_dump$
-	call	print
-	pop	si
-
-	inc	ah
+	mov	ah, 0x08
 	
 	or	bx, bx	# if a base is specced, dont use seg:offs
 	jnz	0f
@@ -330,6 +324,7 @@ inspectmem:
 	.data
 	msg_inspectmem$: .asciz "Inspect memory "
 	inspect_offset$: .word 0
+	inspect_segment$: .word 0
 	.text
 
 	mov	bx, ss:[bp + 30]
@@ -344,8 +339,8 @@ inspect$:
 	mov	dx, si
 	call	printhex
 	push	ds
-	push	word ptr 0
-	pop	ds
+	mov	cx, word ptr [inspect_segment$]
+	mov	ds, cx
 	mov	cx, 0x1010
 	xor	bx, bx # print abs addr
 	xor	dx, dx # nolimit
@@ -354,27 +349,35 @@ inspect$:
 
 	call	waitkey
 
-.macro KEY_SCROLL key scroll
+.macro KEY_SCROLL key what scroll
 	cmp	ax, \key
 	jne	0f
-	add	[inspect_offset$], word ptr \scroll
+	add	[\what], word ptr \scroll
 	jmp	1f
 0:
 .endm
 
-	KEY_SCROLL K_UP, -16		# up
-	KEY_SCROLL K_DOWN,  16		# down
-	KEY_SCROLL K_PGUP, -16*8	# page up
-	KEY_SCROLL K_PGDN,  16*8	# page down
+	KEY_SCROLL K_UP, inspect_offset$ -16
+	KEY_SCROLL K_DOWN inspect_offset$   16
+	KEY_SCROLL K_PGUP inspect_offset$  -16*8
+	KEY_SCROLL K_PGDN inspect_offset$   16*8
+	KEY_SCROLL K_LEFT inspect_segment$ -0x100
+	KEY_SCROLL K_RIGHT inspect_segment$ 0x100
 
-1:	cmp	ax, 0x011b # escape
+	cmp	al, 'r'
+	jne	0f
+	xor	ax, ax
+	mov	[inspect_segment$], ax
+	mov	[inspect_offset$], ax
+	jmp	1f
+
+0:	cmp	ax, 0x011b # escape
 	jz	0f
 	cmp	ax, 0x1071 # 'q'
 	jz	0f
-	mov	ah, 0x0f
+1:	mov	ah, 0x0f
 	jmp	inspect$
-0:
-	ret
+0:	ret
 
 
 

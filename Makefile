@@ -38,7 +38,7 @@ ASSEMBLER=GAS
 
 
 build/boot.bin: bootloader.s print.s sector1.s pmode.s gfxmode.s menu.s \
-	floppy.s print32.s
+	floppy.s print2.s acpi.s
 #other-assemblers/bootloader-fasm.asm
 ifeq ($(ASSEMBLER),FASM)
 	d:/apps/fasm/FASM.EXE other-assemblers/bootloader-fasm.asm $@
@@ -46,6 +46,7 @@ ifeq ($(ASSEMBLER),FASM)
 else
 ifeq ($(ASSEMBLER),GAS)
 	/bin/as -R -n --warn --fatal-warnings -o build/bootloader.o bootloader.s
+	util/checksymbols build/bootloader.o
 	objcopy -O binary build/bootloader.o $@
 endif
 endif

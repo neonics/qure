@@ -82,3 +82,4 @@ list_floppies:
 	pop	di
 	pop	bx
 	pop	si
+	ret

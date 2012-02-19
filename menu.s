@@ -28,10 +28,12 @@ menuitems:
 MENUITEM printregisters	"Print Registers"
 MENUITEM gfxmode	"Graphics Mode"
 MENUITEM listdrives	"List Drives"
+MENUITEM list_floppies	"List Floppies"
 MENUITEM writebootsector "Write Bootsector"
 MENUITEM inspectmem	"InspectMem"
 MENUITEM inspecthdd	"Inspect HDD"
 MENUITEM protected_mode	"Protected Mode"
+MENUITEM acpi_poweroff	"ACPI Poweroff"
 menuitemcount:.byte ( . - menuitems ) / menu_item_size
 .text
 menu:	mov	ax, 0x0f00
@@ -145,3 +147,5 @@ drawmenu$:
 
 2:	ret
 
+
+.include "floppy.s"
