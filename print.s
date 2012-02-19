@@ -50,7 +50,7 @@ printhex:
 	mov	al, dl
 	and	al, 0xf
 	cmp	al, 10
-	jl	1f
+	jb	1f
 	add	al, 'A' - '0' - 10
 1:	add	al, '0'
 	stosw
@@ -61,7 +61,19 @@ printhex:
 	pop	cx
 	pop	ax
 	ret
-	
+
+.macro PRINTHEX r
+	.if \r eq dx
+	call	printhex
+	.else
+	push	dx
+	mov	dx, \r
+	call	printhex
+	pop	dx
+	.endif
+.endm
+
+
 .global newline
 newline:
 	push	ax
@@ -86,11 +98,10 @@ println:call print
 	call	newline
 	ret
 .endif
+
 .global print
-print:
-	lodsb
 0:	stosw
-	lodsb
+print:	lodsb
 	test	al, al
 	jnz	0b
 	ret
@@ -98,9 +109,9 @@ print:
 
 # DO NOT USE IN bootloader.s BEFORE SECTOR 1!!
 .macro	PRINT a
-.data
-9: .asciz \a
-.text
+	.data
+	9: .asciz "\a"
+	.text
 	push	si
 	mov	si, offset 9b
 	call	print

@@ -37,7 +37,8 @@ build/boot.img: build/boot.bin build/write.exe
 ASSEMBLER=GAS
 
 
-build/boot.bin: bootloader.s print.s sector1.s pmode.s floppy.s print32.s
+build/boot.bin: bootloader.s print.s sector1.s pmode.s gfxmode.s menu.s \
+	floppy.s print32.s
 #other-assemblers/bootloader-fasm.asm
 ifeq ($(ASSEMBLER),FASM)
 	d:/apps/fasm/FASM.EXE other-assemblers/bootloader-fasm.asm $@
