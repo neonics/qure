@@ -307,6 +307,16 @@ preparereadsector$:
 .global SECTORS
 .equ SECTORS, (LOADBYTES >> 9) + PARTIALSECTOR
 loadsectors$:
+##############
+#	push	dx
+#	mov	ah, 0xf4
+#	mov	dx, 0x10ad
+#	call	printhex
+#	mov	dx, SECTORS
+#	call	printhex
+#	pop	dx
+###############
+
 .if 0
 	mov	cx, 0x0002	# cyl 0, sector 2! offset 200h in img
 	xor	dh, dh		# head 0
@@ -324,13 +334,13 @@ loadsectors$:
 	mov	dh, [si + 1] # [chs_start$]
 	mov	cx, [si + 2] # [chs_start$+1]
 	inc	cl	# skip bootsector itself
+	mov	bx, 512	
+	mov	ax, (2 << 8) + SECTORS	# ah = 02 read sectors al = # sectors
 	call	printregisters
 .endif
 	push	es	# set up es:bs
 	push	ds
 	pop	es	
-	mov	bx, 512	
-	mov	ax, (2 << 8) + SECTORS	# ah = 02 read sectors al = # sectors
 	int	0x13		# load sector to es:bx
 	pop	es
 
@@ -349,7 +359,6 @@ loadsectors$:
 	add	si, 2
 	loop	0b
 .endif
-
 	#mov	dx, 0xcafe
 	#call	printhex
 
@@ -419,4 +428,5 @@ sector1$:
 
 .endif
 
+.data	# we need the entire size, including data! .data after .code..
 .equ CODE_SIZE, .
