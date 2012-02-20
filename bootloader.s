@@ -4,14 +4,16 @@
 # 0000-0200: sector 0. Only .text used. subsections/.data prohibited.
 # 0200-....: all allowed.
 
+.equ RELOCATE, 1
 .equ BLACK_PRINT_REGISTERS, 0
 
 .equ WHITE, 1
-.equ WHITE_PRINT_HELLO, 1
+.equ WHITE_PRINT_HELLO, 0
 .equ WHITE_PRESSKEY, 0
 .equ WHITE_PRINTREGISTERS_PRINT_FLAGS, 0
 
-.equ SECTOR1, 1	
+
+.equ SECTOR1, 1
 #######################################################
 
 .text
@@ -19,7 +21,7 @@
 black:	
 ###################################################################
 relocate$:
-
+.if RELOCATE
 LOAD_ADDR = 0x10000
 LOAD_SEG =  (LOAD_ADDR >> 4 )
 LOAD_OFFS= LOAD_ADDR & 0xF 
@@ -37,6 +39,7 @@ LOAD_OFFS= LOAD_ADDR & 0xF
 	push	offset 0f
 	retf
 0:
+.endif
 ###################################################################
 
 
@@ -45,12 +48,13 @@ LOAD_OFFS= LOAD_ADDR & 0xF
 	# backup sp
 	#mov	sp, 512	# make it so, regardless of bios
 	mov	cs:[sp_bkp$], sp
-	mov	sp, 512	# use the 0x55aa signature
+	mov	sp, 512	# use the 0xaa55 signature
 	call	0f
 0:	pop	sp
 	and	sp, ~0xff
 	add	sp, 0x2000
 	call	1f
+0:
 halt:	hlt
 	jmp	halt
 
@@ -103,6 +107,11 @@ regnames$:
 	mov	bp, sp 
 	mov	bx, ss:[bp + 30]	# load ip
 	sub	bx, 0b - black		# adjust start
+DBG0 = 0
+
+.if DBG0
+	mov	dx, bx
+.endif
 	mov	ss:[bp + 30], bx	# restore
 	shr	bx, 4			# convert to segment
 	mov	ax, cs
@@ -112,13 +121,18 @@ regnames$:
 	# address (or 0) is specified when creating the binary.
 
 	# restore sig$ as it is used as stack for the first call
-	mov	word ptr [sig$], 0x55aa
+	mov	word ptr [sig$], 0xaa55
 
 	# assume nothing
 	push	0xb800		# set up screen
 	pop	es
 	xor	di, di
 	mov	ah, 0x0f
+.if DBG0
+	call	printhex
+	mov	dx, bx
+	call	printhex
+.endif
 	mov	dx, 0x1337	# test screen
 	call	printhex
 
@@ -261,7 +275,7 @@ tmp_di$: .word 0
 .endif
 
 .if WHITE_PRESSKEY
-msg_presskey$: .asciz "Press key"
+msg_presskey$: .asciz "Press Key"
 .endif
 # stack setup at 0:0x9c00
 # sp is 32 bytes below that, pointing to the registers starting
@@ -405,9 +419,9 @@ fail:	mov	bx, ax		# save bios int result code
 	call	printregisters
 	jmp	halt
 
-.include "print.s"
-
 .endif # WHITE
+
+.include "print.s"
 ############################################################################
 
 .EQU bs_code_end, .
