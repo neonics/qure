@@ -3,9 +3,12 @@
 .text
 . = 512
 .data
+bootloader_registers_base: .word 0
 msg_sector1$: .asciz "Transcended sector limitation!"
 msg_entering_pmode$: .asciz "Entering Protected Mode"
 .text
+	mov	[bootloader_registers_base], bp
+
 	mov	ah, 0xf3
 	mov	si, offset msg_sector1$
 	call	println
@@ -71,8 +74,6 @@ listdrives:
 	cmp	dl, 0x84
 	jl	0b
 	ret
-
-	#call	writebootsector
 
 
 
@@ -149,56 +150,35 @@ writebootsector:
 	.data
 	msg_bootsect_written$: .asciz "Bootsector Written"
 	.text
+	push	bp
+	mov	bp, [bootloader_registers_base]
 
-	/*
-.bss
-	diskformat_buf$: .space 512
-.text c1
-	mov	di, offset diskformat_buf$
-	mov	cx, 512
-	xor	ax, ax
-	rep	stosw
-	//call int 13h format sector
+	call	newline
+	mov	ah, 0xf0
+	PRINT	"Write bootsector @ "
+	mov	dx, [bp + 0]
+	call	printhex
+	mov	es:[di - 2], byte ptr ':'
+	mov	dx, [bp + 30]
+	call	printhex
+	call	newline
 
-	jmp 1f
-fmt_buf: .space 512
-1:
 	push	es
-	mov	bx, ds
-	mov	es, bx
-
-	push di
-	mov	cx, 256
-	xor	ax, ax
-0:	stosw
-	inc	ah
-	loop	0b
-	pop di
-
-	mov	dx, 0x80
-	xor	cx, cx
-	mov	ax, 0x0500	# format
-	mov	bx, offset fmt_buf
-	int	0x13
-	pop	es
-	jc fail
-
-
-	*/
-
-
+	# ds:0000 should equal the bootsector:
+	#mov	bx, ds
+	#mov	es, bx
+	#xor	bx, bx
+	# however, take the original cs:ip values to be consistent:
+	mov	es, ss:[bp + 0]
+	mov	bx, ss:[bp + 30]
 
 	mov	dx, 0x0080	# dl = first HDD
 	mov	cx, 1		# cylinder=0, sector = 1
-	mov	ax, (3<<8) + 1 #SECTORS +1 # ah = 3 write al sectors
-	push	es
-	mov	bx, ds
-	mov	es, bx
+	mov	ax, (3<<8) + 1	+ SECTORS # ah = 3 write al sectors
 
-	mov	bx, ss:[bp + 30 ]
 	int	0x13
 	pop	es
-	jc	fail
+	jc	2f
 
 	mov	dx, ax
 	mov	ah, 0xf0
@@ -215,18 +195,23 @@ fmt_buf: .space 512
 	mov	bx, ss:[bp+30]
 	int	0x13
 	pop	es
-	jc	fail
+	jc	2f
 
 	mov	dx, ax
 	mov	ah, 0xf0
 	call	printhex 
 
-
-
 	mov	si, offset msg_bootsect_written$
 	call	print
-	ret
 
+0:	pop	bp
+	ret
+2:	mov	dx, ax
+	mov	ah, 0xf2
+	call	printhex
+	mov	si, offset msg_bootsect_fail$
+	call	print
+	jmp	0b
 
 # todo: scrolling in newline
 # todo: replace cls, print*, newline with functions preserving es:di
@@ -381,12 +366,16 @@ inspect$:
 
 
 
+.data
+inspect_disksector_data$:	.space 1024
+.text
+
+
 inspecthdd:
 	.data
 	msg_inspect$: .asciz "Inspect sector "
 	sector_number$: .byte 1
 	sector_offset$: .word 0
-	sector_data$: .space 1024
 	.text
 
 	mov	ax, 0x0a00
@@ -407,7 +396,7 @@ inspecthdd:
 	push	bx
 	mov	bx, ds
 	mov	es, bx
-	mov	bx, offset sector_data$
+	mov	bx, offset inspect_disksector_data$
 	int	0x13
 	pop	bx
 	pop	es
@@ -426,7 +415,7 @@ inspecthdd:
 0:	call	printhex
 
 
-	mov	bx, offset sector_data$ # print rel addr
+	mov	bx, offset inspect_disksector_data$ # print rel addr
 	mov	si, [sector_offset$]
 	mov	cx, 0x1010 # rows <<8 | columns
 	mov	ah, 0x0f
@@ -538,3 +527,42 @@ inspecthdd:
 	jmp 	inspecthdd
 	
 2:	ret
+
+
+
+inspectbootsector:
+	mov	ah, 0xf0
+	call	cls
+
+	mov	dx, 0x0080	# dl = first HDD
+	mov	cx, 1		# cylinder=0, sector = 1
+	mov	ax, (2<<8) + 1	# ah = 2 read al sectors
+	push	es
+	mov	bx, ds
+	mov	es, bx
+	mov	bx, offset inspect_disksector_data$
+	int	0x13
+	pop	es
+	jc	fail$
+	mov	dx, ax
+	mov	ah, 0xf0
+	call	printhex 
+	call	newline
+
+	mov	si, offset inspect_disksector_data$
+	mov	ah, 0xf3
+	PRINT	"Sector Signature: "
+	mov	dx, [si + 0x1fe]
+	call	printhex
+
+	#cmp	[si + 0x1fe], 0x55aa
+
+
+	ret
+
+fail$:	mov	dx, ax
+	mov	ah, 0xf2
+	PRINTLN	"Error reading bootsector: "
+	call	printhex2
+	ret
+

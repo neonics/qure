@@ -4,15 +4,15 @@ v Check Eltorito bootsector specification for CDROM.
   DONE: see DOC/Bootsector.txt
 
 
-BUG: memory dumper doesnt respond to keys
-
-BUG: include acpi.s breaks as
-
+v include acpi.s breaks as
+  Filed bug report.
 
 TODO: test acpi_poweroff
 
-- bootsector is written at offset 3e on disk (matches the LBA value)
 
+TODO: bootloader writing: write sector1 and following in the place indicated
+  by the MBR. If writing to existing partition, allocate space using
+  it's filesystem.
 
 
 TODO: filesystem
