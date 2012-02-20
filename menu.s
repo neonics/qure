@@ -25,6 +25,7 @@ menu_item_size:
 .data
 menusel: .byte 0
 menuitems:
+MENUITEM printregisters2 "Print boot registers"
 MENUITEM printregisters	"Print Registers"
 MENUITEM gfxmode	"Graphics Mode"
 MENUITEM listdrives	"List Drives"
@@ -32,6 +33,7 @@ MENUITEM list_floppies	"List Floppies"
 MENUITEM writebootsector "Write Bootsector"
 MENUITEM inspectmem	"InspectMem"
 MENUITEM inspecthdd	"Inspect HDD"
+MENUITEM inspectbootsector "Inspect Bootsector"
 MENUITEM protected_mode	"Protected Mode"
 MENUITEM acpi_poweroff	"ACPI Poweroff"
 menuitemcount:.byte ( . - menuitems ) / menu_item_size
@@ -149,3 +151,71 @@ drawmenu$:
 
 
 .include "floppy.s"
+
+
+# assume es:di is valid
+printregisters2:
+	call	newline
+	mov	bx, [bootloader_registers_base]
+
+	mov	dx, bx
+	call	printhex
+
+
+	call	newline
+
+	mov	si, offset regnames$
+	mov	cx, 16	# 6 seg 9 gu 1 flags 1 ip
+
+0:	mov	ah, 0xf0
+	lodsb
+	stosw
+	lodsb
+	stosw
+
+	mov	ah, 0xf8
+	mov	al, ':'
+	stosw
+
+	mov	ah, 0xf1
+	mov	dx, ss:[bx]
+	add	bx, 2
+
+	call	printhex
+
+	cmp	cx, 10
+	jne	1f
+
+##
+	# print flag characters
+	push	bx
+	push	si
+	push	cx
+
+	mov	si, offset regnames$ + 32 # flags
+	mov	cx, 16
+2:	lodsb
+	mov	bl, dl
+	and	bl, 1
+	jz	3f
+	add	al, 'A' - 'a'
+3:	shl	bl, 1
+	add	ah, bl
+	stosw
+	sub	ah, bl
+	shr	dx, 1
+	loop	2b
+	
+	pop	cx
+	pop	si
+	pop	bx
+##
+
+	call	newline
+
+1: 	loopnz	0b
+
+	call	newline
+
+	ret
+
