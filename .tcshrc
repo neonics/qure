@@ -6,7 +6,7 @@ alias startvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe startvm \"OS Test\"
 alias testvm "make && startvm && perl -e '<>' && stopvm"
 alias blsource objdump -Mi8086,intel-mnemonic -d build/bootloader.o
 alias vmdisk vm modifyvm \"OS Test\" --boot1 disk --boot2 none --boot3 none
-alias vmcd vm modifyvm \"OS Test\" --boot1 disk --boot2 dvd --boot3 none
+alias vmcd vm modifyvm \"OS Test\" --boot1 dvd --boot2 none --boot3 none
 alias da objdump -Mi8086,intel-mnemonic -d build/bootloader.o
 alias hd "hexdump -C build/boot.bin | grep -e '*' -e '|'"
 alias hdi "hexdump -C build/boot.img | grep -e '*' -e '|' |& less"
