@@ -25,17 +25,18 @@ menu_item_size:
 .data
 menusel: .byte 0
 menuitems:
-MENUITEM printregisters2 "Print boot registers"
-MENUITEM printregisters	"Print Registers"
-MENUITEM gfxmode	"Graphics Mode"
-MENUITEM listdrives	"List Drives"
-MENUITEM list_floppies	"List Floppies"
-MENUITEM writebootsector "Write Bootsector"
-MENUITEM inspectmem	"InspectMem"
-MENUITEM inspecthdd	"Inspect HDD"
-MENUITEM inspectbootsector "Inspect Bootsector"
-MENUITEM protected_mode	"Protected Mode"
-MENUITEM acpi_poweroff	"ACPI Poweroff"
+MENUITEM printregisters2	"Print boot registers"
+MENUITEM printregisters		"Print Registers"
+MENUITEM gfxmode		"Graphics Mode"
+MENUITEM listdrives		"List Drives"
+MENUITEM list_floppies		"List Floppies"
+MENUITEM writebootsector	"Write Bootsector"
+MENUITEM inspectmem		"InspectMem"
+MENUITEM inspecthdd		"Inspect HDD"
+MENUITEM inspectbootsector	"Inspect Bootsector"
+MENUITEM protected_mode		"Protected Mode"
+MENUITEM test_protected_mode	"Enter/Exit Protected Mode"
+MENUITEM acpi_poweroff		"ACPI Poweroff"
 menuitemcount:.byte ( . - menuitems ) / menu_item_size
 .text
 menu:	mov	ax, 0x0f00
@@ -218,4 +219,3 @@ printregisters2:
 	call	newline
 
 	ret
-

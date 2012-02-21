@@ -17,7 +17,7 @@
  #			RW: readable/writeable
  #			  code: readable bit (write always prohibited)
  #			  data: writable (read access always)
- #			Ac: access bit, set by CPU on access
+ #			Ac: access bit, set by CPU on access and for TSS
  #			
  # .nybble(hi) flags[4]	(flags: 4 bits: Gr Sz 0 0)
  #			Gr: granularity.
@@ -43,16 +43,20 @@
 .equ ACC_DATA,	0 << 3
 .equ ACC_DC,	1 << 2
 .equ ACC_RW,	1 << 1
+.equ ACC_AC,	1 << 0
 
 .equ FL_GR1kb,	0 << 3
 .equ FL_GR4kb,	1 << 3
 .equ FL_16,	0 << 2
 .equ FL_32,	1 << 2
 
+##
 .equ ACCESS_CODE, (ACC_PR|ACC_RING0|ACC_NRM|ACC_CODE|ACC_RW) # 0x9a
 .equ ACCESS_DATA, (ACC_PR|ACC_RING0|ACC_NRM|ACC_DATA|ACC_RW) # 0x92
+.equ ACCESS_TSS,  (ACC_PR|ACC_RING0|ACC_CODE|ACC_AC) # 0x89
 .equ FLAGS_32, (FL_GR4kb|FL_32) # 0x0c
 .equ FLAGS_16, (FL_GR1kb|FL_16) # 0x00
+.equ FLAGS_TSS, FL_32
 
 .macro DEFGDT base limit access flags
 .word \limit & 0xffff
@@ -66,30 +70,37 @@
 
 .align 4
 .data
+.space 4 # DEBUG: align in file for hexdump
+
 GDT: 	.space 8	# null descriptor
 GDT_flatCS:	DEFGDT 0, 0xffffff, ACCESS_CODE, FLAGS_32 #ffff 0000 00 9a cf 00
 GDT_flatDS:	DEFGDT 0, 0xffffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 92 ca 00
+GDT_tss:	DEFGDT 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
+GDT_vid_txt:	DEFGDT 0xb8000, 0x00ffff, ACCESS_DATA, FLAGS_16
+GDT_vid_gfx:	DEFGDT 0xa00000, 0x00ffff, ACCESS_DATA, FLAGS_16
 GDT_realmodeCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, FLAGS_16 #ffff 0000 00 9a 00 00
 GDT_realmodeDS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 GDT_realmodeSS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 GDT_realmodeES: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 GDT_realmodeFS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 GDT_realmodeGS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
-GDT_vid_txt:	DEFGDT 0xb8000, 0x00ffff, ACCESS_DATA, FLAGS_16
-GDT_vid_gfx:	DEFGDT 0xa00000, 0x00ffff, ACCESS_DATA, FLAGS_16
+
+GDT_compatCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, FLAGS_32 #ffff 0000 00 9a 00 00
 gdtr:	.word . - GDT -1
 	.long GDT
 
 	.equ SEL_flatCS,	8 * 1
 	.equ SEL_flatDS, 	8 * 2
-	.equ SEL_realmodeCS, 	8 * 3
-	.equ SEL_realmodeDS,	8 * 4
-	.equ SEL_realmodeSS,	8 * 5
-	.equ SEL_realmodeES, 	8 * 6
-	.equ SEL_realmodeFS, 	8 * 7
-	.equ SEL_realmodeGS, 	8 * 8
-	.equ SEL_vid_txt, 	8 * 9
-	.equ SEL_vid_gfx, 	8 * 10
+	.equ SEL_tss,		8 * 3
+	.equ SEL_vid_txt, 	8 * 4
+	.equ SEL_vid_gfx, 	8 * 5
+	.equ SEL_realmodeCS, 	8 * 6
+	.equ SEL_realmodeDS,	8 * 7
+	.equ SEL_realmodeSS,	8 * 8
+	.equ SEL_realmodeES, 	8 * 9
+	.equ SEL_realmodeFS, 	8 * 10
+	.equ SEL_realmodeGS, 	8 * 11
+	.equ SEL_compatCS, 	8 * 12
 
 codeoffset: .long 0
 bkp_reg_cs: .word 0
@@ -97,6 +108,55 @@ bkp_reg_ds: .word 0
 bkp_reg_es: .word 0
 bkp_reg_ss: .word 0
 bkp_reg_sp: .word 0
+
+
+##########################
+.align 4
+# in the syntax below, the second word of '.word 0,0' is always reserved,
+# as the entry is a 32 bit aligned 16 bit value.
+TSS: # in the syntax below, the second word of '.word 0,0' is always reserved
+tss_LINK:	.word 0, 0
+tss_ESP0:	.long 0
+tss_SS0:	.word 0, 0
+tss_SS1:	.word 0, 0
+tss_SS2:	.word 0, 0
+tss_CR3:	.long 0
+tss_EIP:	.long 0
+tss_EFLAGS:	.long 0
+tss_EAX:	.long 0
+tss_ECX:	.long 0
+tss_EDX:	.long 0
+tss_EBX:	.long 0
+tss_ESP:	.long 0
+tss_EBP:	.long 0
+tss_ESI:	.long 0
+tss_EDI:	.long 0
+tss_ES:		.word 0, 0
+tss_CS:		.word 0, 0
+tss_SS:		.word 0, 0
+tss_DS:		.word 0, 0
+tss_FS:		.word 0, 0
+tss_GS:		.word 0, 0
+tss_LDTR:	.word 0, 0
+		.word 0 # low word at offset 64 is reserved, hi=IOBP offset
+tss_IOPB:	.word 0 # io bitmask base pointer, 104 + ...
+##########################
+
+# little print macro
+.macro PH8 m, r
+	push	edx
+	.if \r != edx
+	mov	edx, \r
+	.endif
+	push	ax
+	mov	ah, 0xf0
+	PRINT "\m" 
+	call	printhex8
+	add	di, 2
+	pop	ax
+	pop	edx
+.endm
+
 
 .text
 .code16
@@ -106,11 +166,24 @@ protected_mode:
 	mov	[bkp_reg_es], es
 	mov	[bkp_reg_ss], ss
 	mov	[bkp_reg_sp], sp
+
+	mov	bp, sp
+
+	mov	ah, 0xf0
+	PRINT "Realmode: ss:sp: "
 	mov	dx, ss
 	call	printhex
 	mov	es:[di-2], byte ptr ':'
 	mov	dx, sp
 	call	printhex
+
+	PRINT "Return IP: "
+	mov	bp, sp
+	mov	dx, [bp]
+	call	printhex
+
+	call	newline
+
 
 	PRINTLN "Enabling A20"
 	# enable A20
@@ -121,38 +194,33 @@ protected_mode:
 	out	0x92, al
 0:
 
-	# little print macro
-	.macro PH8 m, r
-		push	edx
-		.if \r != edx
-		mov	edx, \r
-		.endif
-		push	ax
-		mov	ah, 0xf0
-		PRINT "\m" 
-		call	printhex8
-		add	di, 2
-		pop	ax
-		pop	edx
+	# Calulate segments and addresses
+
+	.macro GDT_STORE_SEG seg
+		mov	[\seg + 2], ax
+		shr	eax, 16
+		mov	[\seg + 4], al
+		# ignore ah as realmode addresses are 20 bits
 	.endm
 
-	# Calulate segments and addresses
+	.macro GDT_STORE_LIMIT lim
+		mov	[\lim + 0], ax
+		shr	eax, 16
+		mov	ah, [\lim + 6] # preserve high nybble
+		and	ax, 0xf00f
+		or	al, ah
+		mov	[\lim + 6], al
+		# ignore ah as realmode addresses are 20 bits
+	.endm
+
+
 	# determine cs:ip since we do not assume to be loaded at any address
 	xor	eax, eax # in case cs != 0
 	mov	ax, cs
 	shl	eax, 4
 
-	PH8	"cs: " eax
-
 
 	# dynamically calculate cs/ds and store in GDT realmode descriptors
-
-	.macro GDT_STORE_SEG seg
-		mov	word ptr [\seg + 2], ax
-		shr	eax, 16
-		mov	byte ptr [\seg + 4], al
-		# ignore ah as realmode addresses are 20 bits
-	.endm
 
 	# Set up CS
 
@@ -161,13 +229,20 @@ protected_mode:
 	mov	ebx, eax # ebx = cs
 
 	GDT_STORE_SEG GDT_realmodeCS
+	mov	eax, ebx
+	GDT_STORE_SEG GDT_compatCS
 
 	xor	eax, eax
 	call	0f	# determine absolute address
 0:	pop	ax
 	sub	ax, offset 0b
 
+PMODE_REALMODE_SEP_CALL = 1 #this uses compatCS, use 0 for flatCS
+
+	.if PMODE_REALMODE_SEP_CALL
+	.else
 	add	eax, ebx
+	.endif
 	mov	[codeoffset], eax
 
 	PH8 "CodeOffset: " eax
@@ -178,17 +253,35 @@ protected_mode:
 	xor	eax, eax
 	mov	ax, ds
 	shl	eax, 4
+	mov	ebx, eax
 
 	PH8 "Data base: " eax
-
-	push	eax	# ds << 4
 
 	GDT_STORE_SEG GDT_realmodeDS
 
 	# store proper GDT address in GDT pointer structure
-	pop	eax	# ds << 4
-	add	eax, offset GDT
+	mov	eax, offset GDT
+	add	eax, ebx
 	mov	dword ptr gdtr+2, eax
+
+
+
+	# Set up TSS
+
+	mov	eax, offset TSS
+	add	eax, ebx
+
+	GDT_STORE_SEG GDT_tss
+
+	mov	[tss_SS0], word ptr SEL_flatDS
+	mov	eax, [codeoffset] # 0....stack|0x10000|code
+	mov	[tss_ESP0], eax
+
+	mov	eax, 104
+	#add	eax, IOBP size
+	mov	[tss_IOBP], ax
+
+	GDT_STORE_LIMIT GDT_tss
 
 
 	# Set up SS
@@ -261,8 +354,14 @@ protected_mode:
 	# we need to correct. We don't prefer to use a static value like 7c00.
 	# Either self-modifing code - needs extra jumps to clear prefetch queue
 	# - or use a register.
-	mov	eax, [codeoffset]
-	add	eax, offset PM_entry
+
+	mov	eax, offset PM_entry
+
+	.if PMODE_REALMODE_SEP_CALL
+	mov	[pm_entry + 4], word ptr SEL_compatCS
+	.else
+	add	eax, [codeoffset]
+	.endif
 	mov	[pm_entry], eax
 
 	jmp	0f	# clear prefetch queue
@@ -286,13 +385,9 @@ USE_SEP_ES = 1
 .code32
 PM_entry:
 	# setup
+	.if PMODE_REALMODE_SEP_CALL
 	mov	ax, SEL_realmodeDS
 	mov	ds, ax
-	.if 0
-	mov	ss, ax
-	mov	ax, SEL_flatDS
-	mov	es, ax
-	.else
 	mov	ax, SEL_realmodeSS
 	mov	ss, ax
 	mov	ax, SEL_realmodeES
@@ -301,22 +396,35 @@ PM_entry:
 	mov	fs, ax
 	mov	ax, SEL_realmodeGS
 	mov	gs, ax
+	.else
+	mov	ss, ax
+	mov	ax, SEL_flatDS
+	mov	es, ax
+	mov	ss, ax
 	.endif
 
 	# payload ( to test exit pmode )
+	mov	ebx, edi # print it to see if preserved
 
 	.macro SCREEN_OFFS x, y
+		o =  2 * ( \x + 80 * \y )
 		.if USE_SEP_ES
-		mov	edi, 2 * ( \x + 80 * \y )
+		.if o == 0
+		xor	edi, edi
 		.else
-		mov	edi, 0xb8000 + 2 * ( \x + 80 * \y )
+		mov	edi, o
+		.endif
+		.else
+		mov	edi, 0xb8000 + o
 		.endif
 	.endm
 
+	/*
 	SCREEN_OFFS 0, 0
 	mov	ecx, rest_scr #cls
-	mov	ax, 0x0720
+	mov	ax, 0x5f << 8 | '.'
 	rep	stosw
+	*/
 
 	SCREEN_OFFS 37, 12
 	mov	esi, offset message # print
@@ -335,17 +443,26 @@ PM_entry:
 
 	SCREEN_OFFS 0, 15
 	# test self modifying code
-	mov	edi, 0xb8000 + 2 * (0 + 15 * 80)
 	mov	ds:[ smc$ + 1], word ptr 0x1337
 	jmp	smc$ # clear prefetch queue
 smc$:
 	mov	edx, 0xfa11
 	call	printhex8_32
 	
+	SCREEN_OFFS 0, 16
+	mov	ah, 0xf5
+	mov	edx, ebx
+	call	printhex8_32
 
+.if PMODE_REALMODE_SEP_CALL
+	xor	edx, edx
+	pop	dx	# real mode return address
+	push	edx
+	mov	ah, 0xf7
+	call	printhex8_32
 
-
-
+	ret
+.endif
 	# see if this call works in pmode...
 	#xor	ah, ah
 	#int	0x16
@@ -371,8 +488,8 @@ real_mode:
 	.else
 	mov	eax, offset 0f
 	push	ax
-	mov	ah, 0xf2
 	mov	edx, eax
+	mov	ah, 0xf2
 	call	printhex8_32
 	pop	ax
 	push	eax
@@ -396,26 +513,31 @@ real_mode:
 
 	push	0xb800
 	pop	es
-	xor	di, di
+	mov	di, 160 * 18
 	mov	ah, 0x4f
 	mov	dx, 0x1337
 	call	printhex
-#hlt
-	mov	di, 160
+
+	PRINT "cs: "
 	mov	dx, cs
 	call	printhex
+	PRINT "ds: "
 	mov	dx, ds
 	call	printhex
+	PRINT "ss: "
 	mov	dx, ss
 	call	printhex
 
-	mov	di, 160 * 2
+	PRINT "Backed up RM cs: "
 	mov	dx, [bkp_reg_cs]
 	call	printhex
+	PRINT "ds: "
 	mov	dx, [bkp_reg_ds]
 	call	printhex
+	PRINT "ss: "
 	mov	dx, [bkp_reg_ss]
 	call	printhex
+	call	newline
 
 
 	# restore ds, es, ss
@@ -436,10 +558,23 @@ real_mode:
 	mov	dx, ds
 	call	printhex
 
+	PRINT "Restored Realmode CS: "
 	#mov	sp, [bkp_reg_sp]
 	mov	dx, cs
 	call	printhex
+
+	PRINT "SS:SP: "
+	mov	dx, ss
+	call	printhex
 	mov	es:[di-2], byte ptr ':'
+	mov	dx, sp
+	call	printhex
+
+	PRINT "Return address: "
+
+	pop	edx
+	push	dx
+
 	mov	bp, sp
 	mov	dx, [bp]
 	call	printhex
@@ -449,13 +584,33 @@ real_mode:
 	ret
 #####################################################################
 
+
+
 # pmode data
 
 test_protected_mode:
+	mov	ax, 0x7000
+	call	cls
+	mov	bp, sp
+	PRINT "TEST PM called from: "
+	mov	dx, [bp]
+	call	printhex
+	call	newline
 	call	protected_mode
+
+.if PMODE_REALMODE_SEP_CALL
 .code32
-	
+
+	#SCREEN_OFFS 0, 20
+	mov	ah, 0x3f
+	mov	edx, 0x1337c0de
+	call	printhex8_32
+	mov	edx, offset 0f
+	call	printhex8_32
+
 	call	real_mode
+0:
 .code16
+.endif
 
-
+	ret
