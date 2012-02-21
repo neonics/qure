@@ -238,6 +238,18 @@ PM_entry:
 	mov	edx, [codeoffset]
 	call	printhex8_32
 
+	# test self modifying code
+	mov	edi, 0xb8000 + 2 * (0 + 15 * 80)
+	mov	ds:[ smc$ + 1], word ptr 0x1337
+	jmp	smc$ # clear prefetch queue
+smc$:
+	mov	edx, 0xfa11
+	call	printhex8_32
+	
+
+
+
+
 	# see if this call works in pmode...
 	#xor	ah, ah
 	#int	0x16
