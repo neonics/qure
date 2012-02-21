@@ -1,0 +1,86 @@
+
+At current the idea is to remain compatible with the GNU tools,
+as such the OS is written in GNU AS compatible assembly language.
+However, GNU AS is very limited compared to other assemblers.
+
+The other assemblers all have their problems. The best so far
+is TASM, however it is ancient and does not support the latest
+CPU's. Sourcecode for it is not readily available.
+
+The NASM assembler provides TASM syntax support but suffers from
+it's own bugs. YASM, a rewrite, does not seem to improve upon it.
+
+FASM can only output flat assembly files and has no symbol table
+support.
+
+One advantage GNU AS has is the ability to redirect bytecode
+to any section, aswell as provide subsections. In TASM, sections
+are called segments, and (seem to) have to be declared with
+a beginning and ending.
+
+Below is a list of assembler features that are missing in GNU AS
+but found to be quite handy.
+
+------------------------------------------------------------------
+
+
+Assembler features:
+
+
+=== Prevent accidental overwrite of register in use
+
+Simple version:
+
+#.preserve	postfix; mark target register as needed to be preserved
+#.free		postfix; mark target register as free to use; end preservation
+
+example:
+	mov	ax, 0xf0	#.preserve
+
+	...
+	mov	ax, bx				# generates warning
+
+	mov	ax, bx		#.free   	# no warning
+
+More complex: 
+
+Introduce variables. Automatic protection when calling functions/interrupts.
+Needs scopes, and either code analysis or annotations to mark registers
+as locally used.
+
+An alternative is to automatically preserve the register when it becomes
+declared as a variable.
+
+Example:
+
+	mov	ax, 1
+	...
+
+	#.var color: ax;
+0:	mov	color, 0xf0	
+	call	print
+
+	# or
+
+	mov	ax, 0xf0	#.local endlabel
+
+	would generate a push and pop of ax..
+
+
+=== Structures 
+
+	struct foo
+	{
+		bar db 0
+		baz dw 0
+	}
+
+	mov	ax, [si + foo.baz]
+
+=== Variable types
+
+	label: .byte 0
+
+	mov	[label], 10 # compiler error - ambiguous operand type
+
+

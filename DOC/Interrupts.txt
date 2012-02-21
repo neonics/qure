@@ -1,0 +1,107 @@
+Terms:
+  - PIC - Programmable Interrupt Controller
+  - ISR - Interrupt Service Routine
+  - IRQ - Interrupt Request
+  - INT - Interrupt = IRQ + 8.
+
+= IDT - Interrupt Descriptor Table = 
+
+== Real Mode: IVT - Interrupt Vector Table ==
+
+Start: Absolute Address 0
+Length: 256 * dword = 1024 bytes.
+Range: 0000h - 0400h
+
+Items: a vector: realmode segment, offset.
+
+The first 32 (00-1F) vectors are reserved for CPU internal exceptions.
+
+Size and location can be changed (similar to lidt).
+
+
+== Protected Mode: IDT - Interrupt Desriptor Table.
+
+Item size: 8 bytes interrupt vector.
+Contain segment and offset;
+
+Three types:
+* Interrupt Gates: suspends interrupt handling when invoked
+* Trap Gate: no interrupt suspension.
+* Task Gate: switch current TSS (Task State Segment).
+
+
+Load into the IDT register (IDTR) using lidt.
+
+
+= Hardware Interrupts =
+
+0x00 	Division by zero
+0x01 	Debugger
+0x02 	NMI
+0x03 	Breakpoint
+0x04 	Overflow
+0x05 	Bounds
+0x06 	Invalid Opcode
+0x07 	Coprocessor not available
+0x08 	Double fault
+0x09 	Coprocessor Segment Overrun (386 or earlier only)
+0x0A 	Invalid Task State Segment
+0x0B 	Segment not present
+0x0C 	Stack Fault
+0x0D 	General protection fault
+0x0E 	Page fault
+0x0F 	reserved
+0x10 	Math Fault
+0x11 	Alignment Check
+0x12 	Machine Check
+0x13 	SIMD Floating-Point Exception
+
+= IRQ =
+Master PIC: IO Port 0x20, 0x21 (Command, Data) IRQ 0..7 => map 0..7 realmode
+0: timer
+1: keyboard
+2: cascade from IRQ8-15
+3: COM2/COM4
+4: COM1/COM3
+5: LPT2
+6: floppy disk
+7: LPT1
+
+Slave PIC: IO Port 0xa0, 0xa1 (Command, Data) IRQ 0..8 => map IRQ 8..15 realmode
+8: realtime clock timer
+9: free: use for peripherals (legacy; scsi host adapter etc)
+10: free: scsi / nic
+11: idem
+12: FPU / inter processor interrupt
+13: primary ATA (IDE)
+14: secondary ATA (IDE)
+
+Interrupt vector offset for Master PIC: 8. Resulting INT: 8..15 (8 + IRQ).
+Interrupt vector offset for Slave PIC: 70h. Resulting INT: 70h..77h.
+
+== PIC ==
+
+The 8259A Programmable Interrupt Controller.
+
+D7..D0 : data bits
+A7..A0 : INTA pulse data values
+
+How it triggers the CPU: Interrupt Sequence Outputs
+
+It generates 3 INTA pulses (an output bit on the chip).
+During each pulse the CPU reads the byte at the data port.
+During the first pulse the opcode for the INT instruction (0xcd, 11001101)
+appears on the data buffer.
+
+During the second pulse, the lower address of the ISR is programmed
+on the data bus.
+When interval (a config bit) is 4, A7..A5 are programmed, A4..A0 automatic.
+When interval is 8, A7,A6 are programmed, A0..A5 are automatic.
+
+During the third pulse, the higher address (programmed as byte 2
+of the initialization sequence) is enabled.
+
+
+ICW - Initialization Command Word
+
+ICW1: A0 = 0 & D4 = 1: 

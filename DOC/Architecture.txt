@@ -1,0 +1,22 @@
+Bootsector:
+
+16 bit real mode, uses BIOS to load more sectors (sector1).
+
+
+Sector1:
+
+16 bit real mode entry point.
+Currently implements calls to BIOS.
+
+
+
+Protected Mode:
+
+I wonder whether calling 16 bit code (with a far return) is possible
+in protected mode. The segment is marked 16 bit, and thus the instructions
+are interpreted as such. As long as no segment changes are done...
+
+Check v8086 mode, and real-mode gates to call bios, until the OS
+can interact with the chipsets directly.
+
+

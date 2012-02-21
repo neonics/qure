@@ -1,0 +1,31 @@
+Stage 1: Translation to Assembly
+
+The tool will translate sourcecode into GAS-parseable assembly.
+
+Phase 1: reproduce current sourcecode
+Basis: 
+- intel instructions
+- multiplexing sections
+- constant declarations
+
+Pluggability: convert to any type of assembler syntax,
+or to bytecode directly - serializer/writer.
+
+
+Phase 2: macro's
+
+Choice: either preserve, or unroll macro's when generating target
+assembly source.
+
+
+Phase 3: register management
+
+- declare variable names for registers
+- track usage/destruction
+- determine preservation: warning/automatic push, pop
+- algorithm to determine optimum register usage
+
+This introduces 'knowledge' of the use of registers. Not all
+registers are available for all instructions.
+
+

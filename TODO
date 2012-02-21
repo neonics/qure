@@ -14,15 +14,30 @@ TODO: bootloader writing: write sector1 and following in the place indicated
   by the MBR. If writing to existing partition, allocate space using
   it's filesystem.
 
+DONE: PMode. Provide: GDT (Global Descriptor Table)
+
+TODO: Pmode IDT (Interrupt Table) / PIC remapping
+TODO: implement keyboard driver in PMode (depends IDT)
+
+TODO: Shell
 
 TODO: filesystem
 
 TODO: load modules/objects/programs
 
-
-
 TODO: have the sector1 code switch to pmode asap,
 and update all the code used to linear addressing.
 pmode needed for ACPI. 
 
-Check writing bootsector.
+TODO: create assembler
+
+TODO: create high level programming language compiler
+
+
+TODO: Task Switching (TSS) (depends PMode)
+
+TODO: VM98 Mode (depends TSS)
+
+TODO: Paging (depends PMode)
+
+TODO: APIC (Local, IO)
