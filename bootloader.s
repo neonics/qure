@@ -24,7 +24,7 @@ relocate$:
 .if RELOCATE
 LOAD_ADDR = 0x10000
 LOAD_SEG =  (LOAD_ADDR >> 4 )
-LOAD_OFFS= LOAD_ADDR & 0xF 
+LOAD_OFFS= 0 # the base address (16 bit offset) for which the binary is coded
 
 	mov	di, LOAD_SEG
 	mov	es, di
@@ -36,7 +36,7 @@ LOAD_OFFS= LOAD_ADDR & 0xF
 	mov	cx, 512
 	rep	movsb
 	push	LOAD_SEG
-	push	offset 0f
+	push	(offset 0f) + LOAD_OFFS
 	retf
 0:
 .endif
@@ -52,7 +52,7 @@ LOAD_OFFS= LOAD_ADDR & 0xF
 	call	0f
 0:	pop	sp
 	and	sp, ~0xff
-	add	sp, 0x2000
+	add	sp, 0x2000 + (CODE_SIZE - black) & ~ 0xff
 	call	1f
 0:
 halt:	hlt
@@ -122,6 +122,8 @@ DBG0 = 0
 
 	# restore sig$ as it is used as stack for the first call
 	mov	word ptr [sig$], 0xaa55
+	mov	ax, [sp_bpk$]
+	mov	[bp + 20], ax
 
 	# assume nothing
 	push	0xb800		# set up screen
