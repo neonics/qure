@@ -48,7 +48,8 @@ drawmenu$:
 	movsx	ax, byte ptr [menusel]
 	or	ax, ax
 	jns	0f
-	xor	ax, ax
+	add	al, dh
+	adc	ah, 0
 0:	div	dh
 	mov	[menusel], ah
 
