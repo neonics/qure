@@ -32,13 +32,14 @@
 	# when this works, check IDT 
 
 
-.equ ACC_PR,	1 << 7
-.equ ACC_RING0,	0 << 5
+.equ ACC_PR,	1 << 7	# 0b10000000 Present
+.equ ACC_RING0,	0 << 5	# 0b01100000 DPL
 .equ ACC_RING1,	1 << 5
 .equ ACC_RING2,	2 << 5
 .equ ACC_RING3,	3 << 5
-.equ ACC_NRM,	1 << 4
+.equ ACC_NRM,	1 << 4	# 0b00010000 S
 .equ ACC_SYS,	0 << 4
+
 .equ ACC_CODE,	1 << 3
 .equ ACC_DATA,	0 << 3
 .equ ACC_DC,	1 << 2
@@ -100,14 +101,82 @@ gdtr:	.word . - GDT -1
 	.equ SEL_realmodeES, 	8 * 9
 	.equ SEL_realmodeFS, 	8 * 10
 	.equ SEL_realmodeGS, 	8 * 11
-	.equ SEL_compatCS, 	8 * 12
+	.equ SEL_compatCS, 	8 * 12 # same as realmodeCS except 32 bit
 
+	.macro GDT_STORE_SEG seg
+		mov	[\seg + 2], ax
+		shr	eax, 16
+		mov	[\seg + 4], al
+		# ignore ah as realmode addresses are 20 bits
+	.endm
+
+	.macro GDT_STORE_LIMIT lim
+		mov	[\lim + 0], ax
+		shr	eax, 16
+		mov	ah, [\lim + 6] # preserve high nybble
+		and	ax, 0xf00f
+		or	al, ah
+		mov	[\lim + 6], al
+		# ignore ah as realmode addresses are 20 bits
+	.endm
+
+
+#########################################################
+# IDT: Interrupt Descriptor Table.
+#
+# The structure is the same as the GDT, except:
+# - limit is the offset into a selector
+# - base is 16 bits segment selector
+# - access lower 4 bits determine gate type
+# - in the GDT, the last word starts with the low nybble of the 3rd byte
+#   of limit. In the IDT, the last word is the high word of the limit.
+#
+# ACC_PR: 0 means unused interrupt, or Paging.
+# ACC_NRM(1), ACC_SYS(0): SYS for interrupt gates.
+#
+# The low nybble of the access byte desribes the gate type.
+# For a TASK Gate, the entire context is switched using TSS.
+# For an INT Gate, cli/sti is automatic; it isn't for a TRAP gate.
+#
+.equ IDT_ACC_GATE_TASK32, 0b0101 # TASK Gate. selector:offset = TSS:0.
+.equ IDT_ACC_GATE_INT16,  0b0110
+.equ IDT_ACC_GATE_TRAP16, 0b0111
+.equ IDT_ACC_GATE_INT32,  0b1110
+.equ IDT_ACC_GATE_TRAP32, 0b1111
+
+
+.macro DEFIDT offset, selector, access
+# DPL field of selector must be 0
+.word \offset & 0xffff
+.word \selector
+.byte 0
+.byte \access
+.word \offset >> 16
+.endm
+
+
+IDT:
+.rept 256
+DEFIDT 0, SEL_flatCS, ACC_PR+ACC_RING0+ACC_SYS+IDT_ACC_GATE_INT16
+.endr
+idtr:	.word . - IDT - 1
+	.long IDT
+
+# Real Mode IDT (IVT)
+rm_idtr:.word 256 * 4
+	.long 0
+
+#######################
+
+realsegflat:.long 0
 codeoffset: .long 0
 bkp_reg_cs: .word 0
 bkp_reg_ds: .word 0
 bkp_reg_es: .word 0
 bkp_reg_ss: .word 0
 bkp_reg_sp: .word 0
+bkp_reg_fs: .word 0
+bkp_reg_gs: .word 0
 
 
 ##########################
@@ -157,35 +226,62 @@ tss_IOPB:	.word 0 # io bitmask base pointer, 104 + ...
 	pop	edx
 .endm
 
+.macro DBGSO16 msg, seg, offs
+	mov	ah, 0xf0
+	PRINT	"\msg"
+	mov	dx, \seg
+	call	printhex
+	mov	es:[di-2], byte ptr ':'
+	mov	dx, \offs
+	call	printhex
+.endm
+
+.macro DBGSTACK16 msg, offs
+	PRINT	"\msg"
+	mov	bp, sp
+	mov	dx, [bp + offs]
+	call	printhex
+.endm
+
+
 
 .text
 .code16
+# in: ax: Flags
+# bit0:	0 = flat mode (flatCS, flatDS for all registers)
+#	1 = compatibility mode (compatCS, realmodeDS/ES/FS/GS/SS)
+# SEL_realmodeCS is 16 bit, based on the value of cs when this method is called.
+# SEL_compatCS is the 32 bit version of realmodeCS
+# SEL_flatCS is 32 bit based zero.
+#
+# realmodeCS is used in the real_mode method to return to real mode.
+#
+# THis method assumes that CS is the base pointer for the code,
+# and will use the area before it as the TSS stack.
+
+# for now this constant will serve as ax:
+PMODE_COMPATCS = 1 #this uses compatCS, use 0 for flatCS
 protected_mode:
 	mov	[bkp_reg_cs], cs
 	mov	[bkp_reg_ds], ds
 	mov	[bkp_reg_es], es
 	mov	[bkp_reg_ss], ss
 	mov	[bkp_reg_sp], sp
+	mov	[bkp_reg_fs], fs
+	mov	[bkp_reg_gs], gs
 
-	mov	bp, sp
+DEBUG = 1
 
-	mov	ah, 0xf0
-	PRINT "Realmode: ss:sp: "
-	mov	dx, ss
-	call	printhex
-	mov	es:[di-2], byte ptr ':'
-	mov	dx, sp
-	call	printhex
+	.if DEBUG
+		DBGSO16 "RealMode SS:IP: ", ss, sp
+		DBGSTACK16 "Return IP: ", 0
 
-	PRINT "Return IP: "
-	mov	bp, sp
-	mov	dx, [bp]
-	call	printhex
+		call	newline
 
-	call	newline
+		PRINTLN "Enabling A20"
+	.endif
 
 
-	PRINTLN "Enabling A20"
 	# enable A20
 	in	al, 0x92	# system control port a, a20 line
 	test	al, 2
@@ -196,56 +292,37 @@ protected_mode:
 
 	# Calulate segments and addresses
 
-	.macro GDT_STORE_SEG seg
-		mov	[\seg + 2], ax
-		shr	eax, 16
-		mov	[\seg + 4], al
-		# ignore ah as realmode addresses are 20 bits
-	.endm
-
-	.macro GDT_STORE_LIMIT lim
-		mov	[\lim + 0], ax
-		shr	eax, 16
-		mov	ah, [\lim + 6] # preserve high nybble
-		and	ax, 0xf00f
-		or	al, ah
-		mov	[\lim + 6], al
-		# ignore ah as realmode addresses are 20 bits
-	.endm
-
-
 	# determine cs:ip since we do not assume to be loaded at any address
 	xor	eax, eax # in case cs != 0
 	mov	ax, cs
 	shl	eax, 4
 
+	mov	[realsegflat], eax
+	mov	ebx, eax
 
-	# dynamically calculate cs/ds and store in GDT realmode descriptors
+	.if DEBUG
+		PH8	"Code Base: " eax
+	.endif
 
-	# Set up CS
 
-	PH8	"Code Base: " eax
 
-	mov	ebx, eax # ebx = cs
+
+
 
 	GDT_STORE_SEG GDT_realmodeCS
 	mov	eax, ebx
 	GDT_STORE_SEG GDT_compatCS
 
 	xor	eax, eax
-	call	0f	# determine absolute address
+	call	0f	# determine possible relocation
 0:	pop	ax
 	sub	ax, offset 0b
 
-PMODE_REALMODE_SEP_CALL = 1 #this uses compatCS, use 0 for flatCS
-
-	.if PMODE_REALMODE_SEP_CALL
-	.else
-	add	eax, ebx
-	.endif
 	mov	[codeoffset], eax
 
-	PH8 "CodeOffset: " eax
+	.if DEBUG
+		PH8 "CodeOffset: " eax
+	.endif
 
 
 	# Set up DS
@@ -262,8 +339,10 @@ PMODE_REALMODE_SEP_CALL = 1 #this uses compatCS, use 0 for flatCS
 	# store proper GDT address in GDT pointer structure
 	mov	eax, offset GDT
 	add	eax, ebx
-	mov	dword ptr gdtr+2, eax
-
+	mov	[gdtr+2], eax
+	mov	eax, offset IDT
+	add	eax, ebx
+	mov	[idtr+2], eax
 
 
 	# Set up TSS
@@ -355,37 +434,55 @@ PMODE_REALMODE_SEP_CALL = 1 #this uses compatCS, use 0 for flatCS
 	# Either self-modifing code - needs extra jumps to clear prefetch queue
 	# - or use a register.
 
-	mov	eax, offset PM_entry
+.if 0 # bug:
+	.if PMODE_COMPATCS
+	push	word ptr SEL_compatCS
+	push	dword ptr offset pmode_entry$
+	.else
+	push	word ptr SEL_flatCS
+	mov	eax, [codeoffset]
+	add	eax, offset pmode_entry$
+	push	eax
+	.endif
+	# switch out the cs register
+	ADDR32 DATA32 retf
+.else
 
-	.if PMODE_REALMODE_SEP_CALL
+
+	mov	eax, offset pmode_entry$
+
+	.if PMODE_COMPATCS
 	mov	[pm_entry + 4], word ptr SEL_compatCS
 	.else
-	add	eax, [codeoffset]
+	mov	[pm_entry + 4], word ptr SEL_flatCS
+	add	eax, [realsegflat]
 	.endif
 	mov	[pm_entry], eax
+	
+	PH8 "PM Entry: " eax
 
 	jmp	0f	# clear prefetch queue
-0:	
+	0:	
 
 	# switch out the cs register
-	#DATA32 ljmp	SEL_flatCS, offset PM_entry + RELOCATION
+	#DATA32 ljmp	SEL_flatCS, offset pmode_entry$ + RELOCATION
 	.byte 0x66, 0xea
-pm_entry:.long 0
+	pm_entry:.long 0
 	.word SEL_flatCS
+
+.endif
 # pmode data
 .data
-	message: .byte 'P', 0xf4, 'm', 0xf1, 'o', 0xf1, 'd', 0xf1, 'e', 0xf1
-	.equ message_1, .-message
-	.equ rest_scr, 80*25
+msg$: .byte 'P', 0xf4, 'm', 0xf1, 'o', 0xf1, 'd', 0xf1, 'e', 0xf1
+.equ msgl$, . - msg$
+.equ rest_scr$, 80*25
 
-USE_SEP_SS = 1
-USE_SEP_ES = 1
 
 .text
 .code32
-PM_entry:
+pmode_entry$:
 	# setup
-	.if PMODE_REALMODE_SEP_CALL
+	.if PMODE_COMPATCS
 	mov	ax, SEL_realmodeDS
 	mov	ds, ax
 	mov	ax, SEL_realmodeSS
@@ -408,7 +505,7 @@ PM_entry:
 
 	.macro SCREEN_OFFS x, y
 		o =  2 * ( \x + 80 * \y )
-		.if USE_SEP_ES
+		.if PMODE_COMPATCS
 		.if o == 0
 		xor	edi, edi
 		.else
@@ -421,14 +518,14 @@ PM_entry:
 
 	/*
 	SCREEN_OFFS 0, 0
-	mov	ecx, rest_scr #cls
+	mov	ecx, rest_scr$ #cls
 	mov	ax, 0x5f << 8 | '.'
 	rep	stosw
 	*/
 
 	SCREEN_OFFS 37, 12
-	mov	esi, offset message # print
-	mov	ecx, message_1
+	mov	esi, offset msg$ # print
+	mov	ecx, msgl$
 	rep	movsb
 
 	SCREEN_OFFS 0, 14
@@ -453,16 +550,25 @@ smc$:
 	mov	ah, 0xf5
 	mov	edx, ebx
 	call	printhex8_32
+	SCREEN_OFFS 0, 17
 
-.if PMODE_REALMODE_SEP_CALL
+
 	xor	edx, edx
 	pop	dx	# real mode return address
+	# this offset is based on the realmode segment we were called with.
+	# If we return in flat CS mode, we'll need to adjust it:
+	.if PMODE_COMPATCS
+	.else
+	add	edx, [realsegflat]
+	.endif
 	push	edx
+
+	.if DEBUG
 	mov	ah, 0xf7
 	call	printhex8_32
+	.endif
 
 	ret
-.endif
 	# see if this call works in pmode...
 	#xor	ah, ah
 	#int	0x16
@@ -476,6 +582,7 @@ smc$:
 #	stosw
 
 # call this from protected mode!
+.code32
 real_mode:
 	# ljmp SEL_realmodeCS, offset 0f
 	# 0x66 0xea [long return address] [word sel_16bitcs]
@@ -585,6 +692,34 @@ real_mode:
 #####################################################################
 
 
+int_count: .long 0
+gate_int32:
+	cli
+	push	es
+	push	edi
+	push	edx
+	push	ax
+
+#	mov	di, SEL_vid_txt
+#	mov	es, di
+	inc	byte ptr es:[0]
+	/*
+	xor	edi, edi
+	mov	ax, 0xf2<<8 + '!'
+	stosw
+	mov	edx, [int_count]
+	call	printhex8_32
+	inc	dword ptr [int_count]
+	*/
+
+	pop	ax
+	pop	edx
+	pop	edi
+	pop	es
+	sti
+	iret
+
+
 
 # pmode data
 
@@ -597,8 +732,6 @@ test_protected_mode:
 	call	printhex
 	call	newline
 	call	protected_mode
-
-.if PMODE_REALMODE_SEP_CALL
 .code32
 
 	#SCREEN_OFFS 0, 20
@@ -608,9 +741,37 @@ test_protected_mode:
 	mov	edx, offset 0f
 	call	printhex8_32
 
-	call	real_mode
-0:
-.code16
-.endif
+#	mov	ecx, 1000000
+#0:	hlt
+#	loop 0b
 
+#################################################
+.if 0
+	cli
+	# Initialize IDT
+	mov	esi, offset IDT
+	mov	ecx, 256
+	mov	eax, [codeoffset]
+	add	eax, offset gate_int32
+	push	eax
+	mov	edx, eax
+	mov	ah, 0x7f
+	call	printhex8_32
+	pop	eax
+
+0:	mov	[esi + 0], ax
+	ror	eax, 16
+	mov	[esi + 6], ax
+	ror	eax, 16
+	loop	0b
+
+	PRINTLN "Loading IDT"
+	lidt	idtr
+	sti
+.endif
+#################################################
+
+
+	call	real_mode
+.code16
 	ret
