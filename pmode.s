@@ -28,10 +28,6 @@
  # .byte base[31:24]
  */
 .intel_syntax noprefix
-
-	# when this works, check IDT 
-
-
 .equ ACC_PR,	1 << 7	# 0b10000000 Present
 .equ ACC_RING0,	0 << 5	# 0b01100000 DPL
 .equ ACC_RING1,	1 << 5
@@ -87,8 +83,10 @@ GDT_realmodeFS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 GDT_realmodeGS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 
 GDT_compatCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, FLAGS_32 #ffff 0000 00 9a 00 00
-gdtr:	.word . - GDT -1
+pm_gdtr:.word . - GDT -1
 	.long GDT
+rm_gdtr:.word 0
+	.long 0
 
 	.equ SEL_flatCS,	8 * 1
 	.equ SEL_flatDS, 	8 * 2
@@ -147,19 +145,20 @@ gdtr:	.word . - GDT -1
 
 .macro DEFIDT offset, selector, access
 # DPL field of selector must be 0
-.word \offset & 0xffff
+.word (\offset) & 0xffff
 .word \selector
 .byte 0
 .byte \access
-.word \offset >> 16
+.word (\offset) >> 16
 .endm
 
 
 IDT:
 .rept 256
-DEFIDT 0, SEL_flatCS, ACC_PR+ACC_RING0+ACC_SYS+IDT_ACC_GATE_INT16
+#.space 8
+DEFIDT 0, SEL_flatCS, ACC_PR+ACC_RING0+ACC_SYS+IDT_ACC_GATE_INT32
 .endr
-idtr:	.word . - IDT - 1
+pm_idtr:.word . - IDT - 1
 	.long IDT
 
 # Real Mode IDT (IVT)
@@ -336,13 +335,13 @@ DEBUG = 1
 
 	GDT_STORE_SEG GDT_realmodeDS
 
-	# store proper GDT address in GDT pointer structure
+	# store proper linear (base 0) GDT/IDT address in pointer structure
 	mov	eax, offset GDT
 	add	eax, ebx
-	mov	[gdtr+2], eax
+	mov	[pm_gdtr+2], eax
 	mov	eax, offset IDT
 	add	eax, ebx
-	mov	[idtr+2], eax
+	mov	[pm_idtr+2], eax
 
 
 	# Set up TSS
@@ -353,7 +352,7 @@ DEBUG = 1
 	GDT_STORE_SEG GDT_tss
 
 	mov	[tss_SS0], word ptr SEL_flatDS
-	mov	eax, [codeoffset] # 0....stack|0x10000|code
+	mov	eax, [realsegflat] # 0....stack|0x10000|code
 	mov	[tss_ESP0], eax
 
 	mov	eax, 104
@@ -406,9 +405,10 @@ DEBUG = 1
 	# Load GDT
 
 	call	newline
+	mov	ah, 0xf0
 	PRINTLN "Loading Global Descriptor Table"
 
-	DATA32 ADDR32 lgdt	gdtr
+	DATA32 ADDR32 lgdt	pm_gdtr
 
 	cli
 	# set NMI off
@@ -584,31 +584,46 @@ smc$:
 # call this from protected mode!
 .code32
 real_mode:
+	cli
+	# set NMI off
+	in	al, 0x70
+	or	al, 0x80 # XXX nmi on?
+	out	0x70, al
+	in	al, 0x71
+
+
 	# ljmp SEL_realmodeCS, offset 0f
 	# 0x66 0xea [long return address] [word sel_16bitcs]
 	# doesnt work due to non-relocated addresses;
 	# requires self modifying code,
 	# or:
 	push	SEL_realmodeCS
-	.if 0
 	push	dword ptr offset 0f
-	.else
-	mov	eax, offset 0f
-	push	ax
-	mov	edx, eax
-	mov	ah, 0xf2
-	call	printhex8_32
-	pop	ax
-	push	eax
-	.endif
 	retf
 .code16
-0:	# back in realmode code segment (within Pmode)
+0:	# pmode 16 bit realmode code selector
 
 	# enter realmode
 	mov	eax, cr0
 	and	al, 0xfe
 	mov	cr0, eax
+
+	# restore realmode cs 
+	push	[bkp_reg_cs]
+	mov	ax, [codeoffset]
+	add	ax, offset 0f
+	push	ax
+	retf
+0:
+	# restore ds, es, ss
+	mov	ds, [bkp_reg_ds]
+	mov	es, [bkp_reg_es]
+	mov	ss, [bkp_reg_ss]
+
+
+	# restore IDT
+
+	lidt	rm_idtr
 
 	# NMI off
 	in	al, 0x70
@@ -616,6 +631,9 @@ real_mode:
 	out	0x70, al
 	in	al, 0x71
 
+	#sti
+
+.if 0 # DEBUG
 	# restore segment registers
 
 	push	0xb800
@@ -646,25 +664,6 @@ real_mode:
 	call	printhex
 	call	newline
 
-
-	# restore ds, es, ss
-	mov	ds, [bkp_reg_ds]
-	mov	es, [bkp_reg_es]
-	mov	ss, [bkp_reg_ss]
-
-	# restore cs 
-	push	[bkp_reg_cs]
-	mov	ax, [codeoffset]
-	add	ax, offset 0f
-	push	ax
-	retf
-0:
-	mov	ah, 0x0f
-	mov	dx, 0xc001
-	call	printhex
-	mov	dx, ds
-	call	printhex
-
 	PRINT "Restored Realmode CS: "
 	#mov	sp, [bkp_reg_sp]
 	mov	dx, cs
@@ -676,7 +675,7 @@ real_mode:
 	mov	es:[di-2], byte ptr ':'
 	mov	dx, sp
 	call	printhex
-
+.endif
 	PRINT "Return address: "
 
 	pop	edx
@@ -691,9 +690,20 @@ real_mode:
 	ret
 #####################################################################
 
-
+.code32
 int_count: .long 0
 gate_int32:
+	push	ax
+	push	ds
+	
+	mov	ax, SEL_flatDS
+	mov	ds, ax
+	mov	[0xb8000], byte ptr '!'
+
+	pop	ds
+	pop	ax
+	iret
+
 	cli
 	push	es
 	push	edi
@@ -716,13 +726,12 @@ gate_int32:
 	pop	edx
 	pop	edi
 	pop	es
-	sti
+	#sti
 	iret
 
 
 
-# pmode data
-
+.code16
 test_protected_mode:
 	mov	ax, 0x7000
 	call	cls
@@ -731,8 +740,37 @@ test_protected_mode:
 	mov	dx, [bp]
 	call	printhex
 	call	newline
+	
+	# QEMU: GDT limit 37 base FCD80  IDT limit  3ff base 0
+	# VBOX: GDT limit 30 base FC7F3  IDT limit ffff base 1
+.macro PRINT_DT msg, gdt, idt
+# Realmode GDT:
+	PRINT	"\msg"
+	PRINT	" GDT: limit="
+	mov	dx, [\gdt]
+	call	printhex
+	PRINT "base="
+	mov	edx, [\gdt+2]
+	call	printhex8
+# Realmode IDT:
+	PRINT "  IDT: limit="
+	mov	dx, [\idt]
+	call	printhex
+	PRINT "base="
+	mov	edx, [\idt+2]
+	call	printhex8
+.endm
+	sgdt	[rm_gdtr]	# limit=30 base=000FC7F3
+	sidt	[rm_idtr]	# limit=FFFF base=00000000
+	PRINT_DT "Realmode" rm_gdtr rm_idtr
+	PRINT_DT "PMode   " pm_gdtr pm_idtr
+
+	call	newline
+
+	xor	ax, ax	# pmode argument: flat code XXX for now not dynamic
 	call	protected_mode
 .code32
+pmode:
 
 	#SCREEN_OFFS 0, 20
 	mov	ah, 0x3f
@@ -741,33 +779,69 @@ test_protected_mode:
 	mov	edx, offset 0f
 	call	printhex8_32
 
-#	mov	ecx, 1000000
-#0:	hlt
-#	loop 0b
+# add a delay so the already printed output gets rendered by the VM before it
+# crashes..
+	mov	ecx, 100000
+	mov	ah, 0x41
+0:	nop
+	#mov	edx, ecx
+	#xor	edi, edi # assume es=vid_txt
+	#call	printhex8_32
+	loop 0b
+
 
 #################################################
-.if 0
+
+	PRINTLN_32 "Loading IDT"
+
 	cli
+
+	push	es
+	push	edi
+
+	mov	edi, offset IDT
+	mov	ax, SEL_realmodeDS
+	mov	es, ax
+	mov	ecx, 256
+#	xor	eax, eax
+#	rep	stosb
+	mov	eax, offset gate_int32
+	#add	eax, [realsegflat]
+0:	mov	[edi + 0], ax
+	mov	[edi + 2], word ptr SEL_compatCS
+	mov	[edi + 4], word ptr 0x8e00
+	ror	eax, 16
+	mov	[edi + 6], ax
+	ror	eax, 16
+	add	edi, 8
+	loop	0b
+
+	pop	edi
+	pop	es
+
+	mov	eax, [realsegflat]
+	add	eax, dword ptr offset IDT
+	mov	[pm_idtr+2], eax # dword ptr offset IDT
+	lidt	pm_idtr
+
+	int	55
+
+.if 0
+
 	# Initialize IDT
 	mov	esi, offset IDT
 	mov	ecx, 256
-	mov	eax, [codeoffset]
-	add	eax, offset gate_int32
+	mov	eax, offset gate_int32
 	push	eax
 	mov	edx, eax
 	mov	ah, 0x7f
 	call	printhex8_32
 	pop	eax
 
-0:	mov	[esi + 0], ax
-	ror	eax, 16
-	mov	[esi + 6], ax
-	ror	eax, 16
-	loop	0b
-
-	PRINTLN "Loading IDT"
-	lidt	idtr
-	sti
+	mov	ecx, 100000
+0:	nop
+	loop 0b
+	#sti
 .endif
 #################################################
 
@@ -775,3 +849,4 @@ test_protected_mode:
 	call	real_mode
 .code16
 	ret
+
