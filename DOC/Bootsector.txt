@@ -1,4 +1,4 @@
-=== ISO9660 Image Booting
+= ISO9660 Image Booting =
 
 * Floppy Emulation
 
@@ -33,7 +33,7 @@
 
 
 A bootloader that would work regardless, would not rely on BIOS,
-or the ISO format, to have the boot image loaded beyond the first sector.
+or the ISO format, to have the boot image stored succeeding the first sector.
 
 On an ISO image we can safely assume that the image is contiguous,
 and access it using the BIOS and the drive identifier in register dl.
@@ -44,17 +44,18 @@ the disk format.
 
 Thus, to be able to use one universal bootloader for booting from
 CD, floppy, or existing disk, we can only rely on 440 bytes of
-storage.
+code and 70 bytes partition information.
 
 The partition table for a harddisk is able to reserve space,
 and if installing on an empty HDD we can then use this function
 to reserve space for the boot image before the partitions.
 
-Since the BIOS only provides for reading more than one sector for
-CD images, not for HDD images, this code then has to be present
-within the bootloader.
+Since the BIOS only provides automatic loading of more than one sector
+in a no-emulation el-torito CD image, we cannot rely on this feature
+in case the boot device is a floppy or a harddisk (or USB, NIC etc..)
 
-=== Segmentation
+
+= Segmentation =
 
 First attempt then is to have the bootloader code load the succeeding
 sectors.
@@ -76,7 +77,10 @@ in the first sector. This can be done in various ways:
 * disallowing using .data in succeeding sectors.
 * using only .text throughout, using subsections.
 
-=== Loading succeeding sectors
+The solution chosen is to implement the bootsector using only .text,
+which limits the restrictions to only the first 440 bytes.
+
+= Loading succeeding sectors =
 
 Assuming that the entire image has been constructed to use the same
 address space, i.e. is contiguous, and code any sector can correctly
@@ -86,11 +90,8 @@ Assuming further, for the first attempt, that the image itself
 is contiguous on disk, including it's first sector.
 
 The code then is a simple loop to load a number of sectors,
-incrementing the load address.
-
-Potential bug: Since this is 'self modifying code',
-  cache flushing may be required.
-
+incrementing the load address, or, trusting the BIOS to load multiple
+sectors at once.
 
 * Loading contiguous block anywhere on the boot medium
 
@@ -101,8 +102,32 @@ Potential bug: Since this is 'self modifying code',
 Limitation: BIOS can have limited capacity to address storage.
 
 
+== Contiguous kernel storage ==
 
-=== Floppy Bootsector
+DOS implements this by having it's tools enforce a contiguous storage
+of system files (IO.SYS etc) within the fragmentable filesystem.
+Since the FAT filesystem is relatively simple, finding a disk address
+for a file is very straightforward.
+
+Linux implements this by having a reserved disk area within it's filesystems
+where all files are (i suppose) written consecutively.
+
+The IBM partitioning scheme for harddisks allows for reserved sectors
+to follow the bootsector, however, there is no consensus as to it's
+format, and thus, different OS's on other partitions may assume it's
+space for it's own use. 
+
+We may assume that the bootloader is stored on a particular partition,
+in which case it determines the start of the filesystem and thus can
+reserve the data for itself. FAT for instance specifies where it's
+descriptor sectors are stored, which offer the possibility of reserving
+space outside of the filesystem. 
+
+Since the bootloader is too small to implement finding out the address
+for a particular file in all filesystems, we do rely on this contiguous
+storage for the stage 1 bootloader - sector1.
+
+=== Floppy Bootsector ===
 set stack top to 7c00
 
 Uses INT 1E vector (0000:0078) floppy drive parameters,
@@ -113,11 +138,48 @@ loads it, and executes it.
 
 terminates with int 19 when unsuccesful
 
-=== Hard Disk Bootsector
+=== Hard Disk Bootsector ===
 
 Relocates itself to 0000:0600.
 
 contains primary partition table; scans itself to see if there is
 an active/bootable partition. If so, loads the first sector of
 the partition at 0000:7c00 and executes that.
+
+
+== Modular Kernel ==
+
+To have a configurable, extensible kernel, we will need to be able to 
+have a filesystem space where these settings can be configured, and modules
+stored.
+
+As such the division of sector1 bootstrapping the core kernel image,
+is no longer necessary, as both are static, contiguous blocks.
+Simply appending this core kernel to the stage 1 bootloader 'sector1'
+removes the need for code to do anoter dereference.
+
+However, the bootloader is made as universal as possible, and thus,
+can be the MBR, or a partition bootsector. It is possible to have
+several kernels on different partitions, which would then duplicate
+this stage1 loader on different partitions, each having their own
+different kernel embedded in them.
+
+Further, when the core kernel image itself is to be configurable,
+having the bootloader code stable, it is convenient to have this
+deference.
+
+It does require however that the filesystem of this shared space is
+programmed into sector1, and thus, operating system specific code
+would be present there.
+
+= Relocation =
+
+The bootloader should automatically relocate itself if it is the MBR.
+It can then chainload the bootloader from a particular partition.
+
+Since this chainloaded bootloader does not know where it was loaded from,
+it needs to encode this within it's own structure. As we cannot know which
+filesystems may be used, we just stick with the MBR, even in Volume
+Boot Sectors (partition boot sectors).
+
 

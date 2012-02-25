@@ -1,0 +1,355 @@
+= Environment =
+
+* CPU
+* IO ports
+* BIOS
+* Memory: ROM and RAM
+
+The OS consists of bytes running on the CPU.
+
+
+== CPU ==
+
+The core functionality of the CPU is providing the predefined operations,
+aswell as a context for these operations to operate upon.
+
+The contexts consists of a small region of memory, called registers,
+which' content can be changed by these instructions.
+
+One register serves to represent the operation to be executed,
+containing an operation-code and optionally argument-codes.
+
+The operations that the CPU can perform are to read and write these
+registers, aswell as a few simple register operations: shift, and, or,
+xor, not. The addressing of these registers aswell as the operation
+needed is hardwired in binary logic.
+
+=== Prebaked functionality ===
+
+The Core functionality of the CPU is to connect registers together,
+and allow the information from one register to be copied to another register.
+
+Within the CPU, algorithms are encoded, aswell as a means to interpret
+them and execute them. The core algorithms are selected by the operation
+codes.
+
+==== Execute Instruction ====
+The first algorithm is to execute an dynamic instruction, which is
+stored in an internal execution register, that shall remain unnamed.
+Once loaded, a bus that is connected to this acts as a switchboard
+to connect binary logic circuits together. A clock pulse then executes
+binary state changes in these logic gates (AND OR etc). In this way,
+registers are connected to input and output of binary logic.
+
+The System Clock drives this execution. The register determining
+the switchboard connection can be operated upon by these instructions
+themselves. A side effect of every instruction executed is to update
+this operation code register.
+
+==== Load Instruction ====
+This updating occurs by providing a value in a certain register,
+which we'll call the Instruction Pointer, and reading the value
+of another register into the instruction register.
+A second clock tick will then execute this instruction, potentially
+followed by more clock ticks to execute the algorithm for the instruction.
+
+==== IO Ports ====
+
+The CPU has builtin access to IO Ports and knows nothing else. The
+'access' to these IO ports within the CPU is that they appear as
+registers within it's internal memory space. These registers
+are hardwired to devices.
+
+The CPU implements IO ports by mapping these onto registers. It thus
+does not distinguish between types of registers. It can see an IO
+port register as a read-write registers, where writing a value issues
+the execution of an instruction known to the device connected to the IO
+port, and a read instruction to read the result. As such these represent
+simplistic function calls.  The execution of instructions themselves
+are done this way, by writing to a register that is connected to the
+opcode switchboard that connects the proper registers, and reading
+the result into another register. This is however optimized where
+a number of clock ticks executes a sequence of these operations which
+automatically update the CPU's core registers, including the instruction
+register.
+
+A general IO functionality is to provide a register containing an IO
+base port number to operate upon, and to provide an instruction to read
+and to write these ports.
+
+==== Memory ====
+
+It can be seen that the memory itself is a device that is accessed like 
+an IO device, as it is one. Since it is the core provider of instruction
+opcodes, the CPU has dedicated internal registers for memory access,
+and provides functionality to fetch and store values in these memory
+registers from/to any of a number of general purpose registers.
+
+It offers the functionality of reading and writing these IO ports,
+and operate on the data.
+
+==== Jumps ====
+
+The normal operation of the CPU is to increment the program counter,
+the instruction pointer IP, with the size of the operation that is
+currently executing, to determine the next instruction to be executed.
+
+Selecting different algorithms to execute can be done by having instructions
+that allow to continue execution at any memory address, called jump
+instructions. 
+
+Jumps are instructions that allow arbitrary change to the IP register.
+A simple jump is effected thus:
+
+JMP:	mov	eip, LOCATION
+
+often the instruction is given a specific mnemonic to indicate that 
+instruction execution control transfer is taking place, to distinguish
+from normal operation flow instructions:
+
+	jmp	LOCATION
+
+The location to jump to can be either encoded within the instruction
+as a fixed address, or it can be a register.
+
+===== Unconditional Jump =====
+The unconditional jump instruction allows to skip a number of instructions,
+jumping forward, or to repeat executing the same instructions, jumping
+backward.
+
+===== Conditional Jump =====
+Conditional jumps allow transfer to other memory addresses based on the
+values of registers, typically a flag register. This flag register
+is automatically updated during the execution of each instruction,
+such as the shift-left instruction, where the 'carry flag' bit in
+the flags register indicates whether the value shifted out of the register
+was a 0 or a 1. As such, the carry flag is an parameter to the shift
+instruction.
+This flag can then be incorporated in a conditional jump, by jumping,
+or not, depending on this flag. As such, jumps can be parameterized
+by defining which flags have to be set (carry a value of 1) in order
+to jump (and the opposite, to not jump). 
+For a number of flags #f, there are 2^#f possible combinations to use
+as a selection.
+
+
+==== Calls ====
+
+To have the same piece of code reusable in other parts of a program,
+it needs to be able to return to different locations, which is provided
+by having the jump instructions parameterizable with dynamic calues
+contained in registers.
+
+In order to do calls, there needs to be a calling convention.
+A simple calling convention is to use a register for the return address
+by a function that is being called. The calling function obtains the
+address of the callee, stores the address of the continuation of execution
+after the function is complete, and transfers execution to the function.
+
+When a function itself calls another function, this return address needs
+to be saved. Since the number of registers in a CPU is predefined,
+and software programs are not, memory is the typical choice to store
+these values. This means that the return address register is no longer
+needed, except during execution of a jump, which then simply loads
+the IP register with the address retrieved from memory.
+
+We thus envision a simple calling convention, dedicating a register
+to point to a storage area for return addresses:
+
+CALL:	mov	[esp], eip + (CONT - CALL)
+	sub	esp, sizeof eip
+	jmp	CALLEE
+CONT:
+
+CALLEE:
+	....
+RET:	add	esp, sizeof eip
+	jmp	[esp - sizeof eip]
+
+Since these are typical operations, they are compacted into instructions.
+These instructions use a predetermined register holding the memory location,
+which is then given a name Stack Pointer or SP, and the memory area
+that it operates upon is called the Stack.
+Not always is a execution control transfer required when values on the
+stack are manipulated, and thus, a separate set of instructions to do
+so are introduced:
+
+PUSH:	mov	[esp], VALUE
+	sub	esp, sizeof VALUE
+
+POP:	mov	target, [esp]
+	add	esp, sizeof target
+
+There are two possibilities for each instruction in regards to incrementing
+or decrementing the value, which is represented in a stack direction flag.
+
+The calling convention now looks like:
+
+CALL:	push	eip.next
+	jmp	CALLEE
+
+CALLEE:	pop	eip
+
+These are typically given mnemonics such as
+
+	call	CALLEE
+
+and
+
+	ret
+
+also simplifying the calculation of the return address as the call instruction
+size is known.
+
+On Sparc systems, a call is called a branch, as the system contains
+the potentiality of two execution lines - the continuation without or after
+the call, and the call itself.  The return opcode would have been aptly
+called 'merge', to merge the line of execution with the one it branched from.
+
+
+
+==== Interrupts ====
+The concept of interrupts indicates that normal execution is suspended,
+and specific code is executed instead. 
+
+===== Software =====
+There are two types of interrupts, handled the same way. One is a software
+interrupt, which is triggered by an instruction opcode.
+
+The CPU contains a register that
+holds the start address of a number of memory locations, called the
+Interrupt Vector Table or Interrupt Descriptor Table. 
+
+The interrupt instruction is parameterized by a single number that
+indicates the index into this array of memory locations where the
+address of the handler for that interrupt is stored.
+
+In essence this is no different
+than a function call instruction opcode which contains a reference
+to a memory location to be executed. A function call differs from
+a 'goto' or 'jump' instruction in that it stores the address of
+the instruction it would execute next into a specific memory location.
+
+	int	number
+
+	call	[interrupt_base + number]
+
+===== Hardware =====
+
+A second type of interrupt are called Hardware Interrupts, which 
+are not triggered by specific instruction opcodes, but by other registers.
+
+The instruction selection algorithm hardcoded within the CPU contains
+a register that allows devices to signal certain conditions to the CPU.
+One bit in such a register is the interrupt pin. The algorithm to select
+the instruction reads the instruction register, which contains not only
+the memory opcode, but also these flags, including the interrupt flag.
+When this flag is set, it executes a pre-baked functionality to 
+transfer execution to a value read from a memory location, indexed
+by a register. Thus, on detecting the interrupt pin is active,
+it reads the values of a certain port describing the interrupt number,
+looks up the address in the interrupt vector/descriptor table,
+and transfers execution to it by executing the calling convention
+for interrupts. Typically these hardware interrupts are mediated by
+a chip, called the Programmable Interrupt Controller, to which
+all devices that desire interrupt triggering functionality to signal
+the CPU of certain conditions, are connected.
+
+The calling convention for interrupts is based on the calling
+convention for function calls. Yet, they can interrupt regular
+program execution and thus change the state of registers between
+execution of consecutive instructions. Typically the flags
+register needs to be preserved. Other registers are to be preserved
+by the specific interrupt handler, as it is not known what it may change,
+and, to save and restore unaltered registers wastes memory aswell
+as potentially clock cycles.
+
+
+== BIOS ==
+
+The BIOS is directly connected to the CPU and in charge of initializing
+the registers, typically the instruction pointer, and to initiate
+execution in the CPU. It either has direct memory access and copies
+it's ROM (see below) to the memory, or, it uses the CPU directly,
+by providing the CPU with instructions bypassing its internal IP
+addressing scheme.
+
+Once the code is accessible in memory, the BIOS initiates a control
+execution transfer to start executing that code.
+
+Typically this code is in charge of loading an initial program from
+a device into memory, and thus, it replicates it's own function
+yet allows instructions to be loaded from elsewhere than it's ROM.
+
+Due to a consensus in connecting devices to IO ports on the CPU,
+it can access certain standardized devices such as removable media
+or fixed disks using the IO port functionality of the CPU.
+
+Thus, the BIOS provides a way to load program code from a storage device
+into memory where they are accessible to the CPU.
+
+Further, it offers a standardized API to access functionality to access
+basic devices, not only storage, networking (bootp), but also
+keyboard and display. This API is the Interrupt Vector Table.
+
+=== ROM ===
+
+Read-Only memory only has meaning when this memory contains stored
+information. Thus, this type of memory is persistent, even when there
+is no voltage.
+
+=== RAM ===
+
+Random Access Memory. Access refers to read/write, aswell as the ability
+to address any section of it.
+
+
+=== DMA ===
+
+This device allows for automatic transfer of memory from and to devices
+without the need to read a port a number of times, aswell
+as provide mass-memory move operations.
+
+
+
+
+= Initial Limitation: ROM code =
+
+* BIOS ROM: only programs stored in ROM can be executed.
+
+The BIOS transcends this limitation by providing the ability to read
+code from devices, such as storage and network, into memory and
+transfer execution to it.
+
+It's minimum offering is the loading of 512 bytes of data from
+a bootsector or a network boot protocol, together with the information
+and ability to read more data from the boot device.
+
+
+= Second Limitation: Bootsector Code =
+
+* 512 bytes of code (sector)
+	Transcended using the help of the BIOS, providing:
+	1) the bootdevice ID in register dl,
+	2) it's ROM mapped onto memory, 
+	3) pointers to this memory (interrupt vectors)
+
+	This BIOS memory area contains both information (EBDA),
+	aswell as the functionality that allowed to load the first 512 bytes,
+	and other sectors.
+
+= Second Limitation: Memory range =
+
+* 1MB of memory accessible using 20 bits linear addressing.
+	Or, 'real mode'. The CPU offers the ability to change it's
+	operational mode to protected mode, long mode, what have you.
+	
+= Third Limitiation: Device Functionality =
+
+== Replicating BIOS functionality ==
+	The Protected Mode however might break certain BIOS'es that are
+	designed to only function in real mode.
+	Thus, device drivers are needed to replace BIOS functionality,
+	as the BIOS itself is ROM and does not guarantee PMODE functionality.
+
+

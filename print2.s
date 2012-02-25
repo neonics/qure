@@ -172,4 +172,54 @@ print_32:
 
 
 
+# little print macro
+.macro PH8 m, r
+	push	edx
+	.if \r != edx
+	mov	edx, \r
+	.endif
+	push	ax
+	mov	ah, 0xf0
+	PRINT "\m" 
+	call	printhex8
+	add	di, 2
+	pop	ax
+	pop	edx
+.endm
+
+.macro DBGSO16 msg, seg, offs
+	mov	ah, 0xf0
+	PRINT	"\msg"
+	mov	dx, \seg
+	call	printhex
+	mov	es:[di-2], byte ptr ':'
+	mov	dx, \offs
+	call	printhex
+.endm
+
+.macro DBGSTACK16 msg, offs
+	PRINT	"\msg"
+	mov	bp, sp
+	mov	dx, [bp + offs]
+	call	printhex
+.endm
+
+
+# Assuming es = SEL_vid_txt
+.macro SCREEN_INIT
+	mov	di, SEL_vid_txt
+	mov	es, di
+	xor	edi, edi
+.endm
+.macro SCREEN_OFFS x, y
+	o =  2 * ( \x + 80 * \y )
+	.if o == 0
+	xor	edi, edi
+	.else
+	mov	edi, o
+	.endif
+.endm
+
+
+
 .code16

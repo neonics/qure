@@ -7,21 +7,47 @@ v Check Eltorito bootsector specification for CDROM.
 v include acpi.s breaks as
   Filed bug report.
 
-TODO: test acpi_poweroff
 
+v: bootloader writing. Currently destroys the target disk's previous
+   data, as it writes to the MBR and succeeding sectors.
 
 TODO: bootloader writing: write sector1 and following in the place indicated
   by the MBR. If writing to existing partition, allocate space using
   it's filesystem.
 
-DONE: PMode. Provide: GDT (Global Descriptor Table)
+v: PMode. Provide: GDT (Global Descriptor Table)
 
-TODO: Pmode IDT (Interrupt Table) / PIC remapping
+
+TODO: Pmode IDT (Interrupt Table)
+TODO: PIC remapping
+
+TODO: construct memory map (ebda, bios rom etc).
+
+TODO: implement Paging
+
+TODO: test acpi_poweroff
+
 TODO: implement keyboard driver in PMode (depends IDT)
 
 TODO: Shell
 
 TODO: filesystem
+
+TODO: clean up bootloader, separate from kernel. Decisions:
+	- whether sector1 is the kernel, or whether it is additional
+	  bootloader code. At some point the kernel/sector1 will not
+	  be succeeding the bootsector immediately, if compatability
+	  with multi-os prepartitioned harddisks is desired.
+
+	  When the os
+
+	  Linux implements this (afaik) by having reserved space 
+
+	- splitting: where to split sector1 from the kernel, where
+	  is pmode entered? Goal is to use as little duplicate code as
+	  possible.
+	- whether to load the kernel in realmode or in pmode
+	- whether to implement pmode drivers or do v86/realmode switching
 
 TODO: load modules/objects/programs
 
