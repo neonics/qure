@@ -32,7 +32,7 @@ printhex8_32:
 	add	al, 'A' - '0' - 10
 1:	add	al, '0'
 	stosw
-	loopnz	0b
+	loop	0b
 	pop	edx
 	pop	ecx
 	pop	eax
@@ -58,18 +58,18 @@ cls_32:
 # arg: dx
 .global printhex2_32
 printhex2_32:
-	push	ax
-	push	cx
-	push	dx
-	mov	cx, 2
+	push	eax
+	push	ecx
+	push	edx
+	mov	ecx, 2
 	shl	dx, 8
 	jmp	0f
 .global printhex_32
 printhex_32:
-	push	ax
-	push	cx
-	push	dx
-	mov	cx, 4
+	push	eax
+	push	ecx
+	push	edx
+	mov	ecx, 4
 0:	rol	dx, 4
 	mov	al, dl
 	and	al, 0xf
@@ -81,9 +81,9 @@ printhex_32:
 	loopnz	0b
 
 	add	di, 2
-	pop	dx
-	pop	cx
-	pop	ax
+	pop	edx
+	pop	ecx
+	pop	eax
 	ret
 
 .macro PRINTHEX_32 r
@@ -220,6 +220,12 @@ print_32:
 	.endif
 .endm
 
+.macro LOAD_TXT txt
+	.data
+	9: .asciz "\txt"
+	.text
+	mov	esi, offset 9b
+.endm
 
 
 .code16

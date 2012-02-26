@@ -72,6 +72,11 @@ GDT_flatDS:	DEFGDT 0, 0xffffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 92 ca 00
 GDT_tss:	DEFGDT 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 GDT_vid_txt:	DEFGDT 0xb8000, 0x00ffff, ACCESS_DATA, FLAGS_16
 GDT_vid_gfx:	DEFGDT 0xa00000, 0x00ffff, ACCESS_DATA, FLAGS_16
+
+GDT_compatCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, FLAGS_32 #ffff 0000 00 9a 00 00
+GDT_compatDS:	DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 9a 00 00
+GDT_compatSS:	DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 9a 00 00
+
 GDT_realmodeCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, FLAGS_16 #ffff 0000 00 9a 00 00
 GDT_realmodeDS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 GDT_realmodeSS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
@@ -79,7 +84,8 @@ GDT_realmodeES: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 GDT_realmodeFS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 GDT_realmodeGS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 
-GDT_compatCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, FLAGS_32 #ffff 0000 00 9a 00 00
+GDT_biosCS:	DEFGDT 0xf0000, 0x00ffff, ACCESS_CODE, FLAGS_16 #ffff 0000 00 92 00 00
+
 pm_gdtr:.word . - GDT -1
 	.long GDT
 rm_gdtr:.word 0
@@ -90,13 +96,18 @@ rm_gdtr:.word 0
 .equ SEL_tss,		8 * 3
 .equ SEL_vid_txt, 	8 * 4
 .equ SEL_vid_gfx, 	8 * 5
-.equ SEL_realmodeCS, 	8 * 6
-.equ SEL_realmodeDS,	8 * 7
-.equ SEL_realmodeSS,	8 * 8
-.equ SEL_realmodeES, 	8 * 9
-.equ SEL_realmodeFS, 	8 * 10
-.equ SEL_realmodeGS, 	8 * 11
-.equ SEL_compatCS, 	8 * 12 # same as realmodeCS except 32 bit
+
+.equ SEL_compatCS, 	8 * 6 # same as realmodeCS except 32 bit
+.equ SEL_compatDS, 	8 * 7 # same as realmodeDS except 32 bit
+.equ SEL_compatSS, 	8 * 8 # same as realmodeSS except 32 bit
+
+.equ SEL_realmodeCS, 	8 * 9
+.equ SEL_realmodeDS,	8 * 10
+.equ SEL_realmodeSS,	8 * 11
+.equ SEL_realmodeES, 	8 * 12
+.equ SEL_realmodeFS, 	8 * 13
+.equ SEL_realmodeGS, 	8 * 14
+.equ SEL_biosCS,	8 * 15	# origin F000:0000
 
 .macro GDT_STORE_SEG seg
 	mov	[\seg + 2], ax
@@ -113,6 +124,14 @@ rm_gdtr:.word 0
 	or	al, ah
 	mov	[\lim + 6], al
 	# ignore ah as realmode addresses are 20 bits
+.endm
+
+
+.macro GDT_GET_BASE target, sel
+	xor	\target, \target
+	mov	al, [GDT + \sel + 7]
+	shl	\target, 16
+	mov	ax, [GDT + \sel + 2]
 .endm
 
 	# QEMU: GDT limit 37 base FCD80  IDT limit  3ff base 0
@@ -189,7 +208,10 @@ init_gdt:
 		PH8 "Data base: " eax
 	.endif
 
+	push	eax
 	GDT_STORE_SEG GDT_realmodeDS
+	pop	eax
+	GDT_STORE_SEG GDT_compatDS
 
 
 	# store proper linear (base 0) GDT/IDT address in pointer structure

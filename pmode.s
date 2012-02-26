@@ -1,7 +1,7 @@
 .intel_syntax noprefix
 
 IRQ_BASE = 0x20	# base number for PIC hardware interrupts
-DEBUG = 0
+DEBUG = 0 # debug is b0rk3d!
 
 .include "gdt.s"
 .include "idt.s"
@@ -36,7 +36,8 @@ bkp_reg_gs: .word 0
 #
 # BEWARE when specifying 0 in ax when calling this function: ds will be
 # flat, and thus most likely data references will not work, unless
-# the code after this method uses a different relocation scheme.
+# the code after this method uses a different relocation scheme. Similarly
+# for non-relative code references.
 #
 # This method assumes that CS is the base pointer for the code,
 # and will use the area before it as the TSS stack.
@@ -181,10 +182,7 @@ real_mode:
 	pop	edx	# convert stack return address
 
 	mov	bx, cs	# add base of current selector to stack
-	xor	ax, ax
-	mov	al, [GDT+bx + 7]
-	shl	eax, 16
-	mov	ax, [GDT+bx + 2]
+	GDT_GET_BASE bx
 	add	edx, eax
 
 	push	dx
@@ -299,43 +297,12 @@ real_mode:
 #####################################################################
 
 .code32
-int_count: .long 0
-gate_int32:
-	push	ax
-	push	ds
-	
-	mov	ax, SEL_flatDS
-	mov	ds, ax
-	mov	[0xb8000], byte ptr '!'
+#################################################
+.include "keyboard.s"
+#################################################
 
-	pop	ds
-	pop	ax
-	iret
-
-	cli
-	push	es
-	push	edi
-	push	edx
-	push	ax
-
-#	mov	di, SEL_vid_txt
-#	mov	es, di
-	inc	byte ptr es:[0]
-	/*
-	xor	edi, edi
-	mov	ax, 0xf2<<8 + '!'
-	stosw
-	mov	edx, [int_count]
-	call	printhex8_32
-	inc	dword ptr [int_count]
-	*/
-
-	pop	ax
-	pop	edx
-	pop	edi
-	pop	es
-	#sti
-	iret
+gate_task32:
+	ret
 
 
 	# see if this call works in pmode...
@@ -350,13 +317,93 @@ gate_int32:
 #	in	al, 0x60
 #	stosw
 
+bios_proxy:
+	# dl = the interrupt.
+	# call the realmode handler, staying in pmode
+	push	ebp
+	mov	ebp, esp
+	push	eax
+	push	edx
+	push	edi
+	# mov edi, current_screen_pos
 
+	mov	ax, SEL_flatDS
+	mov	ds, ax
+	and	edx, 0xff
+	shl	edx, 2
+	mov	edx, [edx]	# load INT handler ptr
+	mov	ah, 0xf6
+	call	printhex_32
+	mov	al, ':'
+	stosw
+	ror	edx, 16
+	call	printhex_32
+	ror	edx, 16
+
+	cmp	dx, 0xf000
+	LOAD_TXT "Not BIOS call"
+	je	0f
+
+	# now, we need to restore the registers, and push the BIOS call
+	# address on the stack.
+	# We'll just duplicate the call stack, assuming that BIOS
+	# functions do not use stack arguments except the flags.
+	#(which they dont AFAIK).
+
+	# set up fake call stack for bios function
+	mov	ax, [ebp + 4 + 4 + 2]	# low word flags
+	push	ax
+	push	cs
+	push	offset 2f # assumes non-0-based (flat) cs
+	# now, in 16 bit code, iret will return us at label 2
+
+	# prepare call structure to jump to 16 bit bios using 32 bit iret:
+	mov	eax, [ebp + 4 + 4 + 2]  # flags
+	push	eax	
+	push	word ptr SEL_biosCS	# selector/ 'segment'
+	shr	edx, 16			# offset of function
+	push	edx	# offset
+
+	# restore registers:
+
+	mov	edx, [ebp - 20]
+	mov	edi, [ebp - 16]
+	mov	ax,  [ebp - 12] # ds
+	mov	ds, ax
+	mov	ax,  [ebp - 10] # es
+	mov	es, ax
+	mov	esi, [ebp - 8]
+	mov	eax, [ebp - 4]
+	mov	ebp, [ebp]
+
+	# now use iret to conveniently jump
+	iret
+.code16
+2:	# BIOS should return here in 16 bit CS selector
+	# return to 32 bit CS
+	push	SEL_compatCS # should be same as in IDT
+	push	offset 2f
+	retf
+.code32
+2:	# back in 32 bit, show message:
+	mov	ax, SEL_vid_txt
+	mov	edi, 2 * ( 1*80 + 0 )
+	mov	ax, SEL_compatDS
+	mov	ds, ax
+	mov	ah, 0xf1
+	PRINT "Return from BIOS call"
+
+	pop	edi
+	pop	edx
+	pop	eax
+	pop	ebp
+	ret # or iret, depending on how this is called.
 
 
 
 .code16
 test_protected_mode:
-	mov	ax, 0x7000
+	mov	ax, 0x0800
 	call	cls
 	mov	bp, sp
 	PRINT "TEST PM called from: "
@@ -433,7 +480,9 @@ smc$:
 
 	PRINTLN_32 "Loading IDT"
 
+	/*
 	cli
+
 
 	push	es
 	push	edi
@@ -457,14 +506,65 @@ smc$:
 
 	pop	edi
 	pop	es
+	*/
 
-	mov	eax, [realsegflat]
-	add	eax, dword ptr offset IDT
-	mov	[pm_idtr+2], eax # dword ptr offset IDT
-	lidt	pm_idtr
+	call	init_idt
 
 	int	55
 
+
+	call	hook_keyboard_isr32
+
+	# NMI on
+	in	al, 0x70
+	and	al, 0x7f
+	out	0x70, al
+	in	al, 0x71
+
+	sti # jic
+	
+	mov	ax, 0 # 0xfffd
+	call	pic_set_mask
+
+#######################################
+	push	edi
+	mov	ecx, 10000000
+	xor	ebx, ebx
+0:	SCREEN_OFFS 0, 1
+	mov	ah, 0xf9
+
+	mov	edx, ecx	# countdown
+	call	printhex8_32
+	add	edi, 2
+
+	mov	edx, ebx	# nr of keystrokes
+	call	printhex8_32
+	add	di, 2
+
+
+	push	ax
+	mov	ah, 1
+	call	keyboard
+	mov	dx, ax
+	pop	ax
+
+	jz	1f
+	call	printhex_32
+	inc	edx
+	jmp	2f
+
+1:	PRINT_32 "No Key"
+2:	
+
+	test	ecx, 0xfffff
+	jnz	1f
+	int	0x55
+1:
+
+	loop	0b
+	pop	edi
+
+#######################################
 .if 0
 
 	# Initialize IDT
@@ -487,6 +587,8 @@ smc$:
 
 	call	real_mode
 .code16
+
+mov	ax, unknown_symbol
 	ret
 
 .include "pic.s"
