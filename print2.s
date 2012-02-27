@@ -227,5 +227,118 @@ print_32:
 	mov	esi, offset 9b
 .endm
 
+printbin8_32:
+	push	ecx
+	push	ax
+	mov	ecx, 8
+0:	mov	al, '0'
+	rol	dl, 1
+	adc	al, 0
+	stosw
+	loop	0b
+	pop	ax
+	pop	ecx
+	ret
+
+printdec8_32:	# UNTESTED
+	push	eax
+	push	ebx
+	push	edx
+	push	ecx
+	mov	bh, ah
+	mov	ecx, 10
+
+	xor	eax, eax
+	xchg	edx, eax
+
+0:	div	ecx
+
+	mov	bl, dl
+	add	bl, '0'
+	mov	es:[edi], bx
+	inc	edi
+
+	or	eax, eax
+	jnz	0b
+	
+
+	pop	ecx
+	pop	edx
+	pop	ebx
+	pop	eax
+	ret
+
+# in: esi, stack
+_printf:
+	push	ebp
+	mov	ebp, esp
+	add	ebp, 4 + 4
+	push	edx
+
+2:	lodsb
+	or	al, al
+	jz	2f
+
+###########################
+0:	# %
+	cmp	al, '%'
+	jne	0f
+
+	lodsb
+	mov	edx, [ebp]
+	add	ebp, 4
+
+	cmp	al, 'x'
+	jne	1f
+	call	printhex8_32
+	jmp	2b
+1:	cmp	al, 'd'
+	jne	1f
+	call	printdec8_32
+	jmp	2b
+1:	cmp	al, 'b'
+	jne	1f
+	call	printbin8_32
+	jmp	2b
+1:	cmp	al, 's'
+	jne	1f
+	push	esi
+	mov	esi, edx
+	call	print_32
+	pop	esi
+	jmp	0b
+1:
+	push	ax
+	mov	ah, 0xf4
+	mov	al, '<'
+	stosw
+	mov	al, '?'
+	stosw
+	mov	al, '>'
+	stosw
+	pop	ax
+	jmp	2b
+
+
+###########################
+0:	# Escape
+	cmp	al, '\\'
+	jne	1f
+	lodsb
+	or	al, al
+	jz	2f
+	cmp	al, 'n'
+	je	1f
+	call	newline
+	jmp	0b
+
+1:	cmp	al, 'r'	# ignore
+	jne	1f
+
+###########################
+	jmp	2b
+2:	pop	edx
+	pop	ebp
+	ret
 
 .code16

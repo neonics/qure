@@ -3,6 +3,8 @@
 IRQ_BASE = 0x20	# base number for PIC hardware interrupts
 DEBUG = 0 # debug is b0rk3d!
 
+
+.include "pic.s"
 .include "gdt.s"
 .include "idt.s"
 .include "tss.s"
@@ -25,6 +27,32 @@ bkp_reg_gs: .word 0
 ##########################
 .text
 .code16
+
+.macro NMI_OFF
+	in	al, 0x70
+	or	al, 0x80
+	out	0x70, al
+	in	al, 0x71
+.endm
+
+.macro NMI_ON
+	in	al, 0x70
+	and	al, 0xfe
+	out	0x70, al
+	in	al, 0x71
+.endm
+
+.macro INTERRUPTS_ON
+	NMI_ON
+	sti
+.endm
+
+.macro INTERRUPTS_OFF
+	cli
+	NMI_OFF
+.endm
+
+
 # in: ax: Flags
 # bit0:	0 = flat mode (flatCS, flatDS for all registers; esp updated)
 #	1 = compatibility mode (compatCS, realmodeDS/ES/FS/GS/SS)
@@ -60,6 +88,7 @@ protected_mode:
 		call	newline
 	.endif
 
+	mov	edi, 160 * 4
 
 	call	init_gdt
 
@@ -73,17 +102,10 @@ protected_mode:
 	out	0x92, al
 0:
 
-	# Interrupts off
+	INTERRUPTS_OFF
 
-	cli
-
-	in	al, 0x70	# NMI off
-	or	al, 0x80
-	out	0x70, al
-	in	al, 0x71
-
-	mov	ax, (IRQ_BASE + 8) << 8 | IRQ_BASE
-	call	pic_init
+	mov	ax, 0x2820
+	call	pic_init16
 
 	.if DEBUG
 		mov	ah, 0xf5
@@ -91,17 +113,13 @@ protected_mode:
 		call	waitkey
 	.endif
 
-	# init pmode
-	mov	eax, cr0
-	or	al, 1
-	mov	cr0, eax
-
-
 	# flush prefetch queue, replace cs.
 	# since the object is not relocated to a specific address,
 	# we need to correct. We don't prefer to use a static value like 7c00.
 	# Either self-modifing code - needs extra jumps to clear prefetch queue
 	# - or use a register.
+
+	# prepare the far jump instruction
 
 	mov	eax, offset pmode_entry$
 	mov	cx, SEL_compatCS
@@ -118,11 +136,18 @@ protected_mode:
 		PH8 "PM Entry: " eax
 	.endif
 
-	jmp	0f	# clear prefetch queue
-	0:	
 
-	# switch out the cs register
-	#DATA32 ljmp	SEL_flatCS, offset pmode_entry$ + RELOCATION
+	# init pmode
+
+	mov	eax, cr0
+	or	al, 1
+	mov	cr0, eax
+
+	# switch out the cs register.
+	# A jump (near or far) must be done IMMEDIATELY after a mode switch,
+	# to clear out the prefetch queue.
+
+	# DATA32 ljmp	SEL_flatCS, offset pmode_entry$ + RELOCATION
 	.byte 0x66, 0xea
 	pm_entry:.long 0
 	.word SEL_flatCS
@@ -161,6 +186,11 @@ pmode_entry$:
 1:
 	push	edx
 
+	# load Task Register
+
+	mov	ax, SEL_tss
+	ltr	ax
+
 	.if DEBUG
 		SCREEN_INIT
 		SCREEN_OFFS 15, 0
@@ -171,7 +201,7 @@ pmode_entry$:
 		loop	0b
 	.endif
 
-	ret
+	ret	# at this point all interrupts are off.
 
 
 #######################################################
@@ -187,13 +217,7 @@ real_mode:
 
 	push	dx
 
-	cli
-	# set NMI off
-	in	al, 0x70
-	or	al, 0x80 # XXX nmi on?
-	out	0x70, al
-	in	al, 0x71
-
+	INTERRUPTS_OFF
 
 	# ljmp SEL_realmodeCS, offset 0f
 	# 0x66 0xea [long return address] [word sel_16bitcs]
@@ -210,6 +234,8 @@ real_mode:
 	mov	eax, cr0
 	and	al, 0xfe
 	mov	cr0, eax
+	jmp	0f	# 'serialize cpu': flush internal cache
+0:
 
 	# restore realmode cs 
 	push	[bkp_reg_cs]
@@ -230,61 +256,11 @@ real_mode:
 	lidt	rm_idtr
 
 	mov	ax, 0x7008
-	call	pic_init
+	call	pic_init16
 
-	# NMI on
-	in	al, 0x70
-	and	al, 0x7f
-	out	0x70, al
-	in	al, 0x71
+	INTERRUPTS_ON
 
-	#sti
-
-.if 0 # DEBUG
-	# restore segment registers
-
-	push	0xb800
-	pop	es
-	mov	di, 160 * 18
-	mov	ah, 0x4f
-	mov	dx, 0x1337
-	call	printhex
-
-	PRINT "cs: "
-	mov	dx, cs
-	call	printhex
-	PRINT "ds: "
-	mov	dx, ds
-	call	printhex
-	PRINT "ss: "
-	mov	dx, ss
-	call	printhex
-
-	PRINT "Backed up RM cs: "
-	mov	dx, [bkp_reg_cs]
-	call	printhex
-	PRINT "ds: "
-	mov	dx, [bkp_reg_ds]
-	call	printhex
-	PRINT "ss: "
-	mov	dx, [bkp_reg_ss]
-	call	printhex
-	call	newline
-
-	PRINT "Restored Realmode CS: "
-	#mov	sp, [bkp_reg_sp]
-	mov	dx, cs
-	call	printhex
-
-	PRINT "SS:SP: "
-	mov	dx, ss
-	call	printhex
-	mov	es:[di-2], byte ptr ':'
-	mov	dx, sp
-	call	printhex
-.endif
 	PRINT "Return address: "
-
 
 	mov	bp, sp
 	mov	dx, [bp]
@@ -300,22 +276,6 @@ real_mode:
 #################################################
 .include "keyboard.s"
 #################################################
-
-gate_task32:
-	ret
-
-
-	# see if this call works in pmode...
-	#xor	ah, ah
-	#int	0x16
-	# nope:
-#0:	in	al, 0x64
-#	stosw
-#	sub	di, 2
-#	test	al, 2
-#	jz	0b
-#	in	al, 0x60
-#	stosw
 
 bios_proxy:
 	# dl = the interrupt.
@@ -406,17 +366,22 @@ test_protected_mode:
 	mov	ax, 0x0800
 	call	cls
 	mov	bp, sp
-	PRINT "TEST PM called from: "
+	PRINT	"TEST PM called from: "
 	mov	dx, [bp]
 	call	printhex
 	call	newline
-	
+
+	# wait until input buffer is read 
+0:	in	al, 0x64
+	test	al, 2
+	jnz	0b
+
 
 	xor	ax, ax	# pmode argument: flat code XXX for now not dynamic
 	mov	al, 0
 	call	protected_mode
 .code32
-pmode:
+pmode:	#label for disassembly code alignment
 
 	.data
 	msg$: .byte 'P', 0xf4, 'm', 0xf1, 'o', 0xf1, 'd', 0xf1, 'e', 0xf1
@@ -480,6 +445,7 @@ smc$:
 
 	PRINTLN_32 "Loading IDT"
 
+	call	init_idt
 	/*
 	cli
 
@@ -508,29 +474,32 @@ smc$:
 	pop	es
 	*/
 
-	call	init_idt
 
-	int	55
+	int	0x55		# software interrupt
 
+FOO:
+	PIC_SET_MASK 0xfffe #0xfffc
 
 	call	hook_keyboard_isr32
+.if 1
+	mov	cx, SEL_compatCS
+	mov	eax, 0x20
+	mov	ebx, offset isr_timer
+	call	hook_isr32
+.endif
 
-	# NMI on
-	in	al, 0x70
-	and	al, 0x7f
-	out	0x70, al
-	in	al, 0x71
+	INTERRUPTS_ON
 
-	sti # jic
-	
-	mov	ax, 0 # 0xfffd
-	call	pic_set_mask
+
+	# This works!:
+	#call	task_switch
+
 
 #######################################
 	push	edi
 	mov	ecx, 10000000
 	xor	ebx, ebx
-0:	SCREEN_OFFS 0, 1
+0:	SCREEN_OFFS 0, 5
 	mov	ah, 0xf9
 
 	mov	edx, ecx	# countdown
@@ -560,29 +529,12 @@ smc$:
 	jnz	1f
 	int	0x55
 1:
-
+	sti
+	hlt
 	loop	0b
 	pop	edi
 
-#######################################
-.if 0
-
-	# Initialize IDT
-	mov	esi, offset IDT
-	mov	ecx, 256
-	mov	eax, offset gate_int32
-	push	eax
-	mov	edx, eax
-	mov	ah, 0x7f
-	call	printhex8_32
-	pop	eax
-
-	mov	ecx, 100000
-0:	nop
-	loop 0b
-	#sti
-.endif
-#################################################
+################################################
 
 
 	call	real_mode
@@ -591,4 +543,4 @@ smc$:
 mov	ax, unknown_symbol
 	ret
 
-.include "pic.s"
+.code32

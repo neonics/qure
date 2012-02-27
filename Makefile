@@ -38,7 +38,7 @@ ASSEMBLER=GAS
 
 
 build/boot.bin: bootloader.s print.s sector1.s pmode.s gfxmode.s menu.s \
-	floppy.s print2.s acpi.s pic.s gdt.s idt.s tss.s
+	floppy.s print2.s acpi.s pic.s gdt.s idt.s tss.s keyboard.s
 #other-assemblers/bootloader-fasm.asm
 ifeq ($(ASSEMBLER),FASM)
 	d:/apps/fasm/FASM.EXE other-assemblers/bootloader-fasm.asm $@

@@ -230,13 +230,7 @@ init_gdt:
 
 	GDT_STORE_SEG GDT_tss
 
-	mov	[tss_SS0], word ptr SEL_flatDS
-	mov	eax, [realsegflat] # 0....stack|0x10000|code
-	mov	[tss_ESP0], eax
-
-	mov	eax, 104
-	#add	eax, IOBP size
-	mov	[tss_IOBP], ax
+	call	init_tss_16
 
 	GDT_STORE_LIMIT GDT_tss
 

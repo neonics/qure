@@ -13,6 +13,26 @@ PIC2_COMMAND = PIC2_IO
 PIC2_DATA = PIC2_COMMAND + 2
 
 
+# PIC 1
+IRQ_TIMER	= 0
+IRQ_KEYBOARD	= 1
+IRQ_CASCADE	= 2
+IRQ_COM2	= 3
+IRQ_COM1	= 4
+IRQ_LPT2	= 5
+IRQ_FLOPPY	= 6
+IRQ_LPT1	= 7
+# PIC 2
+IRQ_RTC		= 8
+IRQ_FREE1	= 9
+IRQ_FREE2	= 10
+IRQ_FREE3	= 11
+IRQ_PS2_MOUSE	= 12
+IRQ_FPU		= 13
+IRQ_PRIM_ATA	= 14
+IRQ_SEC_ATA	= 15
+
+
 # A0: bit indicating which port. This is the command port/data port.
 # read/write port IO_PICx = A0 = 0; Port IO_PICx+1 = A1
 #
@@ -120,18 +140,17 @@ pic_ivt_offset: .word 0
 
 # in: al = vector offset Master PIC (default = 0x08)
 #     ah = vector offset Slave PIC  (default = 0x70)
-pic_init:
-	mov	[pic_ivt_offset], ax
 .macro PROGRAM_PIC picport, offsetreg, connect, icw4
 	in	al, \picport + 1
 	mov	ah, al
 
-		.if DEBUG
+		.if 1 #DEBUG
 		push	ax
 		push	dx
 		mov	ah, 0xf0
 		PRINT "PIC "
-		call	printhex
+		mov	dl, \picport
+		call	printhex2
 		PRINT "mask "
 		mov	dl, al
 		call	printhex2
@@ -145,7 +164,7 @@ pic_init:
 		mov	dl, \connect
 		call	printhex2
 		PRINT "ICW4 "
-		mov	dl, icw4
+		mov	dl, \icw4
 		call	printhex2
 		pop	dx
 		pop	ax
@@ -168,6 +187,9 @@ pic_init:
 	out	\picport+1, al
 .endm
 
+.macro PIC_INIT
+	mov	[pic_ivt_offset], ax
+
 	push	bx
 	push	eax
 	mov	bl, al
@@ -188,6 +210,16 @@ pic_init:
 	pop	eax
 	pop	bx
 	ret
+.endm
+
+.code16
+pic_init16:
+	PIC_INIT
+.code32
+pic_init32:
+	PIC_INIT
+
+.code16
 
 
 # in: al = IRQ
@@ -207,6 +239,15 @@ pic_send_eoi:
 	pop	ax
 	ret
 
+.macro PIC_SEND_EOI for_irq
+	mov	al, 0x20
+	.if \for_irq < 8
+	P = IO_PIC1
+	.else
+	P = IO_PIC2
+	.endif
+	out	P, al
+.endm
 
 
 
@@ -219,6 +260,20 @@ pic_send_eoi:
 	add	dx, IO_PIC2 - IO_PIC1
 0:	xchg	al, ah
 .endm
+
+.macro PIC_ENABLE_IRQ irqline
+	.if \irqline < 8
+		P = IO_PIC1 + 1
+		A = \irqline
+	.else
+		P = IO_PIC2 + 1
+		A = irqline - 8
+	.endif
+	in	al, P
+	and	al, ~ ( 1 << A )
+	out	P, al
+.endm
+
 
 
 # in: al = bit number, < 16
@@ -248,6 +303,17 @@ pic_disable_irq_line:
 	pop	dx
 	pop	ax
 	ret
+
+# works in 16, 32 and 64 bit mode...
+.macro PIC_SET_MASK mask
+	push	ax
+	mov	ax, \mask
+	out	IO_PIC1+1, al
+	ror	ax, 8
+	out	IO_PIC2+1, al
+	pop	ax
+.endm
+
 
 # in: ax = bitmask (al = master, ah = slave)
 pic_set_mask:

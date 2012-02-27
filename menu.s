@@ -36,6 +36,7 @@ MENUITEM inspecthdd		"Inspect HDD"
 MENUITEM inspectbootsector	"Inspect Bootsector"
 MENUITEM protected_mode		"Protected Mode"
 MENUITEM test_protected_mode	"Enter/Exit Protected Mode"
+MENUITEM test_keyboard16	"Test Keyboard handler bit"
 MENUITEM acpi_poweroff		"ACPI Poweroff"
 menuitemcount:.byte ( . - menuitems ) / menu_item_size
 .text
@@ -219,4 +220,31 @@ printregisters2:
 
 	call	newline
 
+	ret
+
+
+test_keyboard16:
+	#mov	al, 0xff
+	#out	IO_PIC1 + 1, al
+	call	hook_keyboard_isr16
+
+
+	#mov	al, 0
+	#out	IO_PIC1 + 1, al
+
+	mov	cx, 0xffff
+1:
+	push	cx
+
+	mov	cx, 0xffff
+	mov	ah, 0xf4
+0:	mov	di, 160
+	mov	dx, cx
+	call	printhex
+	loopnz	0b
+
+	pop	cx
+	loopnz	1b
+
+	call	restore_keyboard_isr16
 	ret

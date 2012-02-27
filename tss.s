@@ -28,3 +28,36 @@ tss_GS:		.word 0, 0
 tss_LDTR:	.word 0, 0
 		.word 0 # low word at offset 64 is reserved, hi=IOBP offset
 tss_IOPB:	.word 0 # io bitmask base pointer, 104 + ...
+
+.text
+.code16
+init_tss_16:
+	mov	[tss_IOBP], word ptr 104
+
+	mov	[tss_SS0], word ptr SEL_compatDS
+	mov	eax, [realsegflat]
+	mov	[tss_ESP0], eax
+
+	mov	[tss_EIP], dword ptr offset kernel_task
+	# using dwords for sel to clear second word just in case..
+	mov	[tss_CS], dword ptr SEL_compatCS
+	mov	[tss_ES], dword ptr SEL_vid_txt
+	mov	[tss_DS], dword ptr SEL_compatDS
+	ret
+
+.code32
+
+task_switch:
+	push	dword ptr [tss_EFLAGS]
+	push	dword ptr [tss_CS]
+	push	dword ptr [tss_EIP]
+	iretd
+
+kernel_task:
+	mov	ah, 0xf0
+	SCREEN_INIT
+	SCREEN_OFFS 0, 3
+	PRINT_32 "Kernel Task!"
+0:	hlt
+	jmp	0b
+	ret

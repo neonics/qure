@@ -53,21 +53,41 @@ rm_idtr:.word 256 * 4
 # in: ax: interrupt number (at current: al, as the IDT only has 256 ints)
 #     cx: segment selector
 #     ebx: offset
-hook_isr:
+hook_isr32:
+	pushf
+	cli
 	push	eax
 	push	ebx
 	and	eax, 0xff
-	shl	eax, 4
+
+	push	edx
+	push	ax
+	mov	edx, eax
+	mov	ah, 0xf1
+	PRINT_32 "Hook INT "
+	call	printhex2_32
+	pop	ax
+	pop	edx
+
+	shl	eax, 3
 	add	eax, offset IDT
-	cli
+	push	edx
+	mov	edx, eax
+	push	ax
+	mov	ah, 0xf1
+	call	printhex8_32
+	pop	ax
+	pop	edx
+	
 	mov	[eax], bx
 	mov	[eax+2], cx
-	mov	[eax+4], word ptr (ACC_CODE + ACC_PR) << 8
+	mov	[eax+4], word ptr (ACC_PR + IDT_ACC_GATE_INT32 ) << 8
 	shr	ebx, 16
 	mov	[eax+6], bx
 	sti
 	pop	ebx
 	pop	eax
+	popf
 	ret
 #########################
 
@@ -104,9 +124,6 @@ gate_int32:	# cli/sti automatic due to IDT_GATE_INT32
 	mov	edx, [ebp + 4]	# get return address
 	mov	edx, [edx - 2]	# load instruction (assume sel=readable) 
 
-	mov	ax, SEL_compatDS
-	mov	ds, ax
-
 	mov	ah, 0xf3
 	call	printhex8_32
 	add	edi, 2
@@ -118,7 +135,6 @@ gate_int32:	# cli/sti automatic due to IDT_GATE_INT32
 	PRINT_32 "INT "
 	mov	dl, dh
 	call	printhex2_32
-
 
 	jmp	1f
 0:	mov	ah, 0xf4
@@ -135,14 +151,25 @@ gate_int32:	# cli/sti automatic due to IDT_GATE_INT32
 
 ########################
 
+.data
 int_count0: .rept 256; .long 0; .endr
+scr_offs32: .long 0
+.text
 int_jmp_table:
-.rept 256
-	call	jmp_table_target
-	iret
-.endr
+
+	INT_NR = 0
+	.rept 256
+		push	word ptr INT_NR
+		jmp	jmp_table_target
+
+		.if INT_NR == 0
+			JMP_ENTRY_LEN = . - int_jmp_table
+		.endif
+		INT_NR = INT_NR + 1
+	.endr
+
+
 jmp_table_target:
-	cli
 	push	ebp
 	mov	ebp, esp
 	push	eax
@@ -150,14 +177,17 @@ jmp_table_target:
 	push	ds
 	push	edi
 	push	edx
+	push	ecx
 
-	SCREEN_INIT
-	SCREEN_OFFS 0, 0
+	mov	ax, JMP_ENTRY_LEN
+
 	mov	ax, SEL_compatDS
 	mov	ds, ax
+	mov	ax, SEL_vid_txt
+	mov	es, ax
+	mov	edi, [scr_offs32]
 
-	mov	eax, [ebp + 4]
-	sub	eax, offset int_jmp_table - 6
+	mov	ax, [ebp + 4]
 	mov	edx, eax
 	mov	ah, 0xf4
 	call	printhex_32
@@ -166,46 +196,147 @@ jmp_table_target:
 	inc	dword ptr [int_count0]
 	mov	edx, [int_count0]
 	call	printhex_32
+	add	edi, 2
+########
+	.if 1 
+	# read instruction to see if it is INT x
+	mov	ax, [ebp + 4 + 2 + 4]	# code selector
+	push	ds
+	mov	ds, ax
+	mov	edx, [ebp + 4 + 2]	# get return address
+	mov	edx, [edx - 2]	# load instruction (assume sel=readable) 
+	pop	ds
+
+	mov	ah, 0xf3
+	call	printhex8_32
+	add	edi, 2
+
+	cmp	dl, 0xcd	# check for INT opcode
+	LOAD_TXT "Not called by INT instruction!"
+	jne	0f
+
+	PRINT_32 "INT "
+	mov	dl, dh
+	call	printhex2_32
+
+	jmp	1f
+0:	mov	ah, 0xf4
+	call	print_32
+1:
+
+	.endif
+########
 
 #	mov	dl, 6
 #	div	dl
 #	mov	dx, ax
 #	call	printhex_32
 
+
+### A 'just-in-case' handler for PIC IRQs, hardcoded to 0x20 offset
+	mov	ax, [ebp + 4]
+	cmp	ax, 0x20 	
+	jb	0f
+	cmp	ax, 0x30
+	jae	0f
+	cmp	al, 0x28
+	mov	al, 0x20
+	jb	1f
+	out	IO_PIC2 + 1, al
+1:	out	IO_PIC1 + 1, al
+	mov	ah, 0x4f
+	PRINT_32 " IRQ "
+0:
+
+
+	mov	ah, 0x73
+
+	xor	al, al		# read channel 0 (bits 6,7 = channel)
+	out	0x43, al	# PIT port
+
+	in	al, 0x40
+	mov	dl, al
+	in	al, 0x40
+	mov	dh, al
+	call	printhex8_32
+
+
+	add	edi, 4
+	mov	[scr_offs32], edi
+
+	pop	ecx
 	pop	edx
 	pop	edi
 	pop	ds
 	pop	es
 	pop	eax
 	pop	ebp
-	sti
-	ret
+	add	esp, 2
+	iret
 
 
 init_idt: # assume ds = SEL_compatDS/realmodeDS
+	pushf
 	cli
+
 	mov	ecx, 256
 	mov	esi, offset IDT
 
-	.if 1
-	mov	eax, offset gate_int32 # int_jmp_table
-	.else
+JMP_TABLE = 1
+
+	.if JMP_TABLE
 	mov	eax, offset int_jmp_table
+	.else
+	mov	eax, offset gate_int32 # int_jmp_table
 	.endif
 
 0:	mov	[esi], ax
 	mov	[esi + 2], word ptr SEL_compatCS
-	mov	[esi + 4], word ptr 0x8e00
+	mov	[esi + 4], word ptr (ACC_PR + IDT_ACC_GATE_INT32 ) << 8
 	ror	eax, 16
 	mov	[esi + 6], ax
 	ror	eax, 16
 	add	esi, 8
+	.if JMP_TABLE
+	add	eax, JMP_ENTRY_LEN
+	.endif
 	loop	0b
 
 	mov	eax, [realsegflat]
 	add	eax, offset IDT
 	mov	[pm_idtr + 2], eax
 	lidt	[pm_idtr]
-	sti
+
+	popf	# leave IF (cli/sti) as it was
 	ret
+
+
+
+######################################
+# PIT - Programmable Interrupt Timer 
+######################################
+
+isr_timer: 
+	push	es
+	push	ds
+	push	ax
+	push	edi
+	push	dx
+	SCREEN_INIT
+	mov	di, SEL_compatCS
+	mov	ds, di
+	mov	edi, [scr_offs32]
+	mov	ax, 0xf0
+	PRINT_32 "TIMER "
+	inc	word ptr [int_count]
+	mov	dx, [int_count]
+	call	printhex2_32
+	pop	dx
+	pop	edi
+	mov	al, 0x20
+	out	0x20, al
+	pop	ax
+	pop	ds
+	pop	es
+	iret
 

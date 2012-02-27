@@ -72,9 +72,10 @@ Slave PIC: IO Port 0xa0, 0xa1 (Command, Data) IRQ 0..8 => map IRQ 8..15 realmode
 9: free: use for peripherals (legacy; scsi host adapter etc)
 10: free: scsi / nic
 11: idem
-12: FPU / inter processor interrupt
-13: primary ATA (IDE)
-14: secondary ATA (IDE)
+12: PS2 Mouse
+13: FPU / inter processor interrupt
+14: primary ATA (IDE)
+15: secondary ATA (IDE)
 
 Interrupt vector offset for Master PIC: 8. Resulting INT: 8..15 (8 + IRQ).
 Interrupt vector offset for Slave PIC: 70h. Resulting INT: 70h..77h.
