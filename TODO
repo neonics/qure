@@ -17,17 +17,21 @@ TODO: bootloader writing: write sector1 and following in the place indicated
 
 v: PMode. Provide: GDT (Global Descriptor Table)
 
+v: Pmode IDT (Interrupt Table)
 
-TODO: Pmode IDT (Interrupt Table)
-TODO: PIC remapping
+v: PIC remapping
+
+v: implement keyboard driver in PMode (depends IDT)
+
+TODO: Task Switching (TSS) (depends PMode)
+  partly done - one TSS switch already works. Need to check whether
+  a context switch really occurs to make sure.
 
 TODO: construct memory map (ebda, bios rom etc).
 
 TODO: implement Paging
 
 TODO: test acpi_poweroff
-
-TODO: implement keyboard driver in PMode (depends IDT)
 
 TODO: Shell
 
@@ -59,11 +63,6 @@ TODO: create assembler
 
 TODO: create high level programming language compiler
 
-
-TODO: Task Switching (TSS) (depends PMode)
-
 TODO: VM98 Mode (depends TSS)
-
-TODO: Paging (depends PMode)
 
 TODO: APIC (Local, IO)

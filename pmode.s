@@ -496,6 +496,9 @@ FOO:
 
 
 #######################################
+.data 
+k_scr_o:.long 160 * 6 + 20
+.text
 	push	edi
 	mov	ecx, 10000000
 	xor	ebx, ebx
@@ -504,26 +507,36 @@ FOO:
 
 	mov	edx, ecx	# countdown
 	call	printhex8_32
+
+	SCREEN_OFFS 0, 6
 	add	edi, 2
 
 	mov	edx, ebx	# nr of keystrokes
 	call	printhex8_32
-	add	di, 2
+	add	edi, 2
 
+#######################################
 
 	push	ax
-	mov	ah, 1
+	mov	ah, 0
 	call	keyboard
 	mov	dx, ax
 	pop	ax
 
+	mov	edi, [k_scr_o]
+
 	jz	1f
+	mov	al, '*'
+	stosw
 	call	printhex_32
-	inc	edx
+	inc	ebx
+	add	edi, 2
 	jmp	2f
 
-1:	PRINT_32 "No Key"
+1:	# PRINT_32 "No Key"
 2:	
+	mov	[k_scr_o], edi
+######################################
 
 	test	ecx, 0xfffff
 	jnz	1f

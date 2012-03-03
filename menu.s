@@ -110,6 +110,7 @@ drawmenu$:
 	mov	dx, [si + menu_code]
 	call	printhex
 	pop	dx
+	call	newline
 
 
 	cmp	dx, K_DOWN

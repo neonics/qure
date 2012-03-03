@@ -256,7 +256,7 @@ printdec8_32:	# UNTESTED
 	mov	bl, dl
 	add	bl, '0'
 	mov	es:[edi], bx
-	inc	edi
+	add	edi, 2
 
 	or	eax, eax
 	jnz	0b

@@ -1,0 +1,1723 @@
+
+# enter ARG1, 0
+enter:  push    ebp
+        mov     ebp, esp
+        sub     esp, ARG1
+	# esp-> [ local-space, EIP, args ]
+	# local-space = [esp] .. [ebp]    (ebp = ORIGesp + ARG1)
+	# eip =		[ebp + 4]
+
+leave:  mov     esp, ebp
+        pop     ebp
+        ret
+
+######
+
+# enter ARG1, X
+enterX:	push	ebp
+	mov	FRAME_PTR, esp	# FRAME_PTR = internal temp var
+	.rept X
+	sub	ebp, 4	# ebp is used as argument, local var,
+	push	ebp
+	.endm
+	mov	ebp, FRAME_PTR	# (FRAME_PTR = esp + 4*x) ..and then discarded
+	sub	esp, ARG1
+
+	# esp-> [ local-space, FP1, .., FPX, EIP, args ]
+	# ebp = ORIGesp - 4*X - ARG1 
+	# FP1 = [ebp - 4 ]	; = esp + ARG1	
+	# FP2 = [ebp - 8 ]	; = ebp + ARG1 + 4
+	#
+	# [ebp]		= ebp of caller
+	# [ebp + 4]	= return address
+	# [ebp + 8]	= arguments
+
+
+	# ebp = backup of esp. This provides a fixed point so esp is
+	# free to be used in push/pop/call or otherwise without the need
+	# to know at each point how much it differs from the required
+	# value for ret.
+	# Thus, ebp remains fixed throughout the method, and is closely
+	# associated with the call and ret instructions.
+	#
+	# Thus, ebp in this convention holds the parameters to the code
+	# address
+
+	# calling then another function from here (recursion), shows
+	# the purpose of copying ebp onto the stack:
+
+	# ebp here is now the local variable space
+	# calling a function then offers a pointer to this local space
+	# to the caller, having both esp and ebp available.
+	# esp points to space that is/can be invalidated upon return
+	# ebp points to local space in the caller.
+
+	# ebp is called stack frame pointer (FRAME_PTR).
+	# the second arg, X, determines the number of these frame
+	# pointers to be copied from the caller.
+	# At the first level, only the push ebp is available. The ebp
+	# is decremented, pointing to ,....
+
+	# top level code
+	mov	ebp, esp - x 	# ebp points to somewhere in the stack
+	call	level1
+0:	hlt
+
+level1:	FP1 = esp		# [esp] = offset 0
+	FP0 = ebp
+
+	# enter	1
+	push	ebp		# [esp] = FP0, offset 0
+	sub	ebp, 4		# [ebp] = ?, FP0, offset 0
+	push	ebp		# [esp] = ebp, ebp+4
+	mov	ebp, FP1	# make ebp point to stack
+
+	#
+	call	level2
+	# leave
+1:	mov	esp, ebp	# [esp] = FP1
+	ret
+
+
+level2: FP2 = esp		# [esp] = offset 1, EBP0
+	FP1 = ebp
+
+	push	ebp		# [esp] = FP1, offset 1
+
+	ret
+
+
+##########################
+
+
+
+######
+	
+
+# argdef: [register]* [stackarg]*
+method:
+	enter	LOCAL_VARS_SIZE, 0
+	# quivalent to:
+	# push	bp
+	# mov	bp, sp
+	# sub	bp, LOCAL_VARS_SIZE
+
+	word a;  a = bp - sizeof(word)
+	byte b;  b = bp - sizeof(word) - sizeof(b)
+
+	mov	ax, [bp - 2] ; a
+	mov	bl, [bp - 3] ; b
+
+	# or
+
+	mov	bl, [bp - 1]
+	mov	ax, [bp - 3]
+
+
+	leave
+	# equiv to:
+	# mov	sp, bp
+	# pop	bp
+	ret	STACKARG_SIZE
+	# pop	ip
+	# sp += STACKARG_SIZE
+
+
+
+
+
+# Reserves a local stack where it stores arguments to method calls.
+# ebp: base pointer to arguments to the local function
+# esp: base pointer to arguments of called functions and local variables.
+gcc_standard:
+	push	ebp
+	mov	ebp, esp
+	sub	esp, LOCAL_STACK
+
+	# first arg
+	mov	eax, [ebp + 8]
+	
+	# call method with 2 stack args:
+	mov	[esp + 4], arg2
+	mov	[esp + 0], arg1
+        call    callee
+
+	leave
+	ret
+
+#############################################################################
+##### Argument Stack Clearing Responsability ######
+### caller responsible
+responsible_caller:
+        push    arg2
+        push    arg1
+        call    irresponsible_callee
+        add     esp, 8
+        ret
+irresponsible_callee:
+        ret
+###
+irresponsible_caller:
+        push    arg2
+        push    arg1
+        call    callee2
+        ret
+responsible_callee:
+        ret     8
+
+### The calling convention here HAS to be known for the caller's ret to be
+### reliable.
+#############################################################################
+
+
+
+# -O4
+
+00401900 <_token_len>:
+  401900:       55                      push   ebp
+  401901:       89 e5                   mov    ebp,esp
+  401903:       8b 55 08                mov    edx,DWORD PTR [ebp+0x8]
+  401906:       5d                      pop    ebp
+  401907:       8b 42 1c                mov    eax,DWORD PTR [edx+0x1c]
+  40190a:       2b 42 0a                sub    eax,DWORD PTR [edx+0xa]
+  40190d:       c3                      ret
+
+
+# -O0
+00401422 <_token_len>:
+  401422:       55                      push   ebp
+  401423:       89 e5                   mov    ebp,esp
+  401425:       8b 45 08                mov    eax,DWORD PTR [ebp+0x8]
+  401428:       83 c0 12                add    eax,0x12
+  40142b:       8b 40 0a                mov    eax,DWORD PTR [eax+0xa]
+  40142e:       89 c2                   mov    edx,eax
+  401430:       8b 45 08                mov    eax,DWORD PTR [ebp+0x8]
+  401433:       8b 40 0a                mov    eax,DWORD PTR [eax+0xa]
+  401436:       89 d1                   mov    ecx,edx
+  401438:       29 c1                   sub    ecx,eax
+  40143a:       89 c8                   mov    eax,ecx
+  40143c:       5d                      pop    ebp
+  40143d:       c3                      ret
+
+===== Stack =====
+
+The memory reference is placed in the Stack Pointer SP.
+The system provides a way to relate sequences of push instructions
+to each other, by representing the idea of a contiguous address space.
+Previously (past) PUSH instructions are then accessible through
+the stack pointer. In a sense SP provides a window into the past.
+As such it is a tight coupling of memory and instructions, where
+a PUSh/POP combination is forgotten. This cannot be traced back,
+as the code can have been jumped to from any location within the memory.
+When the previous instruction is a CALL, the discontinuation of processing
+can be followed as both the reference to its location aswell as the
+traces it leaves on the stack are known.
+
+The basic purpose of the stack is to keep track of return addresses.
+In this sense, when unpolluted by other values such as arguments,
+it can offer a contigous range of potentials.
+The topmost potential would be the 'main' program, the initiator
+of the first call. Since the purpose of keeping track of addresses
+is to be able to know where to return to, which is any program's
+ultimate destination, one can simply connect back to the calling tree,
+and see what would happen next, at each level.
+
+At each level, there is a local context. Some contexts are empty
+as they only use local variables - registers. Some require extra space.
+A stack of memory is reserved for this purpose. Each method then
+using this system dedicates a register to point to the base of this space,
+the base pointer BP.
+
+After entry within a method, this space is reserved by subtracting
+the size of the local space from the base pointer. Future allocations
+then are made relative to this. Upon exit of this method, the context
+has served its purpose, of assisting called contexts. As such the context
+serves no more purpse, except to the caller.
+The base pointer then needs to be known to the caller.
+
+THis is accomplished by having each method imprint their base pointer
+onto the stack. The caller can access this by looking at 'future' values
+on the stack - the one that held the return address to it's own
+instructoin, and following that, an imprint of the base pointer.
+Since the callee can push anything onto the stack at first, it is
+convention that each callee returns the base pointer to the value it was
+when the method was called. This can be left to the caller to ensure
+this functionality - as the value is 'protected' by the return address.
+However, the callee has access to the stack regardless,
+and as such, cannot be prevented from changing this value.
+
+It can then take into account that callee's can change this value, in order
+to receive a result value pointer dynamically, without needing
+to know the size of the local stack in advance.
+
+
+Now, a general approach for this type of local context allocation,
+and automatic deallocation upon return, is to interleave the local space
+with the calling stack. It can be seen as Object Oriented Programming,
+where each method allocates its own 'class data'. Upon exiting the
+method, the base pointer is reset to the original value, thus
+effectively deallocating the memory.
+
+As such, it can be seen that a method call allocating local space
+is identical to merging the constructor and destructor, aswell
+as wrapping this within a new / delete or malloc / free.
+
+In order to offer 'method' capability, i.e., expose functionality
+operating on this local data, or at the minimum incorporating it,
+a return needs to be made after the initialization, and a reference
+to the continuation needs to be passed to the caller, in order to
+deallocate the object.
+
+Further, a base reference needs to be made available to the caller,
+which would have to be supplied to the destructor and possibly other
+methods it is exposing.
+
+Now, to then separate the use of BP from the stack allows for local storage
+to exist beyond the limitation of a method call,
+as normally the stack itself gets overwritten when subsequent calls
+are made, whether local storage is allocated or not. One might reserve
+a space on the stack then, to only hold return addresses, to a maximum.
+This maximum then is the top of the start of the local storage, the initial
+value of BP.
+
+
+|---------------------------
+|Program Code & static data	CS:IP, DS:SI, ES:DI
+|---------------------------
+| Calling Stack			SS:SP [IP, BP]
+|
+|
+|--------------------------	SS:BP
+| Top of 'heap'
+|
+s
+|-- base of memory --
+
+
+malloc:	mov	[esp], ebp	push	ebp		sub	ebp, eax
+	sub	ebp, eax	sub	ebp, eax
+	ret			ret
+
+
+An Operating System, since it offers memory and loads programs,
+can do away with a lot of protection,
+when all programs are compiled to comply to the memory usage consensus.
+Thus it can offer a shared space without boundaries where all programs
+can interact with each other directly, without each having their own
+incompatible use of registers. 
+
+What then ties them together is their promise to return to the address
+provided, and extend this ability to their caller, by acknowledging it's
+need to know it's return address aswell by preserving the stack pointer
+during its lifetime / having been given control / instructions being
+executed.
+
+This idea is present within the Terminate and Stay Resident principle.
+A TSR would indicate the are of memory to preserve for its functionality.
+This it would typically attach to an Interrupt, using a global table of
+method pointers. 
+
+In essence then the Interrupt Vector Table is a reflection of Object
+Oriented Programming as it displays the concept of 'virtual methods'.
+
+When a method returns, yielding in EBP it's base pointer, in ECX
+the amount of contiguous data, it's parent / caller then preserves
+this data. When the value returned for EBP equals the one given it,
+no memory is preserved.
+
+A program's responsable design then is to provide for the most efficient
+handing of ECX being less than the difference of the given and returned
+EBP. We can use this as a marker that separates two kinds of data.
+The data that would have meaning to the caller, and the data that doesnt,
+that is local - public and private data, both of which are obviously
+public as the caller knows the address ranges of both.
+
+Now then, we can use the difference of the given EBP, which we'll call
+the top of the local heap, and the sum of the returned EBP and ECX,
+as the size of an array of records.
+
+The most simple kind of record is a relative offset. This can either
+be a code or a data reference. As the beginning of the code is known
+to the caller, the addresses can then be taken to be relative to the
+code start, or relative to the base pointer of the object
+instance data. As such each pointer could be examined for its range,
+since when it falls within the given and returned EBP, it references
+data. 
+
+
+
+
+malloc:	mov	[esp], ebp	push	ebp
+	sub	ebp, eax	sub	ebp, eax
+	ret			ret
+
+
+Fragmentation can occur when calls for malloc do not all share the purpose
+of being part of the instance data. The restriction is that the class
+data has to be contiguous in memory as only one block of memory is 
+remembered for any instance. Thus, the code should first reserve
+the space for instance data. When the size of the result is unknown,
+such as reading a stream, this would prevent the usage of truly local
+stack space. This stack space however, is available on the calling stack.
+
+
+
+new:	# caller has to remember it's own ebp
+	mov	[ebp], offset destroy # 'push' continuation
+	sub	ebp, instance_data_size	# malloc( sizeof( class ) )
+	ret
+
+destroy:ret
+
+caller:	push	ebp	
+	call	new	# ebp = newInstance(); [[esp]] = destructor
+	pop	ebp	# free / delete
+	
+
+
+
+enterX:	push	ebp
+	mov	FRAME_PTR, esp	# FRAME_PTR = internal temp var
+	.rept X		# allocate X pointers to X words before BP
+	sub	ebp, 4	# ebp is used as argument, local var,
+	push	ebp
+	.endm
+	mov	ebp, FRAME_PTR	# (FRAME_PTR = esp + 4*x) ..and then discarded
+	sub	esp, ARG1
+
+
+Idea: imprint the continuation address on the stack, where the return
+address used to be. An instruction like:
+
+	yield	offset contination
+
+	would do:
+
+	IP = Pop();
+	Push continuation
+
+so, it is a ret that places a value on the stack, in the place
+that is used by the ret itself. It would be useless, to the caller,
+to have the address imprinted on the stack, as it either has a hardcoded
+reference, or it has this value in a register already.
+
+Thus then the yield instruction would reveal to the caller the address
+of the ret/yield.
+
+To simulate this we will have the convention that upon return,
+[esp] contains the caller's next instruction - it\'s own continuation -,
+wheras [esp - 4] shall contain the continuation of it's children.
+
+The entire stack then becomes the same - addresses above the current
+stack pointer refer to continutations of caller processes,
+whereas addresses below SP refer to discontinued called processes.
+
+As such, the stack space becomes a horizontal field of potential doorways.
+
+Methods that have finished should have their pointer pointing to the RET
+instruction, as this would indicate they effect no change other than
+the side effect of imprinting their caller's address on the stack.
+
+This instruction can then be examined to see whether the space is available.
+
+Further, upon calling the continuation, it can change it's base address
+pointer, indicating a change in memory allocation.
+In a linear system, the instance data of an object can thus never grow,
+yet, using paging, this space can be allocated anywhere in memory
+and made transparently available to each 'continuation'.
+
+
+Since it is the caller's responsability to relinquish the pointer,
+and thus free it's own declared memory usage, ..
+
+
+The idea of having ECX to give the upper limit of its data, which would
+then potentially leave a space between the top of the heap, and
+the bottom - the 'this' pointer - EBP, to contain pointers,
+can be done in the code segment aswell, as the meaningful pointers
+would either have to be code references / method pointers,
+or data references / handle's.  Other types of values can be used,
+but they cannot reside in the are above ECX.
+
+
+Allocate 10 string objects:
+
+	mov	ecx, 10	
+0:	call	string
+	loop	0b
+
+	# esp = array of string pointers [ebp]
+	
+string:	sub	ebp, size
+
+yield:	mov	eax, offset cont	push	[esp]
+	xchg	eax, [esp]		mov	[esp+2], offset cont
+	jmp	[eax]			ret
+
+
+Now, we can also take [ebp] to be the destructor pointer:
+
+caller:	push	ebp	# store 'this' base pointer: [esp]
+	call	string	# ebp = base pointer of string
+	call	[ebp]	# [ebp]  = continuation / destructor.
+
+string:	sub	ebp, 4
+	mov	[ebp], offset continuation
+
+
+The pointers could be allocated on the local stack:
+
+new:	push	continuation
+	jmp	[esp + 4]
+
+This then leaves the caller with:
+
+	call	new
+	call	[esp - 8]
+	# [esp - 4] would contain the reference to the constructor.
+
+In this manner, all methods could be defined by pushing their offsets.
+A simple lookup table thus would be present in binary code, identified
+by a series of PUSH opcodes.
+
+THe result of this is the local stack containing a number of offsets,
+which were unknown before the constructor was called. In this sense
+this leaves the binary free from any specific format, as for static
+functions, the code at the start address can be examined, since
+the initialization of these pointers on the stack needs to be done
+before the stack could become segmented by other calls.
+
+THe picture of the stack then, from a caller's perspective, after having
+called a constructor, is:
+	
+	[esp + 4] = parent continuation 
+	[esp] = this base pointer
+	[esp - 4] = constructor of callee
+	[esp - 8] = continuation of callee
+	[esp - X] = continuation X (method pointers).
+
+It then is the callers responsability to preserve these pointers,
+by subtracting a value from ESP before any more calls are made.
+
+A caller would simply deallocate the object with
+	pop	ebp
+
+
+
+Since these pointers generally are identical, except through polymorphism,
+or, having virtual methods - i.e., the constructor may have logic in it
+that would yield a different set of pointers depending on it's calling
+context (register contents), it is sufficient to call this method once,
+or, to discard them on subsequent calls - i.e. to not reserve space
+on the stack.
+
+It is then sufficient to only reserve the pointer of the constructor
+as an identifier for the class:
+
+	call	new
+	sub	esp, 4 + 4 + methods
+	call	new
+	sub	esp, 4
+	call	new
+	sub	esp, 4
+
+In order to then traverse this inhomogenous stack, all instances
+of the class are sequential. This poses a limitation on the caller
+for organizing calls to the same class sequentially, or,
+to have all stack images of classes at the beginning. When finding
+the class definition of a constructor pointer, traveling the stack,
+one might find it's own value repeated, until the last reference
+is found. One might have already travelled over method pointers to
+other classes, and even class definitions of other classes. It might
+even know the base pointers to all these - i.e., the last remembered
+offset for each value.
+
+
+The one register that can be counted upon to remain the same,
+even though this can be bypassed, is SP, since it is required
+by the caller.
+
+A method's local use of BP then can extend to all callee\'s by proxy,
+thus sharing it as a parameter.
+
+Interleaving the stack frame with the base pointer.
+
+	mov	ecx, 10
+0:	call	callee
+	push	ebp		push	[ebp]	push	[ebp - 8]
+	loop	0b
+	
+callee:	sub	ebp, instance_data_size
+	ret
+	
+
+The drawback of using
+
+	push	ebp
+	mov	ebp, esp
+	sub	esp, local_space
+	data: [esp]...
+	...
+	pop	ebp
+	ret
+
+is that the push and pop are surrounded by IP on the stack,
+and thus a 'ret' cannot be executed with esp the same as when it was
+called. The idea here is to skip the 'pop ebp'.
+
+A jump to [esp] in the middle, would offer ebp as the original
+value (minus the space on the stack containing the calling address,
+and the caller's ebp). i.e.:
+
+new:	push	ebp
+	mov	ebp, esp
+	sub	esp, localspace
+	jmp	[ebp+4]	# ret
+continuation:
+	pop	ebp
+	ret
+
+caller: ebp = BP
+	esp = SP
+	call	new
+	esp = pointer to new's instance data / new\'s base pointer
+	ebp = SP - 4
+	[ebp] = SP
+
+new's trail: first it leaves the callers base pointer on the stack.
+Then it lowers the stack pointer, allocating local space.
+THe original SP is returned, minus 4 - it's parent's base pointer.
+This leaves esp free for further calls by the parent without interfering
+with the instance data on the stack.
+
+The drawback in this is that the order of code execution determines the lifetime
+of objects. This then causes fragmenting in the cases where a method
+would return an instance of another object, as is the case with
+factory methods that may use local space to perform a lookup.
+The calling chain would however be preserved in this fashion, for all objects.
+
+
+Constructing an array of method pointers:
+
+m1:	call m2
+	m1 code
+	ret
+
+m2:	call m3
+	m2 code
+	ret
+
+	...
+
+mlast:	mov	[esp -4], 0
+	ret
+
+This would mark a chain of method pointers onto the stack. The destructor
+itself would have to call one more function, in which case it marks
+itself as the last function. The number of functions can be found then
+by the caller:
+
+	call	m1
+	xor	ecx, ecx
+	mov	ebx, esp
+0:	sub	ebx, 4	
+	inc	ecx
+	cmp	ss:[ebx], 0
+	jne	0b
+	
+	ecx = number of methods: (ESP - EBX) >> 2
+	[esp - 4] = first function
+	ss:[ebx+4] = last function
+	ss:[ebx] = pointer to 'free space'
+	
+In order for a continuation, the offsets need to be incremented
+to skip over the 'header', the call instruction:
+
+	cmp	ss:[ebx], 0
+	jne	0b
+
+	becomes
+
+	cmp	ss:[ebx], 0
+	je	1f
+	add	ss:[ebx], 3	# skip over the jump (dyn determine size)
+1:	
+
+
+So, continuations.
+
+Allocation:
+	push	ebp	# start of object's data
+	call	new
+	push	ebp	# end of object's data
+
+
+new:	sub	ebp, size
+	ret
+	
+
+
+old way:
+
+caller:	call	new
+	[esp] = offset new
+	[esp-4] = old ebp
+	ebp = base pointer
+
+
+new way:
+
+caller:	ebp = FP
+	call	new
+	[ebp] = offset new
+	[ebp - 4] = FP
+
+
+
+
+
+
+
+The caller would then receive results on the stack, which would
+be of the same class - code references - as
+
+
+
+
+
+
+
+
+|---------------------------
+|Program Code & static data	CS:IP, DS:SI, ES:DI
+|---------------------------
+| Calling Stack			SS:SP [IP, BP]
+|
+|
+|--------------------------	SS:BP
+| Top of 'heap'
+|
+s
+|-- base of memory --
+
+
+malloc:	mov	[esp], ebp	push	ebp		sub	ebp, eax
+	sub	ebp, eax	sub	ebp, eax
+	ret			ret
+
+The memory allocated by ebp modification in this way can be undone
+by the parent surrounding malloc calls by 'push ebp' and 'pop ebp'.
+
+The local heap is expunged when the picture above references a single
+'object', and it's calling stack is exhausted.
+
+|
+|space for more programs
+|---------------------------
+|Program Code & static data	CS:IP, DS:SI, ES:DI
+|other programs aswell
+|---------------------------
+| Global Calling Stack		SS:SP [IP, BP]
+|
+|
+|--------------------------	
+| Top of 'heap'
+|
+| Allocated data
+| -----------------------	SS:BP
+| free space
+|
+s
+|-- base of memory --
+
+
+A class exposing it's code range:
+
+constructor:	call	publish		# push continuation
+continuation:
+
+other_methods:	...
+
+publish:	push	end		
+		jmp	[esp + 8]	# return to caller of constructor
+end:
+
+
+caller:		call constructor
+		# [esp] = constructor
+		# [esp-4] = continuation
+		# [esp-8] = 
+
+
+constructor:	call	yield
+continuation:
+
+yield:		jmp	[esp + 4]	# as [esp] is the continuation.
+
+caller:		call constructor
+		[esp] = constructor
+		[esp - 4] = continuation
+
+
+2 aspects then:
+1) continuation - yielding a code pointer on the stack
+2) shared data area management through ebp
+	a) using ebp to mark a space on stack, interleaved with code references
+	b) having a dedicated memory independent of call stack, yet which
+		is operated as a stack.
+
+
+FAST OOP
+
+ebp: top of free space
+
+program:
+		call	console 
+		mov	eax, offset msg
+		call	print
+
+		ret	# returns to console's continuation
+
+struct screen
+{
+	dd	offset
+	db	color
+}
+
+console:	push	ebp
+		sub	ebp, sizeof struct screen
+		call	yield
+continuaton:	pop	ebp
+		ret
+
+yield:		
+
+
+
+############
+root:		mov	ebp, esp
+		sub	ebp, GLOBAL_STACK
+		call	program
+rc:		# root continuation
+
+program:	# [esp] = rc
+		# ebp = top of free space, parent base pointer
+		# [esp] = [rc] # return address: rc
+		call	console
+pc:		# program continuation / parent continuation
+		# [esp] = [cc, pb, pc, rc]
+		ret	# 'in flight' [esp] = [bp, pc, rc]
+		
+
+console:	# [esp] = [pc, rc]
+		push	ebp	# [esp] = [pbp, pc, rc]
+		call	yield	# [esp] = [cc, pbp, pc, rc]
+cc: # console/child continuation
+		# [esp] = [bp, pc, rc]
+		pop	ebp # [esp] = [pc, rc]
+		# since the parent issued a 'ret', we can do it:
+		add	esp, 4 # pop pc, the 'yield' context
+		ret
+
+yield:		# [esp] = [cc, pbp, pc, rc]
+		jmp	[ebp + pc]	# parent cont
+
+
+In this way continuations can be 'sneaked in' the parent stack,
+so that they are not forgotten on returns.
+
+enter 1
+call foo
+foo: mov [esp], ..
+
+
+
+
+###########
+
+
+entry:	[esp] = return address / parent continuation
+	ebp = parent base pointer
+
+	push	ebp	# stack: parent BP, parent IP
+
+	# return:
+	pop	ebp
+	ret
+
+For a yield, the parent would require to have it's ebp restored
+when it's code is executed. The yielded method would then need
+to convey its base pointer to the parent.
+
+parent:	push	ebp	# save own BP
+	call	entry
+	# ebp = pointer to entry
+
+entry:	sub ebp, X
+	ret
+
+Parent then can deallocate:
+	pop	ebp / add ebp, 4
+
+or it can store the reference on the stack for later usage:
+	push	ebp
+	call	entry
+	xchg	ebp, [esp]
+	# ebp = own BP
+	# [esp] = entry 
+
+It cannot now call other functions as they would overwrite the same space
+that is occupied by the called entry.
+Thus, each time a method is called, this context needs to be siwtched:
+
+	push	ebp
+	xchg	ebp, [esp + 4 + X]
+	call	entry_continuation
+	pop	ebp
+
+entry_continuation:
+	# [esp] = parent continuation
+	# [esp + 4] = parent base
+
+####
+
+parent:	push	ebp
+
+	call	entry
+	push	ebp
+	call	entry
+	push	ebp
+	# [esp] = [entry 2, entry 1, this]
+	# ebp = entry 2
+
+
+
+
+Negative stack: esp - X : lifetime: until next method call. Immediate
+returns.
+
+
+method:	push	ebp	# esp = parent ebp, parent return
+	mov	ebp, esp 
+	sub	esp, local storage
+	sub	ebx, instancedatasize
+
+
+	mov	esp, ebp # restor start stack
+	pop	ebp
+	ret
+
+
+ebp's use here is purely local.
+
+
+safety_check:
+	pushad
+	mov	cs:[0f + 2], esp
+	call	method
+	cmp	esp, 0
+	jne	fail
+
+	cmp	ebp, [esp +BP]
+	jz	terminated
+	jb	resident
+	# error
+	popad	
+
+
+
+	mov	edi, esp
+	std
+	
+	stosd: eax -> [edi--]
+	push:    x -> [esp--]
+
+
+
+
+############
+
+	# [esp] = return address
+	call	function
+	# esp may be changed:
+
+function:
+	push	continuation
+	jmp	[esp + 4]	# ret
+continuation:
+
+-->
+
+	mov	ebp, esp
+	call	function
+	# [esp..ebp] = [continuation, ..., return address]
+	# [ebp] = return addresss
+	mov	esp, ebp
+	ret
+
+Continuation/destructor:
+
+	mov	ebp, esp
+	call	function
+	# [esp] = continuation
+	ret	
+
+continuation:
+	add	esp, 4 + bytes allocated in function constructor
+	ret	# to [esp] = return address of caller
+
+
+### general pattern:
+
+parent: push	ebp
+	mov	ebp, esp
+
+	# stack: [parent ebp, parent cont]
+
+	# allocate object with lifetime until return
+	call	child
+
+	pop	ebp
+	ret
+##
+child:	sub	ebp, localsize
+	push	ebp
+	# stack now: [child bp, ret(parent continuation)]
+	jmp	[esp + 4]
+~:	# entered from parent ret
+	# ebp = child bp
+	# [esp] = [ret/parent cont, parent parent ebp, parent parent cont]
+	ret
+	# [esp] 
+
+
+----SP-----	---- BP -----
+|A........|	|???????????|	A = parent.cont, bp unknown
+				push	ebp
+|BA.......|	|...........|	mov	ebp, esp
+				# fork
+|BA.......|	|BA.........|	call	child		C = [esp]
+				C:
+|CBA......|	|BA.........|	child:
+				push	ebp		C = [esp + 4], 
+							C = child.parent.cont
+|DCBA.....|	|BA.........|				D = child.parent.base
+				sub ebp, sizeof L	# ebp = child.base
+|DCBA.....|	|EL..BA.....|
+				jmp	[esp + 4]
+				C:
+|DCBA.....|	|
+
+
+
+	push	ebp
+	mov	ebp, esp
+	call	child
+C:	pop	ebp
+	ret
+
+no knowledge of child stack play needed. If child leaves esp alone,
+the function returns directly. If esp is changed, there is an indirect
+return - automatic destructor event chaining on the call stack.
+
+child:	push	ebp	# save parent bp
+	sub	ebp, sizeof L
+	yield	continuation	# call .+0 ; jmp [esp + 4]
+continuation:
+
+
+
+yield:	is like a ret, except it doesnt change the stack pointer.
+	without base pointers, in a pure calling stack,
+	yield = call .+0 ; jmp [esp]
+
+	the call .+0 pushes the next instruction as the continuation.
+	The yield then returns and yields the address of the continuation
+	on the parent return stack.
+
+----SP-----	---- BP -------|IP|
+|A........|	|???????????| B  0| 	push	bp		# push B
+|BA.......|	|...........| B  1|	mov	bp, sp		# bp = D = SP
+|BA.......|	|BA.........| D  2|	call	5		# push C
+			         3|C:
+|CBA......|	|BA.........| D  5|E:	ret
+|BA.......|	|BA.........| D  3|C:	pop	bp
+|A........|	|???????????|    4|	ret
+|.........|	|???????????|    A|	
+
+
+
+
+
+----SP-----	---- BP -------|IP|
+|A........|	|???????????| B  0| 	push	bp		# push B
+|BA.......|	|...........| B  1|	mov	bp, sp		# bp = D = SP
+|BA.......|	|BA.........| D  2|	call	5		# push C
+			         3|C:
+
+|CBA......|	|BA.........| D  5|E:	push	bp
+|DCBA.....|	|BA.........| L  6|E:	mov	bp, sp
+
+|DCBA.....|	|DCBA.......| L  7|E:	sub	bp, size L
+|DCBA.....|	|L*DCBA.....| L  8|E:	push	X
+|XDCBA....|	|L*DCBA.....| L  9|E:	push	bp
+|LXDCBA...|	|L*DCBA.....| L  a|E:	jmp	[sp+2]
+				 b|X:
+
+
+|LXDCBA...|	|L*DCBA.....| L  3|C:	pop	bp
+|XDCBA....|	|L*DCBA.....| L  4|	ret
+
+|DCBA.....|	|L*DCBA.....| L  b|X:	pop	bp
+|CBA......|	|DCBA..,,...| D  c|	ret
+|BA.......|	|L*DCBA.....| D  c|	ret
+
+
+|BA.......|	|BA.........| D  3|C:	pop	bp
+|A........|	|???????????|    4|	ret
+|.........|	|???????????|    A|	
+
+
+
+
+
+
+
+
+
+
+
+----SP-----	---- BP -------|IP|
+|A........|	|???????????| B  0| 	push	bp		# push B
+|BA.......|	|...........| B  1|	mov	bp, sp		# bp = D = SP
+|BA.......|	|BA.........| D  2|	call	5		# push C
+			         3|C:
+				 	mov	sp, bp
+					pop	bp
+					ret
+
+					#preserve caller bp, sp modifyable
+|CBA......|	|BA.........| D  5|E:	push	bp
+ /-v
+|DCBA.....|	|BA.........| D  6|E:	mov	bp, sp
+
+|DCBA.....|	|DCBA.......| D  7|E:	sub	sp, size L
+|L*DCBA...|	|DCBA.......| L  8|E:	push	X
+|XL*DCBA...|	|DCBA.......| L  a|E:	jmp	[bp+1]
+				 b|X:
+
+|XL*DCBA..|	|DCBA.......| L  4|C:	mov	sp, bp
+|DCBA.....|	|BA.......| L  5|	pop	bp
+|CBA......|	|DCBA.......| L  6|	ret
+|BA.......|	|DCBA.......| L  a|C:	mov, pop, ret
+
+this then bypasses the destructor code. 
+
+
+
+
+
+
+
+
+
+###########################################################################
+# fibonacchi-code: the number of consecutive instructions (no call/jump)
+# is the base for the length of code executed by a call
+
+0123 5 3+5>45678 
+
+  Level
+3: 0	3 instructions to next fib 5: call 5
+5: 1	3 instructions to next fib 8: ret
+4: 0	5 instructions to next fib 8: call 8 / 6 / 9
+8: 1	5 instructions to next fib 13: 
+
+1	1
+2	2
+3 3	3			call 5		3/3 call 5
+4 	 1			call 8	
+5 5	 2	1		ret		5/1 3 instructions
+6	 3	 	1			5/2 to reach offset 8
+7	 4	 	2			5/3
+8 8	 5	 	3 		jmp 13	8
+9			  1
+10			  2
+11			  3		ret
+12			  4
+13			  5		jmp 9
+
+
+
+1	
+2
+3 call 5
+4	
+5 ret
+
+1
+2
+3 call 5
+4 1 jmp 6
+5 2 	1 ret
+6 3 
+7 4	
+8 5 
+
+
+1
+2		push 5
+3: call 5	ret
+4  1 jmp 6
+5: 2 1 ret
+6  3 
+7  4 inc [sp]
+8: 5 ret
+9  1
+10 2
+11 3
+12 4
+13:5
+
+1 2 3 5 4 6 7 8 
+----------------
+
+1 2_3_5_4 6_8_7 9 10 11 12_13_
+. . ! ! . . ! . . .  .  .  !
+
+on every fibonacci number there is a ret or a call
+
+1    0
+2    1
+3 11 c	call 5
+4  2 1 	jmp 6
+5 1  r 	ret
+6  1 1	sub sp, 2 # [sp] = 5
+7  2 2	add [sp], 3
+8  3 r	ret
+9    1
+10   2
+11   3  ...
+12
+13
+
+
+analyze IP, SP, and [SP] for their patterns - plot -> spiral
+
+
+1 2 3 4 5 6 7 8 9 10 11 12
+
+1    
+2    
+3 11 	call 5
+4  2  	jmp +2 (6)
+5 1  	ret
+6  1 	dec sp		# [sp] = 4
+7  2 	inc [sp]	# [sp] = 5
+8  3 	ret
+
+
+
+
+1 2 3 5 (4 6) 8 (7, 8) (9 10 11 12)
+						after instruction:
+1    						?] SP [
+2    
+3 11 	call 5					?] SP [4
+4  2  	jmp +2 (6)				4] SP [
+5 1  	ret					4] SP [
+6  1 	call 8  # [sp] = 7			?] SP [7
+7  2 1	push 9	#             /---- [sp] = 9	7] SP [ -> ?] SP [9
+8  3 2	ret	# jmp 7   ---/	    jmp 9	9] SP [			
+
+9  1 1 	dec sp					] SP [9
+10 2 2	dec [sp]				] SP [8
+11 3 3  call [sp]	call 8			] SP [8 -> 12] SP [8
+12 4 	dec sp 					] SP [12, 8
+13 5    call [sp]	call 12			] SP [14, 12, 8
+
+1
+2 push 5
+3*ret
+4 |	  /---1	jmp 6
+5 ret----/      |
+6	     /2	call 8
+7	    /	|    /--jmp 9
+8*	    - 3	ret-/	|
+9			1 dec sp {[sp]=9} 		
+10			2 inc [sp]    /
+11			3 call 13 
+12			4 inc [sp]  /
+13*			5 ret -----/	
+14					inc [sp]
+15					shl [sp], 2
+16					inc [sp]
+17
+18
+19
+20
+21*			ret
+
+2, 3 -> 5
+
+
+5 -> (4->6) -> 8
+
+5: -1 = jmp $+1, +1 = call nextfib
+
+   4    |5   |6
+   jmp 6|ret |call 8
+
+8: -r> 7 -j> 9, 10, 11, 12, 13 -r> 12 -j> 14
+
+
+
+1
+2 push 5
+3*ret
+4 |	  /-jmp +1(6)
+5 ret----/  |
+6	    call 8
+7	    | 	   /--jmp +1(6)
+8*	    ret	--/   |
+9		      call 13
+10		      |
+11		    3 |
+12		      |      /--jmp +2(15
+13*		      ret---/   |
+14		      	        |call 21
+15				nop
+16				|
+17			     6	|
+18				|
+19				|
+20				|
+21*				ret
+
+
+1 call 3
+2 jmp +2
+3 call 5
+4 call 8
+5 ret
+
+1 call 2	] SP [r		 ] SP [2
+2 inc [sp]	] SP [2		 ] SP [3
+3 ret		] SP [3		3] SP [r	r] SP [
+
+1 call 2
+2 mov ax, [sp]
+3 inc sp
+4 add [sp], ax
+5 ret
+
+                 0   1    2   3    4    5   6   7   8   9   10  11 12 13
+1 inc [sp]       1!  2    3!  4    5!   6   7   8   9  10   11  12 13 14
+2 shl [sp], 1    2!  4    6   8!  10   12  14  16  18  20   22  24 26 28
+3 inc [sp]       3!. 5!.  7.  9   11P  13! 15  17. 19. 21!  23. 25 27 29.
+
+1: skips 3 to 5/prime/fib	
+2: touches 3 to prime 7
+3: touches 8 to square 9 =	3* 3
+4: touches 5 to prime 11
+5: to 13 prime/fib
+6: to 15 =			3* 5
+7: touches 8 to prime 17
+8: touches 9 to prime 19
+9: to fib 21,			3* 7
+
+12:				3* 9
+
+0 1 2 3   5   8   9  10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27
+3 5 7 9  13  19  21  23 25 27 29 31 33 35 37 39 41 43 45 47 49
+
+
+
+
+AB = root.code, root.base
+CD = method.code, method.base  [base points to return address on stack]
+EL = child.constuctor, child.base
+X  = child.continuation
+
+----SP-----	---- BP -------|IP|
+|A........|	|???????????| B  0| 	push	bp		# push B
+|BA.......|	|...........| B  1|	mov	bp, sp		# bp = D = SP
+|BA.......|	|BA.........| D  2|	call	E		# push C
+			         3|C:
+|CBA......|	|BA.........| D  a|E:	push	bp		# push D
+|DCBA.....|	|BA.........| D  c|	call	$+0		# push X
+|XDCBA....|	|BA.........| D  b|	sub	bp, sizeof L	# push L*
+|XDCBA....|	|L*BA.......| L  c|X:	jmp	[sp + 2]	# jmp C
+|XDCBA....|	|L*BA.......| L  3|C:	pop	bp 		# pop ?R =L
+|CBA......|	|...........|    4|	ret			# ret ?A =C
+|CBA......|	|L*BA.......|    d|	pop	bp
+|CBA......|	|L*BA.......|    e|	ret
+
+
+
+	
+
+----SP-----	---- BP -----
+|R........|	A |???????????| 0	push	ebp		# push A
+|AR.......|	A |AR.........| 1	mov	ebp, esp
+|BA.......|	B |BA.........| 2	call	E		# push C
+			      3	C:
+|CBA......|	|BA.........| a	E:	push	ebp		# push D
+|DCBA.....|	|L*BA.......| c		call	$+0		# push X
+|DCBA.....|	|BA.........| b		sub	ebp, sizeof L	# push L*
+|DXCBA....|	|L*BA.......| c	X:	jmp	[esp + 2]	# jmp C
+|XDCBA....|	|L*BA.......| 3	C:	pop	ebp 	# expect pop R, is L
+|CBA......|	|...........| 4		ret		# expect ret A, is
+|CBA......|	|L*BA.......| d		pop	ebp
+|CBA......|	|L*BA.......| e		ret
+
+
+
+
+
+
+  Stack
+|-------|
+| BP    |    ret #  C
+| IP C  | C: pop bp -> continuation, bp restored
+|-------|
+| IP    |    pop bp
+| BP    |    ret
+|-------|
+| IP    | m: push bp
+| BP    |    sub sp, data
+| data  |    call c
+|-------| m1:
+| IP m1 |    push bp
+| BP m  |    mov bp, sp
+---------    pop bp
+	     ret
+	    
+
+enumerator:
+	push bp
+	mov  bp, sp
+	sub  sp, L
+	
+	mov cx, 3
+
+yield:	push continuation
+	jmp [bp+2]
+continuation:	
+	loop yield
+
+	mov  sp, bp
+	pop  bp
+	ret
+
+
+caller:
+	call enumerator
+	ret
+	ret
+	ret
+
+	ret
+
+
+THe 6 Headed Turing Machine
+
+       /----------\
+      /            a
+------------------------------------------------------------------------------
+| C  a |          | R |                                                      |
+------------------------------------------------------------------------------
+  ^                                                                          ^
+  IP                                                                         SP
+
+
+------------------------------------------------------------------------------
+| C a |         | R |                                                      b |
+------------------------------------------------------------------------------
+      |           ^                                                        ^
+      \           IP                                                       SP
+       \------------------------------------------------------------------/
+
+        /----------------------------------------------------------------\
+       b                                                                  \
+------------------------------------------------------------------------------
+| C a |        | R |                                                       b |
+------------------------------------------------------------------------------
+                ^                                                          ^
+                IP                                                         SP
+
+
+        /----------------------------------------------------------------\
+       b                                                                  \
+------------------------------------------------------------------------------
+| C a |        | R |                                                       b |
+------------------------------------------------------------------------------
+                ^                                                          ^
+                IP ------------------------------------------------------> SP
+
+
+------------------------------------------------------------------------------
+| C a |                                                                   b  |
+------------------------------------------------------------------------------
+        ^                                                                    ^
+        IP                                                                   SP
+
+|code start            code end|data start                                   |
+------------------------------------------------------------------------------
+| C a |                        |                                          b  |
+------------------------------------------------------------------------------
+        ^                      ^                                             ^
+        IP                     BP                                            SP
+
+
+
+
+
+|code start            code end|               |
+------------------------------------------------------------------------------
+| C a |                        |               |                          b  |
+------------------------------------------------------------------------------
+        ^                      ^                                             ^
+        IP                     BP                                            SP
+
+
+	|..SP  |  IP..|  BP..| end
+	|..SP  |  IP..|..BP  |
+	|  IP..|  BP..|..SP  |
+	|  IP..|..SP  |  BP..|
+
+esp = sysbrk( stack)
+
+
+Circular Tape - using an angle to index a color. Another resolution
+can be added by a second, more precise, indexing, which can be seen
+as circular also. 
+
+In this way, the main circular program chan select a resonance, say 6,
+of places within it's focus where another 'bubble'/circlular tape expands,
+offering another dimension of freedom.
+
+Once this is done once, the principle can be applied to any angle, thus
+seemingly creating an infinity of squared freedom.
+
+However, the child circle's center is reflected twice within it's bubble,
+appearing as intersections. reflected center is the point shared with
+the starting circle.
+
+The places of intersection (vescica pisces) are also the centers of 
+the siblings, sharing the parent. Thus 5 brothers/sisters for each
+circle on the first ring, aswell as a parent, indicated by the curve
+of the siblings. 
+
+---------
+
+C = call
+P = push
+R = ret
+0..9 = address/number
+
+| 1  | 2 | 3 | 
+----------------------------------
+|>P1 |                          >|
+| P1 |>P2|                  >| 1 |
+| P1 | P2|>R |          >| 2 | 1 |
+| P1 | P2|>R |           | 2>| 1 |
+| P1 |>P2| R |           | 2 | 1 |
+
+
+----------------------------------
+|>C1 |                          >|
+| C1 |>C2|                  >| 1 |
+| C1 | C2|>R |          >| 2 | 1 |
+| C1 | C2|>R |           | 2>| 1 |
+| C1 |>C2| R |           | 2 | 1 |
+
+
+Ca@i = i: CALL a = push i+1, IP:=a
+
+IP := a =>  set head at => IP@a => JMP a
+
+The first head thus is the Instruction Pointer.
+
+
+The Second Head is the Stack Pointer: push and pop.
+
+PUSH a :  Wa@SP, (write a at head SP), SP@L, decrement SP
+
+
+Given a program P with instructions I, it can be reversed-stack-encoded
+by constructing a program R that reflects itself partly in the mirror
+indicated by SP.
+
+The first instruction pushes the opcode for the last instruction,
+and so on.
+
+A simple series of pushes is a straightforward way.
+This yields the reflection, in reverse, without the push instructions.
+
+As such the push instruction can serve as 'delayed execution'.
+
+Another encoding is to use the CALL instruction, which pushes
+it's succeeding address on the stack. This technique would have to
+rely on these calls being made at addresses marking opcode boundaries.
+
+Any calls made may pollute the stack below SP. Having returns then,
+would mark the data as obsolete since it is below SP.
+
+Calls can however be used, when the last call would not return.
+THis poses the limitation of having always the same sequence of instructions.
+A simple interpreter than can be constructed at the end of the stack,
+a decoding machine. 
+
+In effect, the end of the stack can be pre-calculated by the software,
+so as to line the growing stack precisely up to the end of the code,
+so that when the code is done, it simply continues executing on the stack.
+Ofcourse, the gap gan be bridged by a jump to the bottom of the stack.
+The end of the code then can be the unencoded decryptor, taking the
+stack to point to it's argument - the structure pushed on the stack,
+representing a program.
+
+When seen in a circle, the program taking the top of stack to be the start
+of the program, it then builds its reflected below it and above itself.
+It is like a wave emerging from the mirror surface, washing in both
+durections - to the right, the location of the program counter,
+to the left, the values on the stack, until the waves meet,
+at which point the wave reverses direction - seemingly - by now
+continuing on in the stack.  At the flip point, the direction bit
+is flipped so that the stack works in reverse, thus marking the flipping
+point as the beginning of the new program.
+
+Now, the data available on the stack is the original program,
+whereas the stack is the original program's output, which had
+no data in the stack.
+
+There exists a program that keeps washing to and fro.
+
+There exists a program that keeps washing and that shifts its turning point.
+
+There exists a program that fills itself beyond half a wave, and dampens
+the waving radius to contain it entirely within itself.
+
+
+The second half of the wave - the stack program - can decide to not
+turn back when it reaches the initial starting point. 
+The stack is set at the beginning of the second wave, so a gap
+may be available betweent that and the end of the program, thus
+allowing the original program to remain intact.
+
+The simplest program would simply allow itself to be transversed unencumbered,
+reaching the beginning of the initial program.
+
+In this manner, a program is a loop which includes its own stack.
+
+Now, lets say that the stack program is an image decoding program.
+It can then have data succeeding it, which it decodes and jumps over.
+
+A program that would display a moving sine wave, could have the following
+structure:
+
+initial condition: all registers 0. SP = 0 means it is also the end.
+The number of the negative bits can be bitmasked by a push
+to be within a predefined number.
+
+We'll assume a forward/upward growing stack:
+
+
+	start:  push jump  # automatic wraparound
+		push start
+
+		for angle from 0 to 1
+			push plot
+			push sin( angle )
+		add offset, delta
+		jmp SP
+
+
+Now, to only create the image once:
+
+		for angle from 0 to 1
+			push plot
+			push sin( angle )
+		
+
+		push call	call $+0	plot( ip + 1)
+		push sp
+		push dec sp	dec sp		plot( [sp-1] )
+		push plot	plot( pop )
+		push pop	
+
+
+
+neuron:	mov	ax, [ sp - 1 ]  # a
+	add	ax, [ sp + 0 ]  # bias
+	sub	ax, [ sp + 1 ]  # b
+	js	[ sp + 2 ]
+	jmp	[ sp - 2 ]
+
+ax now represents the neurons output value, so we can simplify
+the other neurons:
+
+neuron:	add	ax, [bias]
+	sub	ax, [b]
+	js	b
+	jmp	a
+
+
+We can then hardcode the two outputs to each neuron in the
+instructions. A simple default could be a single string of neurons,
+each able to jump, or default to the next neuron:
+
+neuron:	add	ax, [bias]
+	sub	ax, [sp + 1] # b
+	jns	alternative
+b:
+
+
+The alternative can be an index to another neuron, and can either
+be encoded in the instruction, or be read from a table using
+an indec.
+
+Using stack values allows then the same neural net to operate
+on a 'cloudy gass' of stack.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

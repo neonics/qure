@@ -88,6 +88,30 @@ registers from/to any of a number of general purpose registers.
 It offers the functionality of reading and writing these IO ports,
 and operate on the data.
 
+
+===== Memory Instructions ======
+
+From a programs' point of view, it needs to have storage for registers,
+in order to be able to use more variables than the number of registers
+available. 
+
+To this end, certain registers are functionally remapped to become
+references to values. It does this by invoking a native PUSH.
+What it pushes creates a space that can hold a value, and yields
+a reference to this space. This in effect breaching the limitation
+of having a limited number of value-spaces - registers.
+The PUSH is responded to by the system, as it veeres back with a reference
+to it's imprint.
+
+The software can then instruct the processor to treat a register
+as either directly representing a value to work with, or as a reference
+to a value.
+
+
+
+
+
+
 ==== Jumps ====
 
 The normal operation of the CPU is to increment the program counter,

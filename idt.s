@@ -179,8 +179,6 @@ jmp_table_target:
 	push	edx
 	push	ecx
 
-	mov	ax, JMP_ENTRY_LEN
-
 	mov	ax, SEL_compatDS
 	mov	ds, ax
 	mov	ax, SEL_vid_txt
@@ -190,6 +188,7 @@ jmp_table_target:
 	mov	ax, [ebp + 4]
 	mov	edx, eax
 	mov	ah, 0xf4
+	PRINT_32 "INT "
 	call	printhex_32
 	add	edi, 2
 
@@ -235,13 +234,13 @@ jmp_table_target:
 
 ### A 'just-in-case' handler for PIC IRQs, hardcoded to 0x20 offset
 	mov	ax, [ebp + 4]
-	cmp	ax, 0x20 	
-	jb	0f
-	cmp	ax, 0x30
+	sub	ax, 0x20
+	js	0f
+	cmp	ax, 0x10
 	jae	0f
-	cmp	al, 0x28
+	shr	ax, 3
 	mov	al, 0x20
-	jb	1f
+	jz	1f
 	out	IO_PIC2 + 1, al
 1:	out	IO_PIC1 + 1, al
 	mov	ah, 0x4f

@@ -102,9 +102,10 @@ isr_keyboard32:
 
 	in	al, 0x60
 
-	#################
-.if 1
-	cmp	al, 0xe0	# escape code
+	######################################################################
+	# check for protocol scancodes
+
+0:	cmp	al, 0xe0	# escape code
 	jne	0f
 
 	# signal ready to read next byte without sending EOI
@@ -118,8 +119,48 @@ isr_keyboard32:
 
 	in	al, 0x60	
 
-	# split make/break code
+	############################################################
+	cmp	al, 0xf0	# some break codes are e0 f0 MAKE
+	jne	0f
+	# signal ready to read next byte without sending EOI
+	in	al, 0x61
+	or	al, 0x80
+	out	0x61, al
+	and	al, 0x7f
+	out	0x61, al
 
+	# read next byte
+
+	in	al, 0x60	
+	or	al, 0x80	# turn it into a regular break code
+	############################################################
+
+0:	cmp	al, 0xe1	# key make/break on make, nothing on break
+	jne	0f
+0:	cmp	al, 0xe2	# logitech integrated mouse
+	jne	0f
+0:	cmp	al, 0x00	# keyboard error
+	jne	0f
+0:	cmp	al, 0xaa	# BAT (basic assurance test) OK
+	jne	0f
+0:	cmp	al, 0xee	# echo result
+	jne	0f
+0:	cmp	al, 0xf1	# reply to 0xa4 - password not isntalled
+	jne	0f
+0:	cmp	al, 0xfa	# ACK
+	jne	0f
+0:	cmp	al, 0xfc	# BAT error / mouse error
+	jne	0f
+0:	cmp	al, 0xfd	# internal failure
+	jne	0f
+0:	cmp	al, 0xfe	# keyboard ACK fail, resend
+	jne	0f
+0:	cmp	al, 0xff	# keyboard error
+	jne	0f
+0:
+	######################################################################
+
+	# split make/break code
 	mov	ah, al	# invert break code (0x80) to 1 on make
 	not	ah
 	shr	ah, 7
@@ -146,7 +187,7 @@ isr_keyboard32:
 		.byte '0', ')'	# 0b
 		.byte '-', '_'	# 0c
 		.byte '=', '+'	# 0d
-		.byte 0, 0	# 0e backspace
+		.byte 8, 8	# 0e backspace
 
 		.byte '\t','\t' # 0f tab
 		.byte 'q', 'Q'	# 10
@@ -189,6 +230,8 @@ isr_keyboard32:
 		.byte 'm', 'M'	#
 		.byte ',', '<'	#
 		.byte '.', '>'	#
+
+				# preceeded by e0: grey ...
 		.byte '/', '?'	# 35
 		.byte 0, 0	# 36 Right Shift
 
@@ -230,9 +273,50 @@ isr_keyboard32:
 
 		.byte 0,0	# 57 F11
 		.byte 0,0	# 58 F12
+
+				# preceeded by e0:
+		.byte 0,0	# 59
+		.byte 0,0	# 5a
+		.byte 0,0	# 5b MS: left window
+		.byte 0,0	# 5c MS: right window
+		.byte 0,0	# 5d MS: menu
+				# set 1 make/break
+		.byte 0,0	# 5e MS: power
+		.byte 0,0	# 5f MS: sleep
+		.byte 0,0	# 60
+		.byte 0,0	# 61
+		.byte 0,0	# 62
+		.byte 0,0	# 63 MS: wake
+
+
+		# turbo mode scan codes: 
+		# (lCtrl-lAlt-grey+)  1d  38  4a  ce  b8  9d
+		#                    ML^ ML@ MG- BG+ BL@ BL^
+		# (lCtrl-lAlt-grey-)  1d  38  4e  ce  b8  9d
+		#                    ML^ ML@ MG+ BG+ BL@ BL^
+		# Mxx = Make xx
+		# Bxx = Break xx
+		# xLx = left
+		# xRx = right
+		# xGx = grey
+		# xx^ = control
+		# xx@ = alt
+
+		# Power saving:
+		#	 set 1		| set 2
+		# power: e0 5e / e0 de	| e0 37 / e0 f0 37
+		# power: e0 5f / e0 df	| e0 37 / e0 f0 3f
+		# power: e0 63 / e0 e3	| e0 37 / e0 f0 5e
+
 	.text
 
 	mov	dx, ax
+
+	push	ax
+	mov	ah, 0x40
+	call	printhex_32
+	pop	ax
+
 	and	edx, 0xff
 	mov	[keys_pressed + edx], ah
 
@@ -244,40 +328,54 @@ isr_keyboard32:
 	jne	0f
 1:	# have shift!
 	mov	[kb_shift], ah
-	jmp	3f
+	jmp	4f
 
 0:	cmp	al, 0x3a	# caps lock
-	jne	0f
-	mov	al, [kb_caps]	# TODO: need to find init state
-	xor	al, 1
-	mov	[kb_caps], al
+	jne	4f
+	xor	[kb_caps], byte ptr 1	# TODO: need to find init state
 	jmp	3f
 
-0:	or	ah, ah
-	jz	3f	# only store keys that are pressed
+4:	or	ah, ah
+	jz	2f	# only store keys that are pressed
 
 	# translate 
 	mov	dx, ax
 	and	edx, 0x7f
 	shl	dx, 1
-	xor	ah, [kb_caps]
-	add	dl, ah # shift 
+	#xor	ah, [kb_caps]
+	#add	dl, ah # shift 
 	# adc not needed as low bit was/is 0
 	shl	ax, 8 # preserve scancode
 	mov	al, [keymap + edx]
-.endif
+
+	#### debug print
+	push	ax
+	mov	ah, 0x3f
+	stosw
+	call	printhex_32
+	pop	ax
+	####
+
 
 3:	#################
 	call	buf_putw
 
+	#### debug print
 	mov	dx, ax
+	push	ax
 	mov	ah, 0xf1
+	mov	al, '!'
+	stosw
 	call	printhex_32
 	mov	ah, 0xf2
 	stosw
+	pop	ax
 	add	di, 2
-	mov	[scr_o], di
-2:
+	#####
+
+
+2:	mov	[scr_o], di
+
 	PIC_SEND_EOI IRQ_KEYBOARD
 	pop	dx
 	pop	eax
@@ -429,6 +527,7 @@ k_peek$:
 	cmp	esi, [keyboard_buffer_wo]
 	jz	0b
 	mov	ax, [keyboard_buffer + esi]
+	or	ax, ax # ZF = 1
 	jmp	0b
 k_getshift$:
 	jmp	0b
