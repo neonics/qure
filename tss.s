@@ -27,7 +27,7 @@ tss_FS:		.word 0, 0
 tss_GS:		.word 0, 0
 tss_LDTR:	.word 0, 0
 		.word 0 # low word at offset 64 is reserved, hi=IOBP offset
-tss_IOPB:	.word 0 # io bitmask base pointer, 104 + ...
+tss_IOBP:	.word 0 # io bitmask base pointer, 104 + ...
 
 .text
 .code16

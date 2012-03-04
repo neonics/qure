@@ -122,7 +122,7 @@ DBG0 = 0
 
 	# restore sig$ as it is used as stack for the first call
 	mov	word ptr [sig$], 0xaa55
-	mov	ax, [sp_bpk$]
+	mov	ax, [sp_bkp$]
 	mov	[bp + 20], ax
 
 	# assume nothing

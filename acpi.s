@@ -376,7 +376,7 @@ acpi_enable:
 #   byte unneded3[64 - 54];
 .equ FACP_PM1a_CNT_BLK, FACP_ACPI_DISABLE + 12
 #   dword *PM1a_CNT_BLK;
-.equ FACP_PM1a_CNT_BLK, FACP_ACPI_DISABLE + 12 + 4
+.equ FACP_PM1b_CNT_BLK, FACP_ACPI_DISABLE + 12 + 4
 #   dword *PM1b_CNT_BLK;
 #   byte unneded4[89 - 72];
 .equ FACP_PM_CNT_LEN, FACP_ACPI_DISABLE + 12 + 4 + 4 + 89-72
@@ -536,10 +536,10 @@ loop$:
 	mov	[SMI_CMD], dx
 
 	mov	dx, fs:[si + FACP_ACPI_ENABLE]
-	mov	[API_ENABLE], dx
+	mov	[ACPI_ENABLE], dx
 
 	mov	dx, fs:[si + FACP_ACPI_DISABLE]
-	mov	[API_DISABLE], dx
+	mov	[ACPI_DISABLE], dx
 
 	mov	dx, fs:[si + FACP_PM1a_CNT_BLK]
 	mov	[PM1a_CNT], dx
@@ -547,7 +547,7 @@ loop$:
 	mov	dx, fs:[si + FACP_PM1b_CNT_BLK]
 	mov	[PM1b_CNT], dx
 
-	mov	dx, fs:[si + FACP_PM1_CNT_LEN]
+	mov	dx, fs:[si + FACP_PM_CNT_LEN]
 	mov	[PM1_CNT_LEN], dx
                      
 	mov	word ptr [SLP_EN], 1 << 13

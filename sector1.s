@@ -58,21 +58,42 @@ waitkey:
 	ret
 
 
+.data
+drive_numbers: .long -1, -1  # support 8 drives...
+.text
+list_drives:
+	mov	ax, 0xf200
+	call	cls
 
-listdrives:
-	mov	ah, 0xf2
-
-	mov	dx, 0
+	mov	bx, offset drive_numbers
+	xor	dx, dx
 0:	call	print_drive_info
-	inc	dl
+	jc	1f
+	mov	[bx], dl
+	inc	bx
+1:	inc	dl
 	cmp	dl, 4
 	jl	0b
 
 	mov	dl, 0x80
 0:	call	print_drive_info
-	inc	dl
+	jc	1f
+	mov	[bx], dl
+	inc	bx
+1:	inc	dl
 	cmp	dl, 0x84
 	jl	0b
+
+	call	newline
+print_drive_numbers:
+	mov	ah, 0x3f
+	print	"Drive numbers: "
+	mov	si, offset drive_numbers
+	mov	cx, 8
+0:	lodsb
+	mov	dl, al
+	call	printhex2
+	loop	0b
 	ret
 
 
@@ -83,7 +104,9 @@ print_drive_info:
 	.text
 	push	bp
 	push	dx	
+	push	bx
 	call	printhex2 # dl: drive number
+
 	push	ax
 	push	es
 	push	di
@@ -108,8 +131,10 @@ print_drive_info:
 	inc	ah
 	call	print
 	dec	ah
-			# dh: heads dl: harddisks
-0:	call	printhex
+	jmp	1f
+
+0:	
+	call	printhex# dh: heads dl: harddisks
 	mov	dx, gs	# ah: retcode al:?
 	call	printhex
 	mov	dx, bx	# bl: floppy drive type
@@ -121,8 +146,14 @@ print_drive_info:
 	mov	byte ptr es:[di-2],':'
 	mov	dx, bp
 	call	printhex
-	
+1:	mov	dl, bh
+	dec	ah
+	call	printhex2
+	inc	ah
+
 	call	newline
+	sar	bh, 1
+	pop	bx
 	pop	dx
 	pop	bp
 	ret
@@ -134,7 +165,8 @@ printbootdrive$:
 	mov	si, offset txt_drive$;
 	call	print
 
-	mov	al, gs:[r_dx]
+	mov	si, [bootloader_registers_base]
+	mov	al, [si + 24]
 	test	al, 0x80
 	jz	0f
 	and	al, 0x7f
@@ -149,6 +181,7 @@ printbootdrive$:
 writebootsector:
 	.data
 	msg_bootsect_written$: .asciz "Bootsector Written"
+	msg_bootsect_fail$: .asciz "Bootsector write failure"
 	.text
 	push	bp
 	mov	bp, [bootloader_registers_base]
@@ -371,24 +404,47 @@ inspect_disksector_data$:	.space 1024
 .text
 
 
-inspecthdd:
+inspectdrive:
 	.data
-	msg_inspect$: .asciz "Inspect sector "
+	msg_inspect_drive$: .asciz "Inspect drive "
+	msg_inspect_sector$: .asciz " sector "
+	drive_index$: .byte 0
 	sector_number$: .byte 1
 	sector_offset$: .word 0
 	.text
-
+#	cmp	byte ptr [drive_numbers+1], 0
+#	jnz	0f
+	call	list_drives
+0:
 	mov	ax, 0x0a00
 	call	cls
+	call	print_drive_numbers
+	call	newline
 
-	mov	si, offset msg_inspect$
+	mov	si, offset msg_inspect_drive$
 	call	print
 
+	xor	dh, dh
+
+	xor	bh, bh
+	mov	bl, [drive_index$]
+	mov	dl, bl
+	call	printhex2
+
+	mov	dl, [drive_numbers + bx]
+
+	call	printhex2
+
+	mov	si, offset msg_inspect_sector$
+	call	print
+
+
+	push	dx
 	mov	dl, [sector_number$]
 	inc	ah
 	call	printhex2
+	pop	dx
 
-	mov	dx, 0x80
 	xor	ch, ch
 	mov	cl, [sector_number$]
 	mov	ax, 0x0202
@@ -524,7 +580,7 @@ inspecthdd:
 
 	DEBUG_SEC_OFFS
 
-	jmp 	inspecthdd
+	jmp 	inspectdrive
 	
 2:	ret
 
@@ -566,3 +622,8 @@ fail$:	mov	dx, ax
 	call	printhex2
 	ret
 
+.data
+	.rept 1024
+	.asciz "Padding Data"
+	.endr
+.text

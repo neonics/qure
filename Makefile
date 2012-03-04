@@ -36,6 +36,10 @@ build/boot.img: build/boot.bin build/write.exe
 #ASSEMBLER=FASM
 ASSEMBLER=GAS
 
+define CHECK_SYMBOLS =
+endef
+
+
 
 build/boot.bin: bootloader.s print.s sector1.s pmode.s gfxmode.s menu.s \
 	floppy.s print2.s acpi.s pic.s gdt.s idt.s tss.s keyboard.s
@@ -46,6 +50,7 @@ ifeq ($(ASSEMBLER),FASM)
 else
 ifeq ($(ASSEMBLER),GAS)
 	/bin/as -R -n --warn --fatal-warnings -o build/bootloader.o bootloader.s
+	#[ -z "$(shell nm build/bootloader.o | cut -c10- | grep ^U | cut -c3- | xargs echo)" ]
 	util/checksymbols build/bootloader.o
 	objcopy -O binary build/bootloader.o $@
 endif

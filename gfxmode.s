@@ -78,7 +78,7 @@ vbe_err$:
 	cmp	al, 0x4f
 	jne	0f
 
-	mov	si, offset msg_not_supported
+	mov	si, offset msg_vbe_not_supported
 	mov	ah, 0xf4
 	call	println
 	jmp	2b

@@ -42,7 +42,7 @@ printhex8_32:
 
 .global cls_32
 cls_32:
-	mov	di, SEL_gfx_txt
+	mov	di, SEL_vid_txt
 	mov	es, di
 	xor	edi, edi
 	mov	ecx, 80 * 25 # 7f0

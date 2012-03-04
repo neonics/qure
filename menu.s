@@ -9,11 +9,9 @@
 
 
 .struct 0
-menu_title:
-.struct 32
-menu_code:
-.struct 32 + 4
-menu_item_size:
+menu_title: .space 32
+menu_code:  .long 0
+menu_item_size: 
 .macro MENUITEM code, title
 	s = .
 	. = s + menu_title
@@ -28,11 +26,12 @@ menuitems:
 MENUITEM printregisters2	"Print boot registers"
 MENUITEM printregisters		"Print Registers"
 MENUITEM gfxmode		"Graphics Mode"
-MENUITEM listdrives		"List Drives"
+MENUITEM bootcdemulationinfo	"Bootable CD Emulation info"
+MENUITEM list_drives		"List Drives"
 MENUITEM list_floppies		"List Floppies"
 MENUITEM writebootsector	"Write Bootsector"
 MENUITEM inspectmem		"InspectMem"
-MENUITEM inspecthdd		"Inspect HDD"
+MENUITEM inspectdrive		"Inspect Drive"
 MENUITEM inspectbootsector	"Inspect Bootsector"
 MENUITEM protected_mode		"Protected Mode"
 MENUITEM test_protected_mode	"Enter/Exit Protected Mode"
@@ -54,7 +53,7 @@ drawmenu$:
 0:	div	dh
 	mov	[menusel], ah
 
-	mov	di, 160 * 3
+	mov	di, 160 * 1
 	xor	dl, dl
 0:	mov	ax, 0xf000 #mov	si, offset menu_color
 	cmp	dl, [menusel]
@@ -86,14 +85,16 @@ drawmenu$:
 	cmp	dl, dh  
 	jb	0b
 
+	push	di
+	mov	di, 2*67
 	xor	ah, ah
 	int	0x16
 	mov	dx, ax
 	mov	ah, 0xf4
 	PRINT	"KeyCode: "
 	call	printhex
-	call	newline
 
+	mov	di, 160 + 2 * 49
 	mov	ah, 0xf3
 
 	PRINT	"MenuItemOffset: "
@@ -110,6 +111,8 @@ drawmenu$:
 	mov	dx, [si + menu_code]
 	call	printhex
 	pop	dx
+
+	pop	di
 	call	newline
 
 
@@ -132,6 +135,7 @@ drawmenu$:
 	add	ax, [si + menu_code]
 	call	ax
 
+	call	waitkey
 	jmp	drawmenu$
 1:
 	cmp	dx, K_ESC
@@ -248,4 +252,101 @@ test_keyboard16:
 	loopnz	1b
 
 	call	restore_keyboard_isr16
+	ret
+
+.struct 0
+cd_p_size:		.byte 0
+cd_p_boot_media_type:	.byte 0
+cd_p_drive:		.byte 0 # 00=floppy 80=hdd 81-ff noboot/noemul
+cd_p_controller:	.byte 0
+cd_p_lba:		.long 0
+cd_p_spec:		.word 0
+# spec:
+# IDE: bit 0 : master/slave
+# SCSI: bits 7-0 LUN and PUN
+# bits 15-8: bus number
+cd_p_buf:		.word 0 # 3k read cache
+cd_p_seg:		.word 0 # load segment for initial boot image (if 0:7c0)
+cd_p_load_sectors:	.word 0 # nr of 512 byte sectors to load (ah=4C)
+				# int 13/ah=08 arguments:
+cd_p_cyl_lo:		.byte 0 # low byte of cylinder count
+cd_p_sector:		.byte 0 # sector count, high bits cyl count
+cd_p_head:		.byte 0 # head number
+
+# 3 more bytes...
+.data
+cd_spec_packet: .space 0x13
+.text
+bootcdemulationinfo:
+	mov	si, [bootloader_registers_base]
+	mov	dl, [si + 24] # dx boot register -> boot drive
+	mov	ah, 0xf0
+	PRINT "Boot Drive: "
+	call	printhex2
+
+	mov	si, offset cd_spec_packet
+	mov	ax, 0x4b01
+	int	0x13
+	mov	dx, ax
+	jc	0f
+	mov	ah, 0xf0
+	print "INT 13h result: "
+	call	printhex
+	call	newline
+
+	PRINT	"Packet Size:       "
+	mov	dl, [si + cd_p_size]
+	call	printhex2
+	call	newline
+
+	PRINT	"Boot Media Type:   "
+	mov	dl, [si + cd_p_boot_media_type]
+	call	printhex2
+
+	PRINT	"CDROM controller:  "
+	mov	dl, [si + cd_p_controller]
+	call	printhex2
+
+	PRINT	"Device Specification: "
+	mov	dx, [si + cd_p_spec]
+	call	printhex
+	call	newline
+
+	PRINT	"LBA of boot image: "
+	mov	edx, [si + cd_p_lba]
+	call	printhex8
+	call	newline
+
+
+	PRINT	"Read Cache Buffer:    "
+	mov	dx, [si + cd_p_buf]
+	call	printhex
+
+	PRINT	"Boot Image segment:   "
+	mov	dx, [si + cd_p_seg]
+	call	printhex
+	call	newline
+
+
+	PRINT	"Drive number:      "
+	mov	dl, [si + cd_p_drive]
+	call	printhex2
+
+	PRINT	"Load sectors:         "
+	mov	dx, [si + cd_p_load_sectors]
+	call	printhex
+
+	PRINT	"C/S/H:         "
+	mov	dl, [si + cd_p_cyl_lo]
+	call	printhex2
+	mov	dl, [si + cd_p_sector]
+	call	printhex2
+	mov	dl, [si + cd_p_head]
+	call	printhex2
+
+	ret
+
+0:	mov	ah, 0x4f
+	PRINT "Error: "
+	call	printhex
 	ret

@@ -30,7 +30,7 @@ int next()
 	if ( h_in >= 0 )
 	{
 		int rd = read(h_in, boot_buf, 512);
-		printf( "Read %d bytes from %s\n", rd, boot_name );
+		//printf( "Read %d bytes from %s\n", rd, boot_name );
 		if ( rd < 512 )
 		{
 			close( h_in );
@@ -70,7 +70,7 @@ int main( int argc, char * argv[] )
 		int flen = lseek( h_in, 0, SEEK_END );
 		if ( flen > 512 )
 		{
-			printf( "Warning: image larger than bootsector (512): %d bytes\n", flen );
+			printf( "Warning: image larger than bootsector (512): %d bytes (%d sectors)\n", flen, flen >> 9 + (flen &0x1ff>0) );
 		}
 		
 		lseek( h_in, 0, SEEK_SET );

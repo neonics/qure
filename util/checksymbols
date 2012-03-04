@@ -1,3 +1,7 @@
+#!/bin/bash
 # script that checks whether there are undefined symbols, as 'as' doesnt
 # report on this (since it doesn't link)
-objdump -x $1 | grep DISP | perl -e '@l=<>; chomp @l; if ( scalar(@l) ==0 ) {exit 0;} @o=map { s/\s+/ /g; @a = split / /; $a[2] } @l; print "Undefined symbols: " . join(",", @o)."\n"; exit 1;'
+#objdump -x $1 | grep DISP | perl -e '@l=<>; chomp @l; if ( scalar(@l) ==0 ) {exit 0;} @o=map { s/\s+/ /g; @a = split / /; $a[2] } @l; print "Undefined symbols: " . join(",", @o)."\n"; exit 1;'
+[[ -z `nm $1 | cut -c10- | grep ^U | cut -c3- | xargs echo` ]] || ( \
+echo "Unresolved symbols: " && \
+nm $1 | cut -c10- | grep ^U | cut -c2-  && exit 1 )

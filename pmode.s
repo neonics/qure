@@ -529,6 +529,12 @@ k_scr_o:.long 160 * 6 + 20
 	mov	al, '*'
 	stosw
 	call	printhex_32
+
+	cmp	dl, 'q'
+	je	3f
+	cmp	dx, K_ESC
+	je	3f
+
 	inc	ebx
 	add	edi, 2
 	jmp	2f
@@ -545,15 +551,12 @@ k_scr_o:.long 160 * 6 + 20
 	sti
 	hlt
 	loop	0b
-	pop	edi
+3:	pop	edi
 
 ################################################
 
-
 	call	real_mode
 .code16
-
-mov	ax, unknown_symbol
 	ret
 
 .code32
