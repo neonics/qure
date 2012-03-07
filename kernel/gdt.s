@@ -136,40 +136,44 @@ rm_gdtr:.word 0
 
 	# QEMU: GDT limit 37 base FCD80  IDT limit  3ff base 0
 	# VBOX: GDT limit 30 base FC7F3  IDT limit ffff base 1
-.macro PRINT_DT msg, gdt, idt
+.macro PRINT_DT_16 msg, gdt, idt
 # Realmode GDT:
-	PRINT	"\msg"
-	PRINT	" GDT: limit="
-	mov	dx, [\gdt]
-	call	printhex
-	PRINT "base="
-	mov	edx, [\gdt+2]
-	call	printhex8
+	PRINT_16	"\msg"
+	PRINT_16	" GDT: limit="
+	mov		dx, [\gdt]
+	call		printhex_16
+	PRINT_16	"base="
+	mov		edx, [\gdt+2]
+	call		printhex8_16
 # Realmode IDT:
-	PRINT "  IDT: limit="
-	mov	dx, [\idt]
-	call	printhex
-	PRINT "base="
-	mov	edx, [\idt+2]
-	call	printhex8
-	call	newline
+	PRINT_16 	"  IDT: limit="
+	mov		dx, [\idt]
+	call		printhex_16
+	PRINT_16	"base="
+	mov		edx, [\idt+2]
+	call		printhex8_16
+	call		newline_16
 .endm
 
+
 .text
+.code16
 
 # Calulate segments and addresses
-init_gdt:
+init_gdt_16:
+
 	sgdt	[rm_gdtr]	# limit=30 base=000FC7F3
 	sidt	[rm_idtr]	# limit=FFFF base=00000000
-
-
 
 	push	eax
 	push	ebx
 
-	.if DEBUG
-		PRINT_DT "Realmode" rm_gdtr rm_idtr
-		PRINT_DT "PMode   " pm_gdtr pm_idtr
+	.if DEBUG > 2
+		call	newline_16
+		rmCOLOR 8
+		PRINTLN_16 "  Original: "
+		PRINT_DT_16 "    Realmode" rm_gdtr rm_idtr
+		PRINT_DT_16 "    PMode   " pm_gdtr pm_idtr
 	.endif
 
 	# determine cs:ip since we do not assume to be loaded at any address
@@ -191,11 +195,10 @@ init_gdt:
 
 	mov	[codeoffset], eax
 
-	.if DEBUG
-		PH8 "Code Base: " ebx
-		PH8 "Code Offset: " eax
+	.if DEBUG > 2
+		PH8_16 "  Code Base: " ebx
+		PH8_16 "  Code Offset: " eax
 	.endif
-
 
 	# Set up DS
 
@@ -204,8 +207,9 @@ init_gdt:
 	shl	eax, 4
 	mov	ebx, eax
 
-	.if DEBUG
-		PH8 "Data base: " eax
+	.if DEBUG > 2
+		PH8_16 "  Data base: " eax
+		call	newline_16
 	.endif
 
 	push	eax
@@ -277,17 +281,15 @@ init_gdt:
 
 	# Load GDT
 
-	.if DEBUG
-		call	newline
-		mov	ah, 0xf0
-		PRINTLN "Loading Global Descriptor Table"
+	.if DEBUG > 2
+		PRINTLN_16 "  Loading Global Descriptor Table: "
+		PRINT_DT_16 "    PMode   " pm_gdtr pm_idtr
 	.endif
 
 	DATA32 ADDR32 lgdt	pm_gdtr
 
 	pop	ebx
 	pop	eax
-
 	ret
 
 

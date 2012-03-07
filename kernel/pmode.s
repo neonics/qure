@@ -1,7 +1,55 @@
 .intel_syntax noprefix
+.text # tmp here to mark for vi
 
 IRQ_BASE = 0x20	# base number for PIC hardware interrupts
-DEBUG = 0 # debug is b0rk3d!
+DEBUG = 3 # debug is b0rk3d!
+
+########################## 16 bit macros
+.macro rmD a b
+	PRINT_START_16
+	mov	ax, (\a << 8 ) + \b
+	stosw
+	PRINT_END_16
+.endm
+
+.macro rmW
+	D 0x2f '?'
+	push	ax
+	xor	ah, ah
+	int	0x16
+	pop	ax
+.endm
+
+.macro rmH
+	D 0x4f 'H'
+9:	hlt
+	jmp 9b
+.endm
+
+.macro rmPC c m
+	rmCOLOR \c
+	PRINT_16 "\m"
+.endm
+
+.macro rmI m
+	rmD 0x09 '>'
+	rmPC 0x07 " \m"
+.endm
+
+.macro rmI2 m
+	rmPC 0x08 "\m"
+.endm
+
+.macro rmOK
+	rmCOLOR 0x0a
+	PRINTLN_16 " Ok"
+.endm
+
+############################# 32 bit macros 
+.macro OK
+	COLOR 0x0a
+	PRINTLN " Ok"
+.endm
 
 
 .include "pic.s"
@@ -82,16 +130,12 @@ protected_mode:
 
 	mov	bx, ax	# save arg
 
-	.if DEBUG
-		DBGSO16 "RealMode SS:IP: ", ss, sp
-		DBGSTACK16 "Return IP: ", 0
-		call	newline
-	.endif
+rmI "Initialize GDT"
 
-	mov	edi, 160 * 4
+	call	init_gdt_16
 
-	call	init_gdt
-
+	mov	[screen_sel], word ptr SEL_vid_txt
+rmOK
 
 	# enable A20
 
@@ -104,14 +148,16 @@ protected_mode:
 
 	INTERRUPTS_OFF
 
+rmI "Remapping PIC"
+	.if DEBUG > 2
+		call newline_16
+	.endif
+
 	mov	ax, 0x2820
 	call	pic_init16
 
-	.if DEBUG
-		mov	ah, 0xf5
-		PRINTLN "Entering Protected-Mode"
-		call	waitkey
-	.endif
+rmOK
+
 
 	# flush prefetch queue, replace cs.
 	# since the object is not relocated to a specific address,
@@ -121,6 +167,10 @@ protected_mode:
 
 	# prepare the far jump instruction
 
+	.if DEBUG > 1
+		rmI "Preparing Entry Point: "
+	.endif
+
 	mov	eax, offset pmode_entry$
 	mov	cx, SEL_compatCS
 
@@ -129,19 +179,57 @@ protected_mode:
 	add	eax, [realsegflat]
 	mov	cx, SEL_flatCS
 
-0:	mov	[pm_entry + 4], word ptr SEL_flatCS
-	mov	[pm_entry], eax
-
-	.if DEBUG
-		PH8 "PM Entry: " eax
+	.if DEBUG > 1
+		rmPC 0x02 "Flat "
+		jmp 1f
+	0:	
+		rmPC 0x03 "Realmode Compatible"
+	1:
+		rmI2 " Address mode"
+		rmOK
+	.else
+0:	
 	.endif
 
+	mov	[pm_entry + 4], cx # word ptr SEL_flatCS
+	mov	[pm_entry], eax
+
+	.if DEBUG > 2
+		rmI2 "  - Address: "
+
+		rmCOLOR 0x01
+		mov	dx, cx
+		call	printhex_16
+		mov	edx, eax
+		call	printhex8_16
+
+		rmI2 " flat segment offset: "
+		rmCOLOR 0x0a
+		mov	edx, [realsegflat]
+		call	printhex8_16
+		call	newline_16
+	.endif
+
+	.if DEBUG > 0
+		rmI "Entering "
+		mov	edi, [screen_pos]
+	.endif
+
+	.if 0
+	xor	ax, ax
+	mov	ds, ax
+	mov	es, ax
+	mov	fs, ax
+	mov	gs, ax
+	mov	ss, ax
+	.endif
 
 	# init pmode
-
 	mov	eax, cr0
 	or	al, 1
 	mov	cr0, eax
+
+	# unreal mode: load some segment selectors, and switch to realmode
 
 	# switch out the cs register.
 	# A jump (near or far) must be done IMMEDIATELY after a mode switch,
@@ -152,17 +240,35 @@ protected_mode:
 	pm_entry:.long 0
 	.word SEL_flatCS
 .code32
+.p2align 2
 pmode_entry$:
+
+	# print Pmode
+	mov	ax, SEL_vid_txt
+	mov	es, ax
+	mov	ax, (0x0c<<8)|'P'
+	stosw
+	mov	ax, (0x09<<8)|'m'
+	stosw
+	mov	al, 'o'
+	stosw
+	mov	al, 'd'
+	stosw
+	mov	al, 'e'
+	stosw
+
+	# adjust return address 
 	xor	edx, edx
 	pop	dx	# real mode return address
 	# this offset is based on the realmode segment we were called with.
 	# If we return in flat CS mode, we'll need to adjust it:
 	# setup
+
 	test	bl, bl
 	jz	0f
-	mov	ax, SEL_realmodeDS
+	mov	ax, SEL_compatDS # realmodeDS
 	mov	ds, ax
-	mov	ax, SEL_realmodeSS
+	mov	ax, SEL_compatSS # realmodeSS
 	mov	ss, ax
 	mov	ax, SEL_realmodeES
 	mov	es, ax
@@ -172,7 +278,7 @@ pmode_entry$:
 	mov	gs, ax
 	jmp	1f
 0:
-	add	edx, [realsegflat]
+	add	edx, [realsegflat]	# flat cs, so adjust return addr
 	xor	eax, eax	# adjust ss:sp
 	mov	ax, ss
 	shl	eax, 4
@@ -183,24 +289,35 @@ pmode_entry$:
 	mov	es, ax
 	mov	fs, ax
 	mov	gs, ax
+
 1:
 	push	edx
 
+mov	ax, SEL_compatDS 
+mov	ds, ax
+mov [screen_pos], edi
+OK
+
 	# load Task Register
+
+	.if DEBUG > 2
+		COLOR 8
+		PH8 "  Return address: ", edx
+		call	newline
+		PRINTc 8 "  Load Task Register"
+	.endif
 
 	mov	ax, SEL_tss
 	ltr	ax
 
-	.if DEBUG
-		SCREEN_INIT
-		SCREEN_OFFS 15, 0
-		mov	ah, 0xf4
-		call	printhex8_32
-		mov	ecx, 100000000
-	0:	mov	edx, ecx
-		loop	0b
+	.if DEBUG > 2
+		OK
 	.endif
-
+test bl, bl
+jnz 0f
+mov ax, SEL_flatDS
+mov ds, ax
+0:
 	ret	# at this point all interrupts are off.
 
 
@@ -260,106 +377,13 @@ real_mode:
 
 	INTERRUPTS_ON
 
-	PRINT "Return address: "
-
 	mov	bp, sp
 	mov	dx, [bp]
-	call	printhex
-
-	call	waitkey
 
 	ret
 
-#####################################################################
-
-.code32
 #################################################
-.include "keyboard.s"
 #################################################
-
-bios_proxy:
-	# dl = the interrupt.
-	# call the realmode handler, staying in pmode
-	push	ebp
-	mov	ebp, esp
-	push	eax
-	push	edx
-	push	edi
-	# mov edi, current_screen_pos
-
-	mov	ax, SEL_flatDS
-	mov	ds, ax
-	and	edx, 0xff
-	shl	edx, 2
-	mov	edx, [edx]	# load INT handler ptr
-	mov	ah, 0xf6
-	call	printhex_32
-	mov	al, ':'
-	stosw
-	ror	edx, 16
-	call	printhex_32
-	ror	edx, 16
-
-	cmp	dx, 0xf000
-	LOAD_TXT "Not BIOS call"
-	je	0f
-
-	# now, we need to restore the registers, and push the BIOS call
-	# address on the stack.
-	# We'll just duplicate the call stack, assuming that BIOS
-	# functions do not use stack arguments except the flags.
-	#(which they dont AFAIK).
-
-	# set up fake call stack for bios function
-	mov	ax, [ebp + 4 + 4 + 2]	# low word flags
-	push	ax
-	push	cs
-	push	offset 2f # assumes non-0-based (flat) cs
-	# now, in 16 bit code, iret will return us at label 2
-
-	# prepare call structure to jump to 16 bit bios using 32 bit iret:
-	mov	eax, [ebp + 4 + 4 + 2]  # flags
-	push	eax	
-	push	word ptr SEL_biosCS	# selector/ 'segment'
-	shr	edx, 16			# offset of function
-	push	edx	# offset
-
-	# restore registers:
-
-	mov	edx, [ebp - 20]
-	mov	edi, [ebp - 16]
-	mov	ax,  [ebp - 12] # ds
-	mov	ds, ax
-	mov	ax,  [ebp - 10] # es
-	mov	es, ax
-	mov	esi, [ebp - 8]
-	mov	eax, [ebp - 4]
-	mov	ebp, [ebp]
-
-	# now use iret to conveniently jump
-	iret
-.code16
-2:	# BIOS should return here in 16 bit CS selector
-	# return to 32 bit CS
-	push	SEL_compatCS # should be same as in IDT
-	push	offset 2f
-	retf
-.code32
-2:	# back in 32 bit, show message:
-	mov	ax, SEL_vid_txt
-	mov	edi, 2 * ( 1*80 + 0 )
-	mov	ax, SEL_compatDS
-	mov	ds, ax
-	mov	ah, 0xf1
-	PRINT "Return from BIOS call"
-
-	pop	edi
-	pop	edx
-	pop	eax
-	pop	ebp
-	ret # or iret, depending on how this is called.
-
-
 
 .code16
 test_protected_mode:
@@ -409,7 +433,7 @@ pmode:	#label for disassembly code alignment
 	SCREEN_OFFS 0, 14
 	mov	ah, 0x3f
 	mov	edx, [codeoffset]
-	call	printhex8_32
+	call	printhex8
 	add	edi, 2
 
 	SCREEN_OFFS 0, 15
@@ -418,7 +442,7 @@ pmode:	#label for disassembly code alignment
 	jmp	smc$ # clear prefetch queue
 smc$:
 	mov	edx, 0xfa11
-	call	printhex8_32
+	call	printhex8
 	
 	SCREEN_OFFS 0, 16
 
@@ -426,9 +450,9 @@ smc$:
 	#SCREEN_OFFS 0, 20
 	mov	ah, 0x3f
 	mov	edx, 0x1337c0de
-	call	printhex8_32
+	call	printhex8
 	mov	edx, offset 0f
-	call	printhex8_32
+	call	printhex8
 
 # add a delay so the already printed output gets rendered by the VM before it
 # crashes..
@@ -437,13 +461,13 @@ smc$:
 0:	nop
 	#mov	edx, ecx
 	#xor	edi, edi # assume es=vid_txt
-	#call	printhex8_32
+	#call	printhex8
 	loop 0b
 
 
 #################################################
 
-	PRINTLN_32 "Loading IDT"
+	PRINTLN "Loading IDT"
 
 	call	init_idt
 	/*
@@ -480,12 +504,12 @@ smc$:
 FOO:
 	PIC_SET_MASK 0xfffe #0xfffc
 
-	call	hook_keyboard_isr32
+	call	hook_keyboard_isr
 .if 1
 	mov	cx, SEL_compatCS
 	mov	eax, 0x20
 	mov	ebx, offset isr_timer
-	call	hook_isr32
+	call	hook_isr
 .endif
 
 	INTERRUPTS_ON
@@ -506,13 +530,13 @@ k_scr_o:.long 160 * 6 + 20
 	mov	ah, 0xf9
 
 	mov	edx, ecx	# countdown
-	call	printhex8_32
+	call	printhex8
 
 	SCREEN_OFFS 0, 6
 	add	edi, 2
 
 	mov	edx, ebx	# nr of keystrokes
-	call	printhex8_32
+	call	printhex8
 	add	edi, 2
 
 #######################################
@@ -528,7 +552,7 @@ k_scr_o:.long 160 * 6 + 20
 	jz	1f
 	mov	al, '*'
 	stosw
-	call	printhex_32
+	call	printhex
 
 	cmp	dl, 'q'
 	je	3f
@@ -539,7 +563,7 @@ k_scr_o:.long 160 * 6 + 20
 	add	edi, 2
 	jmp	2f
 
-1:	# PRINT_32 "No Key"
+1:	# PRINT "No Key"
 2:	
 	mov	[k_scr_o], edi
 ######################################

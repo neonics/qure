@@ -9,23 +9,118 @@
 #include <fcntl.h>
 #include <string.h> // memset
 #include <stdio.h> // printf, fopen
+#include <stdlib.h> // atoi
 
 
-
+bool debug = false;
 char * out_name = NULL;
 char * boot_name = NULL;
+const char * images[] = { 0,0,0,0,0,0,0,0,0,0 }; // a few image pointers...
+int imgidx = 0;
+int rimgidx = 0;
+
+int dirindex_sector = -1;
+long long dirindex_index = 0;
+
 bool parse_args( int argc, char ** argv);
 
-
-char boot_buf[512];
+unsigned char boot_buf[512];
 int h_out, h_in = -1;
 int out_offs = 0;
 int sector = 0;
 int outlen = 144 * 10240;
 
-int next()
+void fill_sector()
 {
-	memset(boot_buf, 0, 512);
+	if ( h_in < 0 && rimgidx < imgidx && images[rimgidx] != 0 )
+	{
+//		printf("1 DBG h_in %d rimgidx %d imgidx %d\n", h_in, rimgidx, imgidx );
+
+		if ( images[rimgidx][0] == '*' )
+		{
+			dirindex_sector = sector;
+			dirindex_index = 0;
+
+
+			sprintf( (char*)boot_buf, "RAMDISK0" );
+
+			printf( " + sector %02d (0x%04x):"
+				" add image %d: RAMDISK0 directory index\n",
+				sector, sector << 9,
+				rimgidx,
+				dirindex_sector, dirindex_sector <<9 );
+
+			// since it is one sector, we can mark it as done already:
+			rimgidx++;
+		}
+		else
+		{
+			h_in = open( images[rimgidx], O_RDONLY );
+
+			if ( h_in <= 0 )
+			{
+				printf( "not found: %a\n", images[rimgidx] );
+				exit(1);
+			}
+			else
+			{
+				long long flen = lseek( h_in, 0, SEEK_END );
+				long sl = (flen >> 9) + (flen % 9 > 0);
+
+				lseek( h_in, 0, SEEK_SET );
+				printf( " + sector %02d (0x%04x):"
+					" add image %d: %s"
+					" - %lld bytes, %ld sectors\n",
+					sector, sector << 9,
+					rimgidx, images[rimgidx],
+					flen, (flen >> 9) + (flen & 0x1ff > 0)
+				);
+
+				if ( dirindex_sector >=0 )
+				{
+					long long so = ( sector - dirindex_sector ) << 9;
+					long ooffs = lseek( h_out, 0, SEEK_CUR );
+
+					printf( " * sector %02d (0x%04x):"
+						" update index %lld:"
+						" sector %02d (%02lld) + %02d"
+						" (0x%04x + 0x%04x)\n",
+						dirindex_sector, dirindex_sector << 9,
+						dirindex_index, // long long
+						sector, so >> 9, sl,
+						sector << 9, flen
+					);
+
+
+					// increment ramdisk index counter
+					lseek( h_out, (dirindex_sector<<9) + 8, SEEK_SET );
+					write( h_out, &++dirindex_index, 8 );
+
+					// write ramdisk directory entry offset
+					lseek( h_out, (dirindex_index-1) * 8, SEEK_CUR );
+					write( h_out, &so, 8 );
+					write( h_out, &flen, 8 );
+
+					lseek( h_out, ooffs, SEEK_SET );
+				}
+			}
+
+		}
+	}
+	else
+	{
+		static bool b = true; // once {}
+		if ( b && h_in < 0 )
+		{
+			b=false;
+			printf(" . sector %02d (0x%04x): end of images."
+				" Total size: %d bytes / %dkb / %.3fMb\n",
+				sector, sector << 9,
+				(sector<<9), (sector<<9)>>10, ((sector<<9)>>10)/1024.0
+			);
+		}
+	}
+
 
 	if ( h_in >= 0 )
 	{
@@ -35,8 +130,18 @@ int next()
 		{
 			close( h_in );
 			h_in = -1;
+			rimgidx ++;
 		}
 	}
+
+}
+
+
+int next()
+{
+	memset(boot_buf, 0, 512);
+
+	fill_sector();
 
 	if ( sector++ == 0 )
 	{
@@ -54,34 +159,16 @@ int main( int argc, char * argv[] )
 	
 	printf("Creating image %s\n", out_name );
 
-
-        h_out = open( out_name, O_RDWR|O_CREAT|O_BINARY);
-	printf("Opened %s, handle %d\n", out_name, h_out );
-
- 	if ( boot_name )
-	{
-		printf("Reading boot image: %s\n", boot_name );
-		h_in = open( boot_name, O_RDONLY );
-		if ( h_in <= 0 )
-		{
-			printf( "not found: %a\n", boot_name );
-			return 1;
-		}
-		int flen = lseek( h_in, 0, SEEK_END );
-		if ( flen > 512 )
-		{
-			printf( "Warning: image larger than bootsector (512): %d bytes (%d sectors)\n", flen, flen >> 9 + (flen &0x1ff>0) );
-		}
-		
-		lseek( h_in, 0, SEEK_SET );
-	}
+	h_out = open( out_name, O_RDWR|O_CREAT|O_BINARY);
 
 	while ( next() )
 	{
 		out_offs += write(h_out, boot_buf, 512);
 	}
 
-        close(h_out);
+	printf( " . sector %02d (0x%04x): end of image.\n", sector, sector << 9 );
+
+	close(h_out);
 
 	return 0;
 }
@@ -89,28 +176,54 @@ int main( int argc, char * argv[] )
 bool parse_args( int argc, char ** argv )
 {
 	bool ok = true;
-	for ( int i = 1; ok && i < argc; i ++ )
+	int i;
+
+	for ( i = 1; ok && i < argc; i ++ )
 	{
 		if ( strcmp( argv[i], "-b" ) == 0 )
 		{
-			if ( ++i < argc ) boot_name = argv[i];
+			if ( ++i < argc ) images[imgidx++] = argv[i];
 			else ok = false;
+		}
+		else if ( strcmp( argv[i], "-rd" ) == 0 )
+		{
+			images[imgidx++] = "*";
 		}
 		else if ( strcmp( argv[i], "-o" ) == 0 )
 		{
 			if ( ++i < argc ) out_name = argv[i];
 			else ok = false;
 		}
-		else ok = false;
+		else
+		{
+			ok = false;
+			printf( "Invalid argument: %s\n", argv[i] );
+		}
 	}
+
+	if ( debug )
+		for ( i = 0; i < imgidx; i ++)
+		{
+			printf( " - Image '%s'\n", images[i] );
+		}
 
 	if ( !ok || out_name == NULL )
 	{
-		printf( "Missing out-image-filename\n\n"
-			"Usage: %s [-b boot.bin] -o <outfile.img>\n\n"
-			"Write a 1.44MB floppy disk image, optionally\n"
-			"overlaying a bootsector. It marks the sector\n"
-			"as a boot sector: sector[510] = 55AA\n",
+		if ( out_name == NULL )
+			printf( "Missing out-image-filename\n");
+		printf( "\n"
+			"Usage: %s [-b <boot.bin>" /*" [-wa xxxx]]"*/" [-rd] -o <outfile.img>\n\n"
+			"Write a 1.44MB floppy disk image, marking the first "
+			"sector as a boot sector.\n\n"
+
+			"  -b <file>\tappend image at next sector alignment, "
+			"starting at 0.\n\n"
+
+			"  -rd      \tadd ramdisk directory index.\n"
+			"\t\tThe offset of images specified (with -b) following\n"
+			"\t\tthis option will be recorded in the directory index.\n\n"
+			,
+
 			argv[0] );
 		return false;
 	}

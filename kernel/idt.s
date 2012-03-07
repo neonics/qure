@@ -53,7 +53,7 @@ rm_idtr:.word 256 * 4
 # in: ax: interrupt number (at current: al, as the IDT only has 256 ints)
 #     cx: segment selector
 #     ebx: offset
-hook_isr32:
+hook_isr:
 	pushf
 	cli
 	push	eax
@@ -64,8 +64,8 @@ hook_isr32:
 	push	ax
 	mov	edx, eax
 	mov	ah, 0xf1
-	PRINT_32 "Hook INT "
-	call	printhex2_32
+	PRINT "Hook INT "
+	call	printhex2
 	pop	ax
 	pop	edx
 
@@ -75,7 +75,7 @@ hook_isr32:
 	mov	edx, eax
 	push	ax
 	mov	ah, 0xf1
-	call	printhex8_32
+	call	printhex8
 	pop	ax
 	pop	edx
 	
@@ -114,7 +114,7 @@ gate_int32:	# cli/sti automatic due to IDT_GATE_INT32
 	mov	ah, 0xf2
 
 	mov	edx, [int_count]
-	call	printhex8_32
+	call	printhex8
 	inc	dword ptr [int_count]
 	add	edi, 2
 
@@ -125,20 +125,20 @@ gate_int32:	# cli/sti automatic due to IDT_GATE_INT32
 	mov	edx, [edx - 2]	# load instruction (assume sel=readable) 
 
 	mov	ah, 0xf3
-	call	printhex8_32
+	call	printhex8
 	add	edi, 2
 
 	cmp	dl, 0xcd	# check for INT opcode
 	LOAD_TXT "Not called by INT instruction!"
 	jne	0f
 
-	PRINT_32 "INT "
+	PRINT "INT "
 	mov	dl, dh
-	call	printhex2_32
+	call	printhex2
 
 	jmp	1f
 0:	mov	ah, 0xf4
-	call	print_32
+	call	print
 1:
 	pop	edx
 	pop	edi
@@ -188,13 +188,13 @@ jmp_table_target:
 	mov	ax, [ebp + 4]
 	mov	edx, eax
 	mov	ah, 0xf4
-	PRINT_32 "INT "
-	call	printhex_32
+	PRINT "INT "
+	call	printhex
 	add	edi, 2
 
 	inc	dword ptr [int_count0]
 	mov	edx, [int_count0]
-	call	printhex_32
+	call	printhex
 	add	edi, 2
 ########
 	.if 1 
@@ -207,20 +207,20 @@ jmp_table_target:
 	pop	ds
 
 	mov	ah, 0xf3
-	call	printhex8_32
+	call	printhex8
 	add	edi, 2
 
 	cmp	dl, 0xcd	# check for INT opcode
 	LOAD_TXT "Not called by INT instruction!"
 	jne	0f
 
-	PRINT_32 "INT "
+	PRINT "INT "
 	mov	dl, dh
-	call	printhex2_32
+	call	printhex2
 
 	jmp	1f
 0:	mov	ah, 0xf4
-	call	print_32
+	call	print
 1:
 
 	.endif
@@ -229,7 +229,7 @@ jmp_table_target:
 #	mov	dl, 6
 #	div	dl
 #	mov	dx, ax
-#	call	printhex_32
+#	call	printhex
 
 
 ### A 'just-in-case' handler for PIC IRQs, hardcoded to 0x20 offset
@@ -244,7 +244,7 @@ jmp_table_target:
 	out	IO_PIC2 + 1, al
 1:	out	IO_PIC1 + 1, al
 	mov	ah, 0x4f
-	PRINT_32 " IRQ "
+	PRINT " IRQ "
 0:
 
 
@@ -257,7 +257,7 @@ jmp_table_target:
 	mov	dl, al
 	in	al, 0x40
 	mov	dh, al
-	call	printhex8_32
+	call	printhex8
 
 
 	add	edi, 4
@@ -326,10 +326,10 @@ isr_timer:
 	mov	ds, di
 	mov	edi, [scr_offs32]
 	mov	ax, 0xf0
-	PRINT_32 "TIMER "
+	PRINT "TIMER "
 	inc	word ptr [int_count]
 	mov	dx, [int_count]
-	call	printhex2_32
+	call	printhex2
 	pop	dx
 	pop	edi
 	mov	al, 0x20

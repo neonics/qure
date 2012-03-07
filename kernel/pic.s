@@ -144,31 +144,31 @@ pic_ivt_offset: .word 0
 	in	al, \picport + 1
 	mov	ah, al
 
-		.if 1 #DEBUG
+		.if DEBUG > 2
 		push	ax
 		push	dx
 		mov	ah, 0xf0
-		PRINT "PIC "
+		rmI2 "  PIC "
 		mov	dl, \picport
-		call	printhex2
-		PRINT "mask "
+		call	printhex2_16
+		rmI2 "mask "
 		mov	dl, al
-		call	printhex2
-		PRINT "ICW1 "
+		call	printhex2_16
+		rmI2 "ICW1 "
 		mov	dl, bh
-		call	printhex2
-		PRINT "ICW2 "
+		call	printhex2_16
+		rmI2 "ICW2 "
 		mov	dl, \offsetreg
-		call	printhex2
-		PRINT "ICW3 "
+		call	printhex2_16
+		rmI2 "ICW3 "
 		mov	dl, \connect
-		call	printhex2
-		PRINT "ICW4 "
+		call	printhex2_16
+		rmI2 "ICW4 "
 		mov	dl, \icw4
-		call	printhex2
+		call	printhex2_16
 		pop	dx
 		pop	ax
-		call	newline
+		call	newline_16
 		.endif
 
 	# use ADI in realmode (4 byte addr), no ADI in pmode (8 byte addr)

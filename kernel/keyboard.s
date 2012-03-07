@@ -11,72 +11,14 @@ KB_FLAG_MOBF	= 0b00100000	# PS2: OBF for mouse; AT: TxTO (timeout)
 KB_FLAG_TO	= 0b01000000	# PS2: Timeout; AT: RxTO
 KB_FLAG_PERR	= 0b10000000	# Parity Error
 
+.include "keycodes.s"
 
 .data
 old_kb_isr: .word 0, 0
-.text
-.code16
-hook_keyboard_isr16:
-	push	fs
-	push	eax
-	cli
-	push	0
-	pop	fs
-	mov	eax, fs:[9 * 4]
-	mov	[old_kb_isr], eax
-	mov	fs:[ 9 * 4], word ptr offset isr_keyboard16
-	mov	fs:[ 9 * 4 + 2], cs
-	pop	eax
-	pop	fs
-	sti
-	ret
-
-restore_keyboard_isr16:
-	cli
-	push	fs
-	push	eax
-	push	0
-	pop	fs
-	mov	eax, [old_kb_isr]
-	mov	fs:[ 9 * 4], eax
-	pop	eax
-	pop	fs
-	sti
-	ret
-
-.data
 scr_o: .word 7 * 160
 .text
-.code16
-isr_keyboard16:
-	push	es
-	push	di
-	push	ax
-
-	push	0xb800
-	pop	es
-	mov	di, [scr_o]
-	mov	ah, 0x90
-0:	in	al, 0x64
-	and	al, 1
-	jz	0b
-
-	in	al, 0x60
-
-	mov	dl, al
-	call	printhex2
-	mov	[scr_o], di
-
-	mov	al, 0x20 # send EOI
-	out	0x20, al
-	pop	ax
-	pop	di
-	pop	es
-
-	iret
-
 .code32
-isr_keyboard32:
+isr_keyboard:
 	push	ds
 	push	es
 	push	edi
@@ -314,7 +256,7 @@ isr_keyboard32:
 
 	push	ax
 	mov	ah, 0x40
-	call	printhex_32
+	call	printhex
 	pop	ax
 
 	and	edx, 0xff
@@ -352,7 +294,7 @@ isr_keyboard32:
 	push	ax
 	mov	ah, 0x3f
 	stosw
-	call	printhex_32
+	call	printhex
 	pop	ax
 	####
 
@@ -366,7 +308,7 @@ isr_keyboard32:
 	mov	ah, 0xf1
 	mov	al, '!'
 	stosw
-	call	printhex_32
+	call	printhex
 	mov	ah, 0xf2
 	stosw
 	pop	ax
@@ -386,23 +328,23 @@ isr_keyboard32:
 
 
 .code32
-hook_keyboard_isr32:
+hook_keyboard_isr:
 	pushf
 	cli
 	mov	al, 0x20 # [pic_ivt_offset]
 	add	al, IRQ_KEYBOARD
 	mov	cx, SEL_compatCS
-	mov	ebx, offset isr_keyboard32
-	call	hook_isr32
+	mov	ebx, offset isr_keyboard
+	call	hook_isr
 	
 	PIC_ENABLE_IRQ IRQ_KEYBOARD
 
-	PRINT_32 "KB Status: "
+	PRINT "KB Status: "
 	in	al, 0x64
 	mov	dl, al
 	mov	ah, 0xf0
-	call	printhex2_32
-	call	printbin8_32
+	call	printhex2
+	call	printbin8
 	popf
 	ret
 
@@ -425,14 +367,14 @@ buf_err$:
 	mov	edx, eax
 	mov	ah, 0xf4
 	SCREEN_INIT
-	PRINT_32 "Buffer Assertion Error: avail: "
-	call	printhex8_32
-	PRINT_32 " R="
+	PRINT "Buffer Assertion Error: avail: "
+	call	printhex8
+	PRINT " R="
 	mov	edx, [keyboard_buffer_ro]
-	call	printhex_32
-	PRINT_32 " W="
+	call	printhex
+	PRINT " W="
 	mov	edx, [keyboard_buffer_wo]
-	call	printhex_32
+	call	printhex
 	pop	edx
 	pop	edi
 	pop	es

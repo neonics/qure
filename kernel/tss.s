@@ -57,7 +57,7 @@ kernel_task:
 	mov	ah, 0xf0
 	SCREEN_INIT
 	SCREEN_OFFS 0, 3
-	PRINT_32 "Kernel Task!"
+	PRINT "Kernel Task!"
 0:	hlt
 	jmp	0b
 	ret

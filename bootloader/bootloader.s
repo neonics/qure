@@ -1,3 +1,6 @@
+# The BootSector
+#
+# Includes sector1, determines size, and loads it using the MBR data.
 .intel_syntax noprefix
 
 # Layout:
@@ -13,7 +16,7 @@
 .equ WHITE_PRINTREGISTERS_PRINT_FLAGS, 0
 
 
-.equ SECTOR1, 1
+.equ INCLUDE_SECTOR1, 1
 #######################################################
 
 .text
@@ -43,22 +46,25 @@ LOAD_OFFS= 0 # the base address (16 bit offset) for which the binary is coded
 ###################################################################
 
 
-
 # ss:sp points to the end of the first sector.
 	# backup sp
 	#mov	sp, 512	# make it so, regardless of bios
 	mov	cs:[sp_bkp$], sp
+	#mov	cs:[ss_bkp$], ss
+	mov	sp, cs
+	mov	ss, sp
 	mov	sp, 512	# use the 0xaa55 signature
 	call	0f
 0:	pop	sp
 	and	sp, ~0xff
-	add	sp, 0x2000 + (CODE_SIZE - black) & ~ 0xff
+	add	sp, 0xF000 + (CODE_SIZE - black) & ~ 0xff
 	call	1f
 0:
 halt:	hlt
 	jmp	halt
 
 sp_bkp$:.word 0
+ss_bkp$:.word 0
 
 regnames$:
 .ascii "cs"	# 0
@@ -405,7 +411,7 @@ loadsectors$:
 	#mov	dx, 0xcafe
 	#call	printhex
 
-.if SECTOR1
+.if INCLUDE_SECTOR1
 	jmp 	sector1$
 .else
 	jmp	halt
@@ -423,7 +429,9 @@ fail:	mov	bx, ax		# save bios int result code
 
 .endif # WHITE
 
-.include "print.s"
+
+BOOTSECTOR=1
+.include "../16/print.s"
 ############################################################################
 
 .EQU bs_code_end, .
@@ -433,9 +441,8 @@ data:
 
 #. = 440
 #	.ascii "MBR$"
-. = 446
-# use this too for floppies...
-	mbr:
+. = 446	# 0x1be
+mbr:
 
 # CHS2LBA( C, H, S ) = (MaxHeadPerCyl * C + H) * MaxSectPerTrack + S - 1
 
@@ -462,8 +469,9 @@ sig$:	.byte 0x55, 0xaa	# the value is required during boot,
 
 #############################################################################
 . = 512
+BOOTSECTOR = 0
 
-.if SECTOR1
+.if INCLUDE_SECTOR1
 
 sector1$:
 

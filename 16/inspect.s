@@ -1,63 +1,3 @@
-# included in bootloader.s
-.intel_syntax noprefix
-.text
-. = 512
-.data
-bootloader_registers_base: .word 0
-msg_sector1$: .asciz "Transcended sector limitation!"
-msg_entering_pmode$: .asciz "Entering Protected Mode"
-.text
-	mov	[bootloader_registers_base], bp
-
-	mov	ah, 0xf3
-	mov	si, offset msg_sector1$
-	call	println
-
-	mov	dx, 0x1337
-	call	printhex
-
-	call	printregisters
-
-	call	waitkey
-
-	call	menu
-
-	call	cls
-	PRINT "System Halt."
-	jmp	halt
-
-###################################################
-
-.include "print2.s"
-.include "keycodes.s"
-.include "pmode.s"
-.code16
-.include "gfxmode.s"
-.include "acpi.s"
-
-waitkey:
-	.data
-	msg_press_key$: .asciz "Press a key to continue..."
-	.text
-	push	si
-	push	dx
-
-	mov	si, offset msg_press_key$
-	call	print
-
-	push	ax
-	xor	ah, ah
-	int	0x16
-	pop	dx
-	xchg	ax, dx	# restore ah
-	call	printhex
-	call	newline
-	mov	ax, dx
-	pop	dx
-	pop	si
-	ret
-
-
 .data
 drive_numbers: .long -1, -1  # support 8 drives...
 .text
@@ -250,7 +190,24 @@ writebootsector:
 # todo: replace cls, print*, newline with functions preserving es:di
 
 
-.include "menu.s"
+printhex8:
+	push	ax
+	push	cx
+	push	edx
+	mov	cx, 8
+0:	rol	edx, 4
+	mov	al, dl
+	and	al, 0x0f
+	cmp	al, 10
+	jb	1f
+	add	al, 'A' - '0' - 10
+1:	add	al, '0'
+	stosw
+	loopnz	0b
+	pop	edx
+	pop	cx
+	pop	ax
+	ret
 
 
 # in: 
@@ -622,8 +579,3 @@ fail$:	mov	dx, ax
 	call	printhex2
 	ret
 
-.data
-	.rept 1024
-	.asciz "Padding Data"
-	.endr
-.text

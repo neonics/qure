@@ -31,14 +31,14 @@ gfxmode:
 	mov	es, ax
 	xor	di, di
 
-	#mov	ecx, 1024 * 768
-	xor	cx, cx
+	mov	cx, 16
 
 	xor	ax, ax
 1:	push	cx
 
-	xor	cx, cx
+	mov	cx, 1024
 
+	################# store one scanline
 	xor	bl, bl
 0:	stosw
 	xchg	al, bl
@@ -47,19 +47,16 @@ gfxmode:
 	inc	al
 	add	bl, ah
 
-	ror	edi, 16
-	mov	dx, di
-	shr	dx, 4
-	add	dx, 0xa000
-	mov	es, dx
-	ror	edi, 16
-
 	loop	0b
 
 	pop	cx
-	inc	cx
-	cmp	cx, 0x0c
-	jb	1b
+
+	mov	dx, es
+	add	dx, 192
+	mov	es, dx
+	xor	di, di
+
+	loop	1b
 
 	call	waitkey
 	mov	bx, [vbe_old_mode]

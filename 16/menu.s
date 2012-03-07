@@ -23,24 +23,30 @@ menu_item_size:
 .data
 menusel: .byte 0
 menuitems:
+MENUITEM next_in_chain		"Call next in chain"
 MENUITEM printregisters2	"Print boot registers"
 MENUITEM printregisters		"Print Registers"
 MENUITEM gfxmode		"Graphics Mode"
-MENUITEM bootcdemulationinfo	"Bootable CD Emulation info"
+MENUITEM cd_emulation_info	"CDROM: Disk Emulation Info"
+MENUITEM cd_emulation_terminate	"CDROM: Terminate Emulation"
 MENUITEM list_drives		"List Drives"
 MENUITEM list_floppies		"List Floppies"
 MENUITEM writebootsector	"Write Bootsector"
 MENUITEM inspectmem		"InspectMem"
 MENUITEM inspectdrive		"Inspect Drive"
 MENUITEM inspectbootsector	"Inspect Bootsector"
-MENUITEM protected_mode		"Protected Mode"
-MENUITEM test_protected_mode	"Enter/Exit Protected Mode"
 MENUITEM test_keyboard16	"Test Keyboard handler bit"
-MENUITEM acpi_poweroff		"ACPI Poweroff"
 menuitemcount:.byte ( . - menuitems ) / menu_item_size
 .text
-menu:	mov	ax, 0x0f00
+menu:	
+	# this kludge is because gas doesnt allow <<
+	mov	ax, SECTORS +1
+	shl	ax, 9	
+	mov	[menuitems + menu_code], ax
+
+	mov	ax, 0x0f00
 	call	cls
+
 
 drawmenu$:
 	mov	dh, [menuitemcount]
@@ -86,17 +92,8 @@ drawmenu$:
 	jb	0b
 
 	push	di
-	mov	di, 2*67
-	xor	ah, ah
-	int	0x16
-	mov	dx, ax
-	mov	ah, 0xf4
-	PRINT	"KeyCode: "
-	call	printhex
-
 	mov	di, 160 + 2 * 49
 	mov	ah, 0xf3
-
 	PRINT	"MenuItemOffset: "
 	mov	ah, [menusel]
 	mov	al, menu_item_size
@@ -111,6 +108,15 @@ drawmenu$:
 	mov	dx, [si + menu_code]
 	call	printhex
 	pop	dx
+
+
+	mov	di, 2*67
+	xor	ah, ah
+	int	0x16
+	mov	dx, ax
+	mov	ah, 0xf4
+	PRINT	"KeyCode: "
+	call	printhex
 
 	pop	di
 	call	newline
@@ -238,18 +244,15 @@ test_keyboard16:
 	#out	IO_PIC1 + 1, al
 
 	mov	cx, 0xffff
-1:
-	push	cx
-
-	mov	cx, 0xffff
 	mov	ah, 0xf4
 0:	mov	di, 160
 	mov	dx, cx
 	call	printhex
+	cmp	[last_key], word ptr 0x0100
+	je	0f
+	hlt
 	loopnz	0b
-
-	pop	cx
-	loopnz	1b
+0:
 
 	call	restore_keyboard_isr16
 	ret
@@ -277,7 +280,7 @@ cd_p_head:		.byte 0 # head number
 .data
 cd_spec_packet: .space 0x13
 .text
-bootcdemulationinfo:
+cd_emulation_info:
 	mov	si, [bootloader_registers_base]
 	mov	dl, [si + 24] # dx boot register -> boot drive
 	mov	ah, 0xf0
@@ -292,6 +295,8 @@ bootcdemulationinfo:
 	mov	ah, 0xf0
 	print "INT 13h result: "
 	call	printhex
+
+print_cd_emulation_info$:
 	call	newline
 
 	PRINT	"Packet Size:       "
@@ -350,3 +355,24 @@ bootcdemulationinfo:
 	PRINT "Error: "
 	call	printhex
 	ret
+
+
+cd_emulation_terminate:
+	mov	si, [bootloader_registers_base]
+	mov	dl, [si + 24] # dx boot register -> boot drive
+	mov	ah, 0xf0
+	PRINT "Boot Drive: "
+	call	printhex2
+
+	mov	ax, 0x4b00
+	mov	si, offset cd_spec_packet
+	int	0x13
+	jnc	0f
+
+	mov	dx, ax
+	mov	ah, 0x4f
+	PRINT	"Terminate Disk Emulation eror: "
+	call	printhex
+0:	jmp	print_cd_emulation_info$
+
+.include "keyboard16.s"
