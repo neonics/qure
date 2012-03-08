@@ -15,7 +15,7 @@ os.iso: init build/boot.img
 	@echo Generating $@
 	@echo "Sectors: $(call SECTORS,build/boot.img)"
 	@cp build/boot.img root/boot/boot.img
-	@genisoimage -o os.iso \
+	@genisoimage -input-charset utf-8 -o os.iso \
 		-r -b boot/boot.img \
 		$(ISO_ARGS) \
 		root/ 

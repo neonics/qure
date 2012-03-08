@@ -2,62 +2,15 @@
 .text # tmp here to mark for vi
 
 IRQ_BASE = 0x20	# base number for PIC hardware interrupts
-DEBUG = 3 # debug is b0rk3d!
 
-########################## 16 bit macros
-.macro rmD a b
-	PRINT_START_16
-	mov	ax, (\a << 8 ) + \b
-	stosw
-	PRINT_END_16
-.endm
-
-.macro rmW
-	D 0x2f '?'
-	push	ax
-	xor	ah, ah
-	int	0x16
-	pop	ax
-.endm
-
-.macro rmH
-	D 0x4f 'H'
-9:	hlt
-	jmp 9b
-.endm
-
-.macro rmPC c m
-	rmCOLOR \c
-	PRINT_16 "\m"
-.endm
-
-.macro rmI m
-	rmD 0x09 '>'
-	rmPC 0x07 " \m"
-.endm
-
-.macro rmI2 m
-	rmPC 0x08 "\m"
-.endm
-
-.macro rmOK
-	rmCOLOR 0x0a
-	PRINTLN_16 " Ok"
-.endm
-
-############################# 32 bit macros 
-.macro OK
-	COLOR 0x0a
-	PRINTLN " Ok"
-.endm
-
+###########################
 
 .include "pic.s"
 .include "gdt.s"
 .include "idt.s"
 .include "tss.s"
 
-#######################
+###########################
 
 .data
 
@@ -149,6 +102,7 @@ rmOK
 	INTERRUPTS_OFF
 
 rmI "Remapping PIC"
+
 	.if DEBUG > 2
 		call newline_16
 	.endif
@@ -180,7 +134,7 @@ rmOK
 	mov	cx, SEL_flatCS
 
 	.if DEBUG > 1
-		rmPC 0x02 "Flat "
+		rmPC 0x01 "Flat"
 		jmp 1f
 	0:	
 		rmPC 0x03 "Realmode Compatible"
@@ -229,18 +183,19 @@ rmOK
 	or	al, 1
 	mov	cr0, eax
 
-	# unreal mode: load some segment selectors, and switch to realmode
-
-	# switch out the cs register.
+	# DO NOT PLACE CODE HERE -
+	#
 	# A jump (near or far) must be done IMMEDIATELY after a mode switch,
 	# to clear out the prefetch queue.
 
+	# unreal mode: load some segment selectors, and switch to realmode
+
+	# switch out the cs register.
 	# DATA32 ljmp	SEL_flatCS, offset pmode_entry$ + RELOCATION
 	.byte 0x66, 0xea
 	pm_entry:.long 0
 	.word SEL_flatCS
 .code32
-.p2align 2
 pmode_entry$:
 
 	# print Pmode
@@ -279,24 +234,38 @@ pmode_entry$:
 	jmp	1f
 0:
 	add	edx, [realsegflat]	# flat cs, so adjust return addr
-	xor	eax, eax	# adjust ss:sp
-	mov	ax, ss
+	xor	eax, eax
+	mov	ax, ss	# adjust ss:sp
 	shl	eax, 4
 	add	esp, eax
 	mov	ax, SEL_flatDS
-	mov	ds, ax
 	mov	ss, ax
 	mov	es, ax
 	mov	fs, ax
 	mov	gs, ax
-
+	mov	ax, SEL_compatDS 
+	mov	ds, ax
 1:
 	push	edx
 
-mov	ax, SEL_compatDS 
-mov	ds, ax
 mov [screen_pos], edi
 OK
+
+
+	I "Loading IDT"
+
+	call	init_idt
+
+	OK
+
+	PIC_SET_MASK 0xfffc # 0xfffe #0xfffc
+
+	call	keyboard_hook_isr
+	call	pit_hook_isr
+
+	INTERRUPTS_ON
+
+
 
 	# load Task Register
 
@@ -313,12 +282,16 @@ OK
 	.if DEBUG > 2
 		OK
 	.endif
-test bl, bl
-jnz 0f
-mov ax, SEL_flatDS
-mov ds, ax
-0:
-	ret	# at this point all interrupts are off.
+
+
+	# if flat mode is requested, set ds to flat. Data references,
+	# unless relocated to reflect the memory address, wont work.
+	test	bl, bl
+	jnz	0f
+	mov	ax, SEL_flatDS
+	mov	ds, ax
+
+0:	ret	# at this point interrupts are on, standard handlers installed.
 
 
 #######################################################
@@ -327,6 +300,9 @@ mov ds, ax
 .code32
 real_mode:
 	pop	edx	# convert stack return address
+
+	mov	bx, SEL_compatDS
+	mov	ds, bx
 
 	mov	bx, cs	# add base of current selector to stack
 	GDT_GET_BASE bx
@@ -372,6 +348,8 @@ real_mode:
 
 	lidt	rm_idtr
 
+	# remap PIC
+
 	mov	ax, 0x7008
 	call	pic_init16
 
@@ -382,205 +360,4 @@ real_mode:
 
 	ret
 
-#################################################
-#################################################
 
-.code16
-test_protected_mode:
-	mov	ax, 0x0800
-	call	cls
-	mov	bp, sp
-	PRINT	"TEST PM called from: "
-	mov	dx, [bp]
-	call	printhex
-	call	newline
-
-	# wait until input buffer is read 
-0:	in	al, 0x64
-	test	al, 2
-	jnz	0b
-
-
-	xor	ax, ax	# pmode argument: flat code XXX for now not dynamic
-	mov	al, 0
-	call	protected_mode
-.code32
-pmode:	#label for disassembly code alignment
-
-	.data
-	msg$: .byte 'P', 0xf4, 'm', 0xf1, 'o', 0xf1, 'd', 0xf1, 'e', 0xf1
-	.equ msgl$, . - msg$
-	.equ rest_scr$, 80*25
-	.text
-
-	SCREEN_INIT
-
-	mov	ax, SEL_realmodeDS
-	mov	ds, ax
-
-	/*
-	SCREEN_OFFS 0, 0
-	mov	ecx, rest_scr$ #cls
-	mov	ax, 0x5f << 8 | '.'
-	rep	stosw
-	*/
-
-	SCREEN_OFFS 37, 12
-	mov	esi, offset msg$ # print
-	mov	ecx, msgl$
-	rep	movsb
-
-	SCREEN_OFFS 0, 14
-	mov	ah, 0x3f
-	mov	edx, [codeoffset]
-	call	printhex8
-	add	edi, 2
-
-	SCREEN_OFFS 0, 15
-	# test self modifying code
-	mov	ds:[ smc$ + 1], word ptr 0x1337
-	jmp	smc$ # clear prefetch queue
-smc$:
-	mov	edx, 0xfa11
-	call	printhex8
-	
-	SCREEN_OFFS 0, 16
-
-
-	#SCREEN_OFFS 0, 20
-	mov	ah, 0x3f
-	mov	edx, 0x1337c0de
-	call	printhex8
-	mov	edx, offset 0f
-	call	printhex8
-
-# add a delay so the already printed output gets rendered by the VM before it
-# crashes..
-	mov	ecx, 100000
-	mov	ah, 0x41
-0:	nop
-	#mov	edx, ecx
-	#xor	edi, edi # assume es=vid_txt
-	#call	printhex8
-	loop 0b
-
-
-#################################################
-
-	PRINTLN "Loading IDT"
-
-	call	init_idt
-	/*
-	cli
-
-
-	push	es
-	push	edi
-
-	mov	edi, offset IDT
-	mov	ax, SEL_realmodeDS
-	mov	es, ax
-	mov	ecx, 256
-#	xor	eax, eax
-#	rep	stosb
-	mov	eax, offset gate_int32
-	#add	eax, [realsegflat]
-0:	mov	[edi + 0], ax
-	mov	[edi + 2], word ptr SEL_compatCS
-	mov	[edi + 4], word ptr 0x8e00
-	ror	eax, 16
-	mov	[edi + 6], ax
-	ror	eax, 16
-	add	edi, 8
-	loop	0b
-
-	pop	edi
-	pop	es
-	*/
-
-
-	int	0x55		# software interrupt
-
-FOO:
-	PIC_SET_MASK 0xfffe #0xfffc
-
-	call	hook_keyboard_isr
-.if 1
-	mov	cx, SEL_compatCS
-	mov	eax, 0x20
-	mov	ebx, offset isr_timer
-	call	hook_isr
-.endif
-
-	INTERRUPTS_ON
-
-
-	# This works!:
-	#call	task_switch
-
-
-#######################################
-.data 
-k_scr_o:.long 160 * 6 + 20
-.text
-	push	edi
-	mov	ecx, 10000000
-	xor	ebx, ebx
-0:	SCREEN_OFFS 0, 5
-	mov	ah, 0xf9
-
-	mov	edx, ecx	# countdown
-	call	printhex8
-
-	SCREEN_OFFS 0, 6
-	add	edi, 2
-
-	mov	edx, ebx	# nr of keystrokes
-	call	printhex8
-	add	edi, 2
-
-#######################################
-
-	push	ax
-	mov	ah, 0
-	call	keyboard
-	mov	dx, ax
-	pop	ax
-
-	mov	edi, [k_scr_o]
-
-	jz	1f
-	mov	al, '*'
-	stosw
-	call	printhex
-
-	cmp	dl, 'q'
-	je	3f
-	cmp	dx, K_ESC
-	je	3f
-
-	inc	ebx
-	add	edi, 2
-	jmp	2f
-
-1:	# PRINT "No Key"
-2:	
-	mov	[k_scr_o], edi
-######################################
-
-	test	ecx, 0xfffff
-	jnz	1f
-	int	0x55
-1:
-	sti
-	hlt
-	loop	0b
-3:	pop	edi
-
-################################################
-
-	call	real_mode
-.code16
-	ret
-
-.code32

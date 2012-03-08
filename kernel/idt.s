@@ -15,6 +15,7 @@
 # For a TASK Gate, the entire context is switched using TSS.
 # For an INT Gate, cli/sti is automatic; it isn't for a TRAP gate.
 #
+.intel_syntax noprefix
 .equ IDT_ACC_GATE_TASK32, 0b0101 # TASK Gate. selector:offset = TSS:0.
 .equ IDT_ACC_GATE_INT16,  0b0110
 .equ IDT_ACC_GATE_TRAP16, 0b0111
@@ -61,22 +62,21 @@ hook_isr:
 	and	eax, 0xff
 
 	push	edx
-	push	ax
 	mov	edx, eax
-	mov	ah, 0xf1
-	PRINT "Hook INT "
+	I	"Hook INT "
 	call	printhex2
-	pop	ax
 	pop	edx
+	I2	" @ "
 
 	shl	eax, 3
 	add	eax, offset IDT
 	push	edx
+	mov	dx, cx
+	call	printhex
+	PRINT	":"
 	mov	edx, eax
-	push	ax
-	mov	ah, 0xf1
 	call	printhex8
-	pop	ax
+	call	newline
 	pop	edx
 	
 	mov	[eax], bx
@@ -89,115 +89,95 @@ hook_isr:
 	pop	eax
 	popf
 	ret
-#########################
 
+#################################################
 
-int_count: .long 0
-gate_int32:	# cli/sti automatic due to IDT_GATE_INT32
-	push	ebp
-	mov	ebp, esp
-	push	eax
-	push	esi
-	push	es
-	push	ds
-	push	edi
-	push	edx
-
-	SCREEN_INIT
-
-	mov	ax, 0xf2<<8 + '!'
-	stosw
-
-	mov	ax, SEL_compatDS
-	mov	ds, ax
-
-	mov	ah, 0xf2
-
-	mov	edx, [int_count]
-	call	printhex8
-	inc	dword ptr [int_count]
-	add	edi, 2
-
-	# read instruction to see if it is INT x
-	mov	ax, [ebp + 6]	# code selector
-	mov	ds, ax
-	mov	edx, [ebp + 4]	# get return address
-	mov	edx, [edx - 2]	# load instruction (assume sel=readable) 
-
-	mov	ah, 0xf3
-	call	printhex8
-	add	edi, 2
-
-	cmp	dl, 0xcd	# check for INT opcode
-	LOAD_TXT "Not called by INT instruction!"
-	jne	0f
-
-	PRINT "INT "
-	mov	dl, dh
-	call	printhex2
-
-	jmp	1f
-0:	mov	ah, 0xf4
-	call	print
-1:
-	pop	edx
-	pop	edi
-	pop	ds
-	pop	es
-	pop	esi
-	pop	eax
-	pop	ebp
-	iret
-
-########################
-
-.data
-int_count0: .rept 256; .long 0; .endr
-scr_offs32: .long 0
-.text
-int_jmp_table:
+isr_jump_table:
 
 	INT_NR = 0
 	.rept 256
 		push	word ptr INT_NR
 		jmp	jmp_table_target
-
 		.if INT_NR == 0
-			JMP_ENTRY_LEN = . - int_jmp_table
+			JMP_ENTRY_LEN = . - isr_jump_table
 		.endif
 		INT_NR = INT_NR + 1
 	.endr
 
+.data 
+msg_int_00$: 	.asciz "Division by zero"
+msg_int_01$: 	.asciz "Debugger"
+msg_int_02$: 	.asciz "NMI"
+msg_int_03$: 	.asciz "Breakpoint"
+msg_int_04$: 	.asciz "Overflow"
+msg_int_05$: 	.asciz "Bounds"
+msg_int_06$: 	.asciz "Invalid Opcode"
+msg_int_07$: 	.asciz "Coprocessor not available"
+msg_int_08$: 	.asciz "Double fault"
+msg_int_09$: 	.asciz "Coprocessor Segment Overrun (386 or earlier only)"
+msg_int_0A$: 	.asciz "Invalid Task State Segment"
+msg_int_0B$: 	.asciz "Segment not present"
+msg_int_0C$: 	.asciz "Stack Fault"
+msg_int_0D$: 	.asciz "General protection fault"
+msg_int_0E$: 	.asciz "Page fault"
+msg_int_0F$: 	.asciz "reserved"
+msg_int_10$: 	.asciz "Math Fault"
+msg_int_11$: 	.asciz "Alignment Check"
+msg_int_12$: 	.asciz "Machine Check"
+msg_int_13$: 	.asciz "SIMD Floating-Point Exception"
+
+int_labels$:
+	.long msg_int_00$
+	.long msg_int_01$
+	.long msg_int_02$
+	.long msg_int_03$
+	.long msg_int_04$
+	.long msg_int_05$
+	.long msg_int_06$
+	.long msg_int_07$
+	.long msg_int_08$
+	.long msg_int_09$
+	.long msg_int_0A$
+	.long msg_int_0B$
+	.long msg_int_0C$
+	.long msg_int_0D$
+	.long msg_int_0E$
+	.long msg_int_0F$
+	.long msg_int_10$
+	.long msg_int_11$
+	.long msg_int_12$
+	.long msg_int_13$
+
+
+.text
+
 
 jmp_table_target:
+	.data
+		int_count: .rept 256; .long 0; .endr
+	.text
 	push	ebp
 	mov	ebp, esp
 	push	eax
-	push	es
 	push	ds
 	push	edi
 	push	edx
-	push	ecx
 
 	mov	ax, SEL_compatDS
 	mov	ds, ax
-	mov	ax, SEL_vid_txt
-	mov	es, ax
-	mov	edi, [scr_offs32]
 
-	mov	ax, [ebp + 4]
-	mov	edx, eax
-	mov	ah, 0xf4
-	PRINT "INT "
-	call	printhex
-	add	edi, 2
+	PUSHCOLOR 8
+	PRINT "(ISR "
+	movzx	edx, word ptr [ebp+4]
+	call	printhex2
+	shl	edx, 2
+	inc	dword ptr [edx + int_count]
+	mov	edx, [edx + int_count]
+	PRINT " count "
+	call	printhex8
 
-	inc	dword ptr [int_count0]
-	mov	edx, [int_count0]
-	call	printhex
-	add	edi, 2
+
 ########
-	.if 1 
 	# read instruction to see if it is INT x
 	mov	ax, [ebp + 4 + 2 + 4]	# code selector
 	push	ds
@@ -206,35 +186,64 @@ jmp_table_target:
 	mov	edx, [edx - 2]	# load instruction (assume sel=readable) 
 	pop	ds
 
-	mov	ah, 0xf3
-	call	printhex8
-	add	edi, 2
+	COLOR 9
+	PRINT " ["
+	call	printhex
+	PRINT "]"
 
+	COLOR 10
 	cmp	dl, 0xcd	# check for INT opcode
-	LOAD_TXT "Not called by INT instruction!"
-	jne	0f
-
-	PRINT "INT "
-	mov	dl, dh
+	mov	dl, [pic_ivt_offset] # assume all 16 are contiguous
+	je	0f
+	PRINT "IRQ "
+	sub	dh, dl
+	xchg	dl, dh
 	call	printhex2
 
 	jmp	1f
-0:	mov	ah, 0xf4
-	call	print
-1:
 
-	.endif
+0:	PRINT " INT "
+	mov	dl, dh
+	call	printhex2
+
+1:
 ########
 
-#	mov	dl, 6
-#	div	dl
-#	mov	dx, ax
-#	call	printhex
+##############################
+# well, having this here should make no difference.. but it crashes
+	or al, al
+##############################
 
+.if 0
+	#ja	0f
+	#0:
+
+	.if 0
+	xor	eax, eax
+	mov	al, dl
+	push	esi
+	#mov	esi, [int_labels$ + eax*4]
+	mov	edx, int_labels$
+	call	printhex8
+	mov	edx, eax
+	call	printhex8
+	#call	print
+	pop	esi
+	.endif
+.endif
+
+
+	COLOR 8
+	PRINT	")"
+
+
+	POPCOLOR
 
 ### A 'just-in-case' handler for PIC IRQs, hardcoded to 0x20 offset
+	# dh = [pic_ivt_offset]
+	shr	dx, 8
 	mov	ax, [ebp + 4]
-	sub	ax, 0x20
+	sub	ax, dx		# assume [pic_ivt_offset] continuous
 	js	0f
 	cmp	ax, 0x10
 	jae	0f
@@ -247,32 +256,15 @@ jmp_table_target:
 	PRINT " IRQ "
 0:
 
-
-	mov	ah, 0x73
-
-	xor	al, al		# read channel 0 (bits 6,7 = channel)
-	out	0x43, al	# PIT port
-
-	in	al, 0x40
-	mov	dl, al
-	in	al, 0x40
-	mov	dh, al
-	call	printhex8
-
-
-	add	edi, 4
-	mov	[scr_offs32], edi
-
-	pop	ecx
 	pop	edx
 	pop	edi
 	pop	ds
-	pop	es
 	pop	eax
 	pop	ebp
-	add	esp, 2
+	add	esp, 2	# pop interrupt number
 	iret
 
+###################################################################
 
 init_idt: # assume ds = SEL_compatDS/realmodeDS
 	pushf
@@ -281,13 +273,7 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	mov	ecx, 256
 	mov	esi, offset IDT
 
-JMP_TABLE = 1
-
-	.if JMP_TABLE
-	mov	eax, offset int_jmp_table
-	.else
-	mov	eax, offset gate_int32 # int_jmp_table
-	.endif
+	mov	eax, offset isr_jump_table
 
 0:	mov	[esi], ax
 	mov	[esi + 2], word ptr SEL_compatCS
@@ -296,9 +282,7 @@ JMP_TABLE = 1
 	mov	[esi + 6], ax
 	ror	eax, 16
 	add	esi, 8
-	.if JMP_TABLE
 	add	eax, JMP_ENTRY_LEN
-	.endif
 	loop	0b
 
 	mov	eax, [realsegflat]
@@ -308,34 +292,4 @@ JMP_TABLE = 1
 
 	popf	# leave IF (cli/sti) as it was
 	ret
-
-
-
-######################################
-# PIT - Programmable Interrupt Timer 
-######################################
-
-isr_timer: 
-	push	es
-	push	ds
-	push	ax
-	push	edi
-	push	dx
-	SCREEN_INIT
-	mov	di, SEL_compatCS
-	mov	ds, di
-	mov	edi, [scr_offs32]
-	mov	ax, 0xf0
-	PRINT "TIMER "
-	inc	word ptr [int_count]
-	mov	dx, [int_count]
-	call	printhex2
-	pop	dx
-	pop	edi
-	mov	al, 0x20
-	out	0x20, al
-	pop	ax
-	pop	ds
-	pop	es
-	iret
 

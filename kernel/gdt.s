@@ -74,8 +74,8 @@ GDT_vid_txt:	DEFGDT 0xb8000, 0x00ffff, ACCESS_DATA, FLAGS_16
 GDT_vid_gfx:	DEFGDT 0xa00000, 0x00ffff, ACCESS_DATA, FLAGS_16
 
 GDT_compatCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, FLAGS_32 #ffff 0000 00 9a 00 00
-GDT_compatDS:	DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 9a 00 00
 GDT_compatSS:	DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 9a 00 00
+GDT_compatDS:	DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 9a 00 00
 
 GDT_realmodeCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, FLAGS_16 #ffff 0000 00 9a 00 00
 GDT_realmodeDS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
@@ -98,8 +98,8 @@ rm_gdtr:.word 0
 .equ SEL_vid_gfx, 	8 * 5
 
 .equ SEL_compatCS, 	8 * 6 # same as realmodeCS except 32 bit
-.equ SEL_compatDS, 	8 * 7 # same as realmodeDS except 32 bit
-.equ SEL_compatSS, 	8 * 8 # same as realmodeSS except 32 bit
+.equ SEL_compatSS, 	8 * 7 # same as realmodeSS except 32 bit
+.equ SEL_compatDS, 	8 * 8 # same as realmodeDS except 32 bit
 
 .equ SEL_realmodeCS, 	8 * 9
 .equ SEL_realmodeDS,	8 * 10

@@ -7,8 +7,12 @@
 ###############################################################################
 .ifndef PRINT_32_DECLARED
 PRINT_32_DECLARED = 1
-###################### 32 bit macros
 
+
+
+###################### 32 bit macros
+HEX_END_SPACE = 0	# whether to follow hex print with a space 
+			# transitional - temporary!
 
 
 ################# Colors ###############
@@ -19,7 +23,7 @@ PRINT_32_DECLARED = 1
 
 .macro PUSHCOLOR c
 	push	word ptr [screen_color]
-	mov	[screen_color], byte ptr c
+	mov	[screen_color], byte ptr \c
 .endm
 
 .macro POPCOLOR c
@@ -45,18 +49,25 @@ PRINT_32_DECLARED = 1
 	.endif
 .endm
 
-.macro PRINT_START
+.macro PRINT_START c=0
 	push	ax
 	push	es
 	push	edi
 	mov	di, [screen_sel]
 	mov	es, di
 	mov	edi, [screen_pos]
+	.if \c
+	mov	ah, \c
+	.else
 	mov	ah, [screen_color]
+	.endif
 .endm
 
-.macro PRINT_END
+.macro PRINT_END ignorepos=0
+	.if \ignorepos
+	.else
 	mov	[screen_pos], edi
+	.endif
 	pop	edi
 	pop	es
 	pop	ax
@@ -111,17 +122,18 @@ PRINT_32_DECLARED = 1
 
 
 .macro PH8 m, r
-	push	edx
 	.if \r != edx
+	push	edx
 	mov	edx, \r
 	.endif
-	push	ax
-	mov	ah, 0xf0
 	PRINT "\m" 
 	call	printhex8
+.if HEX_END_SPACE
 	add	di, 2
-	pop	ax
+.endif
+	.if \r != edx
 	pop	edx
+	.endif
 .endm
 
 
@@ -192,7 +204,7 @@ printhex:
 printhex8:
 	push	ecx
 	mov	ecx, 8
-1:	print_start
+1:	PRINT_START
 0:	rol	edx, 4
 	mov	al, dl
 	and	al, 0x0f
@@ -202,11 +214,18 @@ printhex8:
 1:	add	al, '0'
 	stosw
 	loop	0b
+.if HEX_END_SPACE
 	add	edi, 2
-	print_end
+.endif
+	PRINT_END
 	pop	ecx
 	ret
 
+__printhex4:
+	push	ecx
+	mov	ecx, 4
+	rol	edx, 16
+	jmp	0f
 __printhex8:
 	push	ecx
 	mov	ecx, 8
@@ -219,7 +238,9 @@ __printhex8:
 1:	add	al, '0'
 	stosw
 	loop	0b
+.if HEX_END_SPACE
 	add	edi, 2
+.endif
 	pop	ecx
 	ret
 
@@ -230,9 +251,12 @@ __printhex8:
 # in: ax: ah = color, al = char
 cls:	push	ax
 	push	es
+	push	ds
 	push	edi
 	push	ecx
 
+	mov	di, SEL_compatDS
+	mov	ds, di
 	mov	di, SEL_vid_txt
 	mov	es, di
 	xor	edi, edi
@@ -242,6 +266,7 @@ cls:	push	ax
 
 	pop	ecx
 	pop	edi
+	pop	ds
 	pop	es
 	pop	ax
 	ret
@@ -255,7 +280,29 @@ newline:
 	div	dl
 	mul	dl
 	add	ax, dx
-	mov	[screen_pos], ax
+	cmp	ax, 160 * 25
+	jb	0f
+	# scroll
+	push	esi
+	push	edi
+	push	ecx
+	push	ds
+
+	mov	si, es
+	mov	ds, si
+
+	xor	edi, edi
+	mov	esi, 160
+	mov	ecx, 160 * 24 / 4
+	rep	movsd
+	
+	pop	ds
+	pop	ecx
+	pop	edi
+	pop	esi
+
+
+0:	mov	[screen_pos], ax
 	pop	dx
 	pop	ax
 	ret
@@ -265,7 +312,7 @@ newline:
 .global println
 println:call	print
 	jmp	newline
-
+#println:push	offset newline
 
 .global print
 print:	PRINT_START
@@ -278,6 +325,15 @@ print:	PRINT_START
 
 	PRINT_END
 	ret
+
+__print:	
+	jmp	1f
+0:	stosw
+1:	lodsb
+	test	al, al
+	jnz	0b
+	ret
+
 
 ######################### PRINT BINARY ####################
 printbin32:

@@ -31,11 +31,20 @@ tss_IOBP:	.word 0 # io bitmask base pointer, 104 + ...
 
 .text
 .code16
+
 init_tss_16:
 	mov	[tss_IOBP], word ptr 104
 
+	# mov	[tss_LDTR], sgtd?
+
+	mov	eax, cr3
+	mov	[tss_CR3], eax
+
+	pushfd
+	pop	dword ptr [tss_EFLAGS]
+
 	mov	[tss_SS0], word ptr SEL_compatDS
-	mov	eax, [realsegflat]
+	mov	eax, [realsegflat] # XXX
 	mov	[tss_ESP0], eax
 
 	mov	[tss_EIP], dword ptr offset kernel_task
@@ -48,16 +57,15 @@ init_tss_16:
 .code32
 
 task_switch:
+.if 0
+	call SEL_tss, 0
+	ret
+.else
+#mov [tss_LINK], word ptr SEL_tss
 	push	dword ptr [tss_EFLAGS]
+	#or	[esp], word ptr 1 << 14 # set NT flag
 	push	dword ptr [tss_CS]
 	push	dword ptr [tss_EIP]
 	iretd
-
-kernel_task:
-	mov	ah, 0xf0
-	SCREEN_INIT
-	SCREEN_OFFS 0, 3
-	PRINT "Kernel Task!"
-0:	hlt
-	jmp	0b
 	ret
+.endif

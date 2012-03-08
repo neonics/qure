@@ -274,6 +274,20 @@ pic_send_eoi:
 	out	P, al
 .endm
 
+.macro PIC_DISABLE_IRQ irqline
+	.if \irqline < 8
+		P = IO_PIC1 + 1
+		A = \irqline
+	.else
+		P = IO_PIC2 + 1
+		A = irqline - 8
+	.endif
+	in	al, P
+	or	al, 1 << A
+	out	P, al
+.endm
+
+
 
 
 # in: al = bit number, < 16

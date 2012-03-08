@@ -253,12 +253,12 @@ isr_keyboard:
 	.text
 
 	mov	dx, ax
-
+.if DEBUG > 3
 	push	ax
 	mov	ah, 0x40
 	call	printhex
 	pop	ax
-
+.endif
 	and	edx, 0xff
 	mov	[keys_pressed + edx], ah
 
@@ -290,6 +290,7 @@ isr_keyboard:
 	shl	ax, 8 # preserve scancode
 	mov	al, [keymap + edx]
 
+.if DEBUG > 3
 	#### debug print
 	push	ax
 	mov	ah, 0x3f
@@ -297,11 +298,11 @@ isr_keyboard:
 	call	printhex
 	pop	ax
 	####
-
+.endif
 
 3:	#################
 	call	buf_putw
-
+.if DEBUG > 3
 	#### debug print
 	mov	dx, ax
 	push	ax
@@ -314,7 +315,7 @@ isr_keyboard:
 	pop	ax
 	add	di, 2
 	#####
-
+.endif
 
 2:	mov	[scr_o], di
 
@@ -328,7 +329,7 @@ isr_keyboard:
 
 
 .code32
-hook_keyboard_isr:
+keyboard_hook_isr:
 	pushf
 	cli
 	mov	al, 0x20 # [pic_ivt_offset]
@@ -339,12 +340,15 @@ hook_keyboard_isr:
 	
 	PIC_ENABLE_IRQ IRQ_KEYBOARD
 
-	PRINT "KB Status: "
+	PRINT	"Keyboard Status: "
 	in	al, 0x64
 	mov	dl, al
 	mov	ah, 0xf0
 	call	printhex2
+	PRINT	"("
 	call	printbin8
+	PRINT	")"
+	call	newline
 	popf
 	ret
 
