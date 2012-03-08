@@ -37,21 +37,50 @@ TODO: Shell
 
 TODO: filesystem
 
-TODO: clean up bootloader, separate from kernel. Decisions:
+v: clean up bootloader, separate from kernel. Decisions:
 	- whether sector1 is the kernel, or whether it is additional
 	  bootloader code. At some point the kernel/sector1 will not
 	  be succeeding the bootsector immediately, if compatability
 	  with multi-os prepartitioned harddisks is desired.
 
-	  When the os
-
-	  Linux implements this (afaik) by having reserved space 
-
+	* Solution chosen is to separate sector1 into a stage 2 loader
+	  and a kernel. The stage 2 loader at current uses a 'ramdisk',
+	  a sector marking the start and length of images to be loaded.
+	  At current only the first entry is used.
+	  The kernel itself will check a signature at the end of it's compiled
+	  code+data length to see if it is loaded in its entirety.
+	
 	- splitting: where to split sector1 from the kernel, where
 	  is pmode entered? Goal is to use as little duplicate code as
 	  possible.
+
+	* Sector 1 used to include menu, inspector, pmode code. 
+	  The 16 bit utilities have been moved and can still be included
+	  in sector1, which now only contains the second stage loader code.
+	  The pmode code has been moved to the kernel, aswell as all other
+	  32 bit code.
+
 	- whether to load the kernel in realmode or in pmode
+
+	* The kernel is loaded in realmode. Loading in pmode would require:
+	  o ATA (IDE) drivers; or
+	  o VM86 task and monitor to allow BIOS calls; or
+	  o switching to realmode for BIOS calls.
+
+	  cons: the kernel loader code would already contain kernel code.
+	  pros: kernel size can exceed the availale realmode size
+	  of 0xf0000 - 0x4000 = 0xec000 = 966656 bytes = 944 kb when preserving
+	  the IVT and BIOS - EBDA may be even before this.
+
 	- whether to implement pmode drivers or do v86/realmode switching
+
+	* Drivers shall be implemented in pmode. The current design then
+	  has switched from a monolithic kernel which may grow too big,
+	  to a microkernel with loadable modules.
+	  The core functionality of the kernel then is to offer BIOS
+	  functionality in protected mode: interrupts, irq (keyboard),
+	  and storage device handlers.
+
 
 TODO: load modules/objects/programs
 

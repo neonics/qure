@@ -1,6 +1,6 @@
 .intel_syntax noprefix
 
-DEBUG = 2
+DEBUG = 3
 .include "debug.s"
 .include "realmode.s"
 ###################################
@@ -30,6 +30,11 @@ kmain:
 	call	pit_disable
 
 	call	newline
+
+# debug scroll:
+#	PRINT "This is a filler line to have the next line not start at a line bounary."
+#	PRINT "this text is meant to be longer than a line to see whether or not this gets scrolled properly, or whether a part is missing at the end, or whether the source index gets offset besides a line bounary."
+
 .if 0
 	PRINT	"Press a key to switch to kernel task."
 	call	keyboard

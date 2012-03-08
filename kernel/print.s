@@ -49,6 +49,11 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	.endif
 .endm
 
+
+# c:
+# 0  : load ah with screen_color
+# > 0: load ah with constant
+# < 0: skip load ah. Note that ax will still be pushed.
 .macro PRINT_START c=0
 	push	ax
 	push	es
@@ -56,18 +61,33 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	mov	di, [screen_sel]
 	mov	es, di
 	mov	edi, [screen_pos]
-	.if \c
+	.if \c > 0
 	mov	ah, \c
 	.else
+	.if \c == 0
 	mov	ah, [screen_color]
+	.endif
 	.endif
 .endm
 
-.macro PRINT_END ignorepos=0
+# flags:
+# 01: do not store position
+# 10: do not perform scroll check - only applies when flags & 01 = 00
+.macro PRINT_END ignorepos=0 noscroll=0
 	.if \ignorepos
 	.else
+	
+	.if \noscroll
+	.else
+	cmp	edi, 160 * 25 + 2
+	jb	9f
+	call	__scroll
+	9:	
+	.endif
+
 	mov	[screen_pos], edi
 	.endif
+
 	pop	edi
 	pop	es
 	pop	ax
@@ -174,7 +194,6 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 ###############################################################################
 ###############################################################################
 ###############################################################################
-
 .ifdef DEFINE
 
 
@@ -187,6 +206,9 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 .text
 .code32
+
+# Methods starting with __ are to be called only when es:edi and ah are
+# set up - between PRINT_START and PRINT_END.
 
 ####################### PRINT HEX ########################
 
@@ -271,6 +293,7 @@ cls:	push	ax
 	pop	ax
 	ret
 
+
 .global newline
 newline:
 	push	ax
@@ -280,32 +303,36 @@ newline:
 	div	dl
 	mul	dl
 	add	ax, dx
-	cmp	ax, 160 * 25
+	mov	[screen_pos], ax
+	pop	dx
+	cmp	ax, 160 * 25 + 2
+	pop	ax
 	jb	0f
-	# scroll
+	PRINT_START -1
+	PRINT_END
+0:	ret
+
+__scroll:
 	push	esi
-	push	edi
 	push	ecx
 	push	ds
 
 	mov	si, es
 	mov	ds, si
 
-	xor	edi, edi
+	mov	ecx, edi
 	mov	esi, 160
-	mov	ecx, 160 * 24 / 4
+	xor	edi, edi
+	sub	ecx, esi
+	push	ecx
 	rep	movsd
-	
+	pop	edi
+
 	pop	ds
 	pop	ecx
-	pop	edi
 	pop	esi
 
-
-0:	mov	[screen_pos], ax
-	pop	dx
-	pop	ax
-	ret
+0:	ret
 
 ############################## PRINT ASCII ####################
 
