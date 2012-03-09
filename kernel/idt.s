@@ -152,96 +152,143 @@ int_labels$:
 .text
 
 
+
+# Stack:
+#
+# dd [ EFLAGS ] ebp + 18
+# dd [   CS   ] ebp + 14
+# dd [  EIP   ] ebp + 10
+# dd [ErrCode ] ebp + 6	  only when exception (intnr < 0x20)
+# dw [ intnr  ] ebp + 4	  the interrupt number as pushed by the jump table.
 jmp_table_target:
 	.data
 		int_count: .rept 256; .long 0; .endr
 	.text
 	push	ebp
 	mov	ebp, esp
+	add	ebp, 4	# skip ebp itselt
 	push	eax
+	push	ecx
 	push	ds
 	push	edi
 	push	edx
 
-	mov	ax, SEL_compatDS
+	mov	eax, SEL_compatDS
 	mov	ds, ax
 
 	PUSHCOLOR 8
+
 	PRINT "(ISR "
-	movzx	edx, word ptr [ebp+4]
-	call	printhex2
-	shl	edx, 2
+	movzx	edx, word ptr [ebp]	# interrupt number from jumptable
+	call	printhex2		# assume maxint = 255
+
+	mov	ecx, edx			# int nr
+	add	ebp, 2			# we're done with referencing that
+
+	# print count
+	shl	edx, 3
 	inc	dword ptr [edx + int_count]
 	mov	edx, [edx + int_count]
 	PRINT " count "
 	call	printhex8
 
-
 ########
-	# read instruction to see if it is INT x
-	mov	ax, [ebp + 4 + 2 + 4]	# code selector
+	# First determine if it is an exception, since it may push an error
+	# code on the stack.
+
+	cmp	ax, 0x20
+	jb	0f
+
+	##################################################################
+	# it is an exception. Print exception name.
+	call	newline
+	push	esi
+	COLOR 0xb
+	LOAD_TXT "Exception: "
+	call	print
+	mov	esi, [int_labels$ + eax*4]
+	call	print
+	pop	esi
+
+	# check whether this exception has an error code
+	mov	edx, 0b100111110100000000
+	bt	edx, ecx
+	jnc	1f
+
+	PRINT " Error code: "
+	mov	edx, [ebp]
+	call	printhex8
+	add	ebp, 4			# adjust to point to EIP:CS:EFLAGS
+1:
+	PRINT " Flags: "
+	mov	edx, [ebp + 8]
+	call	printhex8
+
+	call	newline
+
+0:	COLOR 7
+
+	# check code selector validity
+
+	mov	dx, [ebp + 4]		# cs
+	cmp	dx, SEL_MAX		# max selector
+	ja	ics$
+
+	PRINT "RPL"
+	mov	ax, dx
+	and	dl, 0b111
+	call	printhex1
+	mov	dl, al
+	and	dl, 0b11111000
+
+	PRINT " Address: "
+	call	printhex
+
+	PRINTCHAR ':'
+	mov	edx, [ebp]	# eip
+	call	printhex8
+
 	push	ds
 	mov	ds, ax
-	mov	edx, [ebp + 4 + 2]	# get return address
-	mov	edx, [edx - 2]	# load instruction (assume sel=readable) 
-	pop	ds
-
-	COLOR 9
-	PRINT " ["
+	#lds	esi, [ebp]
+	mov	edx, [edx-4]	# check instruction XXX
 	call	printhex
-	PRINT "]"
+	pop	ds
+	
+	COLOR 9
+	PRINT " OPCODE["
+	call	printhex8
+	PRINTCHAR ']'
+
+	cmp	dl, 0xcd	# check for INT opcode
+	jne	0f
 
 	COLOR 10
-	cmp	dl, 0xcd	# check for INT opcode
-	mov	dl, [pic_ivt_offset] # assume all 16 are contiguous
-	je	0f
-	PRINT "IRQ "
-	sub	dh, dl
-	xchg	dl, dh
+	PRINT "INT "
 	call	printhex2
+	PRINTCHAR ' '
 
 	jmp	1f
 
-0:	PRINT " INT "
-	mov	dl, dh
-	call	printhex2
+ics$:	COLOR 11
+	PRINT "Cannot find cause: Illegal code selector: "
+	call	printhex
+0:	
 
-1:
 ########
 
 ##############################
-# well, having this here should make no difference.. but it crashes
-	or al, al
-##############################
-
-.if 0
-	#ja	0f
-	#0:
-
-	.if 0
-	xor	eax, eax
-	mov	al, dl
-	push	esi
-	#mov	esi, [int_labels$ + eax*4]
-	mov	edx, int_labels$
-	call	printhex8
-	mov	edx, eax
-	call	printhex8
-	#call	print
-	pop	esi
-	.endif
-.endif
 
 
 	COLOR 8
 	PRINT	")"
 
+	cmp	cx, 0x0d #PF
+	je	halt
 
-	POPCOLOR
 
 ### A 'just-in-case' handler for PIC IRQs, hardcoded to 0x20 offset
-	# dh = [pic_ivt_offset]
-	shr	dx, 8
+	movzx	dx, byte ptr [pic_ivt_offset]
 	mov	ax, [ebp + 4]
 	sub	ax, dx		# assume [pic_ivt_offset] continuous
 	js	0f
@@ -256,9 +303,13 @@ jmp_table_target:
 	PRINT " IRQ "
 0:
 
+	POPCOLOR
+	call	newline
+
 	pop	edx
 	pop	edi
 	pop	ds
+	pop	ecx
 	pop	eax
 	pop	ebp
 	add	esp, 2	# pop interrupt number

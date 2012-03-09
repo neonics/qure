@@ -1,5 +1,7 @@
 .intel_syntax noprefix
-
+# This file assumes ds = SEL_compatDS and uses that to read
+# [screen_(sel|pos|color)]. Using any SEL_ constant here will result
+# in gas treating it as a memory reference, generating a GPF.
 ###############################################################################
 ###### Declaration: macros ####################################################
 ###############################################################################
@@ -8,6 +10,11 @@
 .ifndef PRINT_32_DECLARED
 PRINT_32_DECLARED = 1
 
+# Include GDT selectors
+#TMP = DEFINE
+#DEFINE = 0
+#.include "gdt.s"
+#DEFINE = TMP
 
 
 ###################### 32 bit macros
@@ -107,6 +114,12 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	.endif
 .endm
 
+.macro PRINTCHAR c
+	PRINT_START
+	mov	al, \c
+	stosw
+	PRINT_END
+.endm
 
 .macro	PRINT a
 	.data
@@ -212,6 +225,11 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 ####################### PRINT HEX ########################
 
+printhex1:
+	push	ecx
+	mov	ecx, 1
+	rol	edx, 28
+	jmp	1f
 printhex2:
 	push	ecx
 	mov	ecx, 2
@@ -270,27 +288,15 @@ __printhex8:
 ########################### CLEAR SCREEN, NEW LINE, SCROLL ##########
 
 .global cls
-# in: ax: ah = color, al = char
-cls:	push	ax
-	push	es
-	push	ds
-	push	edi
+cls:	PRINT_START
 	push	ecx
-
-	mov	di, SEL_compatDS
-	mov	ds, di
-	mov	di, SEL_vid_txt
-	mov	es, di
 	xor	edi, edi
+	xor	al, al
 	mov	[screen_pos], edi
 	mov	ecx, 80 * 25 # 7f0
 	rep	stosw
-
 	pop	ecx
-	pop	edi
-	pop	ds
-	pop	es
-	pop	ax
+	PRINT_END 1
 	ret
 
 
@@ -335,6 +341,12 @@ __scroll:
 0:	ret
 
 ############################## PRINT ASCII ####################
+
+printchar:
+	PRINT_START
+	stosw
+	PRINT_END
+	ret
 
 .global println
 println:call	print

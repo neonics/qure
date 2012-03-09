@@ -25,6 +25,7 @@
 # .nybble(lo) limit[19:16]
 # .byte base[31:24]
 .intel_syntax noprefix
+
 .equ ACC_PR,	1 << 7	# 0b10000000 Present
 .equ ACC_RING0,	0 << 5	# 0b01100000 DPL
 .equ ACC_RING1,	1 << 5
@@ -60,7 +61,6 @@
 .byte \flags << 4 | (\limit >> 16 & 0xf)
 .byte \base >> 24
 .endm
-
 
 .align 4
 .data
@@ -108,6 +108,7 @@ rm_gdtr:.word 0
 .equ SEL_realmodeFS, 	8 * 13
 .equ SEL_realmodeGS, 	8 * 14
 .equ SEL_biosCS,	8 * 15	# origin F000:0000
+.equ SEL_MAX, SEL_biosCS
 
 .macro GDT_STORE_SEG seg
 	mov	[\seg + 2], ax
@@ -154,7 +155,6 @@ rm_gdtr:.word 0
 	call		printhex8_16
 	call		newline_16
 .endm
-
 
 .text
 .code16
@@ -291,6 +291,4 @@ init_gdt_16:
 	pop	ebx
 	pop	eax
 	ret
-
-
 
