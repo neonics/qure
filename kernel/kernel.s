@@ -11,6 +11,7 @@ DEFINE = 1
 .include "keyboard.s"
 
 .include "pci.s"
+.include "bios.s"
 ###################################
 
 .text
@@ -20,9 +21,9 @@ kmain:
 	mov	ax, SEL_compatDS
 	mov	ds, ax
 
-	PRINTc 0x0a "Protected mode initialized."
-
+	PRINTc 11 "Protected mode initialized."
 	COLOR 0xf
+	call	newline
 
 	PRINT	"Press key to stop timer."
 	mov	ah, 0
@@ -62,14 +63,15 @@ kmain:
 .endif
 
 	###################################################################
-	PRINT "Press a key to continue."
+	.macro WAITSCREEN
+	PRINTc 15 "Press a key to continue."
 	mov	ah, 0
 	call	keyboard
-
-	COLOR 0x0f
 	call	cls
+	.endm
 
 	###################################################################
+	WAITSCREEN
 
 	I "Listing PCI devices:"
 	call	newline
@@ -77,7 +79,14 @@ kmain:
 	call	pci_list_devices
 
 	###################################################################
+	WAITSCREEN
 
+	I "BDA:"
+
+	call	bios_list_bda
+
+	##################################################################
+	call	newline
 	PRINTc 15, "Press 'q' or ESC to system halt."
 
 0:	

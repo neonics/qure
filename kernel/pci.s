@@ -374,34 +374,32 @@ pci_list_devices:
 	mov	ax, cx
 	call	pci_read_config
 
-	PRINTc	8, "   Revision "
 	mov	edx, eax
-	COLOR	7
-	call	printhex2
 
-	shr	edx, 8
-	push	edx
-	PRINTc	8, " Prog IF "	# (optional) register-level programming iface
+	PRINTc	8, "   Revision "
 	COLOR	7
 	call	printhex2
 
 	PRINTc	8, " Class "
-	shr	edx, 8
-	ror	dx, 8
 	COLOR	7
+	rol	edx, 8	# subclass, prog if, rev id, class
 	call	printhex2
-
-	PRINTc	8, "."		# (optional?) subclass
-	ror	dx, 8
-	COLOR	7
+	PRINTCHAR '.'
+	rol	edx, 8	# prog if, rev id, class, subclass
+	call	printhex2
+	PRINTCHAR '.'
+	rol	edx, 8	# rev id, class, subclass, prog if
 	call	printhex2
 
 	################################################################
-	movzx	eax, dh
-	pop	edx		# edx: 0, class, subclass, prog if
+	ror	edx, 8	# prog if, rev, class, subclass
+	movzx	eax, dh	
 	cmp	eax, MAX_KNOWN_DEVICE_CLASS
 	ja	4f
 	PRINTCHAR ' '
+
+	rol	edx, 8	# rev, class, subclass, prog if
+
 
 	COLOR	14
 	########### find device - subclass & if
@@ -448,6 +446,7 @@ pci_list_devices:
 	mov	ax, cx
 	call	pci_read_config
 
+	.if 0
 	PRINTc	8, "   Cache Line Size "	# (optional) - word units
 	mov	edx, eax
 	COLOR	7
@@ -481,6 +480,11 @@ pci_list_devices:
 	call	printhex2
 4:
 	call	newline
+	.else
+	mov	edx, eax
+	ror	edx, 16
+	ror	dx, 8
+	.endif
 
 	#################### detailed print of header type
 	# dh = header type field.

@@ -143,8 +143,14 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 .endm
 
 .macro PRINTc color, str
-	COLOR \color
-	PRINT	"\str"
+	#COLOR \color
+	#PRINT	"\str"
+	PRINT_START \color
+	push	esi
+	LOAD_TXT "\str"
+	call	__print
+	pop	esi
+	PRINT_END
 .endm
 
 .macro PRINTLNc color, str

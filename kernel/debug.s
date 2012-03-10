@@ -97,7 +97,8 @@
 
 .macro rmI m
 	rmD 0x09 '>'
-	rmPC 0x07 " \m"
+	rmPC 0x0f " \m"
+	rmCOLOR 7
 .endm
 
 
@@ -128,10 +129,11 @@
 
 .macro I m
 	D 0x09 '>'
-	PRINTc 7 " \m"
+	PRINTc 15 " \m"
+	COLOR 7
 .endm
 
 .macro I2 m
-	PRINTc 8 "\m"
+	PRINTc 7 "\m"
 .endm
 

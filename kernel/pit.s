@@ -52,13 +52,15 @@ pit_isr:
 
 	push	esi
 	LOAD_TXT "TIMER "
-	mov	ah, 10
+	mov	ah, 13
 	call	__print
 	pop	esi
 	call	__printhex4
 
 	mov	ax, (8<<8)|','
 	stosw
+
+	mov	ah, 9
 
 	inc	dword ptr [clock]
 	mov	dx, [clock]

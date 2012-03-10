@@ -258,21 +258,16 @@ OK
 
 	OK
 
-	PIC_SET_MASK 0xfffc # 0xfffe #0xfffc
+	PIC_SET_MASK 0xffff
 
 	call	keyboard_hook_isr
 	call	pit_hook_isr
 
 	INTERRUPTS_ON
 
-
-
 	# load Task Register
 
 	.if DEBUG > 2
-		COLOR 8
-		PH8 "  Return address: ", edx
-		call	newline
 		PRINTc 8 "  Load Task Register"
 	.endif
 
@@ -281,6 +276,9 @@ OK
 
 	.if DEBUG > 2
 		OK
+		COLOR 8
+		PH8 "  Return address: ", edx
+		call	newline
 	.endif
 
 
