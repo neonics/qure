@@ -25,12 +25,12 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 ################# Colors ###############
 
 .macro COLOR c
-	mov	[screen_color], byte ptr \c
+	mov	byte ptr [screen_color], \c
 .endm
 
 .macro PUSHCOLOR c
 	push	word ptr [screen_color]
-	mov	[screen_color], byte ptr \c
+	mov	byte ptr [screen_color], \c
 .endm
 
 .macro POPCOLOR c
@@ -61,7 +61,7 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 # 0  : load ah with screen_color
 # > 0: load ah with constant
 # < 0: skip load ah. Note that ax will still be pushed.
-.macro PRINT_START c=0
+.macro PRINT_START c=0, cregsize=2
 	push	ax
 	push	es
 	push	edi
@@ -87,9 +87,9 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	.if \noscroll
 	.else
 	cmp	edi, 160 * 25 + 2
-	jb	9f
+	jb	99f
 	call	__scroll
-	9:	
+	99:	
 	.endif
 
 	mov	[screen_pos], edi
@@ -121,23 +121,34 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	PRINT_END
 .endm
 
-.macro	PRINT a
+.macro PRINTCHARc col, c
+	PRINT_START -1
+	mov	ax, (\col<<8) | \c
+	stosw
+	PRINT_END
+.endm
+
+
+###### Load String Pointer
+.macro LOAD_TXT txt
 	.data
-	9: .asciz "\a"
+		99: .asciz "\txt"
 	.text
+	mov	esi, offset 99b
+.endm
+
+
+.macro	PRINT msg
 	push	esi
-	mov	esi, offset 9b
+	LOAD_TXT "\msg"
 	call	print
 	pop	esi
 .endm
 
 
-.macro PRINTLN a
-	.data
-	9: .asciz "\a"
-	.text
+.macro PRINTLN msg
 	push	esi
-	mov	esi, offset 9b
+	LOAD_TXT "\msg"
 	call	println
 	pop	esi
 .endm
@@ -193,17 +204,6 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	mov	dx, [bp + offs]
 	call	printhex
 .endm
-
-
-##################### Loading a string pointer ##############
-
-.macro LOAD_TXT txt
-	.data
-	9: .asciz "\txt"
-	.text
-	mov	esi, offset 9b
-.endm
-
 
 
 .endif
@@ -418,10 +418,13 @@ printbin8:
 
 
 printdec8:	# UNTESTED
+	PRINT_START
+
 	push	eax
 	push	ebx
 	push	edx
 	push	ecx
+
 	mov	bh, ah
 	mov	ecx, 10
 
@@ -434,15 +437,17 @@ printdec8:	# UNTESTED
 	add	bl, '0'
 	mov	es:[edi], bx
 	add	edi, 2
+	xor	edx, edx
 
 	or	eax, eax
 	jnz	0b
-	
 
 	pop	ecx
 	pop	edx
 	pop	ebx
 	pop	eax
+
+	PRINT_END
 	ret
 
 ############################ PRINT FORMATTED STRING ###########

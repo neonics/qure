@@ -108,7 +108,7 @@ rm_gdtr:.word 0
 .equ SEL_realmodeFS, 	8 * 13
 .equ SEL_realmodeGS, 	8 * 14
 .equ SEL_biosCS,	8 * 15	# origin F000:0000
-.equ SEL_MAX, SEL_biosCS
+.equ SEL_MAX, SEL_biosCS + 0b11	# ring level 3
 
 .macro GDT_STORE_SEG seg
 	mov	[\seg + 2], ax

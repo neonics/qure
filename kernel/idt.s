@@ -157,8 +157,8 @@ int_labels$:
 #
 # dd [ EFLAGS ] ebp + 18
 # dd [   CS   ] ebp + 14
-# dd [  EIP   ] ebp + 10
-# dd [ErrCode ] ebp + 6	  only when exception (intnr < 0x20)
+# dd [  EIP   ] ebp + 10 
+#(dd [ErrCode ] ebp + 6	) only when exception (intnr < 0x20)
 # dw [ intnr  ] ebp + 4	  the interrupt number as pushed by the jump table.
 jmp_table_target:
 	.data
@@ -191,29 +191,55 @@ jmp_table_target:
 	mov	edx, [edx + int_count]
 	PRINT " count "
 	call	printhex8
+	PRINTCHAR ' '
 
 ########
 	# First determine if it is an exception, since it may push an error
 	# code on the stack.
 
-	cmp	ax, 0x20
-	jb	0f
+	cmp	cx, 0x20
+	jnb	0f
 
 	##################################################################
 	# it is an exception. Print exception name.
 	call	newline
+	PRINTc	12, "Exception: "
+
 	push	esi
-	COLOR 0xb
-	LOAD_TXT "Exception: "
+	PUSHCOLOR 11
+	mov	esi, [int_labels$ + ecx*4]
 	call	print
-	mov	esi, [int_labels$ + eax*4]
-	call	print
+	POPCOLOR
 	pop	esi
 
 	# check whether this exception has an error code
 	mov	edx, 0b100111110100000000
 	bt	edx, ecx
 	jnc	1f
+
+.if 1	# Extra check to see whether this exception was called by an INT
+	# instruction. If so, there is no error code.
+	mov	edx, [ebp + 4] # code selector when there is no error code
+	cmp	edx, SEL_MAX
+	ja	0f
+	test	dl, 0b100
+	jnz	0f
+	# the value checks out as a segment selector. See if the instruction
+	# is an INT call
+	push	ds
+	and	dl, 0b11111000
+	mov	ds, dx
+	mov	edx, [ebp]
+	mov	dx, [edx-2]
+	pop	ds
+	cmp	dl, 0xcd
+	jne	0f
+	cmp	dh, cl
+	jne	0f
+	PRINTc	13, " Explicitly triggered"
+	jmp	1f
+0:
+.endif
 
 	PRINT " Error code: "
 	mov	edx, [ebp]
@@ -226,39 +252,56 @@ jmp_table_target:
 
 	call	newline
 
-0:	COLOR 7
+0:	COLOR 8
 
 	# check code selector validity
 
 	mov	dx, [ebp + 4]		# cs
 	cmp	dx, SEL_MAX		# max selector
 	ja	ics$
+	test	dl, 0b100
+	jnz	0f
 
-	PRINT "RPL"
+	PRINTc	7, "RPL"
 	mov	ax, dx
-	and	dl, 0b111
+	and	dl, 3
+	push	ax
+	mov	ah, dl
+	add	ah, 9
+	PUSHCOLOR ah
 	call	printhex1
+	POPCOLOR
+	pop	ax
 	mov	dl, al
 	and	dl, 0b11111000
 
-	PRINT " Address: "
+	PRINTc	7, " Address: "
 	call	printhex
 
 	PRINTCHAR ':'
 	mov	edx, [ebp]	# eip
 	call	printhex8
+	PRINTc	7, " ("
+	push	edx
+	sub	edx, [realsegflat] #offset realmode_kernel_entry
+	call	printhex8
+	pop	edx
+	PRINTc	7, ") "
 
 	push	ds
 	mov	ds, ax
-	#lds	esi, [ebp]
 	mov	edx, [edx-4]	# check instruction XXX
 	call	printhex
 	pop	ds
 	
-	COLOR 9
-	PRINT " OPCODE["
-	call	printhex8
-	PRINTCHAR ']'
+	PRINTc	9, " OPCODE["
+	.rept 3
+	call	printhex2
+	shr	edx, 8
+	PRINTCHAR ' '
+	.endr
+	call	printhex2
+	PRINTCHARc 9, ']'
 
 	cmp	dl, 0xcd	# check for INT opcode
 	jne	0f
@@ -283,8 +326,8 @@ ics$:	COLOR 11
 	COLOR 8
 	PRINT	")"
 
-	cmp	cx, 0x0d #PF
-	je	halt
+	cmp	cx, 0x20 #PF
+	jb	halt
 
 
 ### A 'just-in-case' handler for PIC IRQs, hardcoded to 0x20 offset
