@@ -7,6 +7,14 @@ ISO_ARGS = -boot-load-seg 0
 #ISO_ARGS += -no-emul-boot
 #ISO_ARGS += -hard-disk-boot
 
+
+MSGPFX="    "
+define MAKE =
+	@echo "$(MSGPFX)M $(1) $(2)"
+	@make --no-print-directory -C $(1) $(2)
+endef
+
+
 .PHONY: all clean init
 
 all: os.iso
@@ -29,7 +37,11 @@ init:
 	[ -d root/boot/ ] || mkdir -p root/boot/
 
 clean:
-	rm -rf build/ os.iso root/boot/build.img
+	[ -d build ] && rm -rf build || true
+	[ -f os.iso ] && rm os.iso || true
+	[ -f root/boot/build.img ] && rm root/boot/build.img || true
+	$(call MAKE,bootloader,clean)
+	$(call MAKE,kernel,clean)
 
 
 build/boot.img: build/boot.bin build/kernel.bin build/write.exe
@@ -38,12 +50,6 @@ build/boot.img: build/boot.bin build/kernel.bin build/write.exe
 		-rd \
 		-b kernel/kernel.bin \
 	&& chmod 644 $@
-
-MSGPFX="    "
-define MAKE =
-	@echo "$(MSGPFX)M $(1)"
-	@make --no-print-directory -C $(1)
-endef
 
 build/boot.bin:
 	$(call MAKE,bootloader)

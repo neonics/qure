@@ -1,7 +1,8 @@
 all: kernel.bin
 
 clean:
-	/bin/rm kernel.bin kernel.o
+	[ -f kernel.bin ] && /bin/rm kernel.bin || true
+	[ -f kernel.o ] && /bin/rm kernel.o || true
 
 AS = /bin/as -R -n --warn --fatal-warnings
 

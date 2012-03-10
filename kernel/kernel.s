@@ -36,7 +36,7 @@ kmain:
 #	PRINT "This is a filler line to have the next line not start at a line bounary."
 #	PRINT "this text is meant to be longer than a line to see whether or not this gets scrolled properly, or whether a part is missing at the end, or whether the source index gets offset besides a line bounary."
 
-.if 0
+.if 0	###################################################################
 	PRINT "Press a key for int 0x0d"
 	xor	ah, ah
 	call	keyboard
@@ -44,7 +44,7 @@ kmain:
 	int 0x0d
 .endif
 
-.if 0
+.if 0	###################################################################
 	PRINT	"Press a key to switch to kernel task."
 	call	keyboard
 
@@ -55,6 +55,13 @@ kmain:
 	jmp	halt
 .endif
 
+
+.if 0	# generate GPF ####################################################
+	mov	ax, 1024
+	mov	ds, ax
+.endif
+
+	###################################################################
 	PRINT "Press a key to continue."
 	mov	ah, 0
 	call	keyboard
@@ -62,19 +69,16 @@ kmain:
 	COLOR 0x0f
 	call	cls
 
-
-.if 0	# generate GPF
-	mov	ax, 1024
-	mov	ds, ax
-.endif
+	###################################################################
 
 	I "Listing PCI devices:"
 	call	newline
 
 	call	pci_list_devices
 
-	call	newline
-	PRINT	"Press 'q' or ESC to system halt."
+	###################################################################
+
+	PRINTc 15, "Press 'q' or ESC to system halt."
 
 0:	
 	mov	ah, 0

@@ -1,7 +1,8 @@
 all: boot.bin
 
 clean:
-	/bin/rm boot.bin bootloader.o
+	[ -f boot.bin ] && /bin/rm boot.bin || true
+	[ -f bootloader.o ] && /bin/rm bootloader.o || true
 
 AS = /bin/as -R -n --warn --fatal-warnings
 
