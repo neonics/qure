@@ -12,6 +12,7 @@ DEFINE = 1
 
 .include "pci.s"
 .include "bios.s"
+.include "cmos.s"
 ###################################
 
 .text
@@ -84,6 +85,15 @@ kmain:
 	I "BDA:"
 
 	call	bios_list_bda
+
+	###################################################################
+	WAITSCREEN
+
+	I "CMOS:"
+	call	newline
+
+	call	cmos_list
+
 
 	##################################################################
 	call	newline
