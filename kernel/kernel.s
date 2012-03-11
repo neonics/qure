@@ -13,27 +13,42 @@ DEFINE = 1
 .include "pci.s"
 .include "bios.s"
 .include "cmos.s"
+.include "ata.s"
 ###################################
+
+	.macro MORE
+	call	newline
+	PRINT_START 0xf1
+	LOAD_TXT " --- More --- "
+	call	__println
+	PRINT_END -1
+	xor	ah, ah
+	call	keyboard
+	PRINT_START
+	LOAD_TXT "              "
+	call	__print
+	PRINT_END -1
+	.endm
 
 .text
 .code32
 kmain:
+
 	# we're in flat mode, so set ds so we can use our data..
 	mov	ax, SEL_compatDS
 	mov	ds, ax
 
 	PRINTc 11 "Protected mode initialized."
 	COLOR 0xf
+
 	call	newline
 
 	PRINT	"Press key to stop timer."
 	mov	ah, 0
 	call	keyboard
-
 	call	pit_disable
 
 	call	newline
-
 # debug scroll:
 #	PRINT "This is a filler line to have the next line not start at a line bounary."
 #	PRINT "this text is meant to be longer than a line to see whether or not this gets scrolled properly, or whether a part is missing at the end, or whether the source index gets offset besides a line bounary."
@@ -72,28 +87,36 @@ kmain:
 	.endm
 
 	###################################################################
-	WAITSCREEN
-
-	I "Listing PCI devices:"
-	call	newline
-
-	call	pci_list_devices
-
-	###################################################################
-	WAITSCREEN
 
 	I "BDA:"
 
 	call	bios_list_bda
 
+	MORE
+
 	###################################################################
-	WAITSCREEN
 
 	I "CMOS:"
 	call	newline
 
 	call	cmos_list
 
+	MORE
+
+	###################################################################
+
+	I "Listing PCI devices:"
+	call	newline
+
+	call	pci_list_devices
+
+	MORE
+
+	I "ATA:"
+
+	call	ata_list_drives
+
+	MORE
 
 	##################################################################
 	call	newline

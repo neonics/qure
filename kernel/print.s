@@ -154,8 +154,6 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 .endm
 
 .macro PRINTc color, str
-	#COLOR \color
-	#PRINT	"\str"
 	PRINT_START \color
 	push	esi
 	LOAD_TXT "\str"
@@ -165,8 +163,12 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 .endm
 
 .macro PRINTLNc color, str
-	COLOR \color
-	PRINTLN "\str"
+	PRINT_START \color
+	push	esi
+	LOAD_TXT "\str"
+	call	__println
+	pop	esi
+	PRINT_END
 .endm
 ####################
 
@@ -354,6 +356,17 @@ printchar:
 	PRINT_END
 	ret
 
+# in: esi = string
+# in: ecx = max len
+nprint:	PRINT_START
+0:	lodsb
+	or	al, al
+	jz	0f
+	stosw
+	loop	0b
+0:	PRINT_END
+	ret
+
 .global println
 println:call	print
 	jmp	newline
@@ -371,9 +384,12 @@ print:	PRINT_START
 	PRINT_END
 	ret
 
-__print:	
-	jmp	1f
+__println:
+	call	__print
+	jmp	newline
+
 0:	stosw
+__print:	
 1:	lodsb
 	test	al, al
 	jnz	0b
@@ -453,7 +469,7 @@ printdec8:	# UNTESTED
 ############################ PRINT FORMATTED STRING ###########
 
 # in: esi, stack
-_printf:
+__printf:
 	push	ebp
 	mov	ebp, esp
 	add	ebp, 4 + 4
@@ -488,7 +504,7 @@ _printf:
 	jne	1f
 	push	esi
 	mov	esi, edx
-	call	print
+	call	__print
 	pop	esi
 	jmp	0b
 1:

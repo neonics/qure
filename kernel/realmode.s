@@ -4,6 +4,7 @@
 .data
 low_memory_size: .word 0 # in kb
 memory_map:	.space 24
+cdrom_spec_packet:	.space 0x13	# see interrupt 13h
 .text
 .code16
 
@@ -136,6 +137,22 @@ realmode_kernel_entry:
 	rmCOLOR 4
 	call	printhex8_16
 1:	rmCOLOR 7
+
+
+	.if 1
+	print_16 "Terminating CDROM disk emulation: "
+	mov	ax, 0x4b00
+	mov	dl, 0x7f	# terminate all
+	push	es
+	push	ds
+	pop	es
+	mov	si, offset cdrom_spec_packet
+	int	0x13
+	pop	es
+	mov	dx, ax
+	call	printhex_16
+	call	newline_16
+	.endif
 
 
 	print_16 "Press a key to continue.."

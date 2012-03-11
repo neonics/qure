@@ -30,6 +30,7 @@ bkp_reg_gs: .word 0
 .code16
 
 .macro NMI_OFF
+	# Configuration/RTC (CMOS): AT and PS/2. PC uses 0xA0.
 	in	al, 0x70
 	or	al, 0x80
 	out	0x70, al

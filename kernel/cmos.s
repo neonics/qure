@@ -198,7 +198,7 @@ cmos_list:
 	call	newline
 
 	PRINTc 11, "Press 'q' or ESC to continue, any other key to redraw"
-
+.if 0
 	xor	ah, ah
 	call	keyboard
 	cmp	al, 'q'
@@ -217,5 +217,6 @@ cmos_list:
 
 	jmp	0b
 0:
+.endif
 
 	ret

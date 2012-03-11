@@ -318,7 +318,7 @@ pci_device_class_names:
 pci_list_devices:
 	xor	cx, cx	# bus 0, dev 0
 
-0:	mov	ax, cx	# bus, device
+loop$:	mov	ax, cx	# bus, device
 	xor	bl, bl	# 0: device id, vendor
 	call	pci_read_config
 
@@ -376,7 +376,7 @@ pci_list_devices:
 
 	mov	edx, eax
 
-	PRINTc	8, "   Revision "
+	PRINTc	8, " Revision "
 	COLOR	7
 	call	printhex2
 
@@ -434,8 +434,7 @@ pci_list_devices:
 	COLOR 15
 	PRINTCHAR ' '
 	mov	esi, [pci_device_class_names + 0 + eax * 8]
-	call	print
-
+	call	println
 
 	pop	esi
 
@@ -488,10 +487,10 @@ pci_list_devices:
 
 	#################### detailed print of header type
 	# dh = header type field.
-	LOAD_TXT "   Single function"
+	LOAD_TXT " Single function"
 	test	dh, 0x80
 	jz	2f
-	LOAD_TXT "   Multiple function"
+	LOAD_TXT " Multiple function"
 2:	COLOR 7
 	call	print
 	and	dh, 0x7f
@@ -507,7 +506,7 @@ pci_list_devices:
 
 # Header Type 2: PCI-to-CardBus bridge
 cardbus$:
-	PRINTc 	7, " PCI-to-CardBus Bridge"
+	PRINTLNc 	7, " PCI-to-CardBus Bridge"
 	# 0x10: dd cardbus socket/ExCa base address
 	# 0x14: dw secondary status, db reserved, db offset of cap list
 	# 0x18: latency timer, subordinate bus nr, cardbus nr, pci bus nr
@@ -522,12 +521,12 @@ cardbus$:
 	# 0x3c: dw bridge control, db interrupt pin, db interrupt line
 	# 0x40: subsystem vendor id, subsystem device id
 	# 0x44: 16bit PC Card legacy mode base address
-	jmp	3f
+	jmp	cont$
 
 # Header type 1
 pci2pci$:
-	PRINTc 	6, "PCI-to-CardBus Bridge"
-	jmp	3f
+	PRINTLNc 	6, "PCI-to-CardBus Bridge"
+	jmp	cont$
 	
 std$:	# Header Type 0
 	PRINTc 	3, " General device"
@@ -586,10 +585,12 @@ std$:	# Header Type 0
 	mov	ax, cx
 	mov	bl, 0x30
 	call	pci_read_config
+	or	eax, eax
+	jz	0f
 	PRINTc	8, " Expansion ROM BAR "
 	mov	edx, eax
 	call	printhex8
-	
+0:	
 	call	newline
 
 	##################################################
@@ -613,6 +614,8 @@ std$:	# Header Type 0
 	mov	ax, cx
 	mov	bl, 0x3c
 	call	pci_read_config
+	or	eax, eax
+	jz	0f
 	PRINTc	8, "   Interrupt Line "
 	mov	edx, eax
 	call	printhex2
@@ -629,17 +632,18 @@ std$:	# Header Type 0
 	shr	edx, 8
 	call	printhex2
 
+	call	newline
+0:
 
 
 ###################
-3:	call	newline
-
+cont$:
 1:	inc	cl
 	cmp	cl, 0x1f
-	jbe	0b
+	jbe	loop$
 	xor	cl, cl
 	inc	ch	
-	jnz	0b
+	jnz	loop$
 
 	ret
 

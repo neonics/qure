@@ -1,3 +1,6 @@
+# http://www.trinityos.com/HARDWARE/irqs-dma-ioports.txt
+# http://www.os2site.com/sw/info/memory/ports.txt
+
 Input Output ports
 
 00 - 1F		First DMA Controller (8237 A-5)
