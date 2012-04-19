@@ -14,6 +14,8 @@ DEFINE = 1
 .include "bios.s"
 .include "cmos.s"
 .include "ata.s"
+
+.include "asm.s"
 ###################################
 
 	.macro MORE
@@ -37,15 +39,17 @@ kmain:
 	# we're in flat mode, so set ds so we can use our data..
 	mov	ax, SEL_compatDS
 	mov	ds, ax
+	mov	es, ax
 
 	PRINTc 11 "Protected mode initialized."
 	COLOR 0xf
 
 	call	newline
-
+.if 0
 	PRINT	"Press key to stop timer."
 	mov	ah, 0
 	call	keyboard
+.endif
 	call	pit_disable
 
 	call	newline
@@ -76,8 +80,11 @@ kmain:
 .if 0	# generate GPF ####################################################
 	mov	ax, 1024
 	mov	ds, ax
+
 .endif
 
+
+.if 0
 	###################################################################
 	.macro WAITSCREEN
 	PRINTc 15 "Press a key to continue."
@@ -112,11 +119,20 @@ kmain:
 
 	MORE
 
+.endif
+
 	I "ATA:"
 
 	call	ata_list_drives
 
 	MORE
+
+	##################################################################
+
+	I "Assembler test"
+	call	newline
+	call	compile
+	call	newline
 
 	##################################################################
 	call	newline
@@ -149,6 +165,7 @@ halt:	call	newline
 kernel_task:
 	PRINTLNc 0x0b "Kernel Task"
 	retf
+
 
 
 .data

@@ -65,8 +65,8 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	push	ax
 	push	es
 	push	edi
-	mov	di, [screen_sel]
-	mov	es, di
+	movzx	edi, word ptr [screen_sel]
+	mov	es, edi
 	mov	edi, [screen_pos]
 	.if \c > 0
 	mov	ah, \c
@@ -307,6 +307,18 @@ cls:	PRINT_START
 	PRINT_END 1
 	ret
 
+__newline:
+	push	ax
+	push	dx
+	mov	ax, di
+	mov	dx, 160
+	div	dl
+	mul	dl
+	add	ax, dx
+	mov	di, ax
+	pop	dx
+	pop	ax
+	ret
 
 .global newline
 newline:
@@ -331,8 +343,8 @@ __scroll:
 	push	ecx
 	push	ds
 
-	mov	si, es
-	mov	ds, si
+	mov	esi, es
+	mov	ds, esi
 
 	mov	ecx, edi
 	mov	esi, 160
@@ -386,7 +398,7 @@ print:	PRINT_START
 
 __println:
 	call	__print
-	jmp	newline
+	jmp	__newline
 
 0:	stosw
 __print:	
@@ -432,8 +444,8 @@ printbin8:
 
 ############################ PRINT DECIMAL ####################
 
-
-printdec8:	# UNTESTED
+# unsigned 32 bit print
+printdec32:	# UNTESTED
 	PRINT_START
 
 	push	eax
@@ -447,16 +459,30 @@ printdec8:	# UNTESTED
 	xor	eax, eax
 	xchg	edx, eax
 
+	push	dword ptr -1	# stack marker (no need for counter then)
+
 0:	div	ecx
 
 	mov	bl, dl
 	add	bl, '0'
-	mov	es:[edi], bx
-	add	edi, 2
+
+	push	ebx
+
+	#mov	es:[edi], bx
+	#add	edi, 2
+
 	xor	edx, edx
 
 	or	eax, eax
 	jnz	0b
+
+	# print loop
+0:	pop	eax
+	cmp	eax, -1
+	jz	1f
+	stosw
+	jmp	0b
+1:
 
 	pop	ecx
 	pop	edx
@@ -494,7 +520,7 @@ __printf:
 	jmp	2b
 1:	cmp	al, 'd'
 	jne	1f
-	call	printdec8
+	call	printdec32
 	jmp	2b
 1:	cmp	al, 'b'
 	jne	1f

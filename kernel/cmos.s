@@ -31,7 +31,7 @@ cmos_list:
 	.else
 		# HEX byte
 		movzx	edx, al
-		call	printdec8
+		call	printdec32
 	.endif
 	.endm
 
