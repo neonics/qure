@@ -1,0 +1,1802 @@
+# http://www.os2site.com/sw/info/memory/ports.txt
+
+         I/O Ports and Controllers on IBM Compatibles and PS/2
+----------------------------------------------------------------------------
+
+The following gives the input and output ports used by IBM PC compatible
+computers.  Most ports allow access to input and output device
+controllers.  A controller may have several internal registers which can
+be set to fix the operation of that controller, read its status, or send
+data to it.  Other ports access discrete logic latches or registers.
+Some ports are write-only or read-only.  It is even possible for a port
+to be write-only and read-only by using two different registers at the
+same port address.  Port addresses can range from 0 to 0FFFFH (64K
+ports). However, PC system boards generally reserve only the first 1024
+(0-3FFH). The AT and PS/2 freely employ ports above 3FFH for extended
+applications, such as the two port asynchronous adaptors and network
+adaptors.
+
+Ports from 0-0FFH have a special significance, since the 80x86 can use
+byte rather than word port addresses in the IN and OUT instructions.
+
+----------------------------------------------------------------------------
+  Port    Function and Chip Server (if present)
+----------------------------------------------------------------------------
+ 000-00F  DMA Direct Memory Access Processor 8237A-5 or equivalent
+ 010-01F  Extended DMA on PS/2 60-80
+ 020-021  Interrupt Generation 8259A Master Interrupt Processor
+ 030-03F  AT 8259 Master Interrupt Controller extended ports
+   040    System Timer 8253  Count Reg, Channel 0 System timer
+   042    Count Reg, Channel 2 Speaker audio
+   043    Control byte for channels 0 or 2
+   044    Extended Timer for PS/2 Count Reg, Channel 3 Watchdog timer
+   047    Control byte for channel 3
+ 050-05F  AT 8254 Timer
+ 060-063  PPI Status Port PPI 8255 Keyboard, PC read switches SW1, SW2
+   064    Extended PPI PS/2 8042 Keyboard, Aux. Device Controller
+ 070-071  AT and PS/2 CMOS ports RTC/CMOS MC146818 Clock and PS/2 NMI mask
+ 081-083  DMA Controller Registers 0-2
+   087    DMA Controller Register 3
+ 089-08B  DMA Controller Registers 4-6
+   08F    DMA Controller Register 7
+   090    Central Arbitration Control Port PS/2
+   091    Card Selection Feedback PS/2
+   092    System Control Port A on PS/2: Control and Status Register
+   094    Video System Setup on PS/2: Programmable Option Select (POS) Setup
+   095    PS/2 Reserved
+   096    POS Channel Select on PS/2: Program Option Select Adapter
+   0A0    PC NMI Mask Register on PC: Discrete latch for masking the NMI
+ 0A0-0A1  Slave Interrupts on AT, PS/2 8259A Slave Interrupt Controller
+ 0B0-0BF  AT 8259 Slave Interrupt Controller extended ports
+ 0C0-0DF  DMA Controller on PS/2 or Sound Generator on PCjr (0C0 port)
+ 0E0-0EF  AT reserved
+ 0F0-0FF  Math Coprocessor 80x87 on PS/2 or PCjr diskette controller
+ 100-107  Program Option Select on PS/2: POS Registers
+ 110-1EF  AT I/O options
+ 1F0-1F8  AT Fixed Disk Controller
+ 200-20F  Game I/O Ports, discrete logic (Active port: 201H)
+ 210-217  PC Expansion Unit
+   21F    AT reserved
+ 248-24F  Serial #8 option 8250 ACE
+ 268-26F  Serial #6 option 8250 ACE
+ 278-27F  Parallel Port LPT3: discrete logic
+ 2A2-2A3  Clock option: MSM58321RS Clock Chip
+ 2B0-2DF  Alternate EGA on PC and AT
+   2E1    AT GPIB Adapter 0
+ 2E2-2E3  AT Data Acquisition adapter 0
+
+ 2E8-2EF  Serial Port COM4: on PC 8250 ACE used with IRQ3
+ 2F8-2FF  Serial Port COM2: on PC and PS/2 ACE used with IRQ3
+ 300-31F  PC Prototype card on PC
+ 320-32F  XT Fixed disk Controller
+ 348-34F  Serial #7 option 8250 ACE
+ 368-36F  Serial #5 option 8250 ACE
+ 378-37F  Parallel Port LPT2: discrete logic parallel port
+ 380-38C  SBSI on PC, AT Secondary Binary Synchronous Interface
+ 3A0-3A9  PBSI on PC, AT Primary Binary Synchronous Interface
+   3B4    Monochrome Index Reg.   6845 Video Controller CRT Index Register
+   3B5    Monochrome Control Regs.6845 Video CRT Control Registers
+   3B8    Mono. Control Port      6845 CRT Control Port
+   3BA    Mono. Status/Feature    Input Status/Output Feature Control Reg.
+ 3BC-3BE  Parallel Port LPT1: discrete logic parallel port using IRQ7
+ 3C0-3C5  Video Subsystem         VGA Attribute and Sequencer Registers
+ 3C6-3C8  Video DAC               VGA Digital-to-Analog Converter
+ 3CE-3CF  Video Subsystem         VGA Graphics Registers
+   3D4    PC Color Graphics       6845 Video Controller CRT Index Register
+   3D5    PC Color Graphics       6845 Video CRT Control Registers
+   3DA    PC Color Status/Feature Input Status/Output Feature Control Reg.
+ 3E8-3EF  Serial Port COM3:on PC 8250 ACE used with IRQ3
+ 3F0-3F7  Diskette Controller 765 Chip
+ 3F8-3FF  Serial Port COM1: on  PC and PS/2 ACE used with IRQ4
+ 6E2-6E3  AT Data Acquisition Adapter 1
+ 790-793  Cluster Adapter 1
+ AE2-AE3  AT Data Acquisition Adapter 2
+ B90-B93  Cluster Adapter 2
+ EE2-EE3  AT Data Acquisition Adapter 3
+ B90-B93  Cluster Adapter 3
+  22E1    AT GPIB Adapter 1
+2390-2393 Cluster Adapter 4
+  42E1    AT GPIB Adapter 2
+  3220    Serial Port COM3:   PS/2 Asychronous Adaptor
+  3228    Serial Port COM4:   PS/2 Asychronous Adaptor
+  4220    Serial Port COM5:   PS/2 Asychronous Adaptor
+  4228    Serial Port COM6:   PS/2 Asychronous Adaptor
+  42E1    AT GPIB Adapter 2
+  5220    Serial Port COM7:   PS/2 Asychronous Adaptor
+  5228    Serial Port COM8:   PS/2 Asychronous Adaptor
+  62E1    AT GPIB Adapter 3
+  82E1    AT GPIB Adapter 4
+  A2E1    AT GPIB Adapter 5
+  C2E1    AT GPIB Adapter 6
+  E2E1    AT GPIB Adapter 7
+----------------------------------------------------------------------------
+Ports 00-0FH and 81H-83H: The 8237A DMA Controller Chip and PS/2 Extensions
+----------------------------------------------------------------------------
+
+The 8237A chip controls direct memory access (DMA) to and from a set of
+16 ports from 000H to 00FH.  There are three DMA channels available. DMA
+is performed by stealing a CPU bus cycle, setting a wait state if
+necessary, to transfer each byte.  Ports 081H to 083H are DMA page
+register ports for DMA channel 1-3.  Amoung the 20 bits for memory
+addressing during DMA transfer, the first four bits are the output of
+the page register.  The last 16 bits are output from the 8237A.
+
+On an IBM PC compatible, channel 0 is used by the hardware to refresh
+dynamic RAM.  This channel is not available to software.
+
+
+----------------------------------------------------------------------------
+Ports 20H-21H: Master 8259A Interrupt Controller
+-------------------------------------------------------------------------
+The first 8259A occupies two port addresses at 020H-021H from which four
+initialization command word registers and three operation command word
+registers are set. Three interrupt status registers can be read.
+The 8259A can be used to generate INTR 80x86 type interrupts from a
+hardware device.  Moreover, several 8259As can be chained together.  The
+ATs and PS/2s use a second slave 8259A.
+
+The 8259A has three one-byte registers to control and monitor eight
+hardware interrupt lines IRx.  A bit in the interrupt-request-register
+(IRR) is set when an interrupt request line becomes active.  The
+in-service-register (ISR) is checked to see if another interrupt is in
+progress.  Also, the priority of the interrupts is checked.  Then, the
+interrupt-mask-register (IMR) is used to verify if the interrupt is
+allowed.  The IMR can be programmed to mask interrupts by setting the
+corresponding bits and sending the byte to the second controller port.
+After a hardware interrupt service routine is finished, the controller
+interrupts must be re-enabled by sending 20H to the first controller
+port.
+
+   On IBM PC machines, the 8259A is set to respond to positive-going
+edges on the interrupt request lines (IRQ0-IRQ7), to use interrupt
+vectors 08-0FH, to use buffered mode, and to re-initialize interrupts
+upon receipt of 020H (end-of-interrupt) code on port 20H.  Configuration
+can be performed using:
+
+   MOV AL,13H      ; edge-triggered, one 8259a, icw4 needed
+   OUT 20H,AL
+   MOV AL,8        ; use interrupt vectors 08-0fh for IR0-IR7
+   OUT 21H,AL
+   MOV AL,9        ; icw4 buffered mode, normal eoi, 8086 CPU
+   OUT 21H,AL
+
+To enable BIOS interrupt routines, use mask 0bch (0 bit means enable):
+
+   MOV AL,0BCH     ; enable disk (bit 6), keyboard (bit 1), timer (bit 0)
+   OUT 21H,AL
+   STI
+
+   MOV AL,20H      ; eoi command
+   OUT 20H,AL
+
+The IRQn lines are set to CPU interrupt service by the master and slave
+interrupt controllers in the following order:
+
+Hardware Interrupts                          Software Service Routine
+
+  IRQ0 Timer every 0.054897095 seconds          INT  8H
+  IRQ1 Keyboard interrupt service               INT  9H
+  IRQ2 I/O channel, slave 8259, vga             INT 0AH
+      IRQ8  Real Time Clock                           INT 70H
+      IRQ9  Replace IRQ2 and LAN Adapter interrupt    INT 71H
+      IRQ10 Reserved                                  INT 72H
+      IRQ11 Reserved                                  INT 73H
+      IRQ12 Mouse interrupt                           INT 74H
+      IRQ13 Math coprocessor                          INT 75H
+      IRQ14 Fixed disk controller                     INT 76H
+      IRQ15 Reserved                                  INT 77H
+  IRQ3 Serial device COM2                         INT 0BH
+  IRQ4 Serial device COM1                         INT 0CH
+  IRQ5 Hard drive int.(also LPT2 on AT)           INT 0DH
+  IRQ6 Diskette drive interrupt                   INT 0EH
+  IRQ7 Parallel port device LPT1                  INT 0FH
+
+General programming considerations:
+
+General initialization sequence (* for IBM PC):
+
+1. Send initialization command "word" (ICW1) to port 20H as byte:
+
+   bit     description
+
+   7-5     A7-A5 vector address table for 8080 or 8085 sytem
+         * 000 if 8086 system
+    4    * 1  ICW1 identifier bit
+    3    * 0= edge sensitive interrupt
+           1= level sensitive interrupt
+    2      0= eight byte vector addresses in interrupt table
+         * 1= four byte vector addresses in interrupt table (IBM)
+    1      0= Several 8259A chips in system (cascade mode, ICW3 needed)
+         * 1= only one 8259A chip in system (no slaves, no ICW3 needed)
+    0      0= ICW4 not needed
+         * 1= ICW4 to be sent
+
+2. Send ICW2 to port 21H as byte:
+
+    bit    description
+
+     7-3   A15-A11 if 8080/85 system,
+         * A7-A3 vector address if 8086 system
+     0-2   A10-A8 if 8080/85 system
+         * 000 if 8086 system
+
+3. If ICW1 bit 1=0, send ICW3 to 21H as mask to show which IRn lines have
+   slave 8259As.  If this 8259A is a slave, use bits 0-3 to set value
+   of master IRn to which this slave is attached.
+
+4. Send ICW4 to port 21H as byte:
+
+    bit    description
+
+    7-5    not used, set 0
+     4   * 0= serve interrupts sequentially
+           1= priority nested order: IR0 > IR1 > ... IR7
+     3     0= non-buffered mode, ignore bit 2
+         * 1= buffered mode selected, check bit 2 and use SP/EN line
+     2   * 0= slave if bit 3=1
+           1= master controller if bit 3=1
+     1   * 0= not automatic end-of-interrupt (must send eoi=20h to 21h)
+           1= automatic end-of-interrupt
+     0     0=8080/8085 mode
+         * 1=8086 mode
+
+Commands:  The following operation command "words" can be sent to the
+8259A (in any order, as needed), by out commands to port 20H and 21H:
+
+Operation Command "Word" 1: Mask for IR0-IR7 (reset bit to 0 to enable
+interrupt); send to 21H.
+
+
+Operation Command "Word" 2 to port 20H:
+
+    bit    description
+
+     7     0= no rotation of interrupt priority
+           1= rotate interrupt priority according to:
+              bits 6 5 = 1 1 current IRn (bits 2-0) set to lowest priority
+                         0 1 ignore bits 2-0
+                         0 0 no EOI command will be issued
+     6     0= disable bits 0-2
+           1= enable bits 0-2
+     5     0= do not issue EOI command to CPU
+           1= issue EOI to CPU
+    4-3    0 0  OCW2 identifier
+    2-0    index of IRn for this command
+
+Operation Command "Word" 3 to port 20H:
+
+    bit    description
+
+     7     not used
+     6     0= ignore bit 5
+           1= honor bit 5
+     5     0= disable special mask mode
+           1= enable special mask mode
+    4-3    0 1 OCW3 identifier
+     2     0= poll command has not been issued
+           1= override bit 1 and poll command has been issued
+     1     0= no read register command issued
+           1= read register command issued
+     0     0= interrupt-request register will be read by read-status operation
+           1= in-service register will be read by read-status operation
+
+Interrupt status read:
+
+  in al,021h    ; gives contents of interrupt-mask register
+  mov ah,al
+  in al,020h    ; gives contents of in-service register or
+                ;  interrupt-request register, according to command
+                ;   "word" 3 bit 0
+
+----------------------------------------------------------------------------
+Ports 40H-43H: The 8253 Timer Chip
+----------------------------------------------------------------------------
+Ports 44H,47H: PS/2 Watchdog Timer Counter and Control Port
+----------------------------------------------------------------------------
+
+The 8253 is a programmable three-channel 16-bit interval timer/counter,
+occupying four ports from 040H to 043H.  Each channel can be used to
+take an input clock signal 0-2MHz and produce an output signal by
+dividing by an arbitrary 16-bit number.  Channel 0 is used to make the
+time-of-day clock ticks, channel 1 is used to tell the DMA to refresh
+the dynamic RAM, and channel 2 is used to make a audio signal for the
+speaker.  Each channel can be programmed in one of six modes: 0=
+interrupt on terminal count, 1= programmable one-shot, 2= rate
+generator, 3= square-wave generator, 4= software-triggered strobe, 5=
+hardware-triggered strobe.
+
+Initialization:  Send a mode control byte for each channel to the 8253
+control word register at 043H.  Send a count to timer port, one byte at
+a time.
+
+
+Mode Control byte sent to the Control register for Channels 0, 2
+
+  bit    description
+  7-6    counter number (0-2)
+  5-4    latch read format
+           00= latch current count for reading
+           01= read/load high byte (no latching needed)
+           10= read/load low byte (no latching needed)
+           11= read/load low, then high byte
+  3-1    mode number
+           000=interrupt on terminal count
+           001=programmable one-shot
+           010=rate generator
+           011=square wave generator
+           100=software triggered strobe
+           101=hardware triggered strobe
+   0     0= count in binary
+         1= count in BCD
+
+Mode Control byte sent to the Control register of Channel 3:
+
+  bit    description
+
+  7-6    00 = select counter 3
+         01 = R/W counter bits 0-7 only
+  3-0    reserved, set 0
+
+Counter Latch Command sent to the Control register of Channel 3:
+
+  bit   Function
+    7   SC1 - specifies counter to be latched
+    6   SC0 - specifies counter to be latched
+  5-4   00 = counter latch command
+  3-0   reserved, set 0
+
+Port assignments             Power-up mode byte  Power-up count on PC
+
+040H  timer 0 TOD clock      036H mode 3         0=65536   (18.2Hz)
+041H  timer 1 DMA refresh    054H mode 2         12H=18    (66 kHz)
+042H  timer 2 Speaker tone   0B6H mode 3         553H=1331 (896 Hz sq.wave)
+043H  control word register
+       for channels 0-2
+044H  counter 3
+047H  control word register
+       for channel 3
+
+
+Channel 0: The System Timer:
+
+The TOD clock is set by the BIOS to pulse every 18.2 times a second.  On
+each pulse, Int 8 is generated.  The Int 8 service routine keeps a tally
+at the double word at 40:6Ch.  The channel 0 system timer latch can be
+cleared by a system reset, by the Int 8 service, or a write to port 61h
+with bit 7=1.  Disk timing operations are also controlled bye this
+service.
+
+Channel 1: DMA Refresh Pulses:
+
+The DMA refresh pulse causes the DMA chip to refresh all RAM.  This
+channel should not be reprogrammed.
+
+Channel 2: Tone Generation for Speaker:
+
+The Speaker tone timer is connected to the computer speaker. The gate to
+this timer are controlled by the 8255 interface chip.  The gate is
+closed by sending bit 0 to 1 at port 61H.  The output to the speaker can
+be close with bit 5 at port 62H.
+An IN instruction at port 43H will place the data buffer in the high-
+impedence state with no further operation.  The control word bit pattern
+is:
+
+   bits  7-6 Number of channel to program
+         5-4 Kind of operation
+              00 = move counter value into latch
+              01 = read/write high byte only
+              10 = read/write low byte only
+              11 = read/write high byte, then low byte
+         3-1 Mode number (0-5)
+           0 If 0, binary data, else BCD
+
+After the control word is sent OUT to port 43H, set channel 2 to enable
+clock signal (bit 0) at port 60H.  Use 1 to drive speaker, 0 for timing
+operations.  Send counter LSB to 42H, then MSB.
+
+Channel 3: The Watchdog Timer (PS/2 only):
+
+The watchdog timer and system channel time-out are not masked by sending
+an 80H to port 70H.  The watchdog timer detects when IRQ0 is active for
+more than one clock period.  If so, its counter is decremented.  When
+the count reaches 0, a NMI is generated.  Thus, if the IRQ0 is not being
+serviced, an error can be detected. When the watchdog timer sets a NMI,
+then it also sets I/O 094h bit 4.  NMI stops arbitration until 090h bit
+6 = 0.
+
+
+----------------------------------------------------------------------------
+Ports 60H-63H: PC 8255 Parallel I/O Port Chip for Keyboard and Status
+----------------------------------------------------------------------------
+Ports 60H-64H: PS/2 Intel 8042 Keyboard/Auxiliary Device Controller
+----------------------------------------------------------------------------
+
+The 8255 Parallel Port Controller and Programmable Peripheral Interface
+
+The 8255 chips control parallel ports on the PC system, and acts as the
+Programmable Peripheral Interface (PPI) for the CPU, occupying four
+consecutive port addresses 060H-063H.  The PPI can control three
+independent ports (A, B, and C) as either input or output.  The fourth
+port address is used as a control port for the chip.  The following
+shows the meaning of a control byte sent to the write-only control port:
+
+         bit                        Value      Action
+
+           7   Mode Set Flag          0  Inactive   1  Active
+         6,5   Mode Selection A      00  Mode 0    01  Mode 1   1x  Mode 2
+           4   Port A                 0  Output     1  Input
+           3   Port C (upper 4 bits)  0  Output     1  Input
+           2   Mode Selection B       0  Mode 0     1  Mode 1
+           1   Port B                 0  Output     1  Input
+           0   Port C (lower 4 bits)  0  Output     1  Input
+
+If bit 7 is 0, the byte sent is used to set or reset a bit in port C.
+Mode 1 uses three port C lines for handshaking and interrupt control of
+port A.  For input, if PC4=0, port A latches data and PC5 goes high to
+indicate 'buffer full' for device connected to input lines.  PC5 returns
+low when the CPU reads port A.  If port A interrupts are enabled, PC3
+also goes high when a byte is received, which can be used for an IRn
+line to an 8259A interrupt controller.  Port B functions like port A in
+mode 1 except it uses the three low bits of port C for control.  Output
+in mode 1 is similar.  Mode 2 allows port A to operated bidirectionally,
+with handshaking and interrupt control using five bits of port C.
+
+The PPI Status Ports on the IBM PC compatibles at port addresses 060H to
+062H perform the following functions (all set to mode 0, A made input, B
+output, C input by sending 099H to 063H):
+
+060H Port A Input (acts as a one byte device output register):
+
+        If PB7 = 0 Read Keyboard Scan Code
+
+        If PB7 = 1 Read switches
+               PA7,6   = SW1-8,7  # of drives
+               PA5,4   = SW1-6,5  monitor type
+                               11 = monochrome
+                               10 = 80x25 color
+                               01 = 40x25 color
+               PA3,2,0 = SW1-4,3,1 Reserved
+               PA1     = SW3       Math chip mounted
+
+
+061H Port B Output (acts as a one byte device control register):
+
+               PB7 0 enable keyboard read
+                   1 clear keyboard and enable sense of SW1
+               PB6 0 hold keyboard clock low, no shift reg. shifts
+                   1 enable keyboard clock signal
+               PB5 0 enable i/o check
+                   1 disable i/o check
+               PB4 0 enable r/w memory parity check
+                   1 disable r/w parity check
+               PB3 0 turn off LED
+                   1 turn on LED (old cassettee motor off)
+               PB2 0 read spare key
+                   1 read r/w memory size (from Port C)
+               PB1 0 turn off speaker
+                   1 enable speaker data
+               PB0 0 turn off timer 2
+                   1 turn on timer 2, gate speaker with square wave
+
+062H Port C Input (acts as a one byte device output register):
+                (Set PB2 (PC) or PB3 (XT) first.)
+
+               PC7 0 no parity error or PB4=1
+                   1 r/w memory parity check error
+               PC6 0 no i/o channel error or PB5=1
+                   1 i/o channel check error
+               PC5 0 timer 2 output 0
+                   1 timer 2 output 1
+               PC4   reserved (old cassettee data input)
+               PC3,2,1,0 = r/w memory (SW2-4,3,2,1) if PB2=1
+                         =  spare key (SW2-8,7,6,5) if PB2=0
+
+       PC7 and PC6 are used by the NMI handler to tell whether RAM parity
+       error, i/o channel status error, or, if both are 0, an 8087 error
+       occured.
+
+Example: Direct reading of PC keyboard scan code (replacement for INT 09):
+
+ 1. Read scan code.  Note that "make" key scan code has bit 7=1,
+    "break" code has bit 7=0, except on AT, for which bit 7 is always 0,
+    a "break" produces a 0F0H code, then the key scan code.
+ 2. Send acknowledge to keyboard by toggling bit 7 to 1, then back to 0.
+ 3. Put keyboard in buffer.
+ 4. Signal EOI to the interrupt controller.
+
+       pushall
+       in al,060h     ; get key code
+       push ax        ; save it
+       in al,061h     ; get current control
+       mov ah,al      ; save PB control
+       or al,80h      ; set keyboard bit
+       out 061h,al    ; keyboard acknowledge
+       xchg ah,al     ; get back PB
+       out 061h,al    ; reset PB control
+       pop ax         ; get back code
+       ...            ; save code in buffer
+       cli
+       mov al,20h
+       out 20h,al     ; send eoi to interrupt controller
+       popall
+       iret
+
+
+The PS/2 8042 Keyboard/Auxiliary Device Controller
+
+On the PS/2, an Intel 8042 chip replaces the 8255, using ports 60H and
+64H. Port 61H serves as a system control port for compatibility with the
+PC. The 8042 controls both the keyboard and an auxiliary device, such as
+a mouse. It receives serial data, check parity, translates keyboard scan
+codes, and presents data at the data port 60H.  The interface can
+interrupt the system (IRQ1) or can wait for polling.  The I/O port 64H
+is the command/status port. A read gives status, a write is interpreted
+as a command.  The 8042 provides for a password security mechanism.
+
+A read from port 64H gives the following status byte:
+
+   Bit     Function
+    7      1 = Parity error
+    6      1 = General Time Out
+    5      1 = Auxiliary output buffer full
+    4      1 = Inhibit switch
+    3      1 = Command/data
+    2      1 = System flag
+    1      1 = Input buffer full
+    0      1 = Output buffer full
+
+The status register can be read at any time.  The data port 60H should
+be read only when the output buffer full bit in the status register is
+1. Data should be written to the 8042 input buffer only when the input
+buffer full bit in the status register is 0.  If the auxiliary output
+buffer full bit is 1, then the data read came from the auxiliary device.
+The command port 64H should be written to only when the status register
+input buffer full bit and the output buffer full bit are 0.  Devices
+connected to the 8042 should be disabled before sending a command that
+generates output.
+
+The following are recognized commands sent to port 64H:
+
+  20-3FH   Read the 8042 RAM - Bits D5-D0 specify the address.
+               Address 0 is the current command byte.
+
+  60-7FH   Write to the 8042 RAM   - Bits D5-D0 specify the address.
+               Address 0 will mean the next byte of data out at port 60H
+               is the command byte, defined using:
+
+              Bit     Function
+               7      Reserved = 0
+               6      1 = IBM keyboard translate mode
+               5      1 = Disable auxiliary device
+               4      1 = Disable keyboard
+               3      Reserved = 0
+               2      1 = Place system flag in status register
+               1      1 = Enable auxiliary interrupt
+               0      1 = Enable keyboard interrupt
+
+    A4     Test if password is installed.  Data 0FAH on port 60H means
+           that the password is installed, 0F1H means that the password
+           is not installed.
+
+    A5     Load Security - initiate the password load procedure.  Following
+           this command the 8042 will input from the data port until a
+           null is detected.
+
+    A6     Enable Security - enable the security feature, when the password
+           pattern is currently loaded.
+
+    A7     Diable auxiliary device interface - set bit 5 of the command
+           byte.
+
+    A8     Enable auxiliary device interface - reset bit 5 of the command
+           byte.
+
+    A9     Interface test - test the auxiliary device clock and data lines.
+           The result is placed in the output buffer at 60H:
+
+              Result      Meaning
+                00        No error
+                01        Aux. device clock line stuck low
+                02        Aux. device clock line stuck high
+                03        Aux. device data line stuck low
+                04        Aux. device data line stuck high
+
+    AA     Self test - tests 8042.  A 55H is placed in output buffer if
+           no errors are detected.
+
+    AB     Interface test - cause the 8042 to test the keyboard clock
+           and data lines.  Result reported as in command A9.
+
+    AC     Reserved
+
+    AD     Disable keyboard interface - set bit 4 of the command byte.
+
+    AE     Enable keyboard interface - reset bit 4 of the command byte.
+
+    C0     Read input port - read the 8042 input port and put it in the
+           output port.  If bit 3 is 0, the fuse on the +5 Vdc line
+           on the system board to the keyboard is open.
+
+    C1     Poll input port low - put port 1 bits 0-3 in status bits 4-7.
+
+    C2     Poll input port high - put port 1 bits 4-7 in status bits 4-7.
+
+    D0     Read output port - put data from output port into the output
+           buffer.
+
+    D1     Write output port - put next byte written to 60H into the
+           output port.  Caution:  Bit 0 of the output port is connected
+           to the System Reset line.  This bit should not be written low.
+
+    D2     Write keyboard output buffer - put next byte written to 60H
+           into output buffer and issue device interrupt if enabled.
+           This produces a simulated keyboard output.
+
+    D3     Write auxiliary device output buffer - put next byte written
+           to 60H input buffer in output buffer as if initiated by the
+           auxiliary device and issue interrupt if enabled.
+
+    D4     Write to auxiliary device - transmit next byte written to 60H
+           input buffer to auxiliary device.
+
+    E0     Read test inputs - cause the 8042 to read its T0 and T1 inputs.
+           This data is placed in the output buffer bits 0 and 1.
+
+  F0-FF    Pulse output port - pulse bits 0-3 of the 8042 output port
+           for about 6 usec.  Bits 0 to 3 indicate which bits are to be
+           pulsed.  A 0 indicates bit should be pulsed.  Caution:
+           Bit 0 of the 8042 output port is connected to the System Reset
+           line.  Pulsing this bit resets the system microprocessor.
+
+
+On the PS/2, the 8042 controller can pass commands to the keyboard
+through port 60H:
+
+    ED     Set/reset status indicators. Rresponse is ACK (0FAH), system
+           acceptance of ACK requires system to raise clock and data lines
+           for at least 500 usec.
+
+    EE     Echo test (valid response is EE)
+
+    EF     Invalid command
+
+    F0     Select alternate scan codes (response is ACK, system then sends
+           option byte of 01, 02, or 03, response is ACK)
+
+    F1     Invalid command
+
+    F2     Read keyboard ID (response is ACK plus two ID bytes of 83ABH)
+
+    F3     Set typematic rate/delay (response is ACK, system sends rate/delay
+           byte, response is ACK.  The rate/delay byte is:
+
+              bit      function
+
+               7       reserved = 0
+              6-5      (delay/250msec - 1)
+              4-3      doubling factor of rate
+              2-0      (rate/(240/sec) - 8)
+
+    F4     Enable (response is ACK, clears buffer, clears last typematic
+           key, and starts scanning).
+
+    F5     Default disable (resets all conditions to power-on state, sends
+           ACK, stops scanning).
+
+    F6     Set default (resets to power-on state, sends ACK, sets default
+           key types for scan code 3, continues scanning).
+
+  F7-FA    Set all keys to typematic, make/break, make, or typematic/make/
+           break for scan code 3 (responds with ACK).
+
+  FB-FD    Set a key type to typematic, make/break, or make (response is
+           ACK, then keyboard prepares to receive key scan code from set 3.
+
+    FE     Send the previous output again.
+
+    FF     Reset the keyboard and start internal self-test. Response is
+           ACK.  System must acknowledge ACK by raising clock and data lines
+           for over 500 usec.  Following acceptance of ACK, keyboard is
+           reinitialized and performs a Basic Assurance Test (BAT).  The
+           keyboard defaults to scan code 2.
+
+
+The PS/2 keyboard may send the following codes to the system:
+
+    00     Key detection error/overrun under scan code 2 or 3.
+
+   83AB    Keyboard ID bytes.
+
+    AA     Basic Assurance Test completed.
+
+    FC     Basic Assurance Test failed.
+
+    EE     Echo of EE command.
+
+    FA     ACK code.
+
+    FE     Resend. Invalid input or parity error.
+
+    FF     Key detection error/overrun under scan code 1.
+
+----------------------------------------------------------------------------
+Port 61H: PS/2 System Control Port B
+----------------------------------------------------------------------------
+
+Write operations:
+
+   Bit   Function
+
+    7    Reset system timer 0 output latch (IRQ0)
+    6    Reserved
+    5    Reserved
+    4    Reserved
+    3    Enable channel check
+    2    Enable parity check
+    1    Speaker data enable
+    0    System timer 2 gate to speaker
+
+Read operations:
+
+    7    1 = Parity check occurred
+    6    1 = Channel check occurred
+    5    System timer 2 output
+    4    Toggles with each refresh request
+    3    Enable channel check result
+    2    Enable parity check result
+    1    Speaker data enable result
+    0    System timer 2 gate to speaker result
+
+
+----------------------------------------------------------------------------
+Ports 70H and 71H: Configuration Ports and Real-Time-Clock Chip MC146818
+----------------------------------------------------------------------------
+
+The AT and PS/2 uses port 70H bit 7 to disable 'Non-Maskable' Interrupts
+(NMI) by setting bit 7 to 0.  Enable NMI by setting bit 7 to 1.  Note:
+the PCs use port 0A0H for this purpose.  Port 70H on ATs is also used to
+set a CMOS register index (00-3FH), which is then read from port 71H.
+Even when masking the NMI through bit 7 of port 70H, read port 71H
+immediately after.  Otherwise, the RTC may be left in an unknown state.
+The watchdog timer and system channel time-out are not masked by sending
+an 80H to port 70H.
+
+The AT stores configuration settings on a Motorola MC146818 real time-
+clock-chip (RTC).  (Programming information for the RTC is given later.)
+Because the CMOS chip is supplied by a battery, configuration parameters
+are saved even during power-off. The chip has 64 registers (00-3FH) read
+from port 71H after sending the register index to 70H.  Below are some
+register allocations:
+
+  Register   Use
+
+    00H      Real-Time-Clock seconds
+    01H      Real-Time-Clock seconds alarm
+    02H      Real-Time-Clock minutes
+    03H      Real-Time-Clock minutes alarm
+    04H      Real-Time-Clock hours
+    05H      Real-Time-Clock hours alarm
+    06H      Real-Time-Clock day of week
+    08H      Real-Time-Clock day of month
+    09H      Real-Time-Clock month
+    09H      Real-Time-Clock year
+    0AH      Real-Time-Clock Status of register A
+              (Bit 7 = 1 - time update in progress
+                  6-4= 22 stage divider, clock freq. (010=32.768 KHz)
+                  3-0= rate selection, divider output freq. (0110=1.024 KHz)
+    0BH      Real-Time-Clock Status of register B
+              (Bit 7 = Set update
+                   6 = periodic interrupt enabled
+                   5 = alarm interrupt enabled
+                   4 = update-ended interrupt enabled
+                   3 = square wave enable
+                   2 = date mode in binary (0=BCD)
+                   1 = hours counted by 24
+                   0 = daylight savings time enabled
+    0CH      Real-Time-Clock Status of register C
+              (Bit 7 = IRQF flag
+                   6 = PF flag
+                   5 = AF flag
+                   4 = UF flag
+                  3-0= reserved = 0
+    0DH      Real-Time-Clock Status of register D
+              (Bit 7 = Valid RAM bit (0=battery dead)
+                  6-0= reserved = 0
+    0EH      Diagnostic status byte
+              Bits   7 RTC lost power
+                     6 bad checksum
+                     5 invalid configuration
+                     4 inconsistent memory size
+                     3 hard disk error
+                     2 POST time check error
+                   1-0 reserved
+    0FH      Shut-down byte
+
+    10H      Diskette drive type
+              Bits 7-4 first diskette   0000 = no drive
+                   3-0 second diskette  0001 = 48 tpi drive
+                                        0010 = 96 tpi drive
+    11H      Reserved
+    12H      Fixed disk drive type
+              Bits 7-4 first hard disk  Drive code
+                   3-0 second hard disk Drive code
+    13H      Reserved
+    14H      Peripherals (Equipment Byte)
+              Bits 7-6 number of diskette drives - 1
+                   5-4 display 00=display has own BIOS
+                               01=40 column color
+                               10=80 column color
+                               11=monochrome
+                   3-2 unused
+                     1 1=math coprocessor installed
+                     0 0=no diskette drives, 1=diskettes installed
+    15H      LSB of system board memory
+    16H      MSB of system board memory
+               ;In 1024 byte blocks, 512K increments)
+    17H      LSB total expansion memory
+    18H      MSB total expansion memory
+               ;In 1024 byte blocks, 512K increments)
+    19H      Drive C extension byte
+    1AH      Drive D extension byte
+    1BH-2DH  Reserved
+    2EH-2FH  2 byte checksum (high, low) 10-2DH except 0E and 0FH
+    30H      LSB expansion memory above 1 megabyte
+    31H      MSB expansion memory above 1 megabyte
+               ;In 1024 byte blocks, 512K increments)
+    32H      Data century byte
+    33H      Information flags set during power-up
+    34H-3FH  Reserved
+
+The Real-Time-Clock (RTC) on the AT and PS/2 uses the registers
+addressed at port 70H and read from 71H.  Use Int 1Ah to read and set
+the time-of- day and alarm.  The alarm interrupt, Int 4Ah, must have a
+service routine vector before the alarm is set.
+
+----------------------------------------------------------------------------
+Port: 90H: PS/2 Central Arbitration Register
+----------------------------------------------------------------------------
+
+              Reads                           Writes
+    Bit 7 Enable System Microprocessor Cycle  ESMC
+        6 Arbitration Mask by NMI             Arbitration Mask
+        5 Bus Timeout                         Enable Extended Arbitration
+        4 = 0 Reserved                        = 0 Reserved
+      3-0 Value of Arb.Bus During Previous    = 0 Reserved
+          Grant State
+
+
+----------------------------------------------------------------------------
+Port: 92H: PS/2 System Control Port A
+----------------------------------------------------------------------------
+
+This port supports the fixed disk drive lights, alternate system
+microprocessor reset, PASS A20, watchdog timer status, and CMOS
+security:
+
+  Bits 7,6  Fixed disk activity light A, B
+        5   Reserved = 0
+        4   1 = Watchdog Timer timeout has occurred
+        3   1 = RT/CMOS secure area (password) locked by POST
+        2   Reserved = 0
+        1   Alternate Gate A20 address line (1=active)
+        0   Alternate CPU reset (to effect mode switch from
+            Protected Virtual Address Mode to Real Address Mode).
+            Reset time: 13.4 usec.  (The AT Intel 8042 method
+            is also supported.)
+
+----------------------------------------------------------------------------
+Ports 94H to 96H:  System Setup
+----------------------------------------------------------------------------
+
+     Port 94H System Board Enable/Setup Register
+              (System incluses diskette controller, serial, and parallel
+              controllers.  Set to 0FFH when setup is complete)
+             Bits  7 = 0 to setup other system boards with I/O 100H to 107H
+                     = 1 to avoid setup of other system boards
+                   5 = 0 to setup video subsystem with I/O 100H to 107H
+                       1 to avoid setup of VGA
+          96H Adapter Enable/Setup Register
+               (Set to 00H when setup is complete)
+                   3 = 1 for adapter setup with I/O 100H to 107H
+                       0 to avoid setup of an adaptor
+
+----------------------------------------------------------------------------
+Ports 100H-107H: PS/2 Program Option Select (POS)
+----------------------------------------------------------------------------
+
+     100    PS/2 POS Reg.0 Adapter ID LSByte
+     101    PS/2 POS Reg.1 Adapter ID MSByte
+     102    PS/2 POS Reg.2 Option Select Date Byte 1
+             Bit 7 = Enable/Disable Parallel Poort Extended Mode
+                 6 = Parallel Port Select high bit
+                 5 = Parallel Port Select low bit
+                      0 = 3BC-3BE  2 = 278-27A
+                      1 = 378-37A  3 = reserved
+                 4 = Enable/Disable Parallel Port
+                 3 = Serial Port Select
+                 2 = Enable/Disable Serial Port
+                 1 = Enable/Disable Diskette Drive Interface
+                 0 = Enable/Disable System Board or Card Enable
+     103    PS/2 POS Reg.3 Option Select Data Byte 2
+     104    PS/2 POS Reg.4 Option Select Data Byte 3
+     105    PS/2 POS Reg.5 Option Select Data Byte 4
+         Bit 7 = CHCK Channel Check (Set by adapter if error)
+         Bit 6 = STAT Channel Check Status Indicator
+                0 = status available at 106, 107
+     106    PS/2 POS Reg.6 Subaddress Extension LSB
+     107    PS/2 POS Reg.7 Subaddress Extension MSB
+
+Only 8 bit I/O is supported on POS ports.
+
+
+When video subsystem is in setup mode (port 94H bit 5=0), VGA responds
+to a single option select byte at port 102H and treats the bit 0 as a
+sleep bit.  If bit 0 is 0, the VGA does not respond to commands,
+addresses, or data.  The VGA responds only to port 102H when in setup
+mode. Conversely, VGA ignores address 102H when in the enable mode (94H
+bit 5=1).
+
+----------------------------------------------------------------------------
+Port 0A0H: The PC NMI Mask Register
+----------------------------------------------------------------------------
+
+The 'Non-Maskable' Interrupt line to the CPU automatically generates an
+Int 2 for handling disastrous situations, such as power failure, memory
+parity error, math coprocessor error, etc.  On PCs, port at 0A0H is
+reserved to hold a mask to disable this line before it reaches the CPU.
+Bit 7 set enables the NMI, while bit 7=0 disables it.  On the AT and
+PS/2, use port 070H for the same purpose (read port 71H after to clear
+the pending read state of the CMOS RAM).
+
+----------------------------------------------------------------------------
+Ports 0F0H-0FFH: 80x87 Math Coprocessor
+----------------------------------------------------------------------------
+
+Clear math coprocessor busy signal by sending 0 to port F0H.  Reset
+math coprocessor by sending 0 to port F1H.
+
+----------------------------------------------------------------------------
+Port 201H: The Game Port (PC, XT, AT)
+----------------------------------------------------------------------------
+
+Port 201H contains the status of buttons 2,1 of stick B, 2,1 of stick A
+in bits 7-4.  Bits 3-0 are set to zero by sending any byte to 201H. The
+time it takes for these bits to become 1 determines the Y,X position of
+stick B, Y,X position of stick A.
+
+----------------------------------------------------------------------------
+Ports 278H-27AH, 378H-37AH, 3BCH-3BEH LPT3,2,1 Printer Ports
+----------------------------------------------------------------------------
+
+These ports are used on the PC, XT, AT, and PS/2 for parallel devices.
+The base port addresses are stored in locations 40:08 to 40:0D.  If the
+address value is zero, that port is not available, nor are any which
+follow.
+
+The parallel ports have the designations:
+
+     Base port:  Data Output
+     Base + 1 :  Status: Reports printer condition and errors
+                 Bit   7 0=printer busy (pin 11)
+                       6 0=acknowledge data byte received (pin 10)
+                       5 1=printer out of paper (pin 12)
+                       4 0=printer off line (de-select) (pin 13)
+                       3 0=printer error (pin 15)
+                     2-0 unused
+     Base + 2 :  Control: Initializes adapter and controls output
+                 Bit 7-5 unused
+                       4 1=printer interrupt enabled (IRQ status)
+                       3 0=printer de-selected (inverted pin 17)
+                       2 0=initialize port (delay 1/20 second after reset)
+                           (pin 16)
+                       1 0=no linefeed after CR (pin 14)
+                       0 1=output a byte of data - strobe (pin 1)
+
+
+To test if the printer is on-line, first check the existence of the
+printer port starting at 40:08 for LPT1:.  Three parallel port words are
+defined.  If a 0 value is encountered, that and further ports do not
+exist.  Next, check the printer status byte, bits 3-5.  Do not begin
+printing until the status register indicates that the printer is on-line
+and ready to receive data.  Monitor bit 7 between each byte of data
+sent.
+
+Almost universally, Int 17h is used to control parallel printers.  (This
+is in contrast with serial devices, for which direct chip access is
+common.)
+
+The following code shows how the printer port can be handled directly
+using polling of the status byte:
+
+        MOV DX,BASE_PORT      ; LPTx port address
+        LDS SI,DATA_BUFFER    ; characters to send to printer
+        MOV CX,DATA_SIZE      ; number of characters to send
+NEXT:   LODSB                 ; get character
+        OUT DX,AX             ; send it
+        INC DX
+        INC DX                ; get control register
+        MOV AL,00001101B      ; strobe bit set
+        OUT DX,AL             ; send strobe signal
+        DEC DX                ; get status byte
+BUSY:   IN AL,DX              ;  into al
+        TEST AL,8             ; test for error
+        JZ PRT_ERROR
+        TEST AL,80H           ; check for busy
+        JZ BUSY
+        DEC DX                ; get data port
+        LOOP NEXT             ; continue
+        ...
+Because of the printer, the routine will be slow without print buffering.
+
+An interrupt routine should be avoided with the printer port on the PC
+monochrome adaptor, due to a hardware fault.  Instead, use the system
+timer to determine the polling frequency.  Interrupt driven routines can
+be used on the AT and PS/2.
+
+
+----------------------------------------------------------------------------
+Ports 2E8-2EEH, 2F8-2FEH, 3E8-3EEH, 3F8-3FEH COM4,3,2,1
+----------------------------------------------------------------------------
+
+The 8250 Asynchronous Communication Effector (ACE) is used for control
+of the serial ports on the PC.
+
+The AT uses a NS16450, a 16-bit version of the 8250.  The PS/2 uses a
+NS16550 which is functionally upward compatible with the NS16450 and the
+8250.
+
+The 8250 UART (universal asynchronous receiver/transmitter) converts
+parallel data on the CPU's data bus into serial data (50 to 19200 baud)
+by dividing the input clock frequency by a programmable 16-bit number.
+It occupies seven sequential port addresses.  For the first serial port
+on the PC, these are at 3F8-3FFH.  The second serial port occupies
+2F8-2FFH.  The following internal registers are set or read by in or out
+instructions to the corresponding port offset relative to the first
+assigned port value below:
+
+Port
+Offset--> 0        1        2        3        4        5        6
+
+Reg.   Rec/Trans  Int      Int     Line     Modem    Line     Modem
+Name     Buff    Enable    ID     Contrl    Contrl  Status    Status
+
+      .--------+--------+--------+--------+--------+--------+--------.
+ bit  |  data  |  rec   |  0 if  |  word  | data   | data   | delta  |
+  0   | bit 0  |  data  |pending | length |terminal| ready  |clear to|
+      |        |  int   |        | bit 0  | ready  |        | send   |
+     -+--------+--------+--------+--------+--------+--------+--------|
+ bit  |  data  | trans  | int id |  word  |request | over-  | delta  |
+  1   | bit 1  |  data  | bit 0  | length |to send |  run   |data set|
+      |        |  int   |        | bit 1  |        | error  | ready  |
+     -+--------+--------+--------+--------+--------+--------+--------|
+ bit  |  data  |  line  | int id | no. of | out 1  | parity |trailing|
+  2   | bit 2  | status | bit 1  |stopbits|        | error  | edge   |
+      |        |  int   |        | - 1    |        |        |ring ind|
+     -+--------+--------+--------+--------+--------+--------+--------|
+ bit  |  data  | modem  |        | parity | out 2  | frame  | delta  |
+  3   | bit 3  | status |   0    | enable |        | error  |rec.line|
+      |        |  int   |        |        |        |        |sig.det.|
+     -+--------+--------+--------+--------+--------+--------+--------|
+ bit  |  data  |        |        |  even  | loop   | break  | clear  |
+  4   | bit 4  |   0    |   0    | parity | back   | inter. |  to    |
+      |        |        |        |        |        |        |  send  |
+     -+--------+--------+--------+--------+--------+--------+--------|
+ bit  |  data  |        |        |  stick |        |trans.  | data   |
+  5   | bit 5  |   0    |   0    | parity |   0    |holding |  set   |
+      |        |        |        |        |        |reg.empty  ready |
+     -+--------+--------+--------+--------+--------+--------+--------|
+ bit  |  data  |        |        |  set   |        |trans.  | ring   |
+  6   | bit 6  |   0    |   0    | break  |   0    |shift   |indicat.|
+      |        |        |        |        |        |reg.empty        |
+     -+--------+--------+--------+--------+--------+--------+--------|
+ bit  |  data  |        |        |divisor |        |        |rec.line|
+  7   | bit 7  |   0    |   0    | latch  |   0    |   0    |sig.det.|
+      |        |        |        | access |        |        |carrier |
+      `--------------------------------------------------------------'
+
+Port offset 7 (e.g. 3FFH) is not used.
+
+
+If the divisor-latch-access bit is set to 1, then the baud latch divisor
+can be read or set byte reading or writing to port 0 (LSB) and port 1
+(MSB). The clock signal on the chip at 1.8432 MHz is divided by the
+divisor to get the output of the baud generator which is 16x the baud
+rate.  Thus the divisors for common baud rates are:
+
+  Baud         Divisor Latch   Decimal
+  Rate          MSB     LSB     Value
+
+   300          01      80H     384
+  1200          00      60H      96
+  2400          00      30H      48
+  9600          00      0CH      12
+ 19200          00      06H       6
+
+Reset bit 7 of the line control register in order to access the data and
+other registers.
+
+The Line Control Register:
+
+The word length, number of stop bits, and parity are set with an out to
+the line control register.  The first two bits are defined to make a
+word length using:
+
+  Bit 1  Bit 0  Word Length
+
+    0      0       5
+    0      1       6
+    1      0       7
+    1      1       8
+
+If bit 2 is 1 when bits 1 and 0 are 00, then 1.5 stop bits are
+generated. If bit 3 is 0, no parity will be used and 8 bit data may be
+transmitted. If bit 3 is 1 and bit 4 is 0, odd parity is used. If bit 5
+is 1 and bit 3 is 1, parity is transmitted as bit 4 indicates, but
+received in the opposite state.  Setting bit 6 to 1 forces the output to
+logic 0. It remains there until bit 6 is reset.
+
+The Line Status Register:
+
+Bit 0 is set 1 whenever a byte has been received in the receive buffer
+register.  It is reset by reading the data or writing to this bit.
+
+Bit 1 is set 1 if an overrun error from the line status register
+indicates data in the receive buffer register was not read by the CPU
+before another was transferred in.  It is reset by reading the line
+status register.
+
+Bit 2 is set 1 if a parity error is detected in the received data.  It
+is reset by reading the line status register.
+
+Bit 3 is set 1 if a framing error is detected, i.e. the received
+character did not have a valid stop bit.
+
+Bit 4 is set 1 if the received data is held to 0 for longer than a full
+word transmission time (start bit + data bits + parity + stop bits).
+
+Bit 5 is set 1 if the transmitter holding register is empty.  It is
+reset by loading the transmitter holding register.
+
+Bit 6 is set 1 if the transmitter shift register is empty.  It is reset
+by data tranfer to it from the transmitter holding register.
+
+
+Interrupt Identification Register:
+
+Three bits are used to identify the type of interrupt generated by the
+chip. Bit 0 is set 0 if an interrupt is pending.
+
+ Bits 2 and 1 are set as follows:
+
+      1     1   if  a receive line status interrupt occurred
+                      (overrun, parity, framing, or break error)
+      1     0   if  a receive data interrupt occurred
+                      (data ready to be read)
+      0     1   if  a transmitter holding empty interrupt occurred
+                      (trans. holding reg. just emptied)
+      0     0   if  a modem status interrupt occurred
+                      (CTS, DSR, RI, or Rec. Line Signal Detect-Carrier)
+
+Modem Control Register:
+
+The Data Terminal Ready line can be made high by a logic 1 to bit 0 of
+this register. Similarly, a 1 in bit 1 will set the Request to Send
+line to the modem.  The Out 1 line is not used in the IBM PC.  However,
+Out 2 must be set to 1 to enable the serial chip to interrupt the CPU
+over its interrupt line.
+
+Modem Status Register:
+
+The modem status register indicates the state and changes in the input
+lines to the serial port.  The delta bits will be set 1 if the
+corresponding lines have changed state since the last read of this
+register.  The Receive Line Signal Detect line is also called the
+Carrier Detect line (RS-232 pin 8).
+
+Sample Initialization Code:
+
+   MOV BX,3F8H         ; com1 port
+   LEA DX,[BX+4]       ; use modem control port
+   XOR AL,AL           ; set for all line off (dtr,rts,out1,out2)
+   OUT DX,AL           ; send it
+   LEA DX,[BX+1]       ; use interrupt enable port
+   OUT DX,AL           ; set all interrupts off
+   MOV AL,83H          ; set for 8 bit, 1 sb, divisor latch
+   LEA DX,[BX+3]       ; get line control port
+   OUT DX,AL           ; send it
+   MOV AX,0060H        ; divisor for 1200 baud
+   MOV DX,BX           ; lsb of divisor port
+   OUT DX,AL           ; send it
+   INC DX              ; msb of divisor port
+   XCHG AL,AH          ; set up byte
+   OUT DX,AL           ; send it
+   NOP                 ; give chip a little time
+   LEA DX,[BX+3]       ; line control port
+   IN AL,DX            ; get back the line control byte
+   NOP                 ; give chip a little time
+   AND AL,7FH          ; drop divisor latch
+   OUT DX,AL           ; set line control byte
+   ...                 ; set up interrupt service routine
+   ...                 ; and 8259 mask for int 0ch
+   LEA DX,[BX+4]       ; modem control register
+   MOV AL,0BH          ; set for dtr,rts,out2
+   OUT DX,AL           ; send it
+   NOP                 ; give chip a little time
+   LEA DX,[BX+1]       ; interrupt enable port
+   MOV AL,0FH          ; use RD, TD, LS, MS interrupts
+   OUT DX,AL           ; set interrupt enable register
+   ...
+
+(Do not follow one OUT instruction by another on an AT or PS/2.  Use a
+delay instruction: JMP $+2 between them.  MOV AH,AL between two OUT
+instructions still does not leave enought time for the port hardware to
+recover.)
+
+----------------------------------------------------------------------------
+Ports 3B4H and 3D4H: The Motorola 6845 Video CRT Controller Address Register
+Ports 3B8H-3BAH and 3D8H-3DAH: The Motorola 6845 Video CRT Control/Status
+----------------------------------------------------------------------------
+
+The 6845 cathode ray tube controller is used on the PC for both
+monochrome and color video systems.  The PS/2 VGA system provides some
+emulation for both of these controllers at the hardware level.
+
+The 6845 controller uses four I/O ports 3B4H, 3B5H, 3B8H, and 3BAH on
+the monochrome card (substitute 'D' for 'B' for color card).
+
+Port 3B4H is the 6845 index register, to which a control register value
+of 0 to 17 is sent before a read/write to the data register 3B5H.
+
+The 6845 has 18 control registers, 0-17.  The first ten fix the
+horizontal and vertical display parameters.  Incorrect settings of
+registers 1-9 can damage a monitor.  Registers 10 and 11 set the shape
+of the cursor; 14 and 15 control its location.  Registers 12 and 13 can
+handle scrolling. Numbers 16 and 17 report light pen position.
+Registers 12-15 are read/write.  Registers 16-17 are read only. All
+other registers are write-only.
+
+        6845 Internal Registers:        VGA Emulation and Extension:
+
+R0:  Horizontal total characters        (Total characters less 5)
+R1:  Horizontal displayed characters    (Display char./line -1)
+R2:  Start Horizontal blanking
+R3:  End Horizontal blanking
+R4:  Vertical total lines               Start Hor. Retrace Pulse
+R5:  Vertical total adjust raster       End Hor. Retrace
+R6:  Vertical display line              Vert. Total -2 (low 8 bits)
+R7:  Vertical sync position line        Overflow  (see below)
+R8:  Interlace:                         Preset Row Scan (see below)
+     00           10=non-interlace
+     01=duplicate 11=different
+R9:  Maximum raster address             Max. Scan Line (see below)
+R10: Cursor Start raster
+R11: Cursor End raster
+R12: Start address high
+R13: Start address low
+R14: Cursor high
+R15: Cursor low
+R16: Light pen high                     Vertical Retrace Start
+R17: Light pen low                      Vertical Retrace End (see below)
+R18:                                    Vertical Display Enable End
+R19:                                    Underline Location
+R20:                                    Start Vertical Blank
+R21:                                    End Vertical Blank
+R22:                                    CRTC Mode Control
+R23:                                    Line Compare
+
+
+The VGA emulation of the 6845 allows all registers to be read/write.
+
+Port 3B8H is a CRT control port:
+
+  Bit    Function             PS/2 Emulation: None
+
+  7-6    Reserved
+   5     Blink enable
+   4     Reserved
+   3     Video enable
+  2-1    Reserved
+   0     High resolution mode
+
+Port 3BAH is a CRT read/only status port and a write/only feature
+control port on the PS/2.  As a read/only port:
+
+  Bit    Function            PS/2 Extension: Input Status Register 1
+
+  7-6    Reserved            Reserved
+   5     Reserved            Attribute controller diagnostic 0
+   4     Reserved            Attribute controller diagnostic 1
+   3     Video dots          Vertical retrace
+  2-1    Reserved            Reserved
+   0     Horizontal sync     Display enable (1=hor. or vert. retrace)
+
+As a write/only port on the PS/2, the Write Feature Control Register,
+all bits are reserved (bit 3 must be 0).
+
+On the Hercules Graphics Controller, bit 7 may be used to distinguish
+a Hercules card from an IMB Monochrome or Color Adapter.  On the
+Hercules card, bit 7 goes 0 on vertical retrace (50 Hz).  On the
+IBM card, bit 7 does not change.  The Hercules and the Hercules Plus
+can be distinguished with bits 4 and 5 (1 and 0 for Plus).
+----------------------------------------------------------------------------
+Ports: 3C0H-3CFH: VGA Support
+----------------------------------------------------------------------------
+
+In addition to emulation for the 6845 status, index, and control ports,
+the VGA system on the PS/2 uses the ports 3C0H-3CFH for additional video
+status information and control.
+
+Input Status Register 1:       3BAH or 3DAH: (R)
+
+  Bit    Function
+  7-6    Reserved = 0
+  5-4    Diagnostic 0,1  Selectively connected to two of eight
+   3     Vertical Retrace
+  2-1    Reserved = 0
+   0     Display Enable
+
+Attribute Registers:           3C0H-3C1H:
+
+Attribute Controller Registers:
+
+  Bit    Function
+
+  7-6    Reserved = 0
+   5     Palette Address Source
+          (Set 0 when loading color palette registers)
+  4-0    Attribute Address
+
+
+Each attribute data register is written at 3C0H and read from 3C1H.  To
+initialize the address flip-flop, issue IOR to 3BAH or 3DAH.  Then load
+the attribute controller register. This toggles the flip-flop for a OUT
+to the indexed data register. The flip-flop is not toggled by a read
+from 3C1H.
+
+Palette Registers: Index 00 to 0FH:
+
+  Bit    Function
+
+  7-6    Reserved = 0
+  5-0    P5-P0  Used to map color input to display color
+
+Attribute Mode Control Register: Index 10H:
+
+  Bit    Function
+
+   7     P5, P4 Select 1=source from bits 1,0 of Color Select Register
+   6     PEL Width - 1 for 256-color mode
+   5     PEL Panning Compatibility
+   4     Reserved = 0
+   3     Select Background Intensity
+   2     Enable Line Graphics Character Code (0=ninth dot same as backgnd)
+   1     Mono Emulation
+   0     Graphics/Alphanumeric Mode (1=graphics)
+
+Overscan Color Register: Index 11H:
+
+  Bit    Function
+
+  7-0    P7-P0 Border color
+
+Color Plane Enable Register: Index 12H:
+
+  Bit    Function
+
+  7-6    Reserved = 0
+  5-4    Video Status MUX - Selects 2 of 8 color outputs for status port
+  3-0    Enable Color Plane
+
+Horizontal PEL Panning Register: Index 13H:
+
+  Bit    Function
+
+  7-4    Reserved = 0
+  3-0    Horizontal PEL Panning (number of pixels to pan)
+
+Color Select Register: Index 14H:
+
+  Bit    Function
+
+  7-4    Reserved = 0
+  3-2    S_color76 - two high-order bits of 8 bit color value
+  2-0    S_color54 - replaces P5 and P4 in Attrib.Palette Reg.
+
+
+Read Input Status Register 0:  3C2H: (R)
+
+  Bit    Function
+   7     CRT interrupt 1 = vertical retrace interrupt pending
+  6-5    Reserved
+   4     Switch Sense Bit: Lets POST determine monochrome or color
+  3-0    Reserved
+
+
+Write Misc. Output Register:   3C2H: (W)
+Read  Misc. Output Register:   3CCH: (R)
+
+  Bit    Function
+   7     Vert. sync polarity 0 = positive retrace
+   6     Hor. sync polarity  0 = positive retrace
+           bits 7,6= 1 0 for 400 lines
+                     0 1 for 350 lines
+                     1 1 for 480 lines
+   5     Page bit for odd/even (dianostic use) 1 = high 64K page
+   4     Reserved = 0
+  3-2    Clock select
+          0 0 = 25.175 MHz for 640 hor. pixels
+          0 1 = 28.322 MHz for 720 hor. pixels
+          1 0 = external clock at aux. video input (14.3-28.4 MHz)
+          1 1 = reserved
+   1     Enable RAM 0 = disable video RAM address decode from CPU
+   0     I/O address select - CRTC I/O 0 = 3BxH, 1 = 3DxH
+
+Video Subsystem Enable:        3C3H:
+
+  Bit    Feature
+
+  7-1    Reserved
+   0     Video subsystem enable: 1 = video I/O and memory address
+         decoding is enabled.
+
+This register is not affected by the VGA sleep bit (102H bit 0).
+
+Sequencer Registers:           3C4H-3C5H:
+
+Sequencer Address Register:    3C4H:
+
+This register is loaded with a index to the following Sequence
+Data registers:
+
+Sequence Data Registers:       3C5H:
+
+Reset Register (R/W) (Index 0):
+
+  Bit    Function
+
+  7-2    Reserved
+   1     Synchronous reset 0 = synchr. clear and halt (before Clocking
+                      Mode register bit 0 or Misc. Output Register bit 2)
+   0     Asynchronous reset 0 = asynchr. clear and halt
+
+Clocking Mode Register (R/W) (Index 1):
+
+  Bit    Function
+
+  7-6    Reserved = 0
+   5     Screen off  1 = screen off (use for rapid full-screen update by
+           giving CPU maximum memory bandwidth)
+   4     Shift 4  0 = video serializers are loaded every char. clock,
+                  1 = video serializers loade every fourth clock (use
+                      with 32 bit fetches/cycle)
+   3     Dot clock 0 = select normal dot clock, 1 = master clock/2
+                       (clock/2 used for 320 and 360 hor. pixel modes)
+   2     Shift load: if 0 and if bit 4=0, video serializers reloaded
+                       every char. clock, when 1, every other char. clock
+                       (use with 16 byt fetches/cycle)
+   1     Reserved = 0
+   0     8/9 dot clocks 0 = char. clocks 9 dots wide.
+
+
+Map Mask Register (R/W) (Index 2):
+
+  Bit    Function
+
+  7-4    Reserved = 0
+   3     Map 3 enable 1 = CPU can write to map 3
+   2     Map 2 enable
+   1     Map 1 enable
+   0     Map 0 enable
+
+If this register is set to 0FH, the system microprocessor can perform
+32 bit wide write in only one memory cycle.
+
+Character Map Select Register (R/W) (Index 3):
+
+  Bit    Function
+
+  7-6    Reserved = 0
+   5     Character Map select high bit A
+   4     Character Map select high bit B
+  3-2    Character Map select A
+  1-0    Character Map select B
+
+In alphanumeric modes, bit 3 of the attribute byte normally is used
+to control foreground intensity.  This bit may be redefined, however,
+to switch between character sets.  For this feature to be enabled,
+the following must be true:
+
+  Memory Mode register bit 1 = 1
+  Character Map Select A is not the same as Character Map Select B
+
+If either is not true, the first 16K of Map 2 is used.
+
+For selection A:
+
+Bit  5   3   2   Map  Table Location
+
+     0   0   0    0   1st 8K of Map 2
+     0   0   1    1   3rd 8K of Map 2
+     0   1   0    2   5th 8K of Map 2
+     0   1   1    3   7th 8K of Map 2
+     1   0   0    4   2nd 8K of Map 2
+     1   0   1    5   4th 8K of Map 2
+     1   1   0    6   6th 8K of Map 2
+     1   1   1    7   8th 8K of Map 2
+
+Similarly for selection B using bits 4, 1, and 0.
+
+Memory Mode Register (R/W) (Index 4)
+
+  Bit    Function
+  7-4    Reserved = 0
+   3     Chain 4   0 = enable CPU to access data at addresses within
+                       bit map using Map Mask register.
+                   1 = enable CPU to access data at addresses according
+                       to two low order bits of address A1, A0:
+                        00=map 0, 01=map 1, 10=map 2, 11=map 3.
+   2     Odd/even  0 = use maps 0,2 or 1,3 according to parity of address.
+                   1 = access data sequentially using Map Mask register
+   1     Extended memory 1 = greater than 64K video memory present
+   0     Reserved = 0
+
+
+Digital to Analog Converter Registers: 3C6H-3C9H:
+
+  3C6H R/W:   Pixel Mask (color look-up table destroyed on write)
+  3C7H Read:  DAC State Register
+  3C7H Write: Pixel Address
+  3C8H R/W:   Pixel Address
+
+Read Feature Control Register: 3CAH: All bits reserved.
+
+Miscellaneous Output Register: 3CCH (R)  See port 3C2h.
+
+Graphics Registers:            3CEH-3CFH:
+
+Graphics Controller Registers: 3CEH:
+
+This read/write register is loaded with the index to the graphic registers
+described below:
+
+Graphics Registers (R/W)       3CFH:
+
+Set/Reset Register (R/W) (Index 0):
+
+  Bit    Function
+
+  7-4    Reserved = 0
+   3     Set/Reset Map 3
+   2     Set/Reset Map 2
+   1     Set/Reset Map 1
+   0     Set/Reset Map 0
+
+Enable Set/Reset Register (R/W) (Index 1):
+
+  Bit    Function
+
+  7-4    Reserved = 0
+   3     Enable Set/Reset Map 3
+   2     Enable Set/Reset Map 2
+   1     Enable Set/Reset Map 1
+   0     Enable Set/Reset Map 0
+
+Color Compare Register (R/W) (Index 2):
+
+  Bit    Function
+
+  7-4    Reserved = 0
+   3     Color Compare Map 3
+   2     Color Compare Map 2
+   1     Color Compare Map 1
+   0     Color Compare Map 0
+
+Data Rotate Register (R/W) (Index 3):
+
+  Bit    Function
+
+  7-5    Reserved = 0
+  4-3    Function Select  00 Data unmodified, 01 ANDed, 10 ORed, 11 XORed
+  2-0    Rotate Count for right-rotate (write mode 0)
+
+ReadMap Select Register (R/W) (Index 4):
+
+  Bit    Function
+
+  7-2    Reserved = 0
+  1-0    Map Select for read
+
+
+Graphics Mode Register (R/W) (Index 5):
+
+  Bit    Function
+
+   7     Reserved = 0
+   6     256 color mode:
+          0=allow bit 5 to control loading of Shift registers
+   5     Shift Register Mode:
+          1=format serial data with even-numbered bits for even maps
+                                    odd-numbered bits for odd maps
+   4     Odd/Even:  1=odd/even addressing mode
+   3     Read Type: 0=reads from memory map selected by Read Map Select Reg.
+   2     Reserved
+  1-0    Write Mode for memory map:
+          00=data rotated unless Set/Reset is enabled
+          01=from contents of system CPU latches
+          10=map n (0-3) filled with 8 bits of data bit n
+          11=from 8 bits in Set/Reset register for that map
+
+Miscellaneous Register (R/W) (Index 6):
+
+  Bit    Function
+
+  7-4    Reserved = 0
+  3-2    Memory Map: 00=A0000 for 128K bytes
+                     01=A0000 for  64K bytes
+                     10=B0000 for  32K bytes
+                     11=B8000 for  32K bytes
+   1     Odd/Even: 1=use odd/even maps for odd even addresses
+   0     Graphics Mode: 1=graphics mode, 0=alphanumeric mode
+
+Color Don't Care Register (R/W) (Index 7):
+
+   Bit   Function
+
+  7-4    Reserved = 0
+   3     Map 3 - Don't Care (0=Don't participate in color compare cycle)
+   2     Map 2 - Don't Care
+   1     Map 1 - Don't Care
+   0     Map 0 - Don't Care
+
+Bit Mask Register (R/W) (Index 8):
+
+  Bit    Function
+
+  7-0    Mask: 0=bit n in each map to be immune to change (modes 0 and 2)
+
+
+----------------------------------------------------------------------------
+Ports 3F0H-3F7H: Diskette Controller Ports
+----------------------------------------------------------------------------
+
+The PC uses a NEC 765 floppy disk controller.  The PS/2 uses a 8272A
+diskettee controller.  The functions and port assignments for the PS/2
+and AT are made software compatible with the PC diskette controller.
+The 765 controller uses ports 3F2H, 3F4H, and 3F5H, while the 8272 uses
+ports 3F0H, 3F1H, 3F2H, 3F4H, 3F5H, and 3F7H.
+
+Ports 3F0H, 3F1H: PS/2 Diskette Status Registers
+----------------------------------------------------------------------------
+On the PS/2, the ports 3F0H and 3F1H show two of three status registers
+used in diskette operations.
+
+Status Register A, at 3F0H, is a read-only register showing:
+
+  Bit    Function
+
+   7     Interupt pending
+   6     -Second drive installed
+   5     Step
+   4     -Track 0
+   3     Head 1 select
+   2     -Index
+   1     -Write protect
+   0     Direction
+
+Status Register B, at 3F1H, is a read-only register showing:
+
+  Bit    Function
+
+  7-6    Reserved
+   5     Drive select
+   4     Write data (toggles on positive transition in WR DATA)
+   3     Read data (toggles on positive transition in -RD DATA)
+   2     Write enable
+   1     Motor enable 1
+   0     Motor enable 0
+
+Ports 3F2H, 3F4H, 3F5H: PS/2 8272 Diskette Controller:
+----------------------------------------------------------------------------
+Digital Output Register, at 3F2H, is write-only, and used to control
+drive motors, drive selection, and feature enable.  All bits are cleared
+by a Reset.
+
+  Bit    Function
+
+  7-6    Reserved
+   5     Motor enable 1 when select 1 is high
+   4     Motor enable 0 when select 0 is high
+   3     Reserved (765 enable interrupt and DMA access)
+   2     -8272A Reset
+   1     Reserved
+   0     Drive select (0 = drive 0, 1 = drive 1)
+
+
+Diskette Drive Controller Status Register, at 3F4H, is read-only, and
+used to facilitate the transfer of data between the system
+microprocessor and the controller.
+
+  Bit    Function
+
+   7     Request for master (1 = data register ready)
+   6     Data I/O direction (1 = from controller to microprocessor)
+   5     Non-DMA mode if 1
+   4     Diskette controller busy if 1
+  3-2    Reserved
+   1     Drive 1 busy (in seek mode)
+   0     Drive 0 busy (in seek mode)
+
+Data Registers for storing data, commands, parameters, and status
+information, are accessed from 3F5H.
+
+Port 3F7H is dual purpose on the PS/2:
+----------------------------------------------------------------------------
+Digital Input Register at 3F7H is read-only and used to sense the state
+of the '-diskette change' signal and the '-high density select' signal:
+
+  Bit    Function
+
+   7     Diskette change
+  6-1    Reserved
+   0     -High density select
+
+Configuration Control Register at 3F7H is write-only and used to
+set the transfer rate.
+
+  Bit    Function
+  7-2    Reserved
+  1-0    DRC1, DRC0
+          00 = 500,000-bit/sec mode
+          01 = reserved
+          10 = 250,000-bit/sec mode
+          11 = reserved
+
+Programming the 765 and 8272 Controllers:
+
+The 765 and 8272 Diskette Controller performs fifteen operations,
+including seek, read, and writes.  Each operation is performed in three
+phases: the command phase, the execution phase, and the result phase.
+The following commands are available:
+
+Read Data
+Read Deleted Data
+Read a Track
+Read ID
+Write Data
+Write Deleted Data
+Format a Track
+Scan Equal
+Scan Low or Equal
+Scan High or Equal
+Recalibrate
+Sense Interrupt Status
+Specify Step and Head Load
+Sense Drive Status
+Seek
+
+
+As an example, the read operation follows:
+
+ 1. Turn on diskette motor and set delay time for drive to
+    come up to speed.
+ 2. Perform seek opertion.  Wait for completion interrupt.
+ 3. Initialize DMA chip to move data to memory.
+ 4. Send read instruction and wait for data-transfer-completion
+    interrupt.
+ 5. Read status information.
+ 6. Turn off motor.
+
+Operations are performed by sending a command string to the data port
+(checking the bit 6 of the status register after each byte).  Interrupt
+6 is generated by the controller after a seek operation is complete.
+The interrupt handler simply sets bit 7 at 40:3EH, the seek status byte.
+Poll this byte until bit 7 is set, then reset the bit and continue with
+next sector operation, initialization of the DMA chip.
+
+----------------------------------------------------------------------------
+Ports 3220-3227, 3228-322E, 4220-4227, 4228-422E, 5220-5227, 5228-522E:
+----------------------------------------------------------------------------
+
+These are the assigned COM3-8 serial ports on the PS/2, all utilizing
+IRQ3 interrupt line.  For programming information, see ports 2E8-2EE.
+____________________________________________________________________________

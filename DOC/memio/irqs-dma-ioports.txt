@@ -1,0 +1,223 @@
+# http://www.trinityos.com/HARDWARE/irqs-dma-ioports.txt
+
+irq-dma-ioports.txt					01/21/98
+
+	If you know of other I/O regions used by standard PCs
+	or by other ISA/PCI/Etc cards, I would love to hear
+	from you so I could make this list even more authoritative!
+
+	Written by David Ranch (dranch@ecst.csuchico.edu)	
+
+
+     IRQ:	     Function:
+     ----	----------------------------------
+	0	Timer 		(reserved)
+       --	-----------
+	1	Keyboard 	(reserved)	
+       --	-----------
+	2	8259A Controller Cascade - The Xt to At architecture gateway.  
+				I recommend to AVOID using this IRQ though 
+				you can use it if you must but use IRQ 9 if
+				all possible.  If you use this IRQ, do NOT use 
+				IRQ9 as well.
+       --	-----------
+	3	COM2 & 4 (Common) - Sharing interrupts is ok as long
+			as both COMM ports are NOT under heavy use
+       --	-----------
+	4	COM1 & 3 (Common) - Like above but most mice are put on com1.
+			You will find that the mouse can cause enough of a
+			IRQ drain that COM3 will not respond well.  Either
+			use a different IRQ for COM3 or consider it dead.
+       --	-----------
+	5	LPT2 (common) - Also used for many sound cards
+       --	-----------
+	6	Floppy - Also used for tape drive accelerators.  It's ok
+			to share this interrupt as long as you don't access
+			both devices simultaneously.
+       --	-----------
+	7	LPT1 (common) - Some sound cards will also use this address
+       --	-----------
+	8	Real time clock  (reserved)
+       --	-----------
+	9	Cascade - other side of the IRQ2 kludge - Usable but I still
+			shy away from this one
+       ---	-----------
+	10	NIC - Most network cards try to go here
+       ---	-----------
+	11	SCSI  - Many SCSI controller try to go here
+       ---	-----------
+	12	PS2 - PS/2 mouse port - Many NICs try to go here too
+       ---	-----------
+	13 	FPU - Used for MathCo error reporting (reserved)
+       ---	-----------
+	14	HD0 - Commonly used for MFM/RLL/ESDI/IDE interface 0 (reserved)
+       ---	-----------
+	15	HD1 - Commonly used for MFM/RLL/ESDI/IDE interface 1
+       ---	-----------
+
+
+That's all she wrote.  Need more?  Get higher density devices (SCSI) or get a 
+real platform (Dec Alpha, etc).  The PC has now become something that it was 
+NEVER designed for.  PCI has definately helped out with all this with PnP 
+PCI interrupts but thats it.
+
+
+DMA Channels:
+
+	0	: ??
+	1	: Common use of SoundBlaster sound cards
+	2	: Alternative Floppy DMA channel
+	3	: Floppy controller
+	4	: Cascade port for DMA (XT-2-AT architechure upgrade?)
+	5	: Common use by SoundBlaster 16/32/64
+	6	: ??
+
+
+I/O Ports:
+
+	 0-0E:		8237-A DMA 1 Controller (reserved)
+	--------        ------------------
+	 0F-0F:		Math Coprocessor
+	--------        ------------------
+	 20-3F:		8259A Interupt Controller - Master- PIC1 (reserved)
+	--------        ------------------
+	 40-5F:		8254 Timer ports: 40, 42, 43, 44, 47 (reserved)
+	--------        ------------------
+	 60-60:		PS/2 port
+	--------        ------------------
+	 61-61:		System Control port B(reserved)
+	--------        ------------------
+	 64-64:		Keyboard port
+	--------        ------------------
+	--------        ------------------
+	 61-61:		Speaker
+	--------        ------------------
+	 64-64:		Keyboard
+	--------        ------------------
+	 70-71:		RT/CMOS and NMI mask
+	--------        ------------------
+	 74-76:		(reserved)
+	--------        ------------------
+	 70-7F:		Clock, NMI mask
+	--------        ------------------
+	 80-9F:		74LS612 DMA Controller page register #1(reserved)
+	--------        ------------------
+	 81-83:		DMA page registers (0-3)
+	--------        ------------------
+	 87-87:		DMA page registers (0-3)
+	--------        ------------------
+	 89-89:		DMA page registers (4-7)
+	--------        ------------------
+	 8A-8B:		DMA page registers (4-7)
+	--------        ------------------
+	 8F-8F:		DMA page registers (4-7)
+	--------        ------------------
+	 90-90:		Central Arbitration control port
+	--------        ------------------
+	 91-91:		Card Selected feedback
+	--------        ------------------
+	 92-92:		System control port A
+	--------        ------------------
+	 93-93:		Reserved
+	--------        ------------------
+	 94-94:		System Board setup
+	--------        ------------------
+	 96-97:		POS, Channel connector select
+	--------        ------------------
+	 A0-BF:		8259A Interupt Controller - PIC2 (reserved)
+	--------        ------------------
+	 C0-DF:		8237A DMA Controller Page register #2 (reserved)
+	--------        ------------------
+	 F0-F0:		Clear math Coprocessor Busy (reserved)
+	--------        ------------------
+	 F1-F1:		Reset math Coprocessor (reserved)
+	--------        ------------------
+	 F8-FF:		Math Coprocessor (reserved)
+	--------        ------------------
+	100-107:	Programmable Option Select
+	--------        ------------------
+	 1C0:		Adaptec SCSI controller port (common port)
+	--------        ------------------
+	 170-1F8:	HD1 I/O - MFM/RLL/ESDI/IDE 
+	--------        ------------------
+	 1F0-1F8:	HD0 I/O - MFM/RLL/ESDI/IDE 
+	--------        ------------------
+	 200-207:	Joystick
+	--------        ------------------
+	 220-22F:	SND - Sound Blaster and other sound cards
+	--------        ------------------
+	 230-233:	CD-ROM: Common Mitsumi/Panasonic CD-rom I/O port
+	--------        ------------------
+	 274-277:	ISA PnP I/O port
+	--------        ------------------
+	 278-27F:	LPT2
+	--------        ------------------
+	 290-297	ASUS (common PC?) BIOS port
+	--------        ------------------
+	 2E8-2EF:	COM4 - Some video cards will conflict with this address and 
+			render it dead (ATI, some S3, etc)
+	--------        ------------------
+ 	 2F8-2FF:	COM2
+	--------        ------------------
+	 300-31F:	NIC - Common NIC or prototype board I/O port
+	--------        ------------------
+	 330-331:	MPU-401 MIDI I/O port
+			  also a common Adaptec SCSI I/O port
+	--------        ------------------
+	 360-36F:	(reserved)
+	--------        ------------------
+	 370-377:	Alternate Floppy0 address
+	--------        ------------------
+	 376-376:	HD0 (additional I/O port ((reserved))
+	--------        ------------------
+	 378-37F:	LPT1 (common)
+	--------        ------------------
+	 380-38F:	SDLC, Bisyncronous
+	--------        ------------------
+	 388-38B:	SoundBlaster OPL2/3 FM sound synth.
+	--------        ------------------ 
+	 3B0-3BB:	Mono/EGA/VGA video and old printer adapters 
+	--------        ------------------
+	 3BC-3BF:	LPT3
+	--------        ------------------
+	 3C0-3CF:	Video Subsystem
+	--------        ------------------
+	 3D0-3DF:	Video (reserved)
+	--------        ------------------
+	 3E8-3EF:	COM3
+	--------        ------------------
+	 3F0-3F5:	Floppy0 (reserved)
+	--------        ------------------
+	 3F6-3F6:	HD0 - Additional MFM/RLL/ESDI/IDE I/O port
+	--------        ------------------
+	 3F7-3F7:	Floppy0 (additional I/O port ((reserved))
+	--------        ------------------
+	 3F8-3FF:	COM1
+	--------        ------------------
+	 4D0-4D1:	Interupt Controller
+	--------        ------------------
+	 620-623:	SB32/64 WaveTable
+	--------        ------------------
+	 778-77F:	LPT1 I/O port
+	--------        ------------------
+	 A20-A23:	SB32/64 WaveTable port
+	--------        ------------------
+	 CF8-CFF:	PCI Bus I/O port
+	--------        ------------------
+	 E20-E23:	SB32/64 WaveTable port
+
+
+Common BIOS I/O ports:
+	
+	B800-B83F: 3Com 3c905 (and others?) I/O
+	C800:5	   Common RLL controller control debug address
+	CC00:5	   Common RLL controller control debug address (Western Digital controllers)
+	D400-D41F: Universial Serial Bus (UBS) I/O
+	D800-D807: IDE0 I/O port
+			also a common Adaptec SCSI controller 
+			debug address (D800:8)
+	
+	E400-E43F: IBM PC BIOS region
+	E800-E83F: IBM PC BIOS region
+
+--David
