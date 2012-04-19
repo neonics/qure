@@ -1,5 +1,5 @@
-alias fasm d:/apps/fasm/FASM.EXE
-alias disasm d:/apps/nasm-2.09.10/ndisasm.exe
+alias fasm c:/apps/fasm/FASM.EXE
+alias disasm c:/apps/nasm-2.09.10/ndisasm.exe
 alias vm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe
 alias stopvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe controlvm \"OS Test\" poweroff
 alias startvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe startvm \"OS Test\"
@@ -11,5 +11,5 @@ alias da objdump -Mi8086,intel-mnemonic -d bootloader/bootloader.o
 alias dk "objdump -Mintel-mnemonic -d kernel/kernel.o | less"
 alias hd "hexdump -C build/boot.bin | grep -e '*' -e '|'"
 alias hdi "hexdump -C build/boot.img | grep -e '*' -e '|' |& less"
-alias qemu "d:/apps/Qemu-Windows-1.0/qemu-system-x86_64.exe -L d:/apps/Qemu-Windows-1.0/Bios -vga std -no-reboot -cdrom os.iso" -hda fat:root/ -boot d
+alias qemu "c:/apps/Qemu-Windows-1.0/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -no-reboot -cdrom os.iso" -hda fat:root/ -boot d
 alias da32 objdump -d -Mintel-mnemonic build/bootloader.o
