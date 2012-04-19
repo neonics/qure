@@ -91,23 +91,23 @@ pm_gdtr:.word . - GDT -1
 rm_gdtr:.word 0
 	.long 0
 
-.equ SEL_flatCS,	8 * 1
-.equ SEL_flatDS, 	8 * 2
-.equ SEL_tss,		8 * 3
-.equ SEL_vid_txt, 	8 * 4
-.equ SEL_vid_gfx, 	8 * 5
+.equ SEL_flatCS,	8 * 1	# 08
+.equ SEL_flatDS, 	8 * 2	# 10
+.equ SEL_tss,		8 * 3	# 18
+.equ SEL_vid_txt, 	8 * 4	# 20
+.equ SEL_vid_gfx, 	8 * 5	# 28
 
-.equ SEL_compatCS, 	8 * 6 # same as realmodeCS except 32 bit
-.equ SEL_compatSS, 	8 * 7 # same as realmodeSS except 32 bit
-.equ SEL_compatDS, 	8 * 8 # same as realmodeDS except 32 bit
+.equ SEL_compatCS, 	8 * 6	# 30 # same as realmodeCS except 32 bit
+.equ SEL_compatSS, 	8 * 7	# 38 same as realmodeSS except 32 bit
+.equ SEL_compatDS, 	8 * 8	# 40 same as realmodeDS except 32 bit
 
-.equ SEL_realmodeCS, 	8 * 9
-.equ SEL_realmodeDS,	8 * 10
-.equ SEL_realmodeSS,	8 * 11
-.equ SEL_realmodeES, 	8 * 12
-.equ SEL_realmodeFS, 	8 * 13
-.equ SEL_realmodeGS, 	8 * 14
-.equ SEL_biosCS,	8 * 15	# origin F000:0000
+.equ SEL_realmodeCS, 	8 * 9	# 48
+.equ SEL_realmodeDS,	8 * 10	# 50
+.equ SEL_realmodeSS,	8 * 11	# 58
+.equ SEL_realmodeES, 	8 * 12	# 60
+.equ SEL_realmodeFS, 	8 * 13	# 68
+.equ SEL_realmodeGS, 	8 * 14	# 70
+.equ SEL_biosCS,	8 * 15	# 78 # origin F000:0000
 .equ SEL_MAX, SEL_biosCS + 0b11	# ring level 3
 
 .macro GDT_STORE_SEG seg
