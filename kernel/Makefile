@@ -14,6 +14,7 @@ kernel.o: kernel.s debug.s realmode.s print.s pmode.s pic.s gdt.s idt.s tss.s \
 		keyboard.s keycodes.s pit.s \
 		pci.s bios.s cmos.s \
 		ata.s \
-		acpi.s
+		acpi.s \
+		asm.s
 	$(AS) -o $@ $<
 	../util/checksymbols $@
