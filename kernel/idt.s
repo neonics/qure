@@ -170,6 +170,7 @@ jmp_table_target:
 	push	eax
 	push	ecx
 	push	ds
+	push	es
 	push	edi
 	push	edx
 
@@ -351,6 +352,7 @@ ics$:	COLOR 11
 
 	pop	edx
 	pop	edi
+	pop	es
 	pop	ds
 	pop	ecx
 	pop	eax
