@@ -281,9 +281,11 @@ ata_list_drives:
 	call	atapi_read_capacity$
 	pop	edx
 
-	mov	ebx, 0	# LBA
+	mov	ebx, 16	# LBA
 	mov	ecx, 1	# number of sectors
 	call	atapi_read12$
+
+	
 0:
 	ret
 
@@ -692,7 +694,7 @@ ata_wait_status$:
 	push	bx
 	mov	bx, ax
 
-	.if ATA_DEBUG
+	.if ATA_DEBUG > 2
 	push	dx
 	PRINTc	5 "[Wait1:"
 	mov	al, bl
@@ -884,11 +886,44 @@ atapi_read_capacity$:
 	pop	eax
 	ret
 
+atapi_print_packet$:
+
+	push	dx
+	push	esi
+	mov	ecx, 12
+	PRINT "ATAPI PACKET: "
+0:	lodsb
+	mov	dl, al
+	call	printhex2
+	mov	al, ' '
+	call	printchar
+	loop	0b
+	call	newline
+	pop	esi
+	pop	dx
+
+	ret
+
+
 
 # in: edx [DCR, Base], ebx=LBA
 # read 1 sector
+# out: esi = offset to buffer, ecx = data in buffer
 atapi_read12$:
 	call	atapi_packet_clear$
+
+	.if ATA_DEBUG > 1
+		push	edx
+		mov	edx, ebx
+		PRINT "LBA: "
+		call	printhex8
+		pop	edx
+
+		mov	esi, offset atapi_packet
+		call	atapi_print_packet$
+		call	newline
+	.endif
+
 	# convert to MSB:
 	xchg	bl, bh
 	ror	ebx, 16
@@ -898,6 +933,7 @@ atapi_read12$:
 	mov	[atapi_packet_LBA], ebx
 	mov	[atapi_packet_ext_transfer_length + 3], byte ptr 1
 	mov	esi, offset atapi_packet
+
 	mov	ecx, ATAPI_SECTOR_SIZE
 	call	atapi_packet_command
 	ret
@@ -939,8 +975,9 @@ atapi_packet_command:
 	stc
 	ret
 0:
-
-	PRINT "Select Drive "
+	.if ATA_DEBUG > 1
+		PRINT "Select Drive "
+	.endif
 	call	ata_select_drive$
 	jc	ata_timeout$
 
@@ -949,31 +986,39 @@ atapi_packet_command:
 	call	ata_wait_status$
 	jc	ata_timeout$
 
-	call	ata_dbg$
-	call	newline
+	.if ATA_DEBUG > 1
+		call	ata_dbg$
+		call	newline
 
-	PRINT "PIO Mode "
+		PRINT "PIO Mode "
+	.endif
+
 	push	dx
 	add	dx, ATA_PORT_FEATURE 
 	mov	al, 0	# 0 = PIO, 1 = DMA
 	out	dx, al
 	pop	dx
 
-	call	ata_dbg$
-	call	newline
+	.if ATA_DEBUG > 1
+		call	ata_dbg$
+		call	newline
 
+		PRINT "Transfer Size "
+	.endif
 
-	PRINT "Transfer Size "
 	push	dx
 	add	dx, ATA_PORT_ADDRESS2
 	mov	ax, cx
 	out	dx, ax
 	pop	dx
 
-	call	ata_dbg$
-	call	newline
+	.if ATA_DEBUG > 1
+		call	ata_dbg$
+		call	newline
 
-	PRINT "Command PACKET "
+		PRINT "Command PACKET "
+	.endif
+
 	# Send command
 	push	dx
 	add	dx, ATA_PORT_COMMAND
@@ -982,33 +1027,41 @@ atapi_packet_command:
 	in	al, dx	# read status
 	pop	dx
 
-	call	ata_dbg$
-	call	newline
+	.if ATA_DEBUG > 1
+		call	ata_dbg$
+		call	newline
+	.endif
 	
 	# TODO: check IO clear and CoD set
 
 	.macro WAIT_DATAREADY
-	PRINT "Wait ready "
+	.if ATA_DEBUG > 1
+		PRINT "Wait ready "
+	.endif
 	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
 	call	ata_wait_status$
 	jc	ata_timeout$
 
-	call	ata_dbg$
+	.if ATA_DEBUG > 1
+		call	ata_dbg$
+	.endif
 	# DRQ is set, so read size:
 	push	dx
 	add	dx, ATA_PORT_ADDRESS2
 	in	ax, dx
 	mov	dx, ax
 	mov	dx, ax
-	PRINT "Transfer size: "
-	call	printhex4
+	.if ATA_DEBUG > 1
+		PRINT "Transfer size: "
+		call	printhex4
+		call	newline
+	.endif
 	pop	dx
-
-	call	newline
 	.endm
 
 	WAIT_DATAREADY
 
+	.if ATA_DEBUG > 0
 	PRINT "Write Packet "
 		push	dx
 		push	esi
@@ -1022,6 +1075,7 @@ atapi_packet_command:
 		call	newline
 		pop	esi
 		pop	dx
+	.endif
 
 	# write packet data
 	push	dx
@@ -1032,7 +1086,9 @@ atapi_packet_command:
 	pop	ecx
 	pop	dx
 
+	.if ATA_DEBUG > 1
 	call	ata_dbg$
+	.endif
 
 	# TODO: check IO set and CoD clear
 	WAIT_DATAREADY
@@ -1040,12 +1096,14 @@ atapi_packet_command:
 	xor	ecx, ecx
 	mov	cx, ax
 
+	.if ATA_DEBUG > 1
 	push	edx
 	mov	edx, ecx
 	PRINT "Reading "
 	call	printdec32
 	PRINT " bytes"
 	pop	edx
+	.endif
 
 	.data
 		data_buffer$: .space ATAPI_SECTOR_SIZE
@@ -1074,7 +1132,9 @@ atapi_packet_command:
 	# drq 0. If more data then device sets BSY: goto 'wait for data ready'
 	# device sets CoD, IO, DRDY, clears BSY and DRQ.
 
-	PRINTln "Data read."
+	.if ATA_DEBUG > 1
+		PRINTln "Data read."
+	.endif
 
 	mov	esi, offset data_buffer$
 	clc

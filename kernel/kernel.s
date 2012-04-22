@@ -16,6 +16,8 @@ DEFINE = 1
 .include "ata.s"
 
 .include "asm.s"
+
+.include "iso9660.s"
 ###################################
 
 	.macro MORE
@@ -84,7 +86,6 @@ kmain:
 .endif
 
 
-.if 0
 	###################################################################
 	.macro WAITSCREEN
 	PRINTc 15 "Press a key to continue."
@@ -95,6 +96,7 @@ kmain:
 
 	###################################################################
 
+.if 0
 	I "BDA:"
 
 	call	bios_list_bda
@@ -125,15 +127,23 @@ kmain:
 
 	call	ata_list_drives
 
-	MORE
+	#MORE
+
+	WAITSCREEN
+
+	I "CD-ROM ISO9660 Test: "
+	call	newline
+	call	iso9660_test
+
+	
 
 	##################################################################
-
+.if 0
 	I "Assembler test"
 	call	newline
 	call	compile
 	call	newline
-
+.endif
 	##################################################################
 	call	newline
 	PRINTc 15, "Press 'q' or ESC to system halt."

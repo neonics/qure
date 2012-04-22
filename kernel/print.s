@@ -371,12 +371,14 @@ printchar:
 # in: esi = string
 # in: ecx = max len
 nprint:	PRINT_START
+	push	ecx
 0:	lodsb
 	or	al, al
 	jz	0f
 	stosw
 	loop	0b
-0:	PRINT_END
+0:	pop	ecx
+	PRINT_END
 	ret
 
 .global println
