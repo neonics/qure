@@ -77,14 +77,14 @@ eof:	PRINTln	"EOF"
 ascii:	
 	.byte 0, 1, 2, 3, 4, 5, 6, 7, 8, '\t', '\n', 11, 12, '\r', 14, 15, 16
 	.byte 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, ' '
-	.byte 33
+	#.byte 33
      
 	.byte '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-'
 	.byte  '.', '/', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
 	.byte ':', ';', '<', '=', '>', '?', '@'
 	.byte 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'
 	.byte 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
-	.byte '[', '\', ']', '^', '_', '`'
+	.byte '[', '\\', ']', '^', '_', '`'
 	.byte 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm'
 	.byte 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'
 	.byte '{', '|', '}', '~', 127
@@ -113,7 +113,7 @@ charclass:
 	.byte SPACE # '\r' (13)
 	.byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	.byte SPACE # ' ' (32)
-	.byte 0 # 33
+	#.byte 0 # 33
 
 	.byte '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-'
 	.byte  '.', '/'
@@ -154,6 +154,9 @@ cchandler:
 # dd src_offset
 
 tokenize:
+	or	ecx, ecx
+	jz	2f
+
 	mov	ebx, offset charclass
 
 	# first token setup
@@ -167,7 +170,7 @@ tokenize:
 	jnz	1f
 	loop	0b
 
-	jmp	0f
+	jmp	2f
 
 1:	stosd			# store type
 	mov	dl, al
@@ -178,9 +181,9 @@ tokenize:
 
 	loop	0b
 
-	inc	esi
+2:	inc	esi
 
-0:	mov	eax, -1
+	mov	eax, -1
 	stosd
 	mov	eax, esi
 	dec	eax
