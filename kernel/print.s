@@ -370,7 +370,9 @@ printchar:
 
 # in: esi = string
 # in: ecx = max len
-nprint:	PRINT_START
+nprint:	or	ecx, ecx
+	jz	1f
+	PRINT_START
 	push	ecx
 0:	lodsb
 	or	al, al
@@ -379,7 +381,7 @@ nprint:	PRINT_START
 	loop	0b
 0:	pop	ecx
 	PRINT_END
-	ret
+1:	ret
 
 .global println
 println:call	print
