@@ -114,6 +114,7 @@ enter$:
 	call	printhex8
 	call	newline
 
+	push	ecx
 	mov	edi, offset cmdline_tokens
 	mov	esi, offset cmdline
 	#mov	ecx, [cmdlinelen]
@@ -121,7 +122,35 @@ enter$:
 	mov	ebx, edi
 	mov	esi, offset cmdline_tokens
 	call	printtokens
+	pop	ecx
 
+	#call	process_tokens
+	.macro IS_TOKEN tok
+		.data
+		9: .ascii "\tok"
+		8: 
+		.text
+
+		mov	esi, offset cmdline_tokens + 4
+		mov	ecx, [esi+8]
+		mov	esi, [esi]
+		sub	ecx, esi
+		cmp	ecx, 8b - 9b
+		jne	1f
+		mov	edi, offset 9b
+		repz	cmpsb
+		1:
+	.endm
+
+	IS_TOKEN "ls"
+	jnz	1f
+	printlnc 11, "Directory Listing."
+1:
+	IS_TOKEN "quit"
+	jnz	1f
+	printlnc 12, "Terminating shell."
+	ret
+1:
 	jmp	start$
 
 bs$:	
@@ -207,3 +236,47 @@ print_cmdline$:
 
 	ret
 
+.data
+cmdline_identifier: .byte ASCII, DIGIT, '_', '.'
+cmdline_id_size = . - cmdline_identifier
+CMDTOK_ID = 1
+CMDTOK_PATH = 2
+.text
+
+# merge tokens
+process_tokens:
+	mov	esi, offset cmdline_tokens
+	xor	edx, edx
+0:	lodsd
+	cmp	eax, -1
+	jz	1f
+
+	# check for identifier tokens
+	mov	edi, offset cmdline_identifier
+	mov	ecx, cmdline_id_size
+	repne	scasb
+	jnz	2f
+
+id$:	shl	dx, 8
+	mov	dl, CMDTOK_ID
+	println "Identifier"
+
+	cmp	dl, dh
+	jz	0b
+	PRINT "End token: "
+	ror	dx, 8
+	call	printhex2
+	ror	dx, 8
+	jmp	3f
+
+2:	cmp	al, '\\'
+	jnz	2f
+2:
+
+3:	lodsd
+	jmp	0b
+
+
+1:
+
+	ret
