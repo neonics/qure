@@ -16,6 +16,7 @@ DEFINE = 1
 .include "ata.s"
 
 .include "asm.s"
+.include "shell.s"
 
 .include "iso9660.s"
 ###################################
@@ -47,7 +48,7 @@ kmain:
 	COLOR 0xf
 
 	call	newline
-.if 0
+.if 1
 	PRINT	"Press key to stop timer."
 	mov	ah, 0
 	call	keyboard
@@ -95,8 +96,43 @@ kmain:
 	.endm
 
 	###################################################################
+	I "Memory Map: "
 
-.if 0
+	mov	edx, ds
+	call	printhex4
+	
+	mov	edx, offset memory_map
+	call	printhex8
+	call	newline
+	
+	mov	esi, offset memory_map
+0:	call	newline
+	cmp	dword ptr [esi + 20 ], 0 # memory_map_attributes], 0
+	jz	0f
+	
+	mov	edx, [esi + 4 ] #memory_map_base + 4 ]
+	call	printhex8
+	mov	edx, [esi + 0 ] #memory_map_base + 0 ]
+	call	printhex8
+	PRINT	" | "
+
+	mov	edx, [esi + 12 ] #memory_map_length + 4 ]
+	call	printhex8
+	mov	edx, [esi + 8 ] # memory_map_length + 0 ]
+	call	printhex8
+	PRINT	" | "
+
+	mov	edx, [esi + 16 ] # memory_map_region_type ]
+	call	printhex8
+
+	add	esi, 24 # memory_map_struct_size
+	jmp	0b
+0:
+	MORE
+
+	###################################################################
+
+.if 1
 	I "BDA:"
 
 	call	bios_list_bda
@@ -135,16 +171,15 @@ kmain:
 	call	newline
 	call	iso9660_test
 
-	
+	##################################################################
+
+	I "Shell"
+	call	newline
+
+	call	shell
 
 	##################################################################
-.if 0
-	I "Assembler test"
-	call	newline
-	call	compile
-	call	newline
-.endif
-	##################################################################
+
 	call	newline
 	PRINTc 15, "Press 'q' or ESC to system halt."
 
