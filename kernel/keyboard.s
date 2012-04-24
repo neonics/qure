@@ -117,7 +117,7 @@ isr_keyboard:
 		.byte 0, 0 	# 00: error code
 		.byte 0x1b, 1;	# 01: escape	BIOS: 0x011b
 
-		.byte '1', '!'	# 02
+		.byte '1', '!' 	# 02
 		.byte '2', '@'	# 03
 		.byte '3', '#'	# 04
 		.byte '4', '$'	# 05
@@ -157,12 +157,12 @@ isr_keyboard:
 		.byte 'k', 'K'	#
 		.byte 'l', 'L'	#
 		.byte ';', ':'	#
-		.byte ''', '"'	# 28
+		.byte '\'', '"'	# 28
 
 		.byte '`', '~'	# 29
 
 		.byte 0, 0	# 2a Left Shift
-		.byte '\', '|'	# 2b
+		.byte '\\', '|'	# 2b
 		.byte 'z', 'Z'	# 2c
 		.byte 'x', 'X'	#
 		.byte 'c', 'C'	#
@@ -274,8 +274,7 @@ isr_keyboard:
 
 0:	cmp	al, 0x3a	# caps lock
 	jne	4f
-	xor	[kb_caps], byte ptr 1	# TODO: need to find init state
-	jmp	3f
+	xor	[kb_caps], ah	# ah=1=press,0=depress/ TODO: need to find init state
 
 4:	or	ah, ah
 	jz	2f	# only store keys that are pressed
@@ -284,9 +283,8 @@ isr_keyboard:
 	mov	dx, ax
 	and	edx, 0x7f
 	shl	dx, 1
-	#xor	ah, [kb_caps]
-	#add	dl, ah # shift 
-	# adc not needed as low bit was/is 0
+	add	dl, [kb_shift]
+	xor	dl, [kb_caps]
 	shl	ax, 8 # preserve scancode
 	mov	al, [keymap + edx]
 
