@@ -7,7 +7,6 @@
 .data
 bootloader_registers_base: .word 0
 msg_sector1$: .asciz "Transcended sector limitation!"
-msg_entering_pmode$: .asciz "Entering Protected Mode"
 .text
 	mov	[bootloader_registers_base], bp
 

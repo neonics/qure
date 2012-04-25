@@ -382,9 +382,13 @@ loadsectors$:
 1:
 	mov	dh, [si + 1] # [chs_start$]
 	mov	cx, [si + 2] # [chs_start$+1]
-	inc	cl	# skip bootsector itself
 	mov	bx, 512	
-	mov	ax, (2 << 8) + SECTORS	# ah = 02 read sectors al = # sectors
+	mov	ax, (2 << 8) + 1# ah = 02 read sectors al = # sectors
+	test	byte ptr [si], 1
+	jz	0f
+	mov	al, SECTORS	
+	inc	cl	# skip bootsector itself
+0:
 	call	printregisters
 .endif
 	push	es	# set up es:bs
@@ -451,7 +455,10 @@ mbr:
 #			S = ( LBA % MaxSectPerTrack ) + 1
 
 	# 4 entries, int 13 call format:
-	status$:	.byte 0x80	# 80 bootable, 00 not bootable
+			# 81 is invalid, bit 1 is used to mark partition
+			# table bootsector (not MBR). When bit 1 = 0,
+			# chainloading occurs. (untested)
+	status$:	.byte 0x81	# 80 bootable, 00 not bootable
 	chs_start$:	.byte 0, 1, 0	# [dh, cl, ch]: head, sector, cylinder
 	part_type$:	.byte 6		# partition type
 	chs_end$:	.byte 0x0e,0xbe,0x94	# [dh, cl, ch]
