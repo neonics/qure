@@ -195,7 +195,7 @@ init_gdt_16:
 
 	mov	[codeoffset], eax
 
-	.if DEBUG > 2
+	.if DEBUG > 1
 		PH8_16 "  Code Base: " ebx
 		PH8_16 "  Code Offset: " eax
 	.endif

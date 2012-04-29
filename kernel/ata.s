@@ -383,7 +383,7 @@ ata_list_drive:
 	out	dx, al	# write command
 	in	al, dx	# read status
 	pop	dx
-	.if ATA_DEBUG
+	.if ATA_DEBUG > 1
 		call	ata_print_status$
 	.endif
 	
@@ -398,7 +398,7 @@ ata_list_drive:
 	add	dx, ATA_PORT_ADDRESS2
 	in	ax, dx	# read port ADDR2 and ADDR3
 	mov	dx, ax
-	.if ATA_DEBUG
+	.if ATA_DEBUG > 1
 		call	printhex4
 		PRINTCHAR ' '
 	.endif
@@ -777,14 +777,16 @@ ata_select_drive$:
 	
 	add	dx, ATA_PORT_STATUS - ATA_PORT_DRIVE_SELECT
 	in	al, dx
-	.if ATA_DEBUG
+	.if ATA_DEBUG > 1
 		call	ata_print_status$
 	.endif
 	or	al, al
 	pop	edx
-1:	pushf
-	call	ata_dbg$
-	popf
+1:	.if ATA_DEBUG > 1
+		pushf
+		call	ata_dbg$
+		popf
+	.endif
 	ret
 
 

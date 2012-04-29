@@ -3,16 +3,24 @@
 
 .data
 low_memory_size: .word 0 # in kb
-memory_map:	.space 24
+memory_map:	.space 24 * 10	# 10 lines (qemu has 5)
 cdrom_spec_packet:	.space 0x13	# see interrupt 13h
+.struct 0
+memory_map_base:	.long 0, 0
+memory_map_length: 	.long 0, 0
+memory_map_region_type:	.long 0
+memory_map_attributes:	.long 0 	# ACPI compliancy
+memory_map_struct_size: 
 .text
 .code16
 
 realmode_kernel_entry:
+	push	cx
 	mov	ax, 0x0f00
 	xor	di, di
 	mov	cx, 160*25
 	rep	stosd
+	pop	cx
 	xor	di, di
 	mov	al, '!'
 	stosw
@@ -24,6 +32,27 @@ realmode_kernel_entry:
 
 	println_16 "Kernel booting"
 
+print_16 "boot drive: "
+call printhex2_16
+call	newline_16
+print_16 "MBR.partition: "
+mov	dx, si
+call	printhex_16
+call	newline_16
+print_16 "Ramdisk address: "
+mov	dx, cx
+call printhex_16
+call	newline_16
+print_16 "Kernel load end: "
+mov	dx, bx
+call	printhex_16
+sub	dx, cx
+sub	dx, 0x200
+print_16 "kernel load size: "
+call	printhex_16
+call	newline_16
+
+
 	rmI "CS:IP "
 	mov	dx, ax
 	call	printhex_16
@@ -33,12 +62,12 @@ realmode_kernel_entry:
 	call	printhex_16
 
 	print_16 "Kernel Size: "
-	mov	edx, KERNEL_SIZE - kmain
+	mov	edx, offset kernel_end
 	call	printhex8_16
 
 	# print signature
 	print_16 "Signature: "
-	mov	edx, [sig] # [KERNEL_SIZE - 4]
+	mov	edx, [sig] # [kernel_end - 4]
 	rmCOLOR	0x0b
 	call	printhex8_16
 	rmCOLOR	0x0f
@@ -70,18 +99,26 @@ realmode_kernel_entry:
 	print_16 "High memory Map:"
 	call	newline_16
 
+	print_16 "memory_map address: "
+	mov	dx, ds
+	call	printhex_16
+	mov	dx, offset memory_map
+	call	printhex_16
+	call	newline_16
+
+
 	rmCOLOR 7
 	print_16 "Base:              | Length:             | Region Type| Attributes"
 	call	newline_16
 	rmCOLOR 8
 
+	mov	di, offset memory_map
 	xor	ebx, ebx
 0:	mov	edx, 0x534d4150
 	mov	eax, 0xe820
+	mov	cx, ds
+	mov	es, cx
 	mov	ecx, 24
-	mov	di, ds
-	mov	es, di
-	mov	di, offset memory_map
 	int	0x15
 	jc	0f
 	cmp	eax, 0x534d4150

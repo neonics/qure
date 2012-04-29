@@ -77,6 +77,8 @@ main:
 	PRINT	"partinfo@"
 	mov	dx, si
 	call	printhex
+
+	call	newline
 .endif
 
 ####### Read RAMDISK sector
@@ -257,6 +259,8 @@ main:
 	print	"Room after image before stack: "
 	call	printhex8
 	pop	eax
+
+.if 0
 push es
 push ax
 push cx
@@ -264,6 +268,7 @@ call cls
 pop cx
 pop ax
 pop es
+.endif
 push ax
 mov ah, 0xf2
 mov dx, ds
@@ -278,7 +283,8 @@ pop ax
 0:	push	ecx		# remember sectors to load
 	push	eax		# remember offset
 
-	.if 1
+PRINT_LOAD_SECTORS = 0
+	.if PRINT_LOAD_SECTORS
 	mov	edx, eax
 	mov	ah, 0xf5
 	call	printhex8
@@ -300,7 +306,7 @@ pop ax
 	call	get_boot_drive	# dl = drive
 	call	lba_to_chs	# dh = head, cx = cyl/sect
 
-	.if 1
+	.if PRINT_LOAD_SECTORS
 	push	dx
 	mov	ah, 0xf7
 	call	printhex
@@ -324,8 +330,8 @@ pop ax
 	mov	dx, ax
 	mov	ax, 0xf2<<8|'.'
 	stosw
-	.if 0
-	add	di, 2
+	.if !PRINT_LOAD_SECTORS
+	#add	di, 2
 	.else
 	call	newline
 	.endif
@@ -343,6 +349,8 @@ pop ax
 	pop	ax
 	.endif
 	loop	0b
+
+	# bx points to end of loaded data (kernel)
 ################################# end load loop
 	mov	ah, 0xf6
 	println	"Success!"
@@ -362,8 +370,39 @@ pop ax
 
 	mov	ah, 0xf0
 	print "Chaining to next: "
+	mov	edx, [chain_addr_flat]
+	shr	edx, 4
 	call	printhex
-	print ":0000"
+	println ":0000"
+
+	# set up some args:
+	call	get_boot_drive	# dl = drive
+	mov	si, [partition]	# pointer to MBR partition info
+	mov	cx, [ramdisk_address]
+				# bx = end of kernel
+
+	push	dx
+	PRINT	"dl: boot drive: "
+	call	printhex2
+	call	newline
+
+	PRINT	"cx: ramdisk address: "
+	mov	dx, cx
+	call	printhex
+	call	newline
+
+	PRINT	"si: MBR address: "
+	mov	dx, si
+	call	printhex
+	call	newline
+
+	PRINT	"bx: kernel end: "
+	mov	dx, bx
+	call	printhex
+	call	newline
+
+	pop	dx
+
 	call	waitkey
 
 	mov	eax, [chain_addr_flat]

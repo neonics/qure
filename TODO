@@ -95,3 +95,89 @@ TODO: create high level programming language compiler
 TODO: VM98 Mode (depends TSS)
 
 TODO: APIC (Local, IO)
+
+TODO: ELF Loader, KFS
+	Compile (g++ test.c && objcopy -O elf32-i386 test.o test.o)
+	Add to boot.img (write.exe ... -b test.o)
+	Modify bootloader: pass on pointer to RAMDISK0
+	Add code to kernel to access RAMDISK0 location - KFS.
+	Load entry 1 (0=kernel), ELF image.
+	Support REL and EXE; in case of EXE subtract base address from
+	addresses to make 0-aligned.
+	Iterate over relocation table:
+		for each symbol update address:
+			use kernel ELF image to locate symbol (and its address).
+	Change makefile: store REL ELF binary of kernel image. 
+	Update loader: locate .text section address (optionally add the
+	entry address), and transfer control there.
+		Pitfall: there will be data before and after the text section,
+		so, need to make sure that the .text and .data sections
+		are properly aligned in memory. Likely the ELF format
+		does this properly. I assume that the ELF headers and tables
+		will be stored before the blocks of data.
+		(as to not replicate too much ELF code in the 16 bit loader)
+	Keep track of all loaded ELF images as they will be the basis
+	for the processes. 
+	Finish kernel memory map: it already has access to the realmode
+	data bios memory map. Needs to find a suitable memory segment
+	for the kernel, for dynamic data maintenance, and for
+	processes. Initial approach: take biggest memory segment,
+	it'll be last usable one, above 1MB, extending to a little before
+	physical memory end - the final segment of unusable data. Make sure
+	algorithm can operate on any map ordering.
+	Add relocation code. Perhaps split up the pmode code to have it just
+	switch to pmode with all interrupts disabled,
+	then return to the realmode loader code, do a memory move,
+	then continue on with the setup of interrupts etc. Could also
+	have the kernel do this, as the GDT needs to be adjusted:
+		disable interrupts
+		memmove
+		update gdt (need to create 32 bit code)
+		either zero out the lomem and use memory mapping,
+		or zero out just the 32 bit part and keep track of
+		the 16 bit kernel location and size.
+	
+	Investigate Local Descriptor Table. It may be possible to create
+	new descriptors without modifying the GDT. In this case,
+	create a segment descriptor for code, with limits according to
+	the ELF information, aswell as a data selector and a stack
+	selector. Find out what exception is generated for data overflows,
+	potentially dynamic allocation (i.e. store parameters in registers,
+	then access the last address the program expects to be addressable,
+	having the gpf detect signature values in the registers to treat
+	it like a malloc call.).
+
+	Also, reserve some space BEFORE the elf header for a few simple
+	pointers - heap start/end, stack etc.
+
+	Implement ELF translation: assuming the entire image is in memory,
+	create a copy by joining the appropriate sections; keep the sections
+	(such as symboltable) that are useful.
+
+	Decide whether to keep all process information together:
+	process-header | elf headers | symboltable | code | data | stack | heap
+	or whether to keep data of the same contextuals scope together:
+	process-headers, symboltable... This allows for process mem layout
+	to be STACK | CODE | DATA | HEAP.
+	Otherwise: PROCESS INFO | LINKAGE | CODE | DATA | STACK | bss | HEAP
+
+	Code needs an API to get a hold of brk()/heap start and end.
+	Could either offer a pointer to the process layout, or specify
+	a struct, such as     PROCESS INFO | CODE | DATA | ....
+	or offer a kernel method that the linkage will refer to.
+
+
+	ELF MODIFICATIONS:
+	add new section type or use .notes or something to record library
+	names and versions the file should be linked against. (cant check
+	since creating an elf binary on cygwin needs to go through lots of
+	weird options (-Wl,--oformat=elf32-i..), but -shared wont work...)
+	
+	Alternatively, encode the symbol names with library info,
+	perhaps an index number into the new section. At current
+	all symbols seem to be global, and only parameterizable by section,
+	unless the compiler is changed to create elf files with split
+	sections for symbol tables (referring to the same progbits/data),
+	each section also recording the api name of the library.
+
+

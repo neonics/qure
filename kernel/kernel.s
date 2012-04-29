@@ -3,6 +3,8 @@
 DEBUG = 3
 .include "debug.s"
 .include "realmode.s"
+.text
+kernel_start:
 ###################################
 DEFINE = 1
 .include "print.s"
@@ -215,4 +217,4 @@ kernel_task:
 
 .data
 sig:.long 0x1337c0de
-.equ KERNEL_SIZE, .
+kernel_end:
