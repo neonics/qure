@@ -31,36 +31,36 @@ long pn( const char * label, unsigned char * buf, int start, int end )
 {
 	long value = 0;
 
-	printf( "%s: ", label );
+	if ( label ) printf( "%s: ", label );
 
 	if ( 1+ end - start == 8 )
 	{
-		printf( "[" );
+		if ( label ) printf( "[" );
 		for ( int i = 0; i < 8; i ++ )
 		{
-			printf( "%02x ", buf[start] );
+			if ( label ) printf( "%02x ", buf[start] );
 			value <<= 8; value |= buf[start++]; 
 		}
-		printf( "] " );
+		if ( label ) printf( "] " );
 		value &= 0xffffffff;
 		//value = *(long*)(&buf[start]);
 	}
 	else if ( 1+ end - start == 4 )
 	{
-		printf( "[" );
+		if ( label ) printf( "[" );
 		for ( int i = 0; i < 4; i ++ )
 		{
-			printf( "%02x ", buf[start] );
+			if ( label ) printf( "%02x ", buf[start] );
 			value <<= 8; value |= buf[start++]; 
 		}
-		printf( "] " );
+		if ( label ) printf( "] " );
 
 		value &= 0xffff;
 		//value = *(int*)(&buf[start]);
 	}
 	else { printf("Illegal numerical length: %d\n", 1 + end - start ); }
 
-	printf( "%d (0x%x)\n", value, value );
+	if ( label ) printf( "%d (0x%x)\n", value, value );
 	return value;
 }
 
@@ -68,13 +68,13 @@ long pnlsb( const char * label, unsigned char * buf, int start, int end )
 {
 	long value = 0;
 	int len = 1+end-start;
-	printf( "%s: [", label );
+	if ( label ) printf( "%s: [", label );
 	for ( int i = 0; i < len; i ++)
 	{
-		printf( "%02lx ", buf[start+i] );
+		if ( label ) printf( "%02lx ", buf[start+i] );
 		value <<=8; value |= buf[end-i];
 	}
-	printf("] %ld (0x%lx)\n", value, value );
+	if ( label ) printf("] %ld (0x%lx)\n", value, value );
 
 	return value;
 }
@@ -125,6 +125,13 @@ void load_sector( int sect )
 	read( handle, buf, 2048 );
 	sector = sect;
 	printf( "\n== Sector %d (0x%x) offset %x\n", sect, sect, 2048 * sect );
+}
+
+inline bool is_rr( const char * sig, unsigned char * buf, int offs )
+{
+	return ( buf[offs] == sig[0] && buf[offs+1] == sig[1] && buf[offs+2] >= 4
+	//	&& buf[3] == 1
+	);
 }
 
 int main(int argc, char ** argv)
@@ -352,15 +359,97 @@ int main(int argc, char ** argv)
 					if ( extbuf[o] == 0 ) break;
 
 					//pdr( "   Directory Record", extbuf, o, o + extbuf[o] );
-					printf("    File: \"" );
+					printf("    File:(%d) \"", extbuf[o+32] );
 					for ( int j = 0; j < extbuf[o+32]; j ++)
 						printf( "%c", extbuf[o+33+j] );
 					printf( "\" FUS 0x%x", extbuf[o+26] ); // file unit size
 					printf( " ExtAttrLen: %d", extbuf[o+1] );
 					printf( " Flags: 0x%02x", extbuf[o+25] );
-					int fext = 
-					pn( " Extent", extbuf, o+2, o+9 );
-					pn( "    Size", extbuf, o+10, o+17 );
+					printf( " Vol %d", pn(NULL, extbuf, 28, 31 ));
+					int fext = pn( NULL, extbuf, o+2, o+9 );
+					int size = pn( NULL, extbuf, o+10, o+17 );
+					printf( "EXT %02x Size %d\n", fext, size );
+					printf("      rlen %d nmlen %d extradatalen: %d",
+						extbuf[o], extbuf[o+32],
+						extbuf[o] - 33 - extbuf[o+32]
+					);
+					int flags = extbuf[o+25];
+					printf( " F(%02x):", flags );
+					if ( flags & 1 ) printf("Hidden ");
+					if ( flags & 2 ) printf("Directory ");
+					if ( flags & 4 ) printf("Associated ");
+					if ( flags & 8 ) printf("Record ");
+					if ( flags & 16) printf("Protection "); // permissions
+					if ( flags & 128) printf("NonFinalRecord ");
+					printf("\n");
+					int start = o+33+extbuf[o+32];// + (extbuf[o+32]&1);
+					if ( start & 1 ) start ++;
+					printf( "      System Use: %d .. %d", start, o+extbuf[o] );
+					// RockRidge extensions:
+					for ( int p = start; p < o+extbuf[o]; )
+					{
+						printf( "\n      %3d: %c%c: len %3d v%d - ", p, extbuf[p], extbuf[p+1], extbuf[p+2], extbuf[p+3] );
+
+						// SUSP fields:
+						if ( is_rr( "SP", extbuf, p ) )
+						{
+							printf("Check: %02x%02x", extbuf[p+4], extbuf[p+5]);
+							printf(" skip: %d", extbuf[p+5]);
+						}
+						else if ( is_rr( "CE", extbuf, p ) )
+						{
+							printf( "Continuation Area LBA 0x%x",
+								pn( NULL, extbuf, p+4, p+11 ) );
+							printf( " offset 0x%x", pn( NULL, extbuf, p+12, p+19 ) );
+							printf( " length %d", pn(NULL, extbuf, p+20, p+27) );
+						}
+						else
+						// RockRidge fields:
+						if ( is_rr( "PX", extbuf, p ) )
+						{
+							printf("POSIX permissions: %o", pn( NULL, extbuf, p+4, p+4+7 ) );
+							printf( " link %d", pn( NULL, extbuf, p+12, p+19) );
+							printf( " uid %d", pn( NULL, extbuf, p+20, p+27) );
+							printf( " gid %d", pn( NULL, extbuf, p+28, p+35) );
+							if ( extbuf[p+2] > 36 )
+							printf( " ino %d", pn( NULL, extbuf, p+36, p+43) );
+
+						}
+						else if ( is_rr( "TF", extbuf, p ) )
+						{
+							printf("Timestamps: Flags: 0x%x - ", extbuf[p+4] );
+							int fl = extbuf[p+4];
+							int fieldlen = fl & 128 == 0 ? 7 : 17;
+							int o = p+5;
+							if ( fl & 1 ) { printf("Creation " ); o+=fieldlen; }
+							if ( fl & 2 ) { printf("Modify " ); o+=fieldlen; }
+							if ( fl & 4 ) { printf("Access " ); o+=fieldlen; }
+							if ( fl & 8 ) { printf("Attributes " ); o+=fieldlen; }
+							if ( fl & 16 ) { printf("Backup " ); o+=fieldlen; }
+							if ( fl & 32 ) { printf("Expiration " ); o+=fieldlen; }
+							if ( fl & 64 ) { printf("Effective " ); o+=fieldlen; }
+						}
+						else
+						{
+						for ( int pp = p+4; pp < p + extbuf[p+2]; pp++ )
+							printf("%02x ", extbuf[pp] );
+						printf("\"");
+						for ( int pp = p+4; pp < p + extbuf[p+2]; pp++ )
+							printf("%c", extbuf[pp] );
+						printf("\"");
+						}
+
+						int p2 = p + extbuf[p+2];
+
+						if ( p2 + 4 > o+extbuf[o] ) break;
+
+						if ( p2 <= p ) { printf("ERROR: len field <=0: p=%d next=%d len=%d", p, p2, extbuf[p+2]);break;}
+						p=p2;
+
+
+						//p += extbuf[p+2] -1;
+					}
+						printf("\n");
 
 					// TODO: read file extent - is it data or permissions etc
 

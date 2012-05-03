@@ -20,10 +20,13 @@ iso9660_test:
 	ret
 0:
 	# convert drive index to bus+drive
+	mov	al, dh
+	.if 0
 	mov	ah, dh
 	mov	al, ah
 	shr	ah, 1
 	and	al, 1
+	.endif
 	# load edx with the ports
 	call	ata_get_ports$
 

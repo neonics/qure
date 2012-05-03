@@ -35,6 +35,12 @@ ATA_PORT_ADDRESS1	= 3	# sector	/ LBA lo
 ATA_PORT_ADDRESS2	= 4	# cylinder low	/ LBA mid    Byte Count
 ATA_PORT_ADDRESS3	= 5	# cylinder hi	/ LBA high   Byte Count
 ATA_PORT_DRIVE_SELECT	= 6
+  # bits 7 and 5 obsolete, but must be 1 for old (ATA1) drives (pre LBA48)
+  ATA_DRIVE_SELECT_RESERVED7	= 0b10000000
+  ATA_DRIVE_SELECT_LBA		= 0b01000000	# Sect. Address Mode 0=CHS 1=LBA
+  ATA_DRIVE_SELECT_RESERVED5	= 0b00100000
+  ATA_DRIVE_SELECT_DEV		= 0b00010000	# 0=master 1=slave
+  ATA_DRIVE_SELECT_ADDR		= 0b00001111	# CHS: head; LBA: [27:24]
   ATA_DRIVE_MASTER	= 0xa0
   ATA_DRIVE_SLAVE	= 0xb0
   # bin: 101DHHHH
@@ -48,6 +54,9 @@ ATA_PORT_COMMAND	= 7	# write
   ATA_COMMAND_PIO_WRITE_		= 0x30	# w/retry; +1=w/o retry
   ATA_COMMAND_PIO_WRITE_LONG		= 0x32	# w/retry; +1=w/o retry
   ATA_COMMAND_DMA_WRITE_EXT		= 0x35
+  ATA_COMMAND_PIO_READ_MULTIPLE		= 0xc4	# see word 47 and 59 of IDENTIFY
+  ATA_COMMAND_PIO_WRITE_MULTIPLE	= 0xc5	# for sectors per block
+  ATA_COMMAND_SET_MULTIPLE_MODE		= 0xc6	# sets nr of sectors/block
   ATA_COMMAND_DMA_READ			= 0xc8
   ATA_COMMAND_DMA_WRITE			= 0xca
   ATA_COMMAND_CACHE_FLUSH		= 0xe7
@@ -275,7 +284,7 @@ ata_list_drives:
 	mov	al, ah
 	shr	ah, 1
 	and	al, 1
-	call	ata_get_ports$
+	call	ata_get_ports2$
 
 	push	edx
 	call	atapi_read_capacity$
@@ -289,9 +298,23 @@ ata_list_drives:
 0:
 	ret
 
-# in: ah = ata bus
+# in: al = (ata bus << 1) | drive (0 or 1)
 # out: edx = [DCR, Base]
 ata_get_ports$:
+	push	eax
+	and	al, 0xfe	# mask out bit 0
+	movzx	edx, al
+	mov	ax, [ata_buses + edx]
+	mov	dx, [ata_bus_dcr_rel + edx]
+	add	dx, ax
+	shl	edx, 16
+	mov	dx, ax
+	pop	eax
+	ret
+
+# in: ah = ata bus
+# out: edx = [DCR, Base]
+ata_get_ports2$:
 	push	eax
 	movzx	edx, ah
 	mov	ax, [ata_buses + edx * 2]
@@ -302,11 +325,12 @@ ata_get_ports$:
 	pop	eax
 	ret
 
+
 # in: ah = ATA bus index (0..3)
 # in: al = drive (0 or 1)
 ata_list_drive:
 	COLOR 7
-	call	ata_get_ports$
+	call	ata_get_ports2$
 	# EDX: DSR, Base
 
 	shl	ah, 1
@@ -709,6 +733,7 @@ ata_wait_status$:
 	# by default error bits should be 0
 	or	bh, ATA_STATUS_ERR | ATA_STATUS_CORR
 
+	# TODO: when BSY, other bits are meaningless
 	push	ecx
 	push	dx
 	add	dx, ATA_PORT_STATUS
@@ -770,7 +795,11 @@ ata_select_drive$:
 
 	push	edx
 	add	dx, ATA_PORT_DRIVE_SELECT
+	and	al, 1	# mask out bus (if al=bus|drive)
 	shl	al, 4
+	# optionally: for 28bit PIO, low 4 bits = highest 4 bits of LBA
+	# for 28bit pio: E0 master, F0 slave
+	# for 48bit pio: 40 master, 50 slave
 	or	al, 0xA0 	# (B0 for slave)
 	#or	al, 0xef	#  all bits 1, bit 4=0 drive 0, 1=drive 1
 	out	dx, al
@@ -830,6 +859,153 @@ ata_dbg$:
 	PRINTc	9 "]"
 	ret
 
+################################################################ ATA ########
+
+# in: al = (bus << 1) | drive
+# in: ebx: abs LBA (32 bit), ecx >> 16 = high 16 bits, cx=sectorcount
+# in: es:edi: pointer to buffer
+# FOR NOW: only 1 sector is read
+ata_read:
+	call	ata_get_ports$
+
+	# preserve drive info as al gets used in port io
+	mov	ah, al
+.if 0
+	push	ax
+	mov	ax, ATA_STATUS_BSY << 8
+	call	ata_wait_status$
+	pop	ax
+	jnc	0f
+
+	PRINTLNc	4, "ATA Timeout"
+	stc
+	ret
+.endif
+0:	PRINT "Setting up..."
+	add	dx, ATA_PORT_SECTOR_COUNT
+
+	# Check to see whether LBA28 can be used (faster)
+	cmp	ebx, 0xfffffff	# 28 bits
+	ja	r48$
+	# cx = sector count, if more than 255 use lba48 (65k sectors)
+	# ecx >> 16 is high 16 bits of LBA 48. Even if sectorcount < 256,
+	# when high LBA bits are set, also use LBA48 mode.
+	cmp	ecx, 0x100	
+	ja	r48$
+	# cl = 0 = 256 sectors
+r28$:	PRINT " LBA28 "
+	call	printhex8
+
+	mov	al, cl
+	out	dx, al	# sector count
+
+	inc	dx
+	mov	al, bl
+	out	dx, al	# LBA lo [7:0]
+
+	inc	dx
+	mov	al, bh	# LBA mid [15:8]
+	out	dx, al
+	
+	inc	dx
+	ror	ebx, 16
+	mov	al, bl	# LBA hi [23:16]
+	out	dx, al
+
+	# drive select and LBA hi [27:24]
+	inc	dx
+	mov	al, ah
+	and	al, 1
+	shl	al, 4
+	or	al, bh	# the test above should have made sure bh <= 0xf
+	or	al, ATA_DRIVE_SELECT_LBA
+	out	dx, al
+
+	mov	al, ATA_COMMAND_PIO_READ
+	jmp	go_read$
+
+r48$:	PRINT " LBA48"
+# EBX:  [LBAmidHI, LBAmidLO, LBAloHI, LBAloLO]
+# ECX:	[LBAhiHI, LBAhiLO, SectHI, SectLO]
+# output order:
+# hi: SectHI, LBAloHI, LBAmidHI, LBAhiHI
+# lo: SectLO, LBAloLO, LBAmidLO, LBAhiLO
+#
+	xchg	bl, bh	# LBAmidHI LBAmidLO LBAloLO LBAloHI
+	xchg	cl, ch	# LBAhiHI, LBAhiLO, SectLO, sectHI
+	rol	ebx, 8	# LBAmidLO LBAloLO LBAloHI LBAmidHI
+	rol	ecx, 8	# LBAhiLO, SectLO, sectHI, LBAhiHI
+
+	# output high bytes
+	mov	al, ch	# sectHI
+	out	dx, al
+
+	inc	dx	# LBAloHI
+	mov	al, bh
+	out	dx, al
+
+	inc	dx	# LBAmidHI
+	mov	al, bl
+	out	dx, al
+	ror	ebx, 16	# prepare for lo bytes
+
+	inc	dx	# LBAhiHI
+	mov	al, cl
+	out	dx, al
+	ror	ecx, 16	# prepare for lo bytes
+
+	# output low bytes
+	sub	dl, 3
+	mov	al, cl	# SectLO
+	out	dx, al
+
+	inc	dx
+	mov	al, bl	# LBAloLO
+	out	dx, al
+
+	inc	dx
+	mov	al, bh	# LBAmidLO
+	out	dx, al
+
+	inc	dx
+	mov	al, ch	# LBAhiLO
+	out	dx, al
+
+	# drive select
+	inc	dx
+	mov	al, ah
+	and	al, 1
+	shl	al, 4
+	or	al, ATA_DRIVE_SELECT_LBA
+	out	dx, al
+
+	# send command
+	mov	al, ATA_COMMAND_PIO_READ_EXT
+
+
+go_read$:
+	sub	dx, ATA_PORT_DRIVE_SELECT
+PRINT " Select drive "
+call	printhex
+.if 0
+	push	ax
+	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
+	call	ata_wait_status$
+	pop	ax
+	jc	ata_timeout$
+.endif
+	add	dx, ATA_PORT_COMMAND
+	out	dx, al
+	sub	dx, ATA_PORT_COMMAND
+
+	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
+	call	ata_wait_status$
+	jc	ata_timeout$
+
+# read.. (ATA_PORT_DATA = 0 so..)
+	mov	ecx, 256
+	rep	insw
+	ret
 
 
 ################################################################ ATAPI ######

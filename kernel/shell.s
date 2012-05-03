@@ -145,6 +145,12 @@ enter$:
 	IS_TOKEN "ls"
 	jnz	1f
 	printlnc 11, "Directory Listing."
+	jmp	start$
+1:
+	IS_TOKEN "fdisk"
+	jnz	1f
+	call	write_boo
+	jmp	start$
 1:
 	IS_TOKEN "quit"
 	jnz	1f
@@ -279,4 +285,59 @@ id$:	shl	dx, 8
 
 1:
 
+	ret
+
+
+
+
+#######################
+write_boo:
+	mov	esi, offset ata_drive_types
+	mov	ecx, 8
+	mov	dh, -1
+0:	lodsb
+	mov	dl, al
+	call	printhex2
+	cmp	al, TYPE_ATA
+	jne	1f
+	mov	dh, 8
+	sub	dh, cl
+1:	loop	0b
+
+	cmp	dh, -1
+	je	1f
+
+	PRINTc	10, "Writing bootsector to ATA drive: "
+	mov	dl, dh
+	call	printhex2
+	call	newline
+
+# Read data:
+	.data
+	tmp_buf$: .space 512
+	.text
+	mov	edi, offset tmp_buf$
+	mov	ecx, 1
+	mov	ebx, 1
+	call	ata_read
+	jnc	0f
+	PRINTLNc 4, "ATA read error"
+	ret
+0:	PRINTLN "ATA read OKAY"
+	
+	mov	esi, offset tmp_buf$
+	mov	ecx, 10
+0:	lodsb
+	mov	dl, al
+	call	printhex2
+	mov	al, ' '
+	call	printchar
+	loop	0b
+
+	call	newline
+
+
+	ret
+
+1: 	PRINTLNc 10, "No ATA drive found"
 	ret
