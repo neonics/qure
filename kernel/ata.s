@@ -47,12 +47,13 @@ ATA_PORT_DRIVE_SELECT	= 6
   # D: drive (0 = master 1 = slace)
   # HHHH: head selection bits
 ATA_PORT_COMMAND	= 7	# write
-  ATA_COMMAND_PIO_READ			= 0x20	# w/retry; +1=w/o retry
+  ATA_COMMAND_PIO_READ			= 0x20	# LBA28 w/retry; +1=w/o retry
   ATA_COMMAND_PIO_READ_LONG		= 0x22	# w/retry; +1=w/o retry
-  ATA_COMMAND_PIO_READ_EXT		= 0x24
+  ATA_COMMAND_PIO_READ_EXT		= 0x24	# LBA48
   ATA_COMMAND_DMA_READ_EXT		= 0x25
-  ATA_COMMAND_PIO_WRITE_		= 0x30	# w/retry; +1=w/o retry
+  ATA_COMMAND_PIO_WRITE			= 0x30	# LBA28 w/retry; +1=w/o retry
   ATA_COMMAND_PIO_WRITE_LONG		= 0x32	# w/retry; +1=w/o retry
+  ATA_COMMAND_PIO_WRITE_EXT		= 0x34	# LBA48
   ATA_COMMAND_DMA_WRITE_EXT		= 0x35
   ATA_COMMAND_PIO_READ_MULTIPLE		= 0xc4	# see word 47 and 59 of IDENTIFY
   ATA_COMMAND_PIO_WRITE_MULTIPLE	= 0xc5	# for sectors per block
@@ -866,22 +867,106 @@ ata_dbg$:
 # in: es:edi: pointer to buffer
 # FOR NOW: only 1 sector is read
 ata_read:
+	call	ata_rw_init$
+	# al = 0 for LBA28, 4 for LBA48
+	add	al, ATA_COMMAND_PIO_READ
+	add	dx, ATA_PORT_COMMAND
+	out	dx, al
+
+	sub	dx, ATA_PORT_COMMAND
+	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
+	call	ata_wait_status$
+	jc	ata_timeout$
+	call	ata_print_status$
+	PRINTLN " reading..."
+
+# read.. (ATA_PORT_DATA = 0 so..)
+0:	test	al, ATA_STATUS_DRQ
+	jz	1f
+	push	ecx
+	mov	ecx, 256
+	rep	insw
+	pop	ecx
+
+	add	dx, ATA_PORT_STATUS
+	in	al, dx
+	in	al, dx
+	in	al, dx
+	in	al, dx
+	in	al, dx
+	call	ata_print_status$
+	sub	dx, ATA_PORT_STATUS
+
+	loop	0b
+	clc
+	ret
+
+1:	PRINTLNc 4, "ata_read: DRQ timeout"
+	stc
+	ret
+
+# see ata_read, except ds:esi points to the data to write.
+ata_write:
+	call	ata_rw_init$
+
+	# al = 0 for LBA28, 4 for LBA48
+	add	al, ATA_COMMAND_PIO_WRITE
+	add	dx, ATA_PORT_COMMAND
+	out	dx, al
+
+	sub	dx, ATA_PORT_COMMAND
+	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
+	call	ata_wait_status$
+	jc	ata_timeout$
+
+	call	ata_print_status$
+	PRINTLN " writing..."
+
+# write.. (ATA_PORT_DATA = 0 so..)
+0:	test	al, ATA_STATUS_DRQ
+	jz	1f
+	PRINTc 10, " Write sector "
+	call	printhex8
+
+	push	ecx
+	mov	ecx, 256
+	rep	outsw
+	pop	ecx
+# osdev advises to not use rep outsw but:
+#0:	outsw
+#	loop	0b
+
+	add	dx, ATA_PORT_STATUS
+	.if 0
+	mov	ax, (ATA_STATUS_BSY <<8) | ATA_STATUS_DRQ
+	call	ata_wait_status$
+	jc	ata_timeout$
+	.else
+	in	al, dx
+	in	al, dx
+	in	al, dx
+	in	al, dx
+	in	al, dx
+	test	al, ATA_STATUS_BSY
+	jnz	ata_timeout$
+	.endif
+
+	sub	dx, ATA_PORT_STATUS
+	loop	0b
+	clc
+	ret
+
+1:	PRINTLNc 4, "ata_read: DRQ timeout"
+	stc
+	ret
+
+
+
+ata_rw_init$:
 	call	ata_get_ports$
 
 	# preserve drive info as al gets used in port io
 	mov	ah, al
-.if 0
-	push	ax
-	mov	ax, ATA_STATUS_BSY << 8
-	call	ata_wait_status$
-	pop	ax
-	jnc	0f
-
-	PRINTLNc	4, "ATA Timeout"
-	stc
-	ret
-.endif
-0:	PRINT "Setting up..."
 	add	dx, ATA_PORT_SECTOR_COUNT
 
 	# Check to see whether LBA28 can be used (faster)
@@ -893,7 +978,7 @@ ata_read:
 	cmp	ecx, 0x100	
 	ja	r48$
 	# cl = 0 = 256 sectors
-r28$:	PRINT " LBA28 "
+r28$:	#PRINT " LBA28 "
 	call	printhex8
 
 	mov	al, cl
@@ -921,10 +1006,15 @@ r28$:	PRINT " LBA28 "
 	or	al, ATA_DRIVE_SELECT_LBA
 	out	dx, al
 
-	mov	al, ATA_COMMAND_PIO_READ
-	jmp	go_read$
+	xor	al, al	# ATA_COMMAND_PIO_READ = 0x20, READ_EXT=0x24
+	sub	dx, ATA_PORT_DRIVE_SELECT
 
-r48$:	PRINT " LBA48"
+	ret
+
+#	mov	al, ATA_COMMAND_PIO_READ
+#	jmp	go_read$
+
+r48$:	#PRINT " LBA48"
 # EBX:  [LBAmidHI, LBAmidLO, LBAloHI, LBAloLO]
 # ECX:	[LBAhiHI, LBAhiLO, SectHI, SectLO]
 # output order:
@@ -971,6 +1061,12 @@ r48$:	PRINT " LBA48"
 	mov	al, ch	# LBAhiLO
 	out	dx, al
 
+	# make ecx sector count
+	# ecx: sectHI lbahiHI lbaHilo sectLO
+	mov	al, cl
+	shr	ecx, 16
+	mov	ch, al
+
 	# drive select
 	inc	dx
 	mov	al, ah
@@ -979,34 +1075,9 @@ r48$:	PRINT " LBA48"
 	or	al, ATA_DRIVE_SELECT_LBA
 	out	dx, al
 
-	# send command
-	mov	al, ATA_COMMAND_PIO_READ_EXT
-
-
-go_read$:
+	mov	al, 4	# ATA_COMMAND_PIO_READ_EXT - ATA_COMMAND_PIO_READ
 	sub	dx, ATA_PORT_DRIVE_SELECT
-PRINT " Select drive "
-call	printhex
-.if 0
-	push	ax
-	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
-	call	ata_wait_status$
-	pop	ax
-	jc	ata_timeout$
-.endif
-	add	dx, ATA_PORT_COMMAND
-	out	dx, al
-	sub	dx, ATA_PORT_COMMAND
-
-	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
-	call	ata_wait_status$
-	jc	ata_timeout$
-
-# read.. (ATA_PORT_DATA = 0 so..)
-	mov	ecx, 256
-	rep	insw
 	ret
-
 
 ################################################################ ATAPI ######
 ATAPI_SECTOR_SIZE = 2048

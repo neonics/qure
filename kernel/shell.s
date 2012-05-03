@@ -314,27 +314,57 @@ write_boo:
 
 # Read data:
 	.data
-	tmp_buf$: .space 512
+	tmp_drv$: .byte 0
+	tmp_buf$: .space 512 * 2
 	.text
+
+	mov	[tmp_drv$], dh
+
+	mov	al, [tmp_drv$]
+	mov	dl, al
+	call	printhex2
+	call	newline
+
 	mov	edi, offset tmp_buf$
-	mov	ecx, 1
-	mov	ebx, 1
+	mov	ecx, 2
+	mov	ebx, 0
 	call	ata_read
 	jnc	0f
 	PRINTLNc 4, "ATA read error"
 	ret
 0:	PRINTLN "ATA read OKAY"
 	
-	mov	esi, offset tmp_buf$
+	mov	esi, offset tmp_buf$ + 512
 	mov	ecx, 10
 0:	lodsb
+	call	printchar
 	mov	dl, al
+	mov	al, ' '
+	call	printchar
 	call	printhex2
 	mov	al, ' '
 	call	printchar
 	loop	0b
 
 	call	newline
+
+####
+	.data
+	tmp_buf2$: .asciz "Hello World! First ATA sector written!"
+	.space 512 - (.-tmp_buf2$)
+	.asciz "second sector"
+	.space 512
+	.text
+	PRINTln "ATA WRITE"
+	mov	al, [tmp_drv$]
+	mov	dl, al
+	call	printhex2
+	call	newline
+
+	mov	esi, offset tmp_buf2$
+	mov	ecx, 2
+	mov	ebx, 0
+	call	ata_write
 
 
 	ret
