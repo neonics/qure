@@ -410,6 +410,7 @@ println:call	print
 
 .global print
 print:	PRINT_START
+	push	esi
 	jmp	1f
 
 0:	stosw
@@ -417,6 +418,7 @@ print:	PRINT_START
 	test	al, al
 	jnz	0b
 
+	pop	esi
 	PRINT_END
 	ret
 

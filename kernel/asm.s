@@ -44,10 +44,17 @@ printtokens:
 	sub	ecx, eax
 	jz	eof
 
-	mov	edx, ecx
-	pushad
+	mov	edx, ecx	# print length
 	call	printhex8
-	popad
+	.if 0
+	printchar ' '
+	mov	edx, esi	# print token offset
+	sub	edx, 8
+	call	printhex8
+	printchar ' '
+	mov	edx, eax	# print string offset
+	call	printhex8
+	.endif
 .if 1
 	# print token
 	push	esi
@@ -70,7 +77,18 @@ printtokens:
 	println "Missing EOF token"
 
 
-eof:	PRINTln	"EOF"
+eof:	mov	edx, [esi + 8]
+	sub	edx, [esi]
+	call	printhex8
+	.if 0
+	printchar ' '
+	mov	edx, esi
+	call	printhex8
+	printchar ' '
+	mov	edx, [esi]
+	call	printhex8
+	.endif
+	PRINTln	" EOF"
 	ret
 
 
@@ -155,8 +173,7 @@ cchandler:
 # dd src_offset
 
 tokenize:
-	or	ecx, ecx
-	jz	2f
+	jecxz	2f
 
 	mov	ebx, offset charclass
 
@@ -186,9 +203,11 @@ tokenize:
 
 	mov	eax, -1
 	stosd
+	mov	[edi + 4], eax
 	mov	eax, esi
 	dec	eax
 	stosd
+	mov	[edi + 4], eax
 
 	ret
 
@@ -203,3 +222,75 @@ cc_space:
 	ret
 
 	
+
+
+# in: eax (al )= token type 
+# in: edx = pointer to struct:
+#   .long num_tokens
+#   .rept num_tokens               .byte token_type           .endr
+#   .rept num_tokens               .byte token_handler_index  .endr
+#   .rept max(token_handler_index) .long offset token_handler .endr
+# out: edx = offset token_handler
+#
+# Example usage:
+#
+# .data
+#	token_handler_data: .long token_handler_indices - token_types
+#	token_types:		.byte a, b, c, d # these two must be
+#	token_handler_indices:	.byte 0, 0, 1, 2 # of equal length
+#	token_handlers:		.long handler0, handler1, handler2
+# .text
+# mov	al, ALPHA
+# mov	edx, offset token_handler_data
+# call	get_token_handler
+# jnz	no_match
+# jmp	edx
+#
+# Why both an index array and a handler-pointer array? Why not:
+#   .long num_tokens
+#   .rept num_tokens  .byte token_type           .endr
+#   .rept num_tokens  .long offset token_handler .endr
+#
+# This is due to space considerations, as often multiple token types
+# use the same handler, and token type indices are 1 byte whereas offsets
+# are 4 bytes.
+# Space considerations then:
+# When each token type has a unique handler, the space taken is:
+# First: 6 bytes per token+handler
+# Second: 5 bytes per token+handler
+# When different token types share the same handler, compression is
+# as follows:
+# # same token handler	first		second
+# 1 			1 + 1 + 4 = 6	1 + 4 = 5
+# 2			2 + 2 + 4 = 8	2 + 8 = 10
+# 3			3 + 3 + 4 = 10	3 + 12= 15
+# 10			10+10 + 4 = 24	10+40 = 50
+get_token_handler:
+	push	edi
+	push	ecx
+	mov	ecx, [edx]
+	mov	edi, edx
+	add	edi, 4
+	repne	scasb
+	jnz	0f
+	# edi -1 points to the matched token type 
+	# [edx] - ecx - 1 = index of token type in array
+	# adding then [edx] -1 to edi makes edi point to the token handler type
+	add	edi, [edx]	# edi points to token_handler_type +1
+	movzx	edi, byte ptr [edi-1]	# index to token_handler_type
+	# now add the offset to the token handler list to it.
+	mov	ecx, [edx]	# num token types
+	shl	ecx, 1		# two arrays
+	add	ecx, edx	# add base offset
+	add	ecx, 4		# add size of num token types mem addr
+	# ecx should now point to path_token_handlers$
+
+	mov	edx, [ecx + edi*4]
+	add	edx, [realsegflat]
+
+	xor	ecx, ecx	# set zero flag
+0:	pop	ecx
+	pop	edi
+	ret
+
+

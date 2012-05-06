@@ -18,7 +18,10 @@ shell:	push	ds
 	mov	[insertmode], byte ptr 1
 
 start$:
-	PRINTc 15, "> "
+	mov	esi, offset cwd$
+	call	print
+	printc 15, "> "
+
 	mov	dword ptr [cursorpos], 0
 	mov	dword ptr [cmdlinelen], 0
 
@@ -131,8 +134,8 @@ DEBUG_TOKENS = 0
 	mov	ebx, edi
 	mov	esi, offset cmdline_tokens
 	call	printtokens
-	pop	ecx
 	.endif
+	pop	ecx
 
 	#call	process_tokens
 
@@ -203,6 +206,13 @@ DEBUG_TOKENS = 0
 	IS_TOKEN "ls"
 	jnz	1f
 	printlnc 11, "Directory Listing."
+	xor	eax, eax
+	call	ls$
+	jmp	start$
+1:
+	IS_TOKEN "cluster"
+	jnz	1f
+	mov	eax, 2
 	call	ls$
 	jmp	start$
 1:
@@ -235,6 +245,12 @@ DEBUG_TOKENS = 0
 	IS_TOKEN "quit"
 	jnz	1f
 	printlnc 12, "Terminating shell."
+
+	mov	edx, esp
+	call	printhex8
+
+	xor	eax, eax
+	call	keyboard
 	ret
 
 1:	PRINTLNc 4, "Unknown command"
@@ -275,12 +291,20 @@ right$:	mov	eax, [cursorpos]
 	inc	dword ptr [cursorpos]
 	jmp	start$
 
-clear$:	mov	al, ' '
-	mov	ecx, [cmdlinelen]
-1:	call	printchar
+clear$:	mov	ax,(7<<8)| ' '
+	xor	ecx, ecx
+	mov	[cursorpos], ecx
+	xchg	ecx, [cmdlinelen]
+	or	ecx, ecx
+	jz	start$
+	PRINT_START
+	push	edi
+	inc	ecx
+1:	stosw	#call	printchar
 	loop	1b
-	print "CLEAR"
-	jmp	start$
+	pop	edi
+	PRINT_END
+	jmp	0b # start$
 
 toggleinsert$:
 	xor	byte ptr [insertmode], 1
@@ -292,14 +316,12 @@ print_cmdline$:
 	push	ecx
 	push	ebx
 
-
 	PRINT_START
 	push	edi
 
 	mov	ebx, edi
 	mov	ecx, [cmdlinelen]
-	or	ecx, ecx
-	jz	2f
+	jecxz	2f
 	mov	esi, offset cmdline
 
 1:	lodsb
@@ -367,24 +389,147 @@ id$:	shl	dx, 8
 	ret
 
 
-cd$:
-	# scan for end of string
+######################################
+cd$:	
+	mov	ebx, [fat_root_lba$]
+	or	ebx, ebx
+	jnz	0f
+	call	partinfo$
+0:	
+	#########
+
+	call	cd_apply$
+	jc	0f
+
+	inc	ecx
+
+	mov	ebp, ecx	# remember len
+	mov	ebx, esi
+
+	# attempt to change the directory
+	# parse it again, this time just using path separators:
+
+	mov	edi, esi
+	mov	al, '/'
+
+1:	repne	scasb
+	jnz	1f
+	mov	edx, ecx
+	call	printhex8
+	printchar ' '
+
+	push	ecx
+	mov	ecx, edi
+	sub	ecx, esi
+	call	nprint
+	call	newline
+
+#########################
+	push	edi
+	push	ebx
+	push	ebp
+
+	push	esi
+	push	ecx
+
+	# now find what lba to load.
+	
+	cmp	ecx, 1
+	jnz	2f
+	mov	ebx, [fat_root_lba$]
+	jmp	3f
+2:	
+	# find the directory entry
+	dec	ecx
+	call	fat_find_dir	# esi ecx
+	# returns ebx = cluster
+
+
+
+3:	mov	edi, offset tmp_buf$
+	mov	ecx, 1
+	mov	al, [tmp_drv$]
+	call	ata_read	# ebx=lba
+	jc	2f
+
+	##
+
+
+
+	##
+
+
+	clc
+2:	pop	ecx
+	pop	esi
+
+	pop	ebp
+	pop	ebx
+	pop	edi
+#########################
+	pop	ecx
+	jc	0f
+	mov	esi, edi
+
+
+
+	jmp	1b
+1:
+
+
+	mov	ecx, ebp
+	mov	esi, ebx
+
 	mov	edi, offset cwd$
+	rep	movsb
+	xor	al, al
+	stosb
+
+0:	ret
+
+# in: cwd$, cmdline_tokens as prepared by tokenize
+# out: carry flag = syntax error
+# out: cd_cwd$ is new commandline
+# out: ecx length of commandline (when CF is clear) (minus trailing /)
+# out: esi offset of commandline (cd_cwd$) (when CF is clear)
+# destroys: eax ebx ecx edx esi edi
+cd_apply$:
+	push	dword ptr -1	# alloc state
+	# copy cwd
+	.data 2
+	cd_cwd$: .space 1024
+	.text
+	mov	esi, offset cwd$
+	mov	edi, offset cd_cwd$
+	mov	ecx, 1024
+	rep	movsb
+
+	# scan for end of string
+	mov	edi, offset cd_cwd$
 	xor	al, al
 	mov	ecx, 1024
 	repne scasb
 	dec	edi
-		pushcolor 10
-		mov	edx, ecx
-		call	printdec32
-		mov	al, ' '
-		call	printchar
-		mov	esi, offset cwd$
-		call	println
-		popcolor
 
 	mov	ebx, 2
 0:	mov	[edi], byte ptr 0
+	inc	dword ptr [esp]
+
+
+	.if 0
+		pushcolor 10
+		mov	edx, 1024
+		sub	edx, ecx
+		call	printdec32
+		mov	al, ' '
+		call	printchar
+		mov	edx, edi
+		mov	esi, offset cd_cwd$
+		sub	edx, esi
+		call	printdec32
+		call	println
+		popcolor
+	.endif
 
 #	GET_TOKEN ebx
 #	jc	0f
@@ -400,31 +545,58 @@ cd$:
 	sub	ecx, esi 
 	jbe	0f
 
-	cmp	al, ALPHA
-	jnz	1f
-2:	rep	movsb	# append / overwrite
-	jmp	0b
-1:
-	cmp	al, DIGIT
-	je	2b
+	.if 0
+		pushcolor 3
+		mov	edx, ebx
+		call	printdec32
+		printchar ':'
+		mov	edx, ecx
+		call	printdec32
+		printchar ' '
+		mov	edx, esi
+		call	printhex8
+		printchar ' '
+		call	nprint
+		call	newline
+		popcolor
+	.endif
 
-1: 	cmp	al, '.'
-	jnz	1f
-	dec	ecx	# use nr of '.' as levels up
-	jz	0b
+	# Check whether it is a valid path-element token
+	.data
+	num_path_tokens$: .long path_token_handler_idx$ - path_tokens$
+	path_tokens$: .byte ALPHA, DIGIT, '-', '_', '.', '/'
+	path_token_handler_idx$: .byte 0, 0, 0, 0, 1, 2
+	# NOTE: there is no symbol relocation so code offsets need
+	# to be adjusted by [realsegflat]
+	path_token_handlers$: .long cd_a$, cd_dot$, cd_slash$
+	.text
 
-	mov	edx, edi
-	sub	edx, offset cwd$
-	call	printhex8
+	mov	edx, offset num_path_tokens$
+	call	get_token_handler
+	jnz	cd_syntax_error$
+	jmp	edx
+
+
+cd_syntax_error$:
+	PRINTc 4, "Syntax error at token "
+	call	nprint
 	call	newline
-	dec	edi
+	mov	al, -1
+	jmp	9f
+
+cd_a$:	rep	movsb	# append / overwrite
+	jmp	0b
+
+cd_dot$:dec	ecx	# use nr of '.' as levels up
+	jz	0b
 	# scan backward for /
+	dec	edi
 	std
 2:	mov	al, '/'
 	dec	edi
 	push	ecx
 	mov	ecx, edi
-	sub	ecx, offset cwd$
+	sub	ecx, offset cd_cwd$
 	jbe	3f
 	repne	scasb
 	inc	edi
@@ -433,34 +605,31 @@ cd$:
 	cld
 	jmp	0b
 
-1:	cmp	al, SPACE
-	je	0b
-
-	cmp	al, '/'
-	jne	1f
-	mov	edi, offset cwd$
-	stosb
+cd_slash$:
+	cmp	dword ptr [esp], 0
+	jnz	1f
+	mov	edi, offset cd_cwd$
+1:	stosb
 	jmp	0b
 
-1:
 
-	PRINTc 4, "Syntax error at token "
-	call	nprint
-	call	newline
-
-
-0:	cmp	edi, offset cwd$ + 1
+0:	cmp	edi, offset cd_cwd$ + 1
 	je	0f
 	mov	[edi], word ptr '/'
-0:	mov	esi, offset cwd$
+0:	mov	esi, offset cd_cwd$	# return offset
+
+	.if 0
 	call	println
-	ret
+	.endif
 
-#2:	mov	[cwd$], word ptr '/'
-#	jmp	0b
+	mov	ecx, edi
+	sub	ecx, esi
 
-#5:	PRINTLNc 4, "Syntax error"
-#	ret
+	xor	al, al
+
+9:	add	esp, 4
+	shl	al, 1	# al -1 on error, sets carry
+	ret	
 
 
 #############
@@ -743,6 +912,10 @@ FAT_DIR_LONG_NAME2: .space 12 # 6 2-byte characteres
 	.word 0 # always 0
 FAT_DIR_NAME3: .space 4	# final 2 2-byte characters (total: 5+6+2=13)
 
+
+
+fat_find_dir:
+	ret
 
 .data 2
 cwd$:	.space 1024
