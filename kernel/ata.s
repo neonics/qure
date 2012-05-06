@@ -185,7 +185,7 @@ ata_bus_dcr_rel:
 	.word ATA_PORT_DCR - 8
 
 
-.data
+.data 2
 	TYPE_ATA = 1
 	TYPE_ATAPI = 2
 ata_drive_types: .space 8

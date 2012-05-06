@@ -109,10 +109,11 @@ isr_keyboard:
 
 	and	al, 0x7f	# al = key
 
-	.data
+	.data 2
 		keys_pressed: .space 128
 		kb_shift: .byte 0
 		kb_caps: .byte 0
+	.data
 		keymap:
 		.byte 0, 0 	# 00: error code
 		.byte 0x1b, 1;	# 01: escape	BIOS: 0x011b

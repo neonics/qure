@@ -1,6 +1,6 @@
 .intel_syntax noprefix
 
-.data
+.data 2
 cmdlinelen: .long 0
 cmdline: .space 1024
 cmdline_tokens_end: .long 0
@@ -13,6 +13,9 @@ cursorpos: .long 0
 shell:	push	ds
 	pop	es
 	PRINTLNc 10, "Press ^D or type 'quit' to exit shell"
+
+	mov	[cwd$], word ptr '/'
+	mov	[insertmode], byte ptr 1
 
 start$:
 	PRINTc 15, "> "
@@ -461,7 +464,7 @@ cd$:
 
 
 #############
-	.data
+	.data 2
 	tmp_drv$: .byte 0
 	tmp_buf$: .space 512 * 2
 	.text
@@ -512,7 +515,7 @@ PT_CHS_END: .byte 0,0,0
 PT_LBA_START: .long 0
 PT_SECTORS: .long 0
 
-.data
+.data 2
 tmp_part$: .long 0
 fat$: .space 512
 .text
@@ -741,9 +744,8 @@ FAT_DIR_LONG_NAME2: .space 12 # 6 2-byte characteres
 FAT_DIR_NAME3: .space 4	# final 2 2-byte characters (total: 5+6+2=13)
 
 
-.data
-cwd$:	.byte '/'
-	.space 1023
+.data 2
+cwd$:	.space 1024
 .text
 
 ls$:	mov	ebx, [fat_root_lba$]
@@ -758,9 +760,6 @@ lsdir$:	mov	edi, offset tmp_buf$
 	jc	read_error$
 
 	mov	esi, offset tmp_buf$
-	mov al, [esi]
-	call printchar
-	call newline
 0:	
 	cmp	byte ptr [esi], 0
 	jz	0f
@@ -847,7 +846,8 @@ write_boo:
 	call	newline
 
 ####
-	.data
+.if 0
+	.data 2
 	tmp_buf2$: .asciz "Hello World! First ATA sector written!"
 	.space 512 - (.-tmp_buf2$)
 	.asciz "second sector"
@@ -863,7 +863,7 @@ write_boo:
 	mov	ecx, 2
 	mov	ebx, 0
 	call	ata_write
-
+.endif
 	ret
 
 

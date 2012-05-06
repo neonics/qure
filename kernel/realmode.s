@@ -2,7 +2,7 @@
 
 DEBUG_KERNEL_REALMODE = 0	# waitkey
 
-.data
+.data 2
 low_memory_size: .word 0 # in kb
 memory_map:	.space 24 * 10	# 10 lines (qemu has 5)
 cdrom_spec_packet:	.space 0x13	# see interrupt 13h

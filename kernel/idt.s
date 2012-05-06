@@ -33,7 +33,7 @@
 .endm
 
 
-.data
+.data 2
 .align 4
 
 IDT:
@@ -161,7 +161,7 @@ int_labels$:
 #(dd [ErrCode ] ebp + 6	) only when exception (intnr < 0x20)
 # dw [ intnr  ] ebp + 4	  the interrupt number as pushed by the jump table.
 jmp_table_target:
-	.data
+	.data 2
 		int_count: .rept 256; .long 0; .endr
 	.text
 	push	ebp
