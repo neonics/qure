@@ -16,6 +16,7 @@ IRQ_BASE = 0x20	# base number for PIC hardware interrupts
 
 realsegflat:.long 0
 codeoffset: .long 0
+kernel_location: .long 0
 bkp_reg_cs: .word 0
 bkp_reg_ds: .word 0
 bkp_reg_es: .word 0
@@ -58,6 +59,8 @@ bkp_reg_gs: .word 0
 # in: ax: Flags
 # bit0:	0 = flat mode (flatCS, flatDS for all registers; esp updated)
 #	1 = compatibility mode (compatCS, realmodeDS/ES/FS/GS/SS)
+# TODO: in: edi: relocation base (flat offset). 0 means no relocation.
+#
 # SEL_realmodeCS is 16 bit, based on the value of cs when this method is called.
 # SEL_compatCS is the 32 bit version of realmodeCS
 # SEL_flatCS is 32 bit based zero.
@@ -72,7 +75,6 @@ bkp_reg_gs: .word 0
 # This method assumes that CS is the base pointer for the code,
 # and will use the area before it as the TSS stack.
 
-# for now this constant will serve as ax:
 protected_mode:
 	mov	[bkp_reg_cs], cs
 	mov	[bkp_reg_ds], ds
@@ -81,6 +83,7 @@ protected_mode:
 	mov	[bkp_reg_sp], sp
 	mov	[bkp_reg_fs], fs
 	mov	[bkp_reg_gs], gs
+	mov	[kernel_location], edi
 
 	mov	bx, ax	# save arg
 
@@ -246,7 +249,34 @@ pmode_entry$:
 	mov	gs, ax
 	mov	ax, SEL_compatDS 
 	mov	ds, ax
+
+	.if 0
+	# RELOCATION CODE GOES HERE
+	# adjust edx
+	
+	push	es
+	push	edi
+	mov	edi, [kernel_location]
+	or	edi, edi
+	jz	0f
+	mov	si, SEL_flatDS
+	mov	es, si
+	mov	esi, offset realmode_kernel_entry
+		mov	eax, edi
+		sub	eax, esi
+		sub	eax, [codeoffset]
+		
+	mov	ecx, offset kernel_end
+	rep	movsb
+0:
+	pop	edi
+	pop	es
+	.endif
+
 1:
+
+
+
 	push	edx
 
 mov [screen_pos], edi

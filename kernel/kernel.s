@@ -1,5 +1,7 @@
 .intel_syntax noprefix
 
+SHOWOFF = 0
+
 DEBUG = 3
 .include "debug.s"
 .include "realmode.s"
@@ -24,6 +26,7 @@ DEFINE = 1
 ###################################
 
 	.macro MORE
+.if SHOWOFF
 	call	newline
 	PRINT_START 0xf1
 	LOAD_TXT " --- More --- "
@@ -35,6 +38,7 @@ DEFINE = 1
 	LOAD_TXT "              "
 	call	__print
 	PRINT_END -1
+.endif
 	.endm
 
 .text
@@ -46,11 +50,10 @@ kmain:
 	mov	ds, ax
 	mov	es, ax
 
-	PRINTc 11 "Protected mode initialized."
+	PRINTLNc 11 "Protected mode initialized."
 	COLOR 0xf
 
-	call	newline
-.if 1
+.if SHOWOFF
 	PRINT	"Press key to stop timer."
 	mov	ah, 0
 	call	keyboard
@@ -102,10 +105,10 @@ kmain:
 
 	mov	edx, ds
 	call	printhex4
+	PRINTCHAR ':'
 	
 	mov	edx, offset memory_map
 	call	printhex8
-	call	newline
 	
 	mov	esi, offset memory_map
 0:	call	newline
@@ -130,8 +133,10 @@ kmain:
 	add	esi, 24 # memory_map_struct_size
 	jmp	0b
 0:
-	MORE
 
+.if SHOWOFF
+	MORE
+.endif
 	###################################################################
 
 .if 1
@@ -166,8 +171,9 @@ kmain:
 	call	ata_list_drives
 
 	#MORE
-
+.if SHOWOFF
 	WAITSCREEN
+.endif
 
 	I "CD-ROM ISO9660 Test: "
 	call	newline

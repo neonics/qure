@@ -1,5 +1,6 @@
 .intel_syntax noprefix
 
+DEBUG_KERNEL_REALMODE = 0	# waitkey
 
 .data
 low_memory_size: .word 0 # in kb
@@ -191,11 +192,12 @@ call	newline_16
 	call	newline_16
 	.endif
 
-
+.if DEBUG_KERNEL_REALMODE
 	print_16 "Press a key to continue.."
 	xor	ah,ah
 	int	0x16
 	call	newline_16
+.endif
 
 	###############################
 .if 0

@@ -192,6 +192,27 @@ ata_drive_types: .space 8
 .text
 .code32
 
+# PREREQUISITE: ata_list_drives
+# in: al = drive type (TYPE_ATA or TYPE_ATAPI)
+# out: al = (bus<<1)|drive (0..7)
+ata_find_first_drive:
+	push	esi
+	push	ecx
+	mov	esi, offset ata_drive_types
+	mov	ecx, 8
+	mov	ah, al
+0:	lodsb
+	cmp	al, ah
+	jne	1f
+	mov	al, 8
+	sub	al, cl
+	jmp	0f
+1:	loop	0b
+	mov	al, -1
+0:	pop	ecx
+	pop	esi
+	or	al, al
+	ret
 
 ata_list_drives:
 
@@ -277,10 +298,11 @@ ata_list_drives:
 	cmp	dh, -1
 	je	0f
 
+.if 0
 	println "Attempting to read CDROM (press key)"
 	xor	ah, ah
 	call	keyboard
-
+.endif
 	mov	ah, dh
 	mov	al, ah
 	shr	ah, 1
@@ -877,8 +899,10 @@ ata_read:
 	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
 	call	ata_wait_status$
 	jc	ata_timeout$
+.if ATA_DEBUG > 1
 	call	ata_print_status$
 	PRINTLN " reading..."
+.endif
 
 # read.. (ATA_PORT_DATA = 0 so..)
 0:	test	al, ATA_STATUS_DRQ
@@ -894,7 +918,9 @@ ata_read:
 	in	al, dx
 	in	al, dx
 	in	al, dx
+.if ATA_DEBUG > 1
 	call	ata_print_status$
+.endif
 	sub	dx, ATA_PORT_STATUS
 
 	loop	0b
@@ -919,14 +945,19 @@ ata_write:
 	call	ata_wait_status$
 	jc	ata_timeout$
 
+.if ATA_DEBUG > 1
 	call	ata_print_status$
 	PRINTLN " writing..."
+.endif
 
 # write.. (ATA_PORT_DATA = 0 so..)
 0:	test	al, ATA_STATUS_DRQ
 	jz	1f
+
+.if ATA_DEBUG > 1
 	PRINTc 10, " Write sector "
 	call	printhex8
+.endif
 
 	push	ecx
 	mov	ecx, 256
@@ -979,7 +1010,7 @@ ata_rw_init$:
 	ja	r48$
 	# cl = 0 = 256 sectors
 r28$:	#PRINT " LBA28 "
-	call	printhex8
+	#call	printhex8
 
 	mov	al, cl
 	out	dx, al	# sector count

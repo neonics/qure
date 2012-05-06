@@ -137,8 +137,18 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	mov	esi, offset 99b
 .endm
 
+.macro PUSH_TXT txt
+	.data 
+		99: .asciz "\s"
+	.text
+	push	dword ptr offset 99b
+.endm
+.macro PUSHSTRING s
+	PUSH_TXT \s
+.endm
 
-.macro	PRINT msg
+
+.macro PRINT msg
 	push	esi
 	LOAD_TXT "\msg"
 	call	print
@@ -232,7 +242,15 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 # set up - between PRINT_START and PRINT_END.
 
 ####################### PRINT HEX ########################
-
+# in: ecx = num hex digits, edx = value
+nprinthex:
+	push	ecx
+	and	ecx, 63
+	jz	0f
+	shl	ecx, 2
+	rol	edx, cl
+	shr	ecx, 2
+	jmp	1f
 printhex1:
 	push	ecx
 	mov	ecx, 1
@@ -251,7 +269,7 @@ printhex:
 	jmp	1f
 printhex8:
 	push	ecx
-	mov	ecx, 8
+0:	mov	ecx, 8
 1:	PRINT_START
 0:	rol	edx, 4
 	mov	al, dl
@@ -373,6 +391,7 @@ printchar:
 nprint:	or	ecx, ecx
 	jz	1f
 	PRINT_START
+	push	esi
 	push	ecx
 0:	lodsb
 	or	al, al
@@ -380,6 +399,7 @@ nprint:	or	ecx, ecx
 	stosw
 	loop	0b
 0:	pop	ecx
+	pop	esi
 	PRINT_END
 1:	ret
 
@@ -499,13 +519,20 @@ printdec32:	# UNTESTED
 ############################ PRINT FORMATTED STRING ###########
 
 # in: esi, stack
-__printf:
+printf:
 	push	ebp
 	mov	ebp, esp
 	add	ebp, 4 + 4
+	push	eax
+	push	ecx
 	push	edx
+	push	esi
 
-2:	lodsb
+	mov	esi, [ebp]
+	add	ebp, 4
+
+2:	xor	ecx, ecx	# holds width etc..
+	lodsb
 	or	al, al
 	jz	2f
 
@@ -513,20 +540,123 @@ __printf:
 0:	# %
 	cmp	al, '%'
 	jne	0f
-
+		PRINTc	10, "%"
 	lodsb
+	or	al, al
+	jz	2f
+		pushcolor 10
+		call	printchar
+		popcolor
+
+	# check for flags:
+	# specifier: (rest of specifiers checked later)
+	cmp	al, '%'
+	je	3f
+	# flags: - + ' ' # 0
+	cmp	al, '-'
+	jne	1f
+	jmp	4f
+1:	cmp	al, '+'
+	jne	1f
+	jmp	4f
+1:	cmp	al, '#'
+	jne	1f
+	jmp	4f
+1:	cmp	al, ' '
+	jne	1f
+	jmp	4f
+1:	cmp	al, '0'
+	jne	1f
+
+4:	lodsb
+	or	al, al
+	jz	2f
+
+	#############
+	# width TODO (just gobbles up)
+1:	cmp	al, '1'
+	jb	1f
+	cmp	al, '9'
+	ja	1f
+	# TODO: process char..
+	jmp	4b
+
+1:	cmp	al, '*' 	# width specifier
+	jne	1f
+	mov	ecx, [ebp]
+	add	ebp, 4
+		pushcolor 11
+		mov edx, ecx
+		call printhex8
+		popcolor
+	lodsb
+	or	al, al
+	jz	2f
+1:
+	########
+	# precision
+	cmp	al, '.'
+	jne	1f
+	PRINTc	12, "."
+4:	lodsb
+	or	al, al
+	jz	2f
+	call printchar
+	cmp	al, '*'
+	jne	5f
+	mov	ecx, [ebp]
+		pushcolor 11
+		mov edx, ecx
+		call printhex8
+		popcolor
+	add	ebp, 4
+	jmp	4f
+5:
+	cmp	al, '1'
+	jb	1f
+	cmp	al, '9'
+	ja	1f
+	# todo: process char
+	jmp	4b
+
+4:	lodsb
+	or	al, al
+	jz	2f
+1:
+	# length
+	cmp	al, 'h'
+	je	4f
+	cmp	al, 'l'
+	je	4f
+	cmp	al, 'L'
+	je	4f
+	jmp	1f
+
+4:	lodsb
+	or	al, al
+	jz	2f
+
+1:	
+	PRINTc	11, ">"
+	call printchar
+	PRINTc	11, "<"
+	
 	mov	edx, [ebp]
 	add	ebp, 4
 
-	cmp	al, 'x'
+	mov	ah, al		# backup
+	and	ah, 0x20	# the lowercase bit
+	or	al, 0x20	# a 'tolowercase' hack (may fail if al!=alpha)
+
+	cmp	al, 'x'	# todo: X
 	jne	1f
-	call	printhex8
+	call	nprinthex
 	jmp	2b
-1:	cmp	al, 'd'
+1:	cmp	al, 'd'	# todo: i
 	jne	1f
 	call	printdec32
 	jmp	2b
-1:	cmp	al, 'b'
+1:	cmp	al, 'b'	# nonstandard
 	jne	1f
 	call	printbin8
 	jmp	2b
@@ -534,10 +664,14 @@ __printf:
 	jne	1f
 	push	esi
 	mov	esi, edx
-	call	__print
-	pop	esi
+	or	ecx, ecx
+	jz	4f
+	call	nprint
+	jmp	5f
+4:	call	print
+5:	pop	esi
 	jmp	0b
-1:
+1:	# todo: c i e E f g G o s u X p n
 	push	ax
 	mov	ah, 0xf4
 	mov	al, '<'
@@ -553,21 +687,44 @@ __printf:
 ###########################
 0:	# Escape
 	cmp	al, '\\'
-	jne	1f
+	jne	0f
 	lodsb
 	or	al, al
 	jz	2f
 	cmp	al, 'n'
 	je	1f
 	call	newline
-	jmp	0b
+	jmp	2b
 
 1:	cmp	al, 'r'	# ignore
 	jne	1f
 
+1:	# print unsupported escape 
+
+0:	# the compiler already escapes \ characters, so we'll check
+	# for the literal:
+	cmp	al, '\n'
+	jne	1f
+	call	newline
+	jmp	2b
+1:
+
+
+0:
+	.if 0
+	pushcolor 6
+	mov	dl, al
+	call	printhex2
+	popcolor
+	.endif
+3:	call	printchar
 ###########################
 	jmp	2b
-2:	pop	edx
+2:	
+	pop	esi
+	pop	edx
+	pop	ecx
+	pop	eax
 	pop	ebp
 	ret
 

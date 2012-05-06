@@ -1,6 +1,8 @@
 # included in bootloader.s
 .intel_syntax noprefix
 
+DEBUG_BOOTLOADER = 0	# skip enter
+
 .text
 .code16
 . = 512
@@ -402,8 +404,9 @@ PRINT_LOAD_SECTORS = 0
 	call	newline
 
 	pop	dx
-
+.if DEBUG_BOOTLOADER
 	call	waitkey
+.endif
 
 	mov	eax, [chain_addr_flat]
 	shr	eax, 4
