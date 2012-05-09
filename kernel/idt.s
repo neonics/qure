@@ -258,6 +258,8 @@ jmp_table_target:
 	# check code selector validity
 
 	mov	dx, [ebp + 4]		# cs
+	verr	ax
+	jnz	ics$
 	cmp	dx, SEL_MAX		# max selector
 	ja	ics$
 	test	dl, 0b100
@@ -288,7 +290,7 @@ jmp_table_target:
 	call	printhex8
 	pop	edx
 	PRINTc	7, ") "
-
+	
 	push	ds
 	mov	ds, ax
 	mov	edx, [edx-4]	# check instruction XXX
