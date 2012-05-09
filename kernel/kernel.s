@@ -19,7 +19,7 @@ DEFINE = 1
 .include "cmos.s"
 .include "ata.s"
 
-.include "asm.s"
+.include "token.s"
 .include "shell.s"
 
 .include "iso9660.s"

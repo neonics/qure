@@ -16,6 +16,6 @@ kernel.o: kernel.s debug.s realmode.s print.s pmode.s pic.s gdt.s idt.s tss.s \
 		ata.s \
 		acpi.s \
 		iso9660.s \
-		asm.s shell.s
+		token.s shell.s
 	$(AS) -o $@ $<
 	../util/checksymbols $@
