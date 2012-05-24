@@ -38,9 +38,7 @@ LOAD_OFFS= 0 # the base address (16 bit offset) for which the binary is coded
 	sub	si, 0b - black
 	mov	cx, 512
 	rep	movsb
-	push	LOAD_SEG
-	push	(offset 0f) + LOAD_OFFS
-	retf
+	jmp	LOAD_SEG, (offset 0f) + LOAD_OFFS
 0:
 .endif
 ###################################################################
@@ -51,6 +49,14 @@ LOAD_OFFS= 0 # the base address (16 bit offset) for which the binary is coded
 	#mov	sp, 512	# make it so, regardless of bios
 	mov	cs:[sp_bkp$], sp
 	#mov	cs:[ss_bkp$], ss
+	.if 1
+	# have the stack before cs:0000
+	mov	sp, cs
+	sub	sp, 65536 >> 4
+	mov	ss, sp
+	mov	sp, 0xfffe	# word alignment
+	.else
+	# set up stack at cs:0xF000
 	mov	sp, cs
 	mov	ss, sp
 	mov	sp, 512	# use the 0xaa55 signature
@@ -58,6 +64,7 @@ LOAD_OFFS= 0 # the base address (16 bit offset) for which the binary is coded
 0:	pop	sp
 	and	sp, ~0xff
 	add	sp, 0xF000 + (CODE_SIZE - black) & ~ 0xff
+	.endif
 	call	1f
 0:
 halt:	hlt

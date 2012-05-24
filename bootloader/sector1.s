@@ -243,8 +243,14 @@ main:
 	mov	ah, 0xf2
 	call	printhex8
 
+	print "Stack: "
 	push	edx
 	xor	edx, edx
+	mov	dx, ss
+	call	printhex
+	sub	di, 2
+	mov	al, ':'
+	stosw
 	mov	dx, sp
 	call	printhex8
 	mov	eax, edx
@@ -260,6 +266,20 @@ main:
 0:	mov	ah, 0x3f
 	print	"Room after image before stack: "
 	call	printhex8
+	mov	ah, 0x2f
+	print	"Load region: "
+	mov	edx, ebx
+	call	printhex8
+	push	edx
+	xor	edx, edx
+	mov	eax, 0x200
+	mul	ecx
+	mov	edx, eax
+	add	edx, ebx
+	mov	ah, 0x2f
+	call	printhex8
+	pop	edx
+
 	pop	eax
 
 .if 0
@@ -280,10 +300,29 @@ mov dx, bx
 call printhex
 call newline
 pop ax
+
 	inc	ecx
 ################################# load loop
 0:	push	ecx		# remember sectors to load
 	push	eax		# remember offset
+
+	.if 0	# use this to debug when loading fails
+		# The first bug to surface is when the kernel reaches
+		# 64k.
+	push	di
+	push	edx
+	push	ax
+	mov	di, 22*160
+	mov	ah, 0xfc
+	xor	edx, edx
+	mov	dx, bx
+	call	printhex8
+	mov	edx, ecx
+	call	printhex8
+	pop	ax
+	pop	edx
+	pop	di
+	.endif
 
 PRINT_LOAD_SECTORS = 0
 	.if PRINT_LOAD_SECTORS
