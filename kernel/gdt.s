@@ -2,26 +2,66 @@
 # .word limit[15:0]	(limit: 20 bits total)
 # .word base[15:0]	(base:  32 bits total)
 # .byte base[23:16]
-# .byte access		(access: 1 byte: [Pr Privl:Privl 1 Ex DC RW Ac])
-#			Pr: Present Bit - 1 for valid sectors (enable)
-#			Privl: ring level (0 hi, 3 lo)
-#			Ex: Executable bit (1=code, 0=data)
-#			DC: Direction (data)/Conforming(code)
-#			  Direction/data: 0 grow up,
-#			  	1 grow down (offset with seg > limit)
-#			  Conforming/code: use of Privl/Ring
-#				1 can exec equal/lower ring
-#				0 can exec only equal ring
-#			RW: readable/writeable
-#			  code: readable bit (write always prohibited)
-#			  data: writable (read access always)
-#			Ac: access bit, set by CPU on access and for TSS
+# .byte access		(access: 1 byte: [P DPL[2] S Ex DC RW Ac])
+#			P: Present Bit - 1 for valid sectors (enable)
+#			Privl: DPL - ring level (0 hi, 3 lo)
+#			S: 0=system 1 = code or data
+#			Type: 4 bits:
+#			  For S = 1 (code or data) type means:
+#				Ex: Executable bit (1=code, 0=data)
+#				DC: Direction (data)/Conforming(code)
+#				  data: Direction:
+#					0 grow up,
+#				  	1 grow down (offset with seg > limit)
+#				  code: Conforming: use of Privl/Ring
+#					1 can exec equal/lower ring
+#					0 can exec only equal ring
+#				RW: readable/writeable
+#				  code: readable bit (write always prohibited)
+#				  data: writable (read access always)
+#				Ac: access bit, set by CPU on access and for TSS
+#			  For S = 0 (system), type means:
+#				0000 reserved
+#				0001 16 bit TSS (available)
+#				0010 LDT
+#				0011 16 bit TSS (busy)
+#				0100 16 bit Call Gate
+#				0101 Task Gate
+#				0110 16 bit Interrupt Gate
+#				0111 16 bit Trap Gate
+#				1000 reserved
+#				1001 32 bit TSS (available)
+#				1010 reserved
+#				1011 32 bit TSS (busy)
+#				1100 32 bit Call Gate
+#				1101 reserved
+#				1110 32 bit Interrupt Gate
+#				1111 32 bit Trap Gate
+#
+#			   Reordered: [S G TT]
+#				S	Size: 0 = 16 bit, 1 = 32 bit
+#				G	Gate: 1 = gate, 0 = LDT/TSS
+#				TT	G=1:	00 = Call Gate
+#						01 = Task Gate (32 bit only)
+#						10 = Interrupt Gate
+#						11 = Trap Gate
+#					G=0:	10 = LDT (32 bit only)
+#						x1 = TSS (x: 1=Busy,0=Avail)
 #			
-# .nybble(hi) flags[4]	(flags: 4 bits: Gr Sz 0 0)
-#			Gr: granularity.
-#			  0: limit in 1kb blocks "byte granularity"
-#			  1: limit in 4kb blocks "page granularity"
-#			Sz: size: 0 if 16 bit pmode, 1 32 bit pmode
+# .nybble(hi) flags[4]	(flags: 4 bits: G D/B L AVL)
+#			G: granularity: 0=limit * 1 byte, 1 = limit * 4kb
+#			  0: limit in 1 byte blocks "byte granularity" (max 1Mb)
+#			  1: limit in 4kb blocks "page granularity" (max 4Gb)
+#			D/B: default operation size/stack ptr size/upper bound
+#				0 = 16 bit, 1 = 32 bit
+#				- exec code segment: D (default operation size)
+#				- stack segment: B (big) (esp/sp)
+#				- expand down data segment: B: upper bound,
+#				  1 = upper bound = 4Gb, 0 = upper bound = 64kb
+#			L: Long mode - in IA-32e mode: (when set, D must be 0)
+#			    1 = 64 bit code segment; 0 = 32 bit compat mode
+#			AVL: available for use by system software.
+#			    
 # .nybble(lo) limit[19:16]
 # .byte base[31:24]
 .intel_syntax noprefix
@@ -40,7 +80,7 @@
 .equ ACC_RW,	1 << 1
 .equ ACC_AC,	1 << 0
 
-.equ FL_GR1kb,	0 << 3
+.equ FL_GR1b,	0 << 3
 .equ FL_GR4kb,	1 << 3
 .equ FL_16,	0 << 2
 .equ FL_32,	1 << 2
@@ -50,7 +90,7 @@
 .equ ACCESS_DATA, (ACC_PR|ACC_RING0|ACC_NRM|ACC_DATA|ACC_RW) # 0x92
 .equ ACCESS_TSS,  (ACC_PR|ACC_RING0|ACC_CODE|ACC_AC) # 0x89
 .equ FLAGS_32, (FL_GR4kb|FL_32) # 0x0c
-.equ FLAGS_16, (FL_GR1kb|FL_16) # 0x00
+.equ FLAGS_16, (FL_GR1b|FL_16) # 0x00
 .equ FLAGS_TSS, FL_32
 
 .macro DEFGDT base limit access flags
@@ -91,6 +131,11 @@ pm_gdtr:.word . - GDT -1
 rm_gdtr:.word 0
 	.long 0
 
+# Segment selector format:
+# [15:3] descriptor index (0..8191). Offset in descriptor table: & ~7
+# [2]: Local/Global: 1 = LDT, 0 = GDT
+# [1:0]: RPL - requested privilege level (0..3)
+
 .equ SEL_flatCS,	8 * 1	# 08
 .equ SEL_flatDS, 	8 * 2	# 10
 .equ SEL_tss,		8 * 3	# 18
@@ -128,10 +173,10 @@ rm_gdtr:.word 0
 .endm
 
 
-.macro GDT_GET_BASE target, sel
-	xor	\target, \target
+.macro GDT_GET_BASE sel
+	xor	eax, eax
 	mov	al, [GDT + \sel + 7]
-	shl	\target, 16
+	shl	eax, 16
 	mov	ax, [GDT + \sel + 2]
 .endm
 

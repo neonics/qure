@@ -19,27 +19,13 @@ DEFINE = 1
 .include "cmos.s"
 .include "ata.s"
 
+.include "mem.s"
+
 .include "token.s"
 .include "shell.s"
 
 .include "iso9660.s"
 ###################################
-
-	.macro MORE
-.if SHOWOFF
-	call	newline
-	PRINT_START 0xf1
-	LOAD_TXT " --- More --- "
-	call	__println
-	PRINT_END -1
-	xor	ah, ah
-	call	keyboard
-	PRINT_START
-	LOAD_TXT "              "
-	call	__print
-	PRINT_END -1
-.endif
-	.endm
 
 .text
 .code32
@@ -52,7 +38,6 @@ kmain:
 
 	PRINTLNc 11 "Protected mode initialized."
 	COLOR 0xf
-
 .if SHOWOFF
 	PRINT	"Press key to stop timer."
 	mov	ah, 0
@@ -109,43 +94,22 @@ kmain:
 	
 	mov	edx, offset memory_map
 	call	printhex8
-	
-	mov	esi, offset memory_map
-0:	call	newline
-	cmp	dword ptr [esi + 20 ], 0 # memory_map_attributes], 0
-	jz	0f
-	
-	mov	edx, [esi + 4 ] #memory_map_base + 4 ]
-	call	printhex8
-	mov	edx, [esi + 0 ] #memory_map_base + 0 ]
-	call	printhex8
-	PRINT	" | "
 
-	mov	edx, [esi + 12 ] #memory_map_length + 4 ]
-	call	printhex8
-	mov	edx, [esi + 8 ] # memory_map_length + 0 ]
-	call	printhex8
-	PRINT	" | "
+	call	newline
 
-	mov	edx, [esi + 16 ] # memory_map_region_type ]
-	call	printhex8
-
-	add	esi, 24 # memory_map_struct_size
-	jmp	0b
-0:
-
+	call	mem_init
 .if SHOWOFF
 	MORE
 .endif
 	###################################################################
 
-.if 1
 	I "BDA:"
 
 	call	bios_list_bda
 
+.if SHOWOFF
 	MORE
-
+.endif
 	###################################################################
 
 	I "CMOS:"
@@ -153,8 +117,9 @@ kmain:
 
 	call	cmos_list
 
+.if SHOWOFF
 	MORE
-
+.endif
 	###################################################################
 
 	I "Listing PCI devices:"
@@ -162,9 +127,10 @@ kmain:
 
 	call	pci_list_devices
 
+.if SHOWOFF
 	MORE
-
 .endif
+
 
 	I "ATA:"
 

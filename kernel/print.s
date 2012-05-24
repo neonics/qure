@@ -56,6 +56,14 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	.endif
 .endm
 
+.macro PUSH_SCREENPOS
+	push	dword ptr [screen_pos]
+.endm
+
+.macro POP_SCREENPOS
+	pop	dword ptr [screen_pos]
+.endm
+
 
 # c:
 # 0  : load ah with screen_color
@@ -115,10 +123,17 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 .endm
 
 .macro PRINTCHAR c
+	.if 1
+	push	ax
+	mov	al, \c
+	call	printchar
+	pop	ax
+	.else
 	PRINT_START
 	mov	al, \c
 	stosw
 	PRINT_END
+	.endif
 .endm
 
 .macro PRINTCHARc col, c
@@ -164,21 +179,33 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 .endm
 
 .macro PRINTc color, str
+	.if 1
+	pushcolor \color
+	PRINT "\str"
+	popcolor
+	.else
 	PRINT_START \color
 	push	esi
 	LOAD_TXT "\str"
 	call	__print
 	pop	esi
 	PRINT_END
+	.endif
 .endm
 
 .macro PRINTLNc color, str
+	.if 1
+	pushcolor \color
+	PRINTLN "\str"
+	popcolor
+	.else
 	PRINT_START \color
 	push	esi
 	LOAD_TXT "\str"
 	call	__println
 	pop	esi
 	PRINT_END
+	.endif
 .endm
 ####################
 
@@ -478,6 +505,13 @@ printdec32:	# UNTESTED
 	push	ebx
 	push	edx
 	push	ecx
+
+	or	edx, edx
+	jns	0f
+	neg	edx
+	mov	al, '-'
+	stosw
+0:
 
 	mov	bh, ah
 	mov	ecx, 10

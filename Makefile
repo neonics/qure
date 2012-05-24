@@ -79,4 +79,4 @@ build/asm.exe: util/asm.y util/asm.l
 	gcc -o $@ build/asm.lex.c build/asm.parser.c
 
 build/malloc.exe: util/malloc.cpp
-	gcc -std=c++0x -o $@ $<
+	g++ -std=c++0x -o $@ $<

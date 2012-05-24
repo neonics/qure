@@ -242,6 +242,16 @@ DEBUG_TOKENS = 0
 	call	partinfo$
 	jmp	start$
 1:
+	IS_TOKEN "mtest"
+	jnz	1f
+	call	malloc_test$
+	jmp	start$
+1:
+	IS_TOKEN "mem"
+	jnz	1f
+	call	print_handles$
+	jmp	start$
+1:
 	IS_TOKEN "quit"
 	jnz	1f
 	printlnc 12, "Terminating shell."

@@ -137,3 +137,34 @@
 	PRINTc 7 "\m"
 .endm
 
+
+.macro MORE
+.if 1
+	push	eax
+	call	newline
+	sub	[screen_pos], dword ptr 160
+	PUSH_SCREENPOS
+	PRINTc 0xf1, " --- More ---"
+	xor	ah, ah
+	call	keyboard
+	POP_SCREENPOS
+	PUSH_SCREENPOS
+	PRINT "             "
+	POP_SCREENPOS
+	pop	eax
+.else
+	call	newline
+	PRINT_START 0xf1
+	LOAD_TXT " --- More --- "
+	call	__println
+	PRINT_END -1
+	xor	ah, ah
+	call	keyboard
+	PRINT_START
+	LOAD_TXT "              "
+	call	__print
+	PRINT_END -1
+
+.endif
+.endm
+
