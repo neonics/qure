@@ -11,11 +11,12 @@ kernel.bin: kernel.o
 	objcopy -O binary $< $@
 
 KERNEL_SRC = kernel.s debug.s realmode.s print.s \
-	pmode.s pic.s gdt.s idt.s tss.s mem.s
+	pmode.s pic.s gdt.s idt.s tss.s \
+	mem.s hash.s list.s string.s
 
-HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s \
+HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s
 
-FS_SRC = iso9660.s
+FS_SRC = iso9660.s partition.s fat.s
 
 
 kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s $(FS_SRC) token.s shell.s

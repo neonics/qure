@@ -20,6 +20,11 @@ DEFINE = 1
 .include "ata.s"
 
 .include "mem.s"
+.include "hash.s"
+.include "string.s"
+
+.include "partition.s"
+.include "fat.s"
 
 .include "token.s"
 .include "shell.s"
@@ -146,6 +151,11 @@ kmain:
 	call	iso9660_test
 
 	##################################################################
+
+	I "Hash test"
+	call	newline
+	call	hash_test
+
 
 	I "Shell"
 	call	newline

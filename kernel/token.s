@@ -211,6 +211,64 @@ tokenize:
 
 	ret
 
+##############################################################################
+## tokens_merge
+#
+# This method merges all non-space separated tokens into an array of strings.
+# The array consists of ebx pointing to an array of pointers, the last one
+# zero, and edi, a buffer to hold the (concatenated) zero terminated strings.
+# All space tokens are removed, yielding only the non-space characters.
+# The tokenizer splits on character class boundaries, so that "a/b c"
+# will be tokenized as ["a", "/", "b", " ", "c"].
+# The resulting output will be ["a/b", "c"]
+#
+# in: edx = pointer to tokens produced by tokenize
+# in: ecx = pointer to the end of the tokens (for buffer overflow checks)
+# in: ebx = pointer to an array able to hold pointers into stringdata
+# in: edi = pointer to stringdata able to hold the token string (asciz)
+# destroys: esi, eax
+# out: ebx = pointer to last string + 1 ([ebx] = 0)
+# out: edi = pointer to end of string buffer
+# out: esi = pointer to last token's end of string.
+tokens_merge:
+	mov	[ebx], dword ptr 0
+	jmp	0f
+1:	add	edx, 8
+0:	#cmp	edx, ecx		# safety check
+	#jae	0f
+	cmp	byte ptr [edx], -1
+	je	0f
+	cmp	byte ptr [edx], SPACE	# skip spaces
+	je	1b
+
+	mov	[ebx], edi
+	add	ebx, 4
+	mov	[ebx], dword ptr 0
+
+1:	mov	esi, [edx + 4]
+	mov	ecx, [edx + 4 + 8]
+	add	edx, 8
+	sub	ecx, esi
+	jbe	1f	# jbe(cf=1|zf=1)  jle(cf=1|sf!=of)
+
+	rep	movsb
+
+	# check if the next token is space
+	mov	al, [edx]
+	cmp	al, SPACE
+	jne	1b
+
+	# it's a space, so terminate the argv entry
+1:	xor	al, al
+	stosb
+	jmp	0b
+0:	#mov	[ebx + 4], dword ptr 0	# case no strings and [ebx+4] expected
+	ret
+
+
+###############################################################################
+
+
 
 cc_unknown:
 	ret
@@ -293,4 +351,69 @@ get_token_handler:
 	pop	edi
 	ret
 
+
+
+	.macro GET_TOKEN nr
+		lea	esi, [cmdline_tokens +16 +  8 * \nr ]
+
+		cmp	[cmdline_tokens_end], esi
+		jb	9f	# jb = jc
+		sub	esi, 16
+		.if DEBUG_TOKENS
+		jmp	8f
+	9:	PRINTc 4, "No such token \nr - max tokens: "
+		mov	edx, [cmdline_tokens_end]
+		sub	edx, offset cmdline_tokens
+		shr	edx, 3
+		call	printhex
+		call	newline
+		stc
+	8:	
+		.else
+	9:	
+		.endif
+	.endm
+
+
+
+	.macro GET_TOKEN_STRING nr
+		mov	esi, offset cmdline_tokens  + 8 * \nr + 16
+
+		cmp	[cmdline_tokens_end], esi
+		jb	9f	# jb = jc
+		sub	esi, 12
+		mov	ecx, [esi + 8]
+		mov	esi, [esi]
+		sub	ecx, esi
+		.if DEBUG_TOKENS
+		jmp	8f
+	9:	PRINTc 4, "No such token \nr - max tokens: "
+		mov	edx, [cmdline_tokens_end]
+		sub	edx, offset cmdline_tokens
+		shr	edx, 3
+		call	printhex
+		call	newline
+		stc
+	8:	
+		.else
+	9:	
+		.endif
+	.endm
+
+	.macro IS_TOKEN tok
+		.data
+		9: .ascii "\tok"
+		8: 
+		.text
+		push	esi
+		mov	esi, offset cmdline_tokens + 4
+		mov	ecx, [esi+8]
+		mov	esi, [esi]
+		sub	ecx, esi
+		cmp	ecx, 8b - 9b
+		jne	9f
+		mov	edi, offset 9b
+		repz	cmpsb
+	9:	pop	esi
+	.endm
 

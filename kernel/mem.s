@@ -27,7 +27,7 @@ mem_heap_alloc_start: .long 0
 mem_sel_base: .long 0
 mem_sel_limit: .long 0
 
-MEM_DEBUG = 1
+MEM_DEBUG = 0
 
 .text
 .code32
@@ -762,6 +762,7 @@ more:	MORE
 # in: eax = size to allocate
 # out: base address of allocated memory
 malloc_internal$:
+	.if MEM_DEBUG > 1
 		push	edx
 		pushcolor 10
 		mov	edx, eax
@@ -770,17 +771,19 @@ malloc_internal$:
 		mov	edx, [mem_heap_alloc_start]	# base
 		call	printhex8
 		printchar ' '
+	.endif
 
 	push	dword ptr [mem_heap_alloc_start]
 	add	[mem_heap_alloc_start], eax
 	pop	eax
 
+	.if MEM_DEBUG > 1
 		mov	edx, [mem_heap_alloc_start]	# new free
 		call	printhex8
 		call	newline
-
 		popcolor 10
 		pop	edx
+	.endif
 	ret
 
 .text
@@ -898,6 +901,7 @@ print_handles$:
 
 
 	.macro PRINT_LL_FIRSTLAST listname=""
+	.if MEM_DEBUG
 		printc 4, " \listname["
 		push	edx
 		mov	edx, [edi]
@@ -909,6 +913,7 @@ print_handles$:
 		call	printdec32
 		pop	edx
 		printc 4, "] "
+	.endif
 	.endm
 
 	.macro LL_PRINT firstlast, prevnext
@@ -1467,10 +1472,10 @@ malloc:
 		.endif
 	mov	eax, [esi + ebx + handle_base]
 	jmp	1f
-2:
 
-	call	get_handle$
-		.if MEM_DEBUG
+2:	call	get_handle$
+
+	.if MEM_DEBUG
 		pushcolor 13
 		print " new "
 		push	edx
@@ -1480,14 +1485,19 @@ malloc:
 		printchar ' '
 		pop	edx
 		popcolor 
-		.endif
+	.endif
+
 	mov	[esi + ebx + handle_size], eax
 	call	malloc_internal$
+
+	.if MEM_DEBUG
 		push	edx
 		print " base: "
 		mov	edx, eax
 		call	printhex8
 		pop	edx
+	.endif
+
 	mov	[esi + ebx + handle_base], eax
 
 	push	edi
@@ -1502,12 +1512,10 @@ malloc:
 	pop	ebx
 
 	.if MEM_DEBUG > 1
-	pushad
-	pushcolor 8
-	call	print_handles$
-	MORE
-	popcolor
-	popad
+		pushcolor 8
+		call	print_handles$
+		MORE
+		popcolor
 	.endif
 	ret
 
@@ -1922,7 +1930,9 @@ ll_update$:
 	js	3f
 	loop	0b
 3:	# append to end of list
+	.if MEM_DEBUG
 	printc 3, "LAST"
+	.endif
 	# last -> ebx
 	mov	eax, ebx
 	xchg	eax, [edi + ll_last]
@@ -1949,7 +1959,7 @@ ll_update$:
 	# x <-> ebx -> eax <-> y
 	# eax.prev = ebx
 	# x <-> ebx <-> eax <->y
-	.if 0
+	.if MEM_DEBUG > 1
 	push	edx
 	print "INSERT "
 	mov	edx, eax
@@ -1971,7 +1981,9 @@ ll_update$:
 	pop	edx
 	.endif
 	
+	.if MEM_DEBUG
 	printc 3, "PREPEND"
+	.endif
 
 #	or	eax, eax
 #	js	3f
@@ -1988,7 +2000,9 @@ ll_update$:
 	######################################################
 
 1:	# store it as the first handle
+	.if MEM_DEBUG
 	printc 3, "FIRST"
+	.endif
 	mov	[esi + ebx + ll_next], dword ptr -1
 	mov	[esi + ebx + ll_prev], dword ptr -1
 	mov	[edi + ll_first], ebx
