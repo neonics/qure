@@ -12,7 +12,47 @@ cmdline_argdata: .space MAX_CMDLINE_LEN + MAX_CMDLINE_ARGS
 cmdline_args:	.space MAX_CMDLINE_ARGS * 4
 insertmode: .byte 1
 cursorpos: .long 0
+
+############################################################################
+.struct 0
+shell_command_code: .long 0
+shell_command_string: .long 0
+shell_command_length: .word 0
+SHELL_COMMAND_STRUCT_SIZE: 
 .text
+
+.macro SHELL_COMMAND string, addr
+	.data 1
+		9: .asciz "\string"
+		8:
+	.data
+		.long \addr
+		.long 9b
+		.word 8b - 9b
+	.text
+.endm
+
+.data
+.align 4
+SHELL_COMMANDS:
+
+SHELL_COMMAND "ls",		cmd_ls$
+SHELL_COMMAND "cluster",	cmd_cluster$
+SHELL_COMMAND "cd",		cd$
+SHELL_COMMAND "cls",		cls
+SHELL_COMMAND "pwd",		cmd_pwd$
+SHELL_COMMAND "disks",		disks_print$
+SHELL_COMMAND "fdisk",		cmd_fdisk$
+SHELL_COMMAND "partinfo",	cmd_partinfo$
+SHELL_COMMAND "mtest",		malloc_test$
+SHELL_COMMAND "mem",		print_handles$
+SHELL_COMMAND "quit",		cmd_quit$
+SHELL_COMMAND "exit",		cmd_quit$
+SHELL_COMMAND "help",		cmd_help$
+.data
+	.space SHELL_COMMAND_STRUCT_SIZE
+
+.text	
 .code32
 
 shell:	push	ds
@@ -178,91 +218,71 @@ enter$:
 0:	call	newline
 	.endif
 
+	# Find the command.
 
+	mov	edi, [cmdline_args + 0]
+	or	edi, edi
+	jz	0f
+
+	mov	ebx, offset SHELL_COMMANDS
+0:	cmp	[ebx + shell_command_code], dword ptr 0
+	jz	0f
+
+	mov	esi, [ebx + shell_command_string]
+	or	esi, esi
+	jz	0f
+	movzx	ecx, word ptr [ebx + shell_command_length]
+	push	edi
+	repz	cmpsb
+	pop	edi
+	jz	1f
+
+	add	ebx, SHELL_COMMAND_STRUCT_SIZE
+	jmp	0b
+
+0:	PRINTLNc 4, "Unknown command"
+	jmp	start$
+
+	# call the command
+
+1:	mov	edx, [ebx + shell_command_code]
 	mov	esi, offset cmdline_args
 
-	.macro IS_COMMAND str
-		.data
-		9: .ascii "\str\0"
-		8: 
-		.text
-		push	esi
-		mov	esi, [cmdline_args + 0]
-		or	esi, esi
-		jz	9f
-		mov	ecx, 8b - 9b
-		mov	edi, offset 9b
-		repz	cmpsb
-	9:	pop	esi
-	.endm
+	add	edx, [realsegflat]
+	call	edx
 
-	IS_COMMAND "ls"
-	jnz	1f
-	printlnc 11, "Directory Listing."
-	xor	eax, eax
-	call	ls$
 	jmp	start$
-1:
-	IS_COMMAND "cluster"
-	jnz	1f
-	mov	eax, 2
-	call	ls$
-	jmp	start$
-1:
-	IS_COMMAND "cd"
-	jnz	1f
-	call	cd$
-	jmp	start$
-1:
-	IS_COMMAND "pwd"
-	jnz	1f
-	mov	esi, offset cwd$
-	call	println
-	jmp	start$
-1:
-	IS_COMMAND "cls"
-	jnz	1f
-	call	cls
-	jmp	start$
-1:
-	IS_COMMAND "disks"
-	jnz	1f
-	call	disks_print$
-	jmp	start$
-1:
-	IS_COMMAND "fdisk"
-	jnz	1f
-	call	cmd_fdisk$
-	jmp	start$
-1:
-	IS_COMMAND "partinfo"
-	jnz	1f
-	call	cmd_partinfo$
-	jmp	start$
-1:
-	IS_COMMAND "mtest"
-	jnz	1f
-	call	malloc_test$
-	jmp	start$
-1:
-	IS_COMMAND "mem"
-	jnz	1f
-	call	print_handles$
-	jmp	start$
-1:
-	IS_COMMAND "quit"
-	jnz	1f
+	
+#######
+
+cmd_quit$:
 	printlnc 12, "Terminating shell."
-
-	mov	edx, esp
-	call	printhex8
-
-	xor	eax, eax
-	call	keyboard
+	add	esp, 4	# skip returning to the shell loop and return from it.
 	ret
 
-1:	PRINTLNc 4, "Unknown command"
-	jmp	start$
+
+cmd_pwd$:
+	mov	esi, offset cwd$
+	call	println
+	ret
+
+cmd_help$:
+	mov	ebx, offset SHELL_COMMANDS
+0:	mov	esi, [ebx + shell_command_string]
+	or	esi, esi
+	jz	0f
+	cmp	[ebx + shell_command_code], dword ptr 0
+	jz	0f
+	call	print
+	mov	al, ' '
+	call	printchar
+	add	ebx, SHELL_COMMAND_STRUCT_SIZE
+	jmp	0b
+0:	call	newline
+	ret
+
+## Keyboard handler for the shell
+
 
 bs$:	
 	push	edi
@@ -352,6 +372,7 @@ print_cmdline$:
 	pop	esi
 
 	ret
+
 
 .data
 cmdline_identifier: .byte ALPHA, DIGIT, '_', '.'
@@ -653,6 +674,15 @@ cd_slash$:
 cwd$:	.space 1024
 tmp_buf$: .space 2 * 512
 .text
+
+cmd_ls$:
+	xor	eax, eax
+	jmp	ls$
+
+cmd_cluster$:
+	mov	eax, 2
+	jmp	ls$
+
 
 ls$:	mov	ebx, [fat_root_lba$]
 	or	ebx, ebx
