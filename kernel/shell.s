@@ -73,8 +73,7 @@ start$:
 
 	mov	dword ptr [cursorpos], 0
 	mov	dword ptr [cmdlinelen], 0
-
-0:
+start1$:
 	call	print_cmdline$
 
 	mov	edi, offset cmdline
@@ -106,6 +105,9 @@ start$:
 	cmp	ax, K_BACKSPACE
 	jz	bs$
 
+	cmp	ax, K_DELETE
+	jz	del$
+
 	cmp	ax, K_LEFT
 	jz	left$
 	cmp	ax, K_RIGHT
@@ -115,9 +117,9 @@ start$:
 	jz	toggleinsert$
 
 	cmp	al, 127
-	jae	0b	# ignore
+	jae	start1$	# ignore
 	cmp	al, 32
-	jb	0b	# ignore
+	jb	start1$	# ignore
 	
 1:	#cmp	byte ptr [insertmode], 0
 	#jz	insert$
@@ -128,7 +130,7 @@ start$:
 	# beep
 	jb	1f	
 	# beep
-	jmp	0b
+	jmp	start1$
 1:	
 	cmp	byte ptr [insertmode], 0
 	jz	1f
@@ -147,7 +149,7 @@ start$:
 	inc	dword ptr [cursorpos]
 	inc	dword ptr [cmdlinelen]
 
-	jmp	0b
+	jmp	start1$
 
 enter$:	
 	PRINT_START
@@ -283,21 +285,28 @@ cmd_help$:
 
 ## Keyboard handler for the shell
 
+del$:	
+	mov	ecx, [cmdlinelen]
+	sub	ecx, edi
+	add	ecx, offset cmdline
+	jle	start1$
+	mov	esi, edi
+	inc	esi
+	rep	movsb
+	dec	dword ptr [cmdlinelen]
+	jmp	start1$
 
 bs$:	
-	push	edi
 	cmp	edi, offset cmdline 
-	jbe	0b
+	jbe	start1$
 	cmp	edi, [cmdlinelen]
 	jz	1f
 	mov	esi, edi
 	dec	edi
 	mov	ecx, 1024 + offset cmdline
 	sub	ecx, esi
-	jz	2f
+	jz	1f
 	rep	movsb
-2:	pop	edi
-
 
 1:	dec	dword ptr [cursorpos]
 	jns	1f
@@ -306,18 +315,18 @@ bs$:
 	dec	dword ptr [cmdlinelen]
 	jns	1f
 	PRINTlnc 4, "Error: cmdlinelen < 0"
-1:	jmp	0b
+1:	jmp	start1$
 
 left$:	dec	dword ptr [cursorpos]
-	jns	start$
+	jns	start1$
 	inc	dword ptr [cursorpos]
-	jmp	start$
+	jmp	start1$
 
 right$:	mov	eax, [cursorpos]
 	cmp	eax, [cmdlinelen]
-	jae	start$
+	jae	start1$
 	inc	dword ptr [cursorpos]
-	jmp	start$
+	jmp	start1$
 
 clear$:	mov	ax,(7<<8)| ' '
 	xor	ecx, ecx
@@ -332,7 +341,7 @@ clear$:	mov	ax,(7<<8)| ' '
 	loop	1b
 	pop	edi
 	PRINT_END
-	jmp	0b # start$
+	jmp	start1$
 
 toggleinsert$:
 	xor	byte ptr [insertmode], 1
@@ -486,6 +495,9 @@ cd$:
 
 3:	mov	edi, offset tmp_buf$
 	mov	ecx, 1
+	.data
+	tmp_drv$: .long 0
+	.text
 	mov	al, [tmp_drv$]
 	call	ata_read	# ebx=lba
 	jc	2f

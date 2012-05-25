@@ -43,8 +43,10 @@ disks_init$:
 	mov	esi, offset ata_drive_types
 	mov	ecx, 8
 0:	lodsb
-	cmp	al, TYPE_ATA
-	jnz	2f
+	or	al, al
+	jz	2f
+	#cmp	al, TYPE_ATA
+	#jnz	2f
 	mov	al, 8
 	sub	al, cl
 	stosb
@@ -71,13 +73,18 @@ disks_print$:
 
 	movzx	ecx, dl
 	mov	esi, offset ata_drives$
-0:	mov	dl, [esi]
+	xor	ah, ah
+0:	mov	dl, ah
 	call	printhex1
+
+	mov	dl, [esi]
 	print	" (hd"
 	mov	al, dl
 	add	al, 'a'
 	call	printchar
 	print	") "
+
+	inc	ah
 	inc	esi
 	loop	0b
 
@@ -315,8 +322,6 @@ DEBUG_CHS = 0
 #####################################
 # Reads and prints the VBR (Volume Boot Record) for all partitions (for now)
 
-.data
-tmp_drv$: .byte 0
 .text
 
 cmd_partinfo$:
