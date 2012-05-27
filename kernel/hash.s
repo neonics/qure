@@ -1,6 +1,10 @@
 .intel_syntax noprefix
 .code32
 # requires ll_* - list.s (currently asm.s)
+
+
+
+
 ############################################ Two dimensional linked list
 .struct 0
 # horizontal linked list:
@@ -129,50 +133,272 @@ hash_new_node:
 	ret
 
 #################
-BUF_OBJECT_SIZE = 5*4
+BUF_OBJECT_SIZE = 8
 .struct -BUF_OBJECT_SIZE
-buf_base: .long 0	# memory pointer
 buf_capacity: .long 0	# pointer to capacity relative to base
 buf_index: .long 0	# pointer to the last used element in the buf
-buf_itemsize: .long 0 # number of bytes per item 
-buf_growsize: .long 0 # bytes to add on each mrealloc
+#
+#buf_itemsize: .long 0 # number of bytes per item 
+#buf_growsize: .long 0 # bytes to add on each mrealloc
 .text
 # in: eax = initial capacity
-# in: esi = pointer to buf metadata being updated
+# out: eax = pointer to BUF object.
 buf_new:
-	mov	[esi + buf_capacity], eax
-	mov	[esi + buf_index], dword ptr 0
-	add	eax, BUF_OBJECT_SIZE
+	push	eax
+	add	eax, 8
 	call	malloc
-	mov	[esi + buf_base], eax
+	pop	[eax]
+	mov	[eax + 4], dword ptr 0
+	add	eax, 8
 	ret
 
-# in: eax = size to add (in bytes)
-# in: esi = pointer to buf metadata
+buf_free:
+	sub	eax, 8
+	call	mfree
+	ret
+
+# in: eax = buffer array base pointer
+# in: edx = size to add (in bytes)
+# out: eax = pointer to new buffer 
+# destroyed: edx
 buf_grow:
+	add	edx, [eax + buf_capacity]
 	push	edx
-	mov	edx, eax
-	add	edx, [esi + buf_capacity]
-	mov	eax, [esi + buf_base]
-	push	eax
 	call	mrealloc
-	mov	[esi + buf_base], eax
-	pop	dword ptr [esi + buf_capacity]
-	pop	edx
+	pop	dword ptr [eax + buf_capacity]
 	ret
 
 # in: esi = buf metadata
 # out: esi+eax = pointer to item
-buf_newitem:
-	mov	eax, [esi + buf_index]
-	cmp	eax, [esi + buf_capacity]
+#buf_newitem:
+#	mov	eax, [esi + buf_index]
+#	cmp	eax, [esi + buf_capacity]
+#	jb	0f
+#	mov	eax, [esi + buf_growsize]
+#	call	buf_grow
+#
+#	mov	eax, [esi + buf_index]
+#	cmp	eax, [esi + buf_capacity]
+#	jb	0f
+#
+#0:	
+#	ret
+
+# in: eax = base ptr
+array_appendcopy:
+	mov	edi, [eax - 4]
+	mov	edx, [eax - 8]
+	sub	edx, edi
+	cmp	ecx, edx
 	jb	0f
-	mov	eax, [esi + buf_growsize]
+	mov	edx, ecx
 	call	buf_grow
-
-	mov	eax, [esi + buf_index]
-	cmp	eax, [esi + buf_capacity]
-	jb	0f
-
-0:	
+0:
 	ret
+
+.data
+DEFAULT_OBJECT_POOL_SIZE = 16
+DEFAULT_OBJECT_POOL_GROW_SIZE = 4
+CLASS_CLASS	= 0
+CLASS_OBJECT	= 1
+CLASS_ARRAY	= 2
+global_class_pool: .long 0
+.text
+
+array_new:
+	mov	eax, CLASS_ARRAY
+	#mov	eax, offset global_class_pool + eax * 4
+	call	object_new
+	# e
+	add	edx, eax
+
+	mov	eax, 8
+	call	malloc
+	mov	[edx], eax
+
+	mov	[eax], dword ptr 0
+	mov	[eax+4], dword ptr 0
+	ret
+
+# in: eax = reference to memory address holding global class pool pointer
+# in: ecx = bytes to allocate for the object.
+# out: eax = pointer to newly allocated object of given class.
+# out: edx = reference to memory address holding pointer
+#
+# 2^30 bit classes (due to 32 bit limitation), dynamically allocated.
+
+.data
+foo_class:
+	.long 0 # offset to class constructor
+	.long 0 # bytes to allocate
+	.long 0 # offset to new
+	.long 0 # pool pointer (class id)
+.text
+
+test_class:
+	mov	ebx, offset foo_class
+
+
+
+	# class initialization
+	# dword array
+	mov	eax, [global_class_pool]
+	or	eax, eax
+	jz	1f	# malloc
+
+		# check if initialized ([[global_class_pool]+[ebx+12])
+	.if 1
+	mov	edx, [ebx + 3*4]
+	or	edx, edx
+	jnz	6f
+	mov	edx, [eax + 4]	# load used size
+	cmp	edx, [eax]	# cmp with allocated size
+	jae	2f		# realloc
+0:	# [edx] is free pointer in array
+
+2:	add	edx, 4	# grow by one pointer
+	push	edx
+	call	mrealloc
+	pop	[eax]
+	sub	edx, 4
+	mov	[ebx + 3*4], edx
+	ret
+
+	.else
+	lea	edx, [edx * 4 + 16]
+	cmp	edx, [eax]
+	jae	2f	# realloc
+	.endif
+0:	
+	sub	edx, 16
+	add	eax, 16
+
+	mov	ecx, [eax + edx]
+	or	ecx, ecx
+	jz	5f
+6:	add	edx, eax
+	mov	eax, [ecx + 4]
+	call	malloc
+	mov	[edx], eax
+	call	[ecx + 4]	# constructor
+	ret
+
+5:	call	[ebx]	# call class constructor
+	mov	[eax + edx], ecx	# store pointer
+	jmp	6b
+	
+
+
+
+object_new:
+
+
+	# class initialization
+	# dword array
+	mov	edx, eax
+	mov	eax, [global_class_pool]
+	or	eax, eax
+	jz	1f
+	lea	edx, [edx * 4 + 16]
+	cmp	edx, [eax]
+	jae	2f
+0:	
+	sub	edx, 16
+	add	eax, 16
+
+	# eax = array/buf base
+	# edx = relative offset into array/buf, guaranteed to exist.
+	# append
+	mov	edx, [eax+4]
+	add	[eax+4], dword ptr 4
+	add	edx, eax
+	# [eax + edx ] = available memory address
+	# eax = object array base
+	# edx = pointer to object (size 4)
+	ret
+
+2:	add	edx, 4
+	push	edx
+	call	mrealloc
+	pop	[eax]
+	sub	edx, 4
+	ret
+
+# in: eax = memory pointer
+# in: ecx = address of memory to hold the address
+# in: edx = class number
+# out: eax
+1:	lea	eax, [edx * 4 + 16]
+	push	eax
+	call	malloc
+	pop	[eax]
+	mov	[global_class_pool], eax
+	jmp	0b
+	
+
+##############################################################################
+	mov	ecx, offset global_class_pool
+	mov	eax, [ecx]
+	or	eax, eax
+	mov	ebx, offset 0f
+	jz	2f	
+	cmp	edx, [eax]
+	jae	2f
+
+# First call:
+# in: eax = base address of mem to realloc
+# in: edx = class number
+2:	add	edx, DEFAULT_OBJECT_POOL_GROW_SIZE * 4
+	call	mrealloc
+	mov	[ecx], eax	# double reference: ptr->buf->size
+	mov	[eax], edx	#                   ecx->eax->edx
+	sub	edx, DEFAULT_OBJECT_POOL_GROW_SIZE * 4
+	jmp	ebx
+
+
+#
+#object_new:
+#	# class initialization
+#	# dword array
+#	mov	edx, eax
+#	mov	eax, [global_class_pool]
+#	or	eax, eax
+#	jz	1f
+#	lea	edx, [edx * 4 + 16]
+#	cmp	edx, [eax]
+#	jae	2f
+#0:	
+#	sub	edx, 16
+#	add	eax, 16
+#
+#	# eax = array/buf base
+#	# edx = relative offset into array/buf, guaranteed to exist.
+#	# append
+#	mov	edx, [eax+4]
+#	add	[eax+4], dword ptr 4
+#	add	edx, eax
+#	# [eax + edx ] = available memory address
+#	# eax = object array base
+#	# edx = pointer to object (size 4)
+#	ret
+#
+#2:	add	edx, 4
+#	push	edx
+#	call	mrealloc
+#	pop	[eax]
+#	sub	edx, 4
+#	ret
+#
+## in: eax = memory pointer
+## in: ecx = address of memory to hold the address
+## in: edx = class number
+## out: eax
+#1:	lea	eax, [edx * 4 + 16]
+#	push	eax
+#	call	malloc
+#	pop	[eax]
+#	mov	[global_class_pool], eax
+#	jmp	0b
+#	
+#
+#

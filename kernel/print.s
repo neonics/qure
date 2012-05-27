@@ -498,9 +498,14 @@ printbin8:
 ############################ PRINT DECIMAL ####################
 
 # unsigned 32 bit print
-printdec32:	# UNTESTED
+printdec32:
 	PRINT_START
+	call	__printdec32
+	PRINT_END
+	ret
 
+# unsigned 32 bit print
+__printdec32:
 	push	eax
 	push	ebx
 	push	edx
@@ -549,8 +554,8 @@ printdec32:	# UNTESTED
 	pop	ebx
 	pop	eax
 
-	PRINT_END
 	ret
+
 
 ############################ PRINT FORMATTED STRING ###########
 

@@ -13,6 +13,8 @@ cmdline_args:	.space MAX_CMDLINE_ARGS * 4
 insertmode: .byte 1
 cursorpos: .long 0
 
+cmdline_prompt_label_length: .long 0 # "the_prefix> ".length
+
 ############################################################################
 .struct 0
 shell_command_code: .long 0
@@ -33,6 +35,7 @@ SHELL_COMMAND_STRUCT_SIZE:
 .endm
 
 .data
+### Shell Command list
 .align 4
 SHELL_COMMANDS:
 
@@ -49,8 +52,11 @@ SHELL_COMMAND "mem",		print_handles$
 SHELL_COMMAND "quit",		cmd_quit$
 SHELL_COMMAND "exit",		cmd_quit$
 SHELL_COMMAND "help",		cmd_help$
+SHELL_COMMAND "hist",		cmdline_history_print
 .data
-	.space SHELL_COMMAND_STRUCT_SIZE
+.space SHELL_COMMAND_STRUCT_SIZE
+### End of Shell Command list
+
 
 .text	
 .code32
@@ -59,20 +65,37 @@ shell:	push	ds
 	pop	es
 	PRINTLNc 10, "Press ^D or type 'quit' to exit shell"
 
+	call	cmdline_history_new
 
-	# TODO: malloc the buffers
-
+	#
 
 	mov	[cwd$], word ptr '/'
 	mov	[insertmode], byte ptr 1
 
 start$:
-	mov	esi, offset cwd$
-	call	print
-	printc 15, "> "
+	print "!"
+	PUSH_SCREENPOS
+	sub	dword ptr [esp], 2
+	POP_SCREENPOS
 
 	mov	dword ptr [cursorpos], 0
 	mov	dword ptr [cmdlinelen], 0
+
+start0$:
+	.if 0
+	#PUSH_SCREENPOS
+	mov	esi, offset cwd$
+	call	print
+	printcharc 15, ':'
+
+	mov	edx, [cmdline_history_index]
+	call	printdec32
+	printc 15, "> "
+	#POP_SCREENPOS
+	.endif
+
+
+
 start1$:
 	call	print_cmdline$
 
@@ -109,9 +132,13 @@ start1$:
 	jz	del$
 
 	cmp	ax, K_LEFT
-	jz	left$
+	jz	key_left$
 	cmp	ax, K_RIGHT
-	jz	right$
+	jz	key_right$
+	cmp	ax, K_UP
+	jz	key_up$
+	cmp	ax, K_DOWN
+	jz	key_down$
 
 	cmp	ax, K_INSERT
 	jz	toggleinsert$
@@ -151,19 +178,36 @@ start1$:
 
 	jmp	start1$
 
-enter$:	
+cursor_toggle$:
 	PRINT_START
-	add	edi, [cursorpos]
-	add	edi, [cursorpos]
-	xor	es:[edi + 1], byte ptr 0xff
+	mov	ecx, [cursorpos]
+	add	ecx, [cmdline_prompt_label_length]
+	xor	es:[edi + ecx * 2 + 1], byte ptr 0xff
 	PRINT_END
+	ret
+	
+enter$:	
+	call	cursor_toggle$
 	call	newline
+
+	call	cmdline_history_add
+	jc	1f
+	mov	eax, [cmdline_history]
+	mov	edx, [eax + buf_index]
+	call	printhex8
+	mov	[cmdline_history_index], edx
+	call	newline
+#	add	eax, [eax + buf_index]
+#	mov	eax, [eax -4]
+#	mov	[cmdline_history_index], eax
+1:
 
 	xor	ecx, ecx
 	mov	[cursorpos], ecx
 	xchg	ecx, [cmdlinelen]
 	or	ecx, ecx
 	jz	start$
+
 
 	DEBUG_TOKENS = 0
 
@@ -256,6 +300,7 @@ enter$:
 	jmp	start$
 	
 #######
+###################################################################
 
 cmd_quit$:
 	printlnc 12, "Terminating shell."
@@ -317,23 +362,83 @@ bs$:
 	PRINTlnc 4, "Error: cmdlinelen < 0"
 1:	jmp	start1$
 
-left$:	dec	dword ptr [cursorpos]
+key_left$:
+	dec	dword ptr [cursorpos]
 	jns	start1$
 	inc	dword ptr [cursorpos]
 	jmp	start1$
 
-right$:	mov	eax, [cursorpos]
+key_right$:
+	mov	eax, [cursorpos]
 	cmp	eax, [cmdlinelen]
 	jae	start1$
 	inc	dword ptr [cursorpos]
 	jmp	start1$
 
-clear$:	mov	ax,(7<<8)| ' '
+key_up$:
+	mov	eax, [cmdline_history]
+	mov	ebx, [cmdline_history_index]
+	sub	ebx, 4
+	jns	0f
+#	printlnc 10, "hist first"
+#	jmp	start$
+	xor	ebx, ebx
+	jmp	0f
+
+key_down$:
+	mov	eax, [cmdline_history]
+	mov	ebx, [cmdline_history_index]
+	add	ebx, 4
+	cmp	ebx, [eax + buf_index]
+	jb	0f
+#	printlnc 10, "hist last"
+#	jmp	start$
+	mov	ebx, [eax + buf_index]
+	sub	ebx, 4
+	js	start0$	# empty
+
+0:	mov	[cmdline_history_index], ebx
+
+#mov	edx, ebx
+#call	printhex8
+#printchar ' '
+#mov	esi, [eax+ebx]
+#call	println
+
+	call	cursor_toggle$
+
+	call	cmdline_clear$
+
+	# copy history entry to commandline buffer
+.if 1
+	mov	edi, offset cmdline
+	mov	esi, [eax+ebx]
+0:	lodsb
+	stosb
+	or	al, al
+	jnz	0b
+	sub	edi, offset cmdline
+	dec	edi
+	mov	[cursorpos], edi
+	mov	[cmdlinelen], edi
+
+.endif
+	jmp	start0$
+
+
+clear$:	
+	call	cmdline_clear$
+	jmp	start1$
+
+cmdline_clear$:
+	push	eax
+	push	ecx
+	mov	ax,(7<<8)| ' '
 	xor	ecx, ecx
 	mov	[cursorpos], ecx
 	xchg	ecx, [cmdlinelen]
-	or	ecx, ecx
-	jz	start$
+	add	ecx, [cmdline_prompt_label_length]
+	jecxz	2f	# used to jump to start$
 	PRINT_START
 	push	edi
 	inc	ecx
@@ -341,7 +446,11 @@ clear$:	mov	ax,(7<<8)| ' '
 	loop	1b
 	pop	edi
 	PRINT_END
-	jmp	start1$
+2:	pop	ecx
+	pop	eax
+	ret
+
+
 
 toggleinsert$:
 	xor	byte ptr [insertmode], 1
@@ -349,6 +458,7 @@ toggleinsert$:
 
 # destroys: ecx, esi, ebx
 print_cmdline$:
+
 	push	esi
 	push	ecx
 	push	ebx
@@ -356,7 +466,41 @@ print_cmdline$:
 	PRINT_START
 	push	edi
 
+	#############
 	mov	ebx, edi
+
+	mov	ah, 7
+	mov	esi, offset cwd$
+	call	__print
+
+	mov	ah, 15
+	mov	al, ':'
+	stosw
+
+	mov	ah, 7
+	mov	edx, [cmdline_history_index]
+	shr	edx, 2
+	call	__printdec32
+	stosw
+	mov	edx, [cursorpos]
+	call	__printdec32
+
+	mov	ah, 15
+	mov	al, '>'
+	stosw
+	mov	al, ' '
+	stosw
+
+	mov	ah, 7
+
+	sub	ebx, edi
+	neg	ebx
+	shr	ebx, 1
+	mov	[cmdline_prompt_label_length], ebx
+
+	#############
+	mov	ebx, edi
+
 	mov	ecx, [cmdlinelen]
 	jecxz	2f
 	mov	esi, offset cmdline
@@ -371,7 +515,7 @@ print_cmdline$:
 
 	add	ebx, [cursorpos]
 	add	ebx, [cursorpos]
-	xor	es:[ebx+1], byte ptr 0xff
+	xor	es:[ebx + 1], byte ptr 0xff
 
 	pop	edi
 	PRINT_END
@@ -824,6 +968,125 @@ read_error$:
 
 
 
+
+##############################################################################
+# Commandline History
+#
+# This is a 'static class', a singleton, as it uses a hardcoded memory
+# address to store the pointers to the two objects it uses: a stringbuffer,
+# and an array.
+
+.data
+CMDLINE_HISTORY_MAX_ITEMS = 16
+cmdline_history: .long 0	# list/array/linked list.
+
+cmdline_history_index: .long 0	# the current array item offset (up/down keys)
+.text
+
+# static constructor
+cmdline_history_new:	
+	mov	eax, CMDLINE_HISTORY_MAX_ITEMS * 4
+	call	buf_new
+	mov	[cmdline_history], eax
+	ret
+
+# static destructor
+cmdline_history_delete:
+	mov	eax, [cmdline_history]
+	call	buf_free
+	ret
+
+
+cmdline_history_add:
+	# check whether this history item is the same as the previous
+	mov	ecx, [cmdlinelen]
+	jecxz	2f
+	mov	eax, [cmdline_history]
+	mov	esi, [eax + buf_index]
+	sub	esi, 4
+	js	1f	# hist empty
+
+	mov	esi, [eax + esi]
+	mov	edi, offset cmdline
+	repz	cmpsb
+	jz	2f	# strings unequal
+
+	# check whether this history item already exists
+	xor	ebx, ebx
+0:	cmp	ebx, [eax + buf_index]
+	jae	1f
+	mov	esi, [eax + ebx]
+	add	ebx, 4
+	mov	edi, offset cmdline
+	mov	ecx, [cmdlinelen]
+	repz	cmpsb
+	jnz	0b
+2:	stc
+	ret
+
+1:	################################
+
+	# append a pointer to the appended data to the array
+
+	mov	edi, [cmdline_history]
+	mov	esi, [edi + buf_index]
+	cmp	esi, [edi + buf_capacity]
+	jae	0f	# if below, assume 4 bytes available
+
+	add	[edi + buf_index], dword ptr 4
+1:	mov	eax, [cmdlinelen]
+	mov	[cmdline + eax], byte ptr 0
+	inc	eax
+	mov	ecx, eax
+	call	malloc
+	mov	[edi + esi], eax
+
+	mov	edi, eax
+	mov	esi, offset cmdline
+	rep	movsb
+	clc
+	ret
+
+0:	###################
+	# buffer is full. TODO: circular buffer.
+	# move the data, create an empty spot at the end:
+	
+	# delete the first item in the list
+	mov	eax, [edi]
+	call	mfree
+	mov	eax, edi
+
+	mov	esi, edi
+	add	esi, 4
+	mov	ecx, [edi + buf_capacity]
+	sub	ecx, 4
+	shr	ecx, 2
+	rep	movsd
+
+	# eax = &buf[0]
+	mov	edi, eax
+	mov	esi, [edi + buf_index]
+	sub	esi, 4
+
+	jmp	1b
+
+#######################################################################
+
+cmdline_history_print:
+	mov	eax, [cmdline_history]
+	mov	ecx, [eax + buf_index]
+	shr	ecx, 2
+	jz	1f
+	xor	edx, edx
+0:	call	printdec32
+	print ": "
+	mov	esi, [eax + edx * 4]
+	call	println
+	inc	edx
+	loop	0b
+1:	ret
+
+##############################################################################
 
 
 
