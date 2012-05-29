@@ -163,9 +163,17 @@ buf_free:
 # destroyed: edx
 buf_grow:
 	add	edx, [eax + buf_capacity]
+
+# in: eax = buf base pointer
+# in: edx = new size
+# out: eax = pointer to new buffer
+buf_resize:
+	sub	eax, 8
 	push	edx
+	add	edx, 8
 	call	mrealloc
 	pop	dword ptr [eax + buf_capacity]
+	add	eax, 8
 	ret
 
 # in: esi = buf metadata

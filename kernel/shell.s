@@ -41,18 +41,22 @@ SHELL_COMMANDS:
 
 SHELL_COMMAND "ls",		cmd_ls$
 SHELL_COMMAND "cluster",	cmd_cluster$
-SHELL_COMMAND "cd",		cd$
+SHELL_COMMAND "cd",		cmd_cd$
 SHELL_COMMAND "cls",		cls
 SHELL_COMMAND "pwd",		cmd_pwd$
 SHELL_COMMAND "disks",		disks_print$
 SHELL_COMMAND "fdisk",		cmd_fdisk$
 SHELL_COMMAND "partinfo",	cmd_partinfo$
+SHELL_COMMAND "mount",		cmd_mount$
+SHELL_COMMAND "umount",		cmd_umount$
 SHELL_COMMAND "mtest",		malloc_test$
 SHELL_COMMAND "mem",		print_handles$
 SHELL_COMMAND "quit",		cmd_quit$
 SHELL_COMMAND "exit",		cmd_quit$
 SHELL_COMMAND "help",		cmd_help$
 SHELL_COMMAND "hist",		cmdline_history_print
+SHELL_COMMAND "lspci",		pci_list_devices
+SHELL_COMMAND "strlen",		cmd_strlen$
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -194,13 +198,7 @@ enter$:
 	jc	1f
 	mov	eax, [cmdline_history]
 	mov	edx, [eax + buf_index]
-	call	printhex8
-	mov	[cmdline_history_index], edx
-	call	newline
-#	add	eax, [eax + buf_index]
-#	mov	eax, [eax -4]
-#	mov	[cmdline_history_index], eax
-1:
+1:	mov	[cmdline_history_index], edx
 
 	xor	ecx, ecx
 	mov	[cursorpos], ecx
@@ -580,7 +578,7 @@ _tmp_init$:
 	ret
 
 ######################################
-cd$:	
+cmd_cd$:	
 	mov	ebx, [fat_root_lba$]
 	or	ebx, ebx
 	jnz	0f
@@ -1006,24 +1004,18 @@ cmdline_history_add:
 	sub	esi, 4
 	js	1f	# hist empty
 
-	mov	esi, [eax + esi]
-	mov	edi, offset cmdline
-	repz	cmpsb
-	jz	2f	# strings unequal
-
 	# check whether this history item already exists
-	xor	ebx, ebx
-0:	cmp	ebx, [eax + buf_index]
+	xor	edx, edx
+0:	cmp	edx, [eax + buf_index]
 	jae	1f
-	mov	esi, [eax + ebx]
-	add	ebx, 4
+	mov	esi, [eax + edx]
+	add	edx, 4
 	mov	edi, offset cmdline
 	mov	ecx, [cmdlinelen]
 	repz	cmpsb
 	jnz	0b
 2:	stc
 	ret
-
 1:	################################
 
 	# append a pointer to the appended data to the array
@@ -1088,7 +1080,13 @@ cmdline_history_print:
 
 ##############################################################################
 
-
+cmd_strlen$:
+	mov	eax, [esi+4]
+	call	strlen
+	mov	edx, eax
+	call	printdec32
+	call	newline
+	ret
 
 	.if 0 # works...
 		movzx	edx, word ptr [esi + FAT_DIR_CLUSTER]

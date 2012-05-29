@@ -15,19 +15,20 @@ ata_device_partition_buf$: .long 0,0,0,0,0,0,0,0
 .text
 
 ## Shell utilities ##########################################################
-# in: aax = al = ata device number
+# in: eax = al = ata device number
 # out: edi = 512 byte buffer
 partition_get_buf$:
+	push	eax
+	movzx	eax, al
 	mov	edi, [ata_device_partition_buf$ + eax * 4]
 	or	edi, edi
 	jnz	0f
-	push	eax
 	mov	eax, 1024
 	call	malloc
 	mov	edi, eax
-	pop	eax
 	mov	[ata_device_partition_buf$], edi
-0:	ret
+0:	pop	eax
+	ret
 
 
 #####################################
@@ -99,8 +100,12 @@ disks_print$:
 #####################################
 # Reads and prints the MBR
 
-# in: al = HD (ATA) drive number (0 = hda, 1=hdb etc)
-# out: eax = al = ATA device number (bus<<1|device)
+# Returns the ATA device number for the given disk number. If there
+# are two disks recorded, say hda and hdc, disk 0 will be hda, disk 1 hdc.
+# This method may be removed at some point.
+#
+# in: al = recorded disk number 
+# out: eax = al = ATA device number (bus<<1|device), 0=hda, 1=hdb, 2=hdc etc
 # NOTE: this is translated to an ata device number for the ata routines.
 get_ata_drive$:
 	call	disks_init$
@@ -142,15 +147,27 @@ cmd_fdisk$:
 
 	call	newline
 
-	call	partition_get_buf$
-	mov	esi, edi	# backup
-	mov	ecx, 1
-	mov	ebx, 0
-	call	ata_read
-	jc	read_error$
+	call	disk_load_partition_table$
 
 	# uses esi
 	call	fdisk_check_parttable$
+	ret
+
+# in: al = ATA device number
+# out: esi = partition table buffer
+disk_load_partition_table$:
+	push	edi
+	push	ecx
+	push	ebx
+	call	partition_get_buf$
+	mov	esi, edi	# return value
+	mov	ecx, 1		# 1 sector
+	mov	ebx, 0		# lba 0
+	call	ata_read
+	pop	ebx
+	pop	ecx
+	pop	edi
+	jc	read_error$
 	ret
 
 fdisk_check_parttable$:
@@ -159,6 +176,7 @@ fdisk_check_parttable$:
 	cmp	dx, 0xaa55
 	je	1f
 	PRINTLNc 10, "No Partition Table"
+	stc
 	ret
 
 1:	add	esi, 446 # offset to MBR
@@ -313,11 +331,64 @@ DEBUG_CHS = 0
 	cmp	cl, 4
 	jb	0b
 
-####
-	# CHS start 1/1/0
-	# CHS end 0f/ff/f6 -> H = 0f  CS = fff6 -> C = 3ff S = 6
+	# carry clear here (jc == jb)
 	ret
 
+
+# in: al = disk (ATA device number), ah = partition
+# out: eax = pointer to partition table entry
+disk_get_partition:
+	call	disks_init$ 
+
+	push	esi
+	push	ecx
+
+	mov	esi, offset ata_drives$
+	movzx	ecx, byte ptr [ata_num_drives$]
+0:	cmp	al, [esi]
+	jz	0f
+	inc	esi
+	loop	0b
+	pushcolor 4
+	print "Unknown disk hd"
+	add	al, 'a'
+	call	printchar
+	sub	al, 'a'
+	popcolor
+	call	newline
+	stc
+
+1:	pop	ecx
+	pop	esi
+	ret
+0:	# the disk pans out.
+	# load the partition table for the disk:
+	push	eax
+	call	disk_load_partition_table$
+
+	# partition table integrity check
+	push	esi
+	call	fdisk_check_parttable$
+	pop	esi
+	pop	eax
+	jc	1b	# partition table malformed
+
+	movzx	eax, ah
+	cmp	al, 4
+	jb	0f
+	printc 4, "Extended partitions not supported yet: partition "
+	push	edx
+	mov	edx, eax
+	call	printdec32
+	pop	edx
+	call	newline
+	jmp	1b
+0:
+	shl	eax, 4
+	add	eax, 446
+	add	eax, esi
+	clc
+	jmp	1b
 
 #####################################
 # Reads and prints the VBR (Volume Boot Record) for all partitions (for now)

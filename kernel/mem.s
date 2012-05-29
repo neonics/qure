@@ -1160,7 +1160,9 @@ find_handle$:
 	sub	ecx, eax
 	cmp	ecx, MEM_SPLIT_THRESHOLD
 	jae	1f
-	printc 3, "No Split"
+	.if MEM_DEBUG 
+		printc 3, "No Split"
+	.endif
 	or	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	push	edi
 	mov	edi, offset handle_fs_first
@@ -1172,11 +1174,15 @@ find_handle$:
 	jmp	2b
 
 # sublevel 2: split implementation
-1: 	printc 4, "Split "
+1: 
+	.if MEM_DEBUG 
+		printc 4, "Split "
+	.endif
 	push	edx
 # sublevel 3: set up new handle
 	mov	edx, ebx
 	call	get_handle$	# already marked MEM_FLAG_ALLOCATED
+	.if MEM_DEBUG
 		push edx
 		pushcolor 4
 		HOTOI edx
@@ -1188,6 +1194,7 @@ find_handle$:
 		printchar ' '
 		popcolor
 		pop edx
+	.endif
 	# debug markings
 	or	byte ptr [esi + ebx + handle_flags], 8
 	or	byte ptr [esi + edx + handle_flags], 16
@@ -1237,6 +1244,7 @@ find_handle$:
 	jmp	2b	# 'ret'
 .if 1
 .else
+# defunct code
 
 	# insert the new handle in the address list directly before edx
 	mov	eax, edx
@@ -1444,6 +1452,24 @@ alloc_handles$:
 	pop	eax
 	ret
 
+mallocz:
+	push	ecx
+	mov	ecx, eax
+	call	malloc
+	push	edi
+	mov	edi, eax
+	push	eax
+	xor	eax, eax
+	push	ecx
+	and	ecx, 3
+	rep	stosb
+	pop	ecx
+	shr	ecx, 2
+	rep	stosd
+	pop	eax
+	pop	edi
+	pop	ecx
+	ret
 
 #########################################################
 # in: eax = size
@@ -1545,8 +1571,7 @@ get_handle_by_base$:
 	push	esi
 	push	ecx
 	mov	ecx, [mem_numhandles]
-	or	ecx, ecx
-	jz	2f
+	jecxz	2f
 ####
 	mov	esi, [mem_handles]
 	mov	ebx, [handle_fa_first]
@@ -1654,17 +1679,20 @@ mrealloc:	# UNTESTED
 
 ####### allocate a new block and copy the data.
 1:
+	mov	ecx, [esi + ebx + handle_size]
+	push	esi
 	mov	esi, eax
+
 	mov	eax, edx
 	call	malloc
 	# copy
-	mov	ecx, [esi + ebx + handle_size]
 	or	ecx, ecx	# shouldnt happen if malloc checks for it.
 	jz	1f
 	mov	edi, eax
 	rep	movsb
 
-1:	or	[ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
+1:	pop	esi
+	or	[ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 
 	# free the old handle
 	push	eax

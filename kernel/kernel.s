@@ -23,6 +23,7 @@ DEFINE = 1
 .include "hash.s"
 .include "string.s"
 
+.include "fs.s"
 .include "partition.s"
 .include "fat.s"
 
