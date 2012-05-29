@@ -20,14 +20,26 @@ realmode_kernel_entry:
 	mov	ax, 0x0f00
 	xor	di, di
 	mov	cx, 160*25
-	rep	stosd
+	rep	stosw
 	pop	cx
 	xor	di, di
 	mov	al, '!'
 	stosw
 
-	mov	ax, cs
-	mov	ds, ax
+	push	cs
+	pop	ds
+
+.if DEBUG_KERNEL_REALMODE
+	push	dx
+	mov	dx, cs
+	call	printhex_16
+
+	call	0f
+0:	pop	dx
+	sub	dx, offset 0b
+	call	printhex_16
+	pop	dx
+.endif
 
 ####### print hello
 
@@ -269,6 +281,12 @@ newline_16:
 	mov	[screen_pos], ax
 	pop	dx
 	pop	ax
+	ret
+
+printchar_16:
+	PRINT_START_16
+	stosw
+	PRINT_END_16
 	ret
 
 print_16:

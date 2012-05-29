@@ -173,7 +173,6 @@ main:
 	mov	bx, [ramdisk_address]
 	add	bx, 0x200
 
-	push	bx
 	xor	eax, eax
 	mov	ax, ds
 	shl	eax, 4
@@ -182,9 +181,9 @@ main:
 		chain_addr_flat: .long 0
 	.text
 	mov	[chain_addr_flat], ebx
-	pop	bx
-#####
 
+	# ebx = flat start address
+#####
 	# si:
 	# 0: start low dword, start high dword
 	# 8: count low dword, count high dword
@@ -207,11 +206,11 @@ main:
 
 	#call	cls
 
-	# ds:bx = load offset  [chain_addr_flat] = ds<<4+bx
+	# ebx = load offset  [chain_addr_flat] = ds<<4+bx
 	# ecx = sectors to load
 	# eax = sector on disk
 
-	push	ax
+	push	eax
 	mov	edx, eax
 	mov	ah, 0xf1
 
@@ -225,42 +224,58 @@ main:
 	print	"Flat addr: "
 	mov	edx, [chain_addr_flat]
 	call	printhex8
-	mov	dx, ds
+
+	mov	eax, edx
+	shr	edx, 4
 	call	printhex
-	sub	di, 2
-	mov	al, ':'
-	stosw
-	mov	dx, bx
+	mov	es:[di - 2], byte ptr ':'
+	mov	dx, ax
+	and	dx, 0xf
+	mov	ah, 0xf1
 	call	printhex
 	call	newline
-	pop	ax
+	pop	eax
 
-####
+####	
+	# eax = start sector
+	# ecx = count sectors
+	# ebx = flat address
 	push	eax
 	mov	edx, eax
 	add	edx, ecx
-	shl	edx, 9
+	shl	edx, 9	
+	xor	eax, eax
+
+	mov	ax, ds
+	shl	eax, 4
+	add	edx, eax
+
 	mov	ah, 0xf2
-	call	printhex8
+	call	printhex8	# edx = end address (start+count)*512+ds*16
 
 	print "Stack: "
 	push	edx
+	push	ecx
 	xor	edx, edx
 	mov	dx, ss
+	mov	ecx, edx
 	call	printhex
 	sub	di, 2
 	mov	al, ':'
 	stosw
 	mov	dx, sp
 	call	printhex8
-	mov	eax, edx
+	shl	ecx, 4
+	add	ecx, edx
+	mov	eax, ecx
+	pop	ecx
 	pop	edx
 
 	sub	eax, edx
 	mov	edx, eax
 	jge	0f
 	mov	ah, 0x4f
-	print "WARNING: Loaded image runs into stack!"
+	println "WARNING: Loaded image runs into stack!"
 	call	printhex8
 
 0:	mov	ah, 0x3f
@@ -306,22 +321,9 @@ pop ax
 0:	push	ecx		# remember sectors to load
 	push	eax		# remember offset
 
+	
 	.if 0	# use this to debug when loading fails
-		# The first bug to surface is when the kernel reaches
-		# 64k.
-	push	di
-	push	edx
-	push	ax
-	mov	di, 22*160
-	mov	ah, 0xfc
-	xor	edx, edx
-	mov	dx, bx
-	call	printhex8
-	mov	edx, ecx
-	call	printhex8
-	pop	ax
-	pop	edx
-	pop	di
+	call	debug_print_load_address$
 	.endif
 
 PRINT_LOAD_SECTORS = 0
@@ -356,18 +358,25 @@ PRINT_LOAD_SECTORS = 0
 	pop	dx
 	.endif
 
-	mov	ax, 0x0201 	# read 1 sector (dont trust multitrack)
 	push	es
-	push	ds
-	pop	es
+	mov	eax, ebx	# convert flat ebx to es:bx
+	ror	eax, 4
+	mov	es, ax
+	rol	eax, 4
+	and	eax, 0xf
+	push	ebx
+	mov	bx, ax
+	mov	ax, 0x0201 	# read 1 sector (dont trust multitrack)
 	int	0x13
+	pop	ebx
 	pop	es
 
 	jc	fail
 	cmp	ax, 1
 	jne	fail
 
-	add	bx, 0x200
+	add	ebx, 0x200
+
 	mov	dx, ax
 	mov	ax, 0xf2<<8|'.'
 	stosw
@@ -412,8 +421,10 @@ PRINT_LOAD_SECTORS = 0
 	mov	ah, 0xf0
 	print "Chaining to next: "
 	mov	edx, [chain_addr_flat]
+	call	printhex8
 	shr	edx, 4
 	call	printhex
+	sub	di, 2
 	println ":0000"
 
 	# set up some args:
@@ -445,12 +456,16 @@ PRINT_LOAD_SECTORS = 0
 	pop	dx
 .if DEBUG_BOOTLOADER
 	call	waitkey
-.endif
 
+	mov	ax, 0xf000
+	call	cls
+.endif
 	mov	eax, [chain_addr_flat]
-	shr	eax, 4
+	ror	eax, 4
 	push	ax
-	push	word ptr 0
+	rol	eax, 4
+	and	ax, 0xf
+	push	ax
 	retf
 
 .if 0 ###########################
@@ -463,6 +478,76 @@ PRINT_LOAD_SECTORS = 0
 1:	PRINT "System Halt."
 	jmp	halt
 .endif ##############################
+
+debug_print_addr$:
+	push	es
+	push	di
+	push	dx
+	push	ax
+
+	mov	dx, es
+
+	mov	di, 0xb800
+	mov	es, di
+	mov	di, 23 * 160
+	mov	ah, 0xfd
+
+	call	printhex
+	mov	es:[di -2], byte ptr ':'
+	mov	dx, bx
+	call	printhex
+
+	pop	ax
+	pop	dx
+	pop	di
+	pop	es
+	ret
+
+debug_print_load_address$:
+	push	di
+	push	edx
+	push	eax
+	push	ecx
+	#mov	di, 22*160
+	xor	di, di
+	mov	ah, 0xfc
+
+	mov	edx, ebx
+	call	printhex8
+
+	xor	edx, edx
+	mov	dx, ds
+	shl	edx, 4
+	add	edx, ebx
+
+	call	printhex8
+
+	ror	edx, 4
+	call	printhex
+	mov	es:[di - 2], byte ptr ':'
+
+	rol	edx, 4
+	and	edx, 0xf
+	call	printhex
+
+	pop	ecx
+	push	ecx
+	mov	edx, ecx
+	call	printhex8
+
+	#cmp	ecx, 5
+	#ja	0f
+	mov	byte ptr es:[di], '?'
+	xor	ah, ah
+	int	0x16
+0:	
+	pop	ecx
+
+	pop	eax
+	pop	edx
+	pop	di
+
+	ret
 
 #############################################################################
 
