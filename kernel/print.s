@@ -413,6 +413,10 @@ printchar:
 	PRINT_END
 	ret
 
+nprintln:
+	call	nprint
+	jmp	newline
+
 # in: esi = string
 # in: ecx = max len
 nprint:	or	ecx, ecx
