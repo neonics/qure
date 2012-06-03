@@ -189,6 +189,14 @@ ata_bus_dcr_rel:
 	TYPE_ATA = 1
 	TYPE_ATAPI = 2
 ata_drive_types: .space 8
+
+
+.struct 0
+ata_driveinfo_capacity: .long 0, 0
+ATA_DRIVEINFO_STRUCT_SIZE = .
+.data 2
+ata_drives_info: .space ATA_DRIVEINFO_STRUCT_SIZE * 8
+
 .text
 .code32
 
@@ -212,6 +220,16 @@ ata_find_first_drive:
 0:	pop	ecx
 	pop	esi
 	or	al, al
+	ret
+
+# in: al = ata drive (bus<<1 + drive)
+# out: eax, edx
+ata_get_capacity:
+	mov	ah, ATA_DRIVEINFO_STRUCT_SIZE
+	mul	ah
+	movzx	eax, ax
+	mov	edx, [ata_drives_info + eax + ata_driveinfo_capacity + 4]
+	mov	eax, [ata_drives_info + eax + ata_driveinfo_capacity + 0]
 	ret
 
 ata_list_drives:
@@ -262,6 +280,9 @@ ata_list_drives:
 3:	push	cx
 	push	ax
 	call	ata_list_drive
+	.if ATA_DEBUG > 1
+		call	more
+	.endif
 	pop	ax
 	pop	cx
 	inc	al
@@ -359,6 +380,13 @@ ata_list_drive:
 	shl	ah, 1
 	add	al, ah
 	mov	bl, al
+
+	push	eax
+	mov	ah, ATA_DRIVEINFO_STRUCT_SIZE
+	mul	ah
+	movzx	edi, ax
+	add	edi, offset ata_drives_info
+	pop	eax
 
 	# Proposed algorithm from osdev:
 	# 1) select drive
@@ -508,8 +536,10 @@ read$:	call	print
 	push	ds
 	pop	es
 	mov	ecx, 0x100
+	push	edi
 	mov	edi, offset parameters_buffer$
 	rep	insw
+	pop	edi
 	pop	es
 	pop	dx
 
@@ -652,7 +682,9 @@ read$:	call	print
 	PRINTc	7, " LBA48 sectors: "
 	mov	edx, [parameters_buffer$ + 2* 100 + 4]
 	call	printhex8
+	mov	[edi + ata_driveinfo_capacity + 4], edx
 	mov	edx, [parameters_buffer$ + 2* 100 + 0]
+	mov	[edi + ata_driveinfo_capacity + 0], edx
 	call	printhex8
 
 	PRINTCHAR ' '
@@ -888,6 +920,7 @@ ata_dbg$:
 # in: ebx: abs LBA (32 bit), ecx >> 16 = high 16 bits, cx=sectorcount
 # in: es:edi: pointer to buffer
 # FOR NOW: only 1 sector is read
+# destroys: eax edx (and probably others)
 ata_read:
 	call	ata_rw_init$
 	# al = 0 for LBA28, 4 for LBA48
@@ -987,7 +1020,7 @@ ata_write:
 	clc
 	ret
 
-1:	PRINTLNc 4, "ata_read: DRQ timeout"
+1:	PRINTLNc 4, "ata_write: DRQ timeout"
 	stc
 	ret
 
@@ -1163,6 +1196,7 @@ atapi_read_capacity$:
 	call	printhex8
 	mov	edx, eax
 	call	printhex8
+	call	newline
 	pop	eax
 	ret
 
@@ -1341,7 +1375,7 @@ atapi_packet_command:
 
 	WAIT_DATAREADY
 
-	.if ATA_DEBUG > 0
+	.if ATA_DEBUG > 1
 	PRINT "Write Packet "
 		push	dx
 		push	esi

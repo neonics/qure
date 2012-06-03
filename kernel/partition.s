@@ -70,20 +70,44 @@ disks_print$:
 
 	mov	dl, [ata_num_drives$]
 	call	printhex1
-	print	" ATA drive(s): "
+	print	" drive(s): "
 
 	movzx	ecx, dl
 	mov	esi, offset ata_drives$
 	xor	ah, ah
-0:	mov	dl, ah
-	call	printhex1
+0:	
+	movzx	edx, ah		# disk index
+	call	printdec32
 
-	mov	dl, [esi]
-	print	" (hd"
+	mov	dl, [esi]	# ata drive number
+	mov	dh, [ata_drive_types - ata_drives$ + esi] # drive type
+
+#######
+	push	esi
+	
+	LOAD_TXT " (hd"
+	call	print
+
 	mov	al, dl
 	add	al, 'a'
 	call	printchar
-	print	") "
+	call	printspace
+
+	LOAD_TXT "ATA"
+	cmp	dh, TYPE_ATA
+	jz	1f
+	LOAD_TXT "ATAPI"
+	cmp	dh, TYPE_ATAPI
+	jz	1f
+	LOAD_TXT "UNKNOWN: "
+	call	printhex2
+1:	call	print
+
+	LOAD_TXT ") "
+	call	print
+
+	pop	esi
+#######
 
 	inc	ah
 	inc	esi
@@ -96,7 +120,7 @@ disks_print$:
 	pop	edx
 	pop	esi
 	ret
-	
+
 #####################################
 # Reads and prints the MBR
 
@@ -124,71 +148,276 @@ get_ata_drive$:
 	clc
 	ret
 
+
+getopt:
+	mov	eax, [esi]
+	cmp	byte ptr [eax], '-'
+	clc
+	jz	0f
+	stc
+0:	ret
+
 # in: esi = pointer to string-arguments
+# destroys: ecx
 cmd_fdisk$:
 	cmp	[esi + 4], dword ptr 0
 	jne	1f
-0:	printlnc 12, "Usage: fdisk <drive number>"
+0:	printlnc 12, "Usage: fdisk [-l] <drive>"
+	printlnc 12, " -l:    large: use 255 heads in CHS/LBA calculations"
+	printlnc 12, "        for harddisks larger than 0x100000 sectors (512Mb)"
+	printlnc 12, " drive: disk number, or hdX with X lowercase alpha"
 	printlnc 12, "Run 'disks' to see available disks."
 	ret
 
-1:	mov	eax, [esi + 4]
-	call	atoi
-	jc	0b
+1:	
+	mov	ecx, 16		# 16 heads
 
-	call	get_ata_drive$
-	jc	0b
+	add	esi, 4
+	call	getopt
+	jc	1f
+	add	esi, 4
+	cmp	word ptr [eax + 1], 'l'
+	jnz	0b
+	mov	cl, 255
 
-	printc	9, "Partition table for hd"
+1:	# edx = maxheads
+
+	mov	eax, [esi]
+
+	call	parse_drivename
+	jnc	1f
+
+		# defunct
+		call	atoi
+		jc	0b
+		call	get_ata_drive$
+		jc	0b
+1:
+	# now check other arguments
+
+#######
+	push	eax
+
+	xor	ebx, ebx	# command ptr
+
+	add	esi, 4
+	mov	eax, [esi]
+	or	eax, eax
+	jz	1f
+
+	# check for command
+	push	esi
+	mov	esi, eax
+	mov	ebx, offset fdisk_init$
+	.data
+	9: .asciz "init"
+	.text
+	mov	edi, offset 9b
+
+	push	ecx
+	call	strlen
+	mov	ecx, eax
+	repz	cmpsb
+	pop	ecx
+	pop	esi
+	jz	1f
+	
+	printc	12, "illegal command: "
+	push	esi
+	mov	esi, [esi]
+	call	println
+	pop	esi
+	pop	eax
+	stc
+	jmp	0b
+
+
+1:	pop	eax
+
+#######
+
+	printc	9, "fdisk hd"
 	push	eax
 	add	al, 'a'
 	call	printchar
+	pop	eax
+
+	printc 9, "; capacity: "
+	push	eax
+	push	ebx
+	push	edx
+	call	ata_get_capacity	# out: edx,eax
+
+	# check if capacity >= 512 mb:
+
+	LBA_H16_LIM = 1024 * 16 * 63	# fc000
+
+	cmp	eax, LBA_H16_LIM
+	jb	1f
+	print	"(using 255 heads) "
+	mov	ecx, 255
+1:
+	mov	ebx, 1024*1024/512	# mb
+	div	ebx
+	mov	edx, eax
+	call	printdec32
+	print	"Mb"
+
+	pop	edx
+	pop	ebx
 	pop	eax
 
 	call	newline
 
 	call	disk_load_partition_table$
 
-	# uses esi
+#######
+	or	ebx, ebx
+	jz	1f
+	add	ebx, [realsegflat]
+	jmp	ebx
+1:
 	call	fdisk_check_parttable$
 	ret
 
+
+fdisk_init$:
+	push	eax
+	push	ecx
+	printlnc 11, "fdisk initialize"
+
+	call	fdisk_check_parttable$
+	jc	1f
+	printlnc 0xcf, "WARNING: Overwriting partition table!"
+1:
+	printc 0xc1, "Are you sure?"
+	
+	mov	ecx, 2
+0:	printc 0xc1, " Type 'Yes' if so: "
+	mov	ah, KB_GETCHAR
+	call	keyboard
+	call	printchar
+	cmp	al, 'Y'
+	jnz	1f
+	mov	ah, KB_GETCHAR
+	call	keyboard
+	call	printchar
+	cmp	al, 'e'
+	jnz	1f
+	mov	ah, KB_GETCHAR
+	call	keyboard
+	call	printchar
+	cmp	al, 's'
+	jnz	1f
+	mov	ah, KB_GETCHAR
+	call	keyboard
+	cmp	ax, K_ENTER
+	jnz	1f
+	call	newline
+
+	dec	ecx
+	jz	0f
+
+	printc 0xc1, "Are you really sure?"
+	jmp	0b
+
+0:	printc 13, "Writing partition table to disk hd"
+	pop	ecx
+	pop	eax
+	add	al, 'a'
+	call	printchar
+	sub	al, 'a'
+	call	newline
+
+	.data
+	9: .space 446
+	8: #.space 16
+		.byte 0x80
+		.byte 0, 2, 0
+		.byte 6
+		.byte 0, 0, 0
+		.long 1
+		.long 0
+	7: .space 16
+	6: .space 16
+	5: .space 16
+	.byte 0x55, 0xaa
+	.text
+
+	push	eax
+	call	ata_get_capacity
+	or	edx, edx
+	jz	2f
+	printlnc 12, "Warning: Disk capacity too large, truncating"
+	mov	eax, -1
+2:	mov	edx, eax
+	call	lba_to_chs
+	mov	[8b + PT_CHS_END], eax
+	pop	eax
+
+	mov	[8b + PT_LBA_START], dword ptr 1
+	mov	[8b + PT_SECTORS], edx
+
+
+	#
+
+	mov	esi, offset 9b
+	mov	ecx, 1	# 1 sector
+	mov	ebx, 0	# address 0
+	call	ata_write
+	
+	ret
+
+1:	printlnc 12, "Aborted."
+	pop	eax
+	ret
 # in: al = ATA device number
 # out: esi = partition table buffer
 disk_load_partition_table$:
 	push	edi
-	push	ecx
+	push	eax
 	push	ebx
+	push	ecx
+	push	edx
 	call	partition_get_buf$
 	mov	esi, edi	# return value
 	mov	ecx, 1		# 1 sector
 	mov	ebx, 0		# lba 0
 	call	ata_read
-	pop	ebx
+	pop	edx
 	pop	ecx
+	pop	ebx
+	pop	eax
 	pop	edi
 	jc	read_error$
 	ret
 
+# in: esi
+# out: CF
 fdisk_check_parttable$:
 	# check for bootsector
-	mov	dx, [esi + 512 - 2]
-	cmp	dx, 0xaa55
+	cmp	word ptr [esi + 512 - 2], 0xaa55
 	je	1f
-	PRINTLNc 10, "No Partition Table"
+	PRINTLNc 12, "No Partition Table"
 	stc
 	ret
 
-1:	add	esi, 446 # offset to MBR
+1:	push	esi
+	push	edx
+	push	ecx
+	push	ebx
+	push	eax
+
+	add	esi, 446 # offset to MBR
 	COLOR 7
-	xor	cl, cl
+	xor	bl, bl
 
 	PRINTLN	"Part | Stat | C/H/S Start | C/H/S End | Type | LBA Start | LBA End | Sectors  |"
 	COLOR 8
 0:	
 	xor	edx, edx
 	PRINT " "
-	mov	dl, cl		# partition number
+	mov	dl, bl		# partition number
 	call	printhex1
 	PRINTc  7, "   | "
 
@@ -272,7 +501,7 @@ DEBUG_CHS = 0
 	mov	eax, [esi - 16 + 5 + 4]	# LBA end
 	and	eax, 0xffffff
 
-	call	chs_to_lba
+	call	chs_to_lba_internal$
 	mov	edx, eax
 	call	printhex8
 	PRINTc	7, "| "
@@ -286,9 +515,9 @@ DEBUG_CHS = 0
 
 	# verify LBA start
 	mov	eax, [esi - 16 + 1]
-	and	eax, 0xffffff
+	and	eax, 0x00ffffff
 	mov	edx, eax
-	call	chs_to_lba
+	call	chs_to_lba_internal$
 	mov	edx, eax
 	mov	eax, [esi - 16 + 8]
 	cmp	edx, eax
@@ -307,7 +536,7 @@ DEBUG_CHS = 0
 	# verify num sectors:
 	mov	eax, [esi - 16 + 5] # chs end
 	and	eax, 0xffffff
-	call	chs_to_lba
+	call	chs_to_lba_internal$
 	inc	eax
 
 	# subtract LBA start
@@ -327,11 +556,17 @@ DEBUG_CHS = 0
 1:
 
 
-	inc	cl
-	cmp	cl, 4
+	inc	bl
+	cmp	bl, 4
 	jb	0b
 
 	# carry clear here (jc == jb)
+
+	pop	eax
+	pop	ebx
+	pop	ecx
+	pop	edx
+	pop	esi
 	ret
 
 
@@ -477,15 +712,31 @@ PT_SECTORS: .long 0
 
 #############################################################################
 
-
-# in: eax = [00] [Cyl[2] Sect[6]] [Cyl] [head]
-# this format is for ease of loading from a partition table
 chs_to_lba:
+	push	ecx
+	mov	ecx, 16
+	call	chs_to_lba_internal$
+	pop	ecx
+	ret
+
+chs_to_lba255:
+	push	ecx
+	mov	ecx, 255
+	call	chs_to_lba_internal$
+	pop	ecx
+	ret
+
+# bytes in partition table (H S C): h[8] | c[2] s[6] | c[8]
+# in: eax = [00] | [Cyl] | [Cyl[2] Sect[6]] | [head]
+# in: ecx = maxheads (16 or 255)
+# this format is for ease of loading from a partition table
+chs_to_lba_internal$:
+
 	# LBA = ( cyl * maxheads + head ) * maxsectors + ( sectors - 1 )
 	# cyl: 1024
 	# head: 16
 	# sect: 64
-	and	eax, 0xffffff
+	and	eax, 0x00ffffff
 	jnz	0f	# when CHS = 0, also return LBA 0 (as CHS 0 is invalid)
 	ret
 0:
@@ -493,9 +744,9 @@ chs_to_lba:
 	push	edx
 	push	ebx
 
-			# 0 CS C H
-	ror	eax, 8	# H 0 CS C
-	xchg	al, ah	# H 0 C CS
+			# 0 C CS H
+	ror	eax, 8	# H 0 C CS
+	xchg	al, ah	# H 0 CS C
 
 	mov	edx, eax
 	.if DEBUG_CHS
@@ -504,15 +755,22 @@ chs_to_lba:
 		popcolor
 	.endif
 
-	xor	edx, edx
-	mov	dx, ax
+	movzx	edx, ax
 	shr	dh, 6		# dx = cyl
 	.if DEBUG_CHS
-		PRINTCHAR 'C'
+		PRINT "C="
 		call	printhex8
 	.endif
 
+	.if 0
 	shl	edx, 4	# * maxheads (16)
+	.else
+	push	eax
+	movzx	eax, dx
+	mul	ecx	# ecx = maxheads
+	mov	edx, eax
+	pop	eax
+	.endif
 	.if DEBUG_CHS
 		pushcolor 3
 		call printhex4
@@ -522,7 +780,7 @@ chs_to_lba:
 	shr	ebx, 24	# ebx = bl = head
 	add	edx, ebx
 	.if DEBUG_CHS
-		PRINT " H"
+		PRINT " H="
 		push edx
 		mov	edx, ebx
 		call	printhex8
@@ -542,7 +800,7 @@ chs_to_lba:
 	and	ebx, 0b111111
 	add	edx, ebx
 	.if DEBUG_CHS
-		PRINT " S"
+		PRINT " S="
 		push edx
 		mov	edx, ebx
 		call	printhex8
@@ -553,12 +811,103 @@ chs_to_lba:
 	dec	edx
 	mov	eax, edx
 
+	.if DEBUG_CHS
+		PRINT " LBA="
+		call	printhex8
+	.endif
+
 	pop	ebx
 	pop	edx
-	.if DEBUG_CHS
-		popcolor
-	.endif
 	
 	ret
 
 #############################################################################
+
+# Cylinders:	10 bits	-> 1023
+# Heads:	8 bits	-> 255
+# Sectors:	6 bits	-> 63
+# 24 bits (16.7M) * 512 b (+9 bits) = 33 bits
+# Encoding in Partition Record: H[7:0] | C[9:8] S[5:0] | C[7:0]
+
+# in: eax = LBA
+# in: ecx = maxheads
+# out: eax = 00 | [cyl8] | Cyl[2] Sect[6] | head[8]
+# this format is for ease of loading from a partition table
+lba_to_chs:
+	# LBA = ( cyl * maxheads + head ) * maxsectors + ( sectors - 1 )
+	# cyl: 1024
+	# head: 16
+	# sect: 64
+	and	eax, 0x00ffffff
+	jnz	0f	# when CHS = 0, also return LBA 0 (as CHS 0 is invalid)
+	ret
+0:
+	push	edx
+	push	ebx
+	push	ecx
+
+
+	.if 0	# this is specified by ecx parameter
+	# check for max size (C = 1023 H = 16 S = 63) = 503Mb
+
+	#	$lba = (($c * $hpc) + $h) * $spt + $s - 1;
+
+		mov	ecx, 16	# 16 heads
+		cmp	eax, LBA_H16_LIM
+		jbe	0f
+		mov	ecx, 255 # heads
+		printc 4, "Using 255 heads"
+		# LBA = ( cyl * maxheads + head ) * maxsectors + ( sectors - 1 )
+	0:
+
+	.endif
+
+	inc	eax
+
+	# eax = max 24 bits
+	mov	ebx, 63		# max sectors
+	xor	edx, edx
+	div	ebx
+
+	# dl = sectors
+	# eax = max 18 bits, clear edx
+	# eax = cyl * maxheads + head
+	mov	ebx, ecx	# max heads
+	mov	cl, dl		# cl = sectors
+	xor	edx, edx
+	div	ebx
+
+	# dl = heads
+	# eax = max 10 bits, cyl
+
+.if DEBUG_CHS
+push edx
+print "H="
+call printhex8
+print " C="
+mov edx, eax
+call printhex8
+print " S="
+movzx edx, cl
+call printhex8
+call newline
+pop edx
+.endif
+
+	# out: eax = 00 | cyl[8] | Cyl[2] Sect[6] | head[8]
+	# convert:
+	# ax = cylinders
+	# dl = heads
+	# cl = sectors
+
+	shl	ah, 6
+	or	ah, cl
+	xchg	al, ah
+	shl	eax, 8
+	mov	al, dl
+
+	pop	ecx
+	pop	ebx
+	pop	edx
+	ret
+
