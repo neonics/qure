@@ -153,8 +153,10 @@ BPB_LARGE_SECTORS: .long 0
 	movzx	edx, word ptr [esi + BPB_SECTORS_PER_FAT]
 	mov	[fat_sectors$], edx
 	movzx	ecx, byte ptr [esi + BPB_FATS]
+	jecxz	1f
 0:	add	eax, edx
 	loop	0b
+1:
 	# movzx eax, [esi+BPB_SECTORS_PER_FAT]
 	# movzx edx, byte ptr [esi+BPB_FATS]
 	# mul edx

@@ -62,3 +62,40 @@ strdup:
 	pop	edi
 	pop	esi
 	ret
+
+# in: eax
+# out: eax, ecx
+strdupn:
+	push	esi
+	push	edi
+	mov	esi, eax
+	call	strlen
+	push	eax
+	inc	eax
+	mov	ecx, eax
+	call	malloc
+	mov	edi, eax
+	rep	movsb
+	pop	ecx
+	pop	edi
+	pop	esi
+	ret
+
+# in: eax, ecx
+# out: eax
+strndup:
+	push	esi
+	push	edi
+	push	ecx
+	mov	esi, eax
+	mov	eax, ecx
+	inc	eax
+	call	malloc
+	mov	edi, eax
+	rep	movsb
+	mov	byte ptr [edi], 0
+	pop	ecx
+	pop	edi
+	pop	esi
+	ret
+

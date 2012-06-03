@@ -69,20 +69,30 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 # 0  : load ah with screen_color
 # > 0: load ah with constant
 # < 0: skip load ah. Note that ax will still be pushed.
-.macro PRINT_START c=0, cregsize=2
+.macro PRINT_START c=0, char=0
 	push	ax
 	push	es
 	push	edi
 	movzx	edi, word ptr [screen_sel]
 	mov	es, edi
 	mov	edi, [screen_pos]
-	.if \c > 0
-	mov	ah, \c
-	.else
+
 	.if \c == 0
 	mov	ah, [screen_color]
+	.else
+	mov	ah, \c
 	.endif
+
+	.if \char != 0
+	xor	al, al
 	.endif
+#	.if \c > 0
+#	mov	ah, \c
+#	.else
+#	.if \c == 0
+#	mov	ah, [screen_color]
+#	.endif
+#	.endif
 .endm
 
 # flags:
@@ -110,6 +120,10 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 
 ################ Printing #################
+
+.macro PRINTSPACE
+	call	printspace
+.endm
 
 .macro PRINTHEX r
 	.if \r eq dx
@@ -398,7 +412,16 @@ __scroll:
 	push	ecx
 	rep	movsd
 	pop	edi
-
+push edi
+push edx
+mov edx, edi
+mov edi, 80
+push eax
+mov ah, 0xe0
+call __printhex8
+pop eax
+pop edx
+pop edi
 	pop	ds
 	pop	ecx
 	pop	esi
@@ -406,6 +429,12 @@ __scroll:
 0:	ret
 
 ############################## PRINT ASCII ####################
+
+printspace:
+	PRINT_START 0, 1
+	stosw
+	PRINT_END
+	ret
 
 printchar:
 	PRINT_START

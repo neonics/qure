@@ -181,3 +181,7 @@ TODO: ELF Loader, KFS
 	each section also recording the api name of the library.
 
 
+Shell: argument escaping
+
+	Use the parsed tokens, write a little grammar for them:
+	see process_tokens in shell.s and trash/cd_apply.s

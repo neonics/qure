@@ -1610,7 +1610,16 @@ mrealloc:	# UNTESTED
 	test	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	jnz	1f
 
-0:	printc 4, "mrealloc: unknown pointer/not allocated"
+0:	printc 4, "mrealloc: unknown pointer "
+	push	edx
+	mov	edx, eax
+	call	printhex8
+	printc 4, " called from: "
+	mov	edx, [esp + 5*4]
+	call	printhex8
+	call	newline
+	pop	edx
+	
 	jmp	0f
 1:
 ########

@@ -422,6 +422,18 @@ buf_put_$:
 ### Public API 
 ##########################################################################
 
+#Int 16/AH=09h - KEYBOARD - GET KEYBOARD FUNCTIONALITY
+#Int 16/AH=0Ah - KEYBOARD - GET KEYBOARD ID
+#Int 16/AH=10h - KEYBOARD - GET ENHANCED KEYSTROKE (enhanced kbd support only)
+#Int 16/AH=11h - KEYBOARD - CHECK FOR ENHANCED KEYSTROKE (enh kbd support only)
+#Int 16/AH=12h - KEYBOARD - GET EXTENDED SHIFT STATES (enh kbd support only)
+
+KB_GET		= 0
+KB_PEEK		= 1
+KB_GETSHIFT	= 2
+KB_SETSPEED	= 3
+KB_GETCHAR	= 10
+
 # Potential multitasking problems:
 # Writing to IO port. The last port written/read needs to be synchronous,
 # so when an IRQ occurs, or when another task reads/writes from the
@@ -438,21 +450,17 @@ keyboard:
 
 	or	ah, ah
 	jz	k_get$
-	cmp	ah, 1
+	cmp	ah, KB_PEEK
 	jz	k_peek$
-	cmp	ah, 2
+	cmp	ah, KB_GETSHIFT
 	jz	k_getshift$
-	cmp	ah, 3
+	cmp	ah, KB_SETSPEED
 	jz	k_setspeed$
+	cmp	ah, KB_GETCHAR
+	jz	k_getchar$
 0:	pop	esi
 	pop	ds
 	ret
-
-#Int 16/AH=09h - KEYBOARD - GET KEYBOARD FUNCTIONALITY
-#Int 16/AH=0Ah - KEYBOARD - GET KEYBOARD ID
-#Int 16/AH=10h - KEYBOARD - GET ENHANCED KEYSTROKE (enhanced kbd support only)
-#Int 16/AH=11h - KEYBOARD - CHECK FOR ENHANCED KEYSTROKE (enh kbd support only)
-#Int 16/AH=12h - KEYBOARD - GET EXTENDED SHIFT STATES (enh kbd support only)
 
 k_get$:	
 	mov	esi, [keyboard_buffer_ro]
@@ -479,11 +487,27 @@ k_getshift$:
 k_setspeed$:
 	jmp	0b
 
+k_getchar$:
+1:	xor	ah, ah
+	call	keyboard
+	cmp	ax, K_LEFT_SHIFT
+	jz	1b
+	cmp	ax, K_LEFT_CONTROL
+	jz	1b
+	cmp	ax, K_LEFT_ALT
+	jz	1b
+	cmp	ax, K_RIGHT_SHIFT
+	jz	1b
+	cmp	ax, K_RIGHT_CONTROL
+	jz	1b
+	cmp	ax, K_RIGHT_ALT
+	jz	1b
+	cmp	ax, K_CAPS
+	jz	1b
+	jmp	0b
 
-KB_GET		= 0
-KB_PEEK		= 1
-KB_GETSHIFT	= 2
-KB_SETSPEED	= 3
+
+
 int32_16h_keyboard:
 	call	keyboard
 
