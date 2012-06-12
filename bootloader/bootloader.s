@@ -428,13 +428,18 @@ loadsectors$:
 	jmp	halt
 .endif
 
-fail:	mov	bx, ax		# save bios int result code
+fail:	push	ax
+	push	dx
+	push	ax		# save bios result code
 	mov	ah, 0xf4
 	mov	dx, 0xfa11
 	call	printhex
 	mov	ah, 0xf2
-	mov	dx, bx
+	pop	dx		# restore bios result code
 	call	printhex
+	pop	dx
+	pop	ax
+
 	call	printregisters
 	jmp	halt
 

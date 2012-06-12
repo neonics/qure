@@ -7,10 +7,30 @@ DEBUG_BOOTLOADER = 0	# skip enter
 .code16
 . = 512
 .data
-bootloader_registers_base: .word 0
+bootloader_registers: .space 32
+
 msg_sector1$: .asciz "Transcended sector limitation!"
 .text
-	mov	[bootloader_registers_base], bp
+	# copy bootloader registers
+	push	es
+	push	ds
+	push	di
+	push	si
+	push	cx
+
+	push	ds
+	pop	es
+
+	mov	si, bp
+	mov	di, offset bootloader_registers
+	mov	cx, 32 / 4
+	rep	movsd
+
+	pop	cx
+	pop	si
+	pop	di
+	pop	ds
+	pop	es
 
 	mov	ah, 0xf3
 	mov	si, offset msg_sector1$
@@ -225,11 +245,11 @@ main:
 	mov	edx, [chain_addr_flat]
 	call	printhex8
 
-	mov	eax, edx
+	push	edx
 	shr	edx, 4
 	call	printhex
 	mov	es:[di - 2], byte ptr ':'
-	mov	dx, ax
+	pop	edx
 	and	dx, 0xf
 	mov	ah, 0xf1
 	call	printhex
@@ -251,7 +271,9 @@ main:
 	add	edx, eax
 
 	mov	ah, 0xf2
+	print	"image load end: "
 	call	printhex8	# edx = end address (start+count)*512+ds*16
+	call	newline
 
 	print "Stack: "
 	push	edx
@@ -267,10 +289,15 @@ main:
 	call	printhex8
 	shl	ecx, 4
 	add	ecx, edx
+
+	mov	edx, ecx
+	call	printhex8
+
 	mov	eax, ecx
 	pop	ecx
 	pop	edx
 
+.if 0
 	sub	eax, edx
 	mov	edx, eax
 	jge	0f
@@ -281,6 +308,8 @@ main:
 0:	mov	ah, 0x3f
 	print	"Room after image before stack: "
 	call	printhex8
+.endif
+
 	mov	ah, 0x2f
 	print	"Load region: "
 	mov	edx, ebx
@@ -298,33 +327,60 @@ main:
 	pop	eax
 
 .if 0
-push es
-push ax
-push cx
-call cls
-pop cx
-pop ax
-pop es
+	push es
+	push ax
+	push cx
+	call cls
+	pop cx
+	pop ax
+	pop es
 .endif
 push ax
 mov ah, 0xf2
 mov dx, ds
 call printhex
 mov es:[di-2], byte ptr ':'
-mov dx, bx
-call printhex
+mov edx, ebx
+call printhex8
 call newline
 pop ax
+
+.macro TRACE_INIT
+	.data
+	trace$: .word 0
+	.text
+	push	di
+	push	cx
+	push	ax
+	mov	di, 160 * 24
+	mov	[trace$], di
+	mov	cx, 80
+	mov	ax, (0x3f<<8)
+	rep	stosw
+	pop	ax
+	pop	cx
+	pop	di
+.endm
+
+.macro TRACE l
+	push	word ptr \l
+	call	trace
+	add	sp, 2
+
+.endm
+
 
 	inc	ecx
 ################################# load loop
 0:	push	ecx		# remember sectors to load
 	push	eax		# remember offset
 
-	
 	.if 0	# use this to debug when loading fails
 	call	debug_print_load_address$
 	.endif
+
+TRACE_INIT
+TRACE '!'
 
 PRINT_LOAD_SECTORS = 0
 	.if PRINT_LOAD_SECTORS
@@ -366,20 +422,27 @@ PRINT_LOAD_SECTORS = 0
 	and	eax, 0xf
 	push	ebx
 	mov	bx, ax
+	.if 0
+		call	debug_13_es_bx$
+	.endif
 	mov	ax, 0x0201 	# read 1 sector (dont trust multitrack)
 	int	0x13
 	pop	ebx
 	pop	es
+TRACE '>'
 
 	jc	fail
 	cmp	ax, 1
 	jne	fail
+
+TRACE 'c'
 
 	add	ebx, 0x200
 
 	mov	dx, ax
 	mov	ax, 0xf2<<8|'.'
 	stosw
+
 	.if !PRINT_LOAD_SECTORS
 	#add	di, 2
 	.else
@@ -389,6 +452,7 @@ PRINT_LOAD_SECTORS = 0
 	pop	eax
 	pop	ecx
 	inc	eax
+TRACE 'd'
 	.if 0
 	push ax
 	mov dx, ax
@@ -398,8 +462,9 @@ PRINT_LOAD_SECTORS = 0
 	call printhex
 	pop	ax
 	.endif
-	loop	0b
 
+	loop	0b
+TRACE '*'
 	# bx points to end of loaded data (kernel)
 ################################# end load loop
 	mov	ah, 0xf6
@@ -503,6 +568,29 @@ debug_print_addr$:
 	pop	es
 	ret
 
+debug_13_es_bx$:
+	push	es
+	push	di
+	push	dx
+	mov	dx, es
+	mov	ax, 0xb800
+	mov	es, ax
+	mov	di, 160	+ 40
+	mov	ah, 0x2f
+	call	printhex
+	mov	al, ':'
+	stosw
+	mov	dx, bx
+	call	printhex
+
+	mov	di, 160	- 2
+	mov	al, ' '
+	stosw
+	pop	dx
+	pop	di
+	pop	es
+	ret
+
 debug_print_load_address$:
 	push	di
 	push	edx
@@ -512,16 +600,18 @@ debug_print_load_address$:
 	xor	di, di
 	mov	ah, 0xfc
 
+	print	"load offs "
 	mov	edx, ebx
 	call	printhex8
 
+	print	"flat "
 	xor	edx, edx
 	mov	dx, ds
 	shl	edx, 4
 	add	edx, ebx
-
 	call	printhex8
 
+	print	"s:o "
 	ror	edx, 4
 	call	printhex
 	mov	es:[di - 2], byte ptr ':'
@@ -530,6 +620,7 @@ debug_print_load_address$:
 	and	edx, 0xf
 	call	printhex
 
+	print	"count left "
 	pop	ecx
 	push	ecx
 	mov	edx, ecx
@@ -537,9 +628,13 @@ debug_print_load_address$:
 
 	#cmp	ecx, 5
 	#ja	0f
+.if 1
+	call	newline
+	call	printregisters
 	mov	byte ptr es:[di], '?'
 	xor	ah, ah
 	int	0x16
+.endif
 0:	
 	pop	ecx
 
@@ -570,7 +665,6 @@ lba_to_chs:
 	pop	es
 	pop	ax
 	jc	fail	# stack not empty
-
 	# cx = max cyl/sector
 	# dh = max head
 	# dl = number of drives
@@ -780,10 +874,11 @@ waitkey:
 	ret
 
 get_boot_drive:
-	push	bx
-	mov	bx, [bootloader_registers_base]
-	mov	dl, [bx + 24]	# load drive
-	pop	bx
+	mov	dl, [bootloader_registers + 24]
+#	push	bx
+#	mov	bx, [bootloader_registers_base]
+#	mov	dl, [bx + 24]	# load drive
+#	pop	bx
 	ret
 
 
@@ -817,8 +912,7 @@ get_boot_drive:
 init_bios_extensions:
 	PRINT	"BIOS int 13h Extensions "
 
-	mov	bx, [bootloader_registers_base]
-	mov	dl, [bx + 24]	# load drive
+	call	get_boot_drive
 
 	mov	ah, 0x41	# check IBM/MS extensions (LBA)
 	mov	bx, 0x55aa
@@ -850,5 +944,31 @@ init_bios_extensions:
 	mov	ah, 0xf4
 	PRINTLN "Not installed, emulating"
 	stc
+	ret
+
+trace:
+	push	bp
+	mov	bp, sp
+	pushf
+
+	push	es
+	push	di
+	push	ax
+
+	mov	al, [bp + 4]
+	mov	ah, 0x3f
+
+	mov	di, 0xb800
+	mov	es, di
+	mov	di, [trace$]
+	stosw
+	mov	[trace$], di
+
+	pop	ax
+	pop	di
+	pop	es
+
+	popf
+	pop	bp
 	ret
 
