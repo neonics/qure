@@ -6,6 +6,8 @@
 
 ATA_DEBUG = 1
 
+ATA_MAX_DRIVES = 8	# 4 buses with 2 drives each supported
+
 # PCI: class 1.1 (mass storage . ide)
 # BAR0: IO_ATA_PRIMARY			0x1F0
 # BAR1: IO_ATA_PRIMARY	 base DCR	0x3F4 (+2 for DCR)
@@ -222,14 +224,67 @@ ata_find_first_drive:
 	or	al, al
 	ret
 
+# in: al = disk nr: (bus<<1)+device
+# out: CF; error message printed.
+ata_is_disk_known:
+	push	eax
+	cmp	al, ATA_MAX_DRIVES
+	jae	ata_err_unknown_disk$
+	movzx	eax, al
+	cmp	byte ptr [ata_drive_types + eax], 0
+	pop	eax
+	jz	ata_err_unknown_disk$
+	clc
+	ret
+
+ata_err_unknown_disk$:
+1:	printc 4, "ata: unknown device: bus "
+	push	edx
+	mov	dl, al
+	shr	dl, 1
+	call	printhex1
+	mov	dl, al
+	and	dl, 1
+	printc 4, " device "
+	call	printhex1
+	pop	edx
+	stc
+	ret
+
 # in: al = ata drive (bus<<1 + drive)
 # out: eax, edx
 ata_get_capacity:
+	call	ata_is_disk_known
+	jc	1f
+
 	mov	ah, ATA_DRIVEINFO_STRUCT_SIZE
 	mul	ah
 	movzx	eax, ax
 	mov	edx, [ata_drives_info + eax + ata_driveinfo_capacity + 4]
 	mov	eax, [ata_drives_info + eax + ata_driveinfo_capacity + 0]
+1:	ret
+
+# in: al = drive
+# out: ecx = heads
+ata_get_heads:
+	push	eax
+	push	edx
+
+	mov	ecx, 16
+
+	call	ata_get_capacity	# out: edx,eax
+	jc	0f
+
+	# check if capacity >= 512 mb:
+	LBA_H16_LIM = 1024 * 16 * 63	# fc000
+	cmp	eax, LBA_H16_LIM
+	jb	1f
+
+	mov	ecx, 255
+1:	clc
+0:
+	pop	edx
+	pop	eax
 	ret
 
 ata_list_drives:
@@ -345,6 +400,12 @@ ata_list_drives:
 # in: al = (ata bus << 1) | drive (0 or 1)
 # out: edx = [DCR, Base]
 ata_get_ports$:
+	# check whether ata bus is known
+	cmp	al, 8
+	cmc
+	jb	0f	# jb = jc
+	# skip drive known check as this code may be called for drive detection.
+
 	push	eax
 	and	al, 0xfe	# mask out bit 0
 	movzx	edx, al
@@ -354,7 +415,7 @@ ata_get_ports$:
 	shl	edx, 16
 	mov	dx, ax
 	pop	eax
-	ret
+0:	ret
 
 # in: ah = ata bus
 # out: edx = [DCR, Base]
@@ -917,12 +978,19 @@ ata_dbg$:
 ################################################################ ATA ########
 
 # in: al = (bus << 1) | drive
-# in: ebx: abs LBA (32 bit), ecx >> 16 = high 16 bits, cx=sectorcount
-# in: es:edi: pointer to buffer
-# FOR NOW: only 1 sector is read
-# destroys: eax edx (and probably others)
+# in: ebx = abs LBA (32 bit), ecx >> 16 = high 16 bits, cx=sectorcount
+# in: edi = pointer to buffer
+# out: CF
 ata_read:
+	push	eax
+	push	ebx
+	push	ecx
+	push	edx
+	push	edi
+
 	call	ata_rw_init$
+	jc	2f
+
 	# al = 0 for LBA28, 4 for LBA48
 	add	al, ATA_COMMAND_PIO_READ
 	add	dx, ATA_PORT_COMMAND
@@ -931,11 +999,12 @@ ata_read:
 	sub	dx, ATA_PORT_COMMAND
 	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
 	call	ata_wait_status$
-	jc	ata_timeout$
-.if ATA_DEBUG > 1
-	call	ata_print_status$
-	PRINTLN " reading..."
-.endif
+	jc	1f
+
+	.if ATA_DEBUG > 1
+		call	ata_print_status$
+		PRINTLN " reading..."
+	.endif
 
 # read.. (ATA_PORT_DATA = 0 so..)
 0:	test	al, ATA_STATUS_DRQ
@@ -951,22 +1020,39 @@ ata_read:
 	in	al, dx
 	in	al, dx
 	in	al, dx
-.if ATA_DEBUG > 1
-	call	ata_print_status$
-.endif
 	sub	dx, ATA_PORT_STATUS
+
+	.if ATA_DEBUG > 1
+		call	ata_print_status$
+	.endif
 
 	loop	0b
 	clc
+2:	pop	edi
+	pop	edx
+	pop	ecx
+	pop	ebx
+	pop	eax
 	ret
 
 1:	PRINTLNc 4, "ata_read: DRQ timeout"
 	stc
-	ret
+	jmp	2b
 
-# see ata_read, except ds:esi points to the data to write.
+
+# in: al = (bus << 1) | drive
+# in: ebx = abs LBA (32 bit), ecx >> 16 = high 16 bits, cx=sectorcount
+# in: esi = pointer to buffer
+# out: CF
 ata_write:
+	push	eax
+	push	ebx
+	push	ecx
+	push	edx
+	push	edi
+
 	call	ata_rw_init$
+	jc	2f
 
 	# al = 0 for LBA28, 4 for LBA48
 	add	al, ATA_COMMAND_PIO_WRITE
@@ -976,21 +1062,21 @@ ata_write:
 	sub	dx, ATA_PORT_COMMAND
 	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
 	call	ata_wait_status$
-	jc	ata_timeout$
+	jc	1f
 
-.if ATA_DEBUG > 1
-	call	ata_print_status$
-	PRINTLN " writing..."
-.endif
+	.if ATA_DEBUG > 1
+		call	ata_print_status$
+		PRINTLN " writing..."
+	.endif
 
 # write.. (ATA_PORT_DATA = 0 so..)
 0:	test	al, ATA_STATUS_DRQ
 	jz	1f
 
-.if ATA_DEBUG > 1
-	PRINTc 10, " Write sector "
-	call	printhex8
-.endif
+	.if ATA_DEBUG > 1
+		PRINTc 10, " Write sector "
+		call	printhex8
+	.endif
 
 	push	ecx
 	mov	ecx, 256
@@ -1018,16 +1104,23 @@ ata_write:
 	sub	dx, ATA_PORT_STATUS
 	loop	0b
 	clc
+
+2:	pop	edi
+	pop	edx
+	pop	ecx
+	pop	ebx
+	pop	eax
 	ret
 
 1:	PRINTLNc 4, "ata_write: DRQ timeout"
 	stc
-	ret
+	jmp	2b
 
 
-
+# destroys: eax ecx
 ata_rw_init$:
 	call	ata_get_ports$
+	jc	ata_err_unknown_disk$
 
 	# preserve drive info as al gets used in port io
 	mov	ah, al
@@ -1453,3 +1546,111 @@ atapi_packet_command:
 	mov	esi, offset data_buffer$
 	clc
 	ret
+
+
+
+##############################################################################
+# commandline utilities
+
+# out: eax = number of drives
+ata_get_numdrives:
+	push	esi
+	push	ecx
+	mov	esi, offset ata_drive_types
+	mov	ecx, ATA_MAX_DRIVES
+	xor	eax, eax
+0:	lodsb		# possible values for drive_type: 0, 1 = ata, 2 = atapi
+	# NOTE: optimized code: drive_type can only be 0, 1 or 2
+	shr	al, 1	# 0 -> 0, ZF; 1 -> 0, ZF, CF; 2 -> 1, _ :  al + CF = 0/1
+	adc	ah, al
+	loop	0b
+	shr	ax, 8
+	pop	ecx
+	pop	esi
+	ret
+
+# in: al = drive number
+ata_print_capacity:
+	push	edx
+	push	eax
+	call	ata_get_capacity	# in: al; out: 64 bit edx:eax
+	jc	0f			# error already printed
+	shr	edx, 1
+	sar	eax, 1
+	call	print_size_kb
+0:	pop	eax
+	pop	edx
+	ret
+
+
+# prints the size as given in sectors (512 bytes)
+# in: edx:eax
+ata_print_size:
+	# the size is in 512 byte blocks: shift to kilobytes
+	push	edx
+	push	eax
+
+	shr	edx, 1
+	sar	eax, 1
+
+	call	print_size_kb
+
+	pop	eax
+	pop	edx
+	ret
+
+################################################
+
+cmd_disks_print$:
+	# print max number of drives:
+	call	ata_get_numdrives
+	mov	edx, eax
+	call	printdec32
+	print	" drive(s): "
+
+	# iterate through drives
+	mov	ecx, ATA_MAX_DRIVES
+	mov	ebx, offset ata_drive_types
+	xor	dl, dl
+0:	mov	ah, [ebx]
+	or	ah, ah
+	jz	1f
+
+	.data
+	9:	.asciz ", ", "hd", " (", "ATA", "PI", "UNKNOWN", ")"
+	.text
+	mov	esi, offset 9b
+	or	dl, dl
+	PRINT_NZ_
+
+	PRINT_		# "hd"
+	mov	al, dl
+	add	al, 'a'
+	call	printchar
+	PRINT_		# " ("
+
+	# 3 strings: "ATA",0,0  or  "ATA","PI",0   or  0,0,"UNKNOWN"
+	cmp	ah, TYPE_ATA
+	jnz	2f
+	PRINT_
+	PRINTSKIP_
+	PRINTSKIP_
+	jmp	3f
+2:	cmp	ah, TYPE_ATAPI
+	jnz	2f
+	PRINT_
+	PRINT_
+	PRINTSKIP_
+	jmp	3f
+2:	PRINTSKIP_
+	PRINTSKIP_
+	PRINT_
+3:	PRINT_
+	inc	dl
+
+1:	inc	ebx
+	loop	0b
+	call	newline
+
+	ret
+

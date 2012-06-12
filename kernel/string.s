@@ -32,6 +32,103 @@ atoi:
 	ret
 
 
+# in: eax = pointer to radix 16 (hex) string
+# out: eax = number on CF = 0; CF=1: error
+htoi:
+	push	esi
+	push	ebx
+	mov	esi, eax
+	xor	ebx, ebx
+
+	mov	ah, 9
+
+0:	lodsb
+	or	al, al
+	jz	0f
+	sub	al, '0'
+	js	1f
+	cmp	al, 9 # '9' - '0'
+	jbe	2f
+	sub	al, 'A' - '0'
+	js	1f
+	cmp	al, 6 # 'F' - 'A'
+	jbe	4f
+	sub	al, 'a' - 'A' 
+	js	1f
+	cmp	al, 6 # f' - 'a' 
+	ja	1f
+4:	add	al, 10
+2:	
+	rol	ebx, 4
+#	mov	ah, bl
+#	and	ah, 0xf
+#	and	bl, 0xf0
+#	shl	edx, 4
+#	or	dl, ah
+	or	bl, al
+
+#	jmp	0b
+	dec	ah
+	jnz	0b
+	stc
+
+0:	mov	eax, ebx
+	pop	ebx
+	pop	esi
+	ret
+1:	stc
+	jmp	0b
+
+
+# in: eax = pointer to radix 16 (hex) string
+# out: edx:eax = number on CF = 0; CF=1: error
+htoid:
+	push	esi
+	push	ebx
+	mov	esi, eax
+	xor	ebx, ebx
+	xor	edx, edx
+
+	mov	ah, 17
+
+0:	lodsb
+	or	al, al
+	jz	0f
+	sub	al, '0'
+	js	1f
+	cmp	al, 9 # '9' - '0'
+	jbe	2f
+	sub	al, 'A' - '0'
+	js	1f
+	cmp	al, 6 # 'F' - 'A'
+	jbe	4f
+	sub	al, 'a' - 'A' 
+	js	1f
+	cmp	al, 6 # f' - 'a' 
+	ja	1f
+4:	add	al, 10
+2:	
+	rol	ebx, 4
+	mov	ah, bl
+	and	ah, 0xf
+	and	bl, 0xf0
+	shl	edx, 4
+	or	dl, ah
+	or	bl, al
+
+	jmp	0b
+	dec	ah
+	jnz	0b
+	stc
+
+0:	mov	eax, ebx
+	pop	ebx
+	pop	esi
+	ret
+1:	stc
+	jmp	0b
+
+
 strlen:
 	push	edi
 	push	ecx

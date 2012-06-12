@@ -159,11 +159,11 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 
 ###### Load String Pointer
-.macro LOAD_TXT txt
+.macro LOAD_TXT txt, reg = esi
 	.data
 		99: .asciz "\txt"
 	.text
-	mov	esi, offset 99b
+	mov	\reg, offset 99b
 .endm
 
 .macro PUSH_TXT txt
@@ -172,55 +172,90 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	.text
 	push	dword ptr offset 99b
 .endm
+
+# for printf
 .macro PUSHSTRING s
 	PUSH_TXT \s
 .endm
 
 
+# prints esi, not preserving it.
+.macro PRINT_ msg
+	.ifnes "\msg", ""
+	LOAD_TXT "\msg"
+	.endif
+	call	print_
+.endm
+
+
+.macro PRINTSKIP_
+91:	lodsb
+	or	al, al
+	jnz	91b
+.endm
+
+# like PRINT_, except the string is skipped when ZF=1, and printed when ZF=0
+.macro PRINT_NZ_
+	jz	99f;
+	call	print_
+	jmp	98f
+99:	PRINTSKIP_
+98:
+.endm
+
+.macro PRINT_Z_
+	jnz	99f;
+	call	print_
+	jmp	98f
+99:	PRINTSKIP_
+98:
+.endm
+
+
+
+.macro PRINTLN_ msg
+	LOAD_TXT "\msg"
+	call	println
+.endm
+
+
 .macro PRINT msg
 	push	esi
-	LOAD_TXT "\msg"
-	call	print
+	PRINT_	"\msg"
 	pop	esi
 .endm
 
 
 .macro PRINTLN msg
 	push	esi
-	LOAD_TXT "\msg"
-	call	println
+	PRINTLN_ "\msg"
 	pop	esi
+.endm
+
+.macro PRINTc_ color, str
+	pushcolor \color
+	PRINT_ "\str"
+	popcolor
+.endm
+
+.macro PRINTLNc_ color, str
+	pushcolor \color
+	PRINTLN_ "\str"
+	popcolor
 .endm
 
 .macro PRINTc color, str
-	.if 1
 	pushcolor \color
 	PRINT "\str"
 	popcolor
-	.else
-	PRINT_START \color
-	push	esi
-	LOAD_TXT "\str"
-	call	__print
-	pop	esi
-	PRINT_END
-	.endif
 .endm
 
 .macro PRINTLNc color, str
-	.if 1
 	pushcolor \color
 	PRINTLN "\str"
 	popcolor
-	.else
-	PRINT_START \color
-	push	esi
-	LOAD_TXT "\str"
-	call	__println
-	pop	esi
-	PRINT_END
-	.endif
 .endm
+
 ####################
 
 
@@ -442,6 +477,15 @@ printchar:
 	PRINT_END
 	ret
 
+printchar_:
+	push	ax
+	lodsb
+	PRINT_START
+	stosw
+	PRINT_END
+	pop	ax
+	ret
+
 nprintln:
 	call	nprint
 	jmp	newline
@@ -480,6 +524,17 @@ print:	PRINT_START
 
 	pop	esi
 	PRINT_END
+	ret
+
+print_:
+	PRINT_START
+	jmp	1f
+0:	stosw
+1:	lodsb
+	test	al, al
+	jnz	0b
+	PRINT_END
+	ret
 	ret
 
 __println:
@@ -530,6 +585,13 @@ printbin8:
 
 ############################ PRINT DECIMAL ####################
 
+printdec8:
+	push	edx
+	movzx	edx, dl
+	call	printdec32
+	pop	edx
+	ret
+
 # unsigned 32 bit print
 printdec32:
 	PRINT_START
@@ -539,9 +601,9 @@ printdec32:
 
 # unsigned 32 bit print
 __printdec32:
+	push	edx
 	push	eax
 	push	ebx
-	push	edx
 	push	ecx
 
 	or	edx, edx
@@ -583,10 +645,131 @@ __printdec32:
 1:
 
 	pop	ecx
-	pop	edx
 	pop	ebx
 	pop	eax
+	pop	edx
 
+	ret
+
+#############################################################################
+# Fixed Point
+
+# in: edx:eax = 32.32 fixed point
+# in: bl = digits afer '.' to print
+# destroys: bl
+print_fixedpoint_32_32$:
+	push	eax
+	push	edx
+
+	call	printdec32
+	or	eax, eax
+	jz	1f
+
+	printchar '.'	# i18n
+	push	ecx
+	mov	ecx, 10
+0:	mul	ecx
+	call	printdec32
+	dec	bl
+	jnz	0b
+	pop	ecx
+1:
+	pop	edx
+	pop	eax
+	ret
+
+print_fixedpoint_32_32:
+	push	ebx
+	mov	bl, 3
+	call	print_fixedpoint_32_32$
+	pop	ebx
+	ret
+
+##############################################################################
+# Byte-Size (kb, Mb, Gb etc)
+
+print_size:
+	push	eax
+	push	edx
+
+
+	or	edx, edx
+	jnz	1f
+	cmp	eax, 1024
+	jae	1f
+
+	mov	edx, eax
+	call	printdec32
+	mov	al, 'b'
+	call	printchar
+	jmp	2f
+
+1:	
+	shr	edx, 1
+	sar	eax, 1
+	shr	edx, 1
+	sar	eax, 1
+	mov	al, dl
+	shr	edx, 8
+	ror	eax, 8
+
+	call	print_size_kb
+
+2:	pop	edx
+	pop	eax
+	ret
+
+# in: edx:eax = size in kilobytes to print
+# destroys: edx, eax
+print_size_kb:
+	push	eax
+	push	edx
+	push	esi
+
+	# check 1Mb limit:
+	or	edx, edx
+	jnz	1f	# nope
+	cmp	eax, 1024	# check 1Mb
+	jae	2f
+	# print it in kb
+	xchg	edx, eax
+	LOAD_TXT "kb"
+	jmp	3f
+2:	cmp	eax, 1024*1024	# check 1Gb
+	jae	2f
+	LOAD_TXT "Mb"
+	mov	edx, eax
+	shr	edx, 10
+	shl	eax, 10
+	jmp	3f
+2:	cmp	eax, 1024*1024*1024	# 30 bits, check 1Tb
+	jae	2f
+	LOAD_TXT "Gb"
+	mov	edx, eax
+	shr	edx, 20
+	shl	eax, 20
+	jmp	3f
+2:	LOAD_TXT "Tb"
+	shl	eax, 1
+	sal	edx, 1
+	shl	eax, 1
+	sal	edx, 1
+	jmp	3f
+
+##### edx != 0
+1:	cmp	edx, 1024 / 4	# check Pb
+	jb	2b
+	LOAD_TXT "Pb"
+	shr	edx, 1
+	sar	eax, 1
+	shr	edx, 1
+	sar	edx, 1
+
+3:	call	print_fixedpoint_32_32
+	call	print
+	pop	esi
+	pop	edx
+	pop	eax
 	ret
 
 
