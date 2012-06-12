@@ -10,7 +10,7 @@ kernel.bin: kernel.o
 	../util/checksymbols $<
 	objcopy -O binary $< $@
 
-KERNEL_SRC = kernel.s debug.s realmode.s print.s \
+KERNEL_SRC = kernel.s debug.s debugger.s realmode.s print.s \
 	pmode.s pic.s gdt.s idt.s tss.s \
 	mem.s hash.s list.s string.s
 
