@@ -2,7 +2,8 @@
 .code32
 # requires ll_* - list.s (currently asm.s)
 
-
+BUF_DEBUG = 0
+ARRAY_DEBUG = 0
 
 
 ############################################ Two dimensional linked list
@@ -137,6 +138,14 @@ BUF_OBJECT_SIZE = 8
 .struct -BUF_OBJECT_SIZE
 buf_capacity: .long 0	# pointer to capacity relative to base
 buf_index: .long 0	# pointer to the last used element in the buf
+
+ARRAY_OBJECT_SIZE = 16
+.struct -ARRAY_OBJECT_SIZE
+array_constructor: .long 0
+array_destructor: .long 0
+array_capacity: .long 0
+array_index: .long 0
+
 #
 #buf_itemsize: .long 0 # number of bytes per item 
 #buf_growsize: .long 0 # bytes to add on each mrealloc
@@ -145,11 +154,28 @@ buf_index: .long 0	# pointer to the last used element in the buf
 # out: eax = pointer to BUF object.
 buf_new:
 	push	eax
+
+	.if BUF_DEBUG
+		push edx
+		printc 5, "buf_new("
+		mov edx, eax
+		call printdec32
+		printc 5, "): "
+	.endif
+
 	add	eax, 8
-	call	malloc
+	call	mallocz
 	pop	[eax]
 	mov	[eax + 4], dword ptr 0
 	add	eax, 8
+
+	.if BUF_DEBUG
+		mov edx, eax
+		call printhex8
+		call newline
+		pop edx
+	.endif
+
 	ret
 
 buf_free:
@@ -168,12 +194,34 @@ buf_grow:
 # in: edx = new size
 # out: eax = pointer to new buffer
 buf_resize:
+	.if BUF_DEBUG
+		printc 5, "buf_resize("
+		call printdec32
+		printc 5, ", "
+		push edx
+		mov edx, eax
+		call printhex8
+		printc 5, " called from "
+		mov edx, [esp+4]
+		call printhex8
+		printc 5, ": "
+		pop edx
+	.endif
+
 	sub	eax, 8
 	push	edx
 	add	edx, 8
 	call	mrealloc
 	pop	dword ptr [eax + buf_capacity]
 	add	eax, 8
+
+	.if BUF_DEBUG
+		push edx
+		mov edx, eax
+		call printhex8
+		call newline
+		pop edx
+	.endif
 	ret
 
 # in: esi = buf metadata
@@ -204,6 +252,86 @@ array_appendcopy:
 0:
 	ret
 
+
+
+# in: ecx = entry size
+# in: eax = initial entries
+# out: eax = base pointer
+array_new:
+	push	edx
+	mul	ecx
+	# assume edx = 0
+	call	buf_new	# in: eax; out: eax
+	pop	edx
+	ret
+
+array_free:
+	call	buf_free
+	ret
+
+# in: eax = buf/array base pointer
+# in: ecx = entry size
+# out: edx = relative offset
+# out: eax = base pointer (might be updated due to realloc)
+array_newentry:
+	mov	edx, [eax + buf_index]
+	cmp	edx, [eax + buf_capacity]
+	jb	0f
+
+	.if ARRAY_DEBUG
+		printc 10, "mtab grow "
+		call	printhex8
+		printchar ' '
+		push	edx
+		mov	edx, eax
+		call	printhex8
+		call	newline
+		pop	edx
+	.endif
+	
+	add	edx, ecx # MTAB_ENTRY_SIZE
+	# optionally: increase grow size
+	call	buf_resize	# in: eax, out: eax
+	mov	edx, [eax + buf_index]
+0:	add	[eax + buf_index], ecx # dword ptr MTAB_ENTRY_SIZE
+
+	.if ARRAY_DEBUG
+		printc 10, "mtab_entry_alloc "
+		call	printdec32
+		printchar ' '
+		push	edx
+		mov	edx, eax
+		call	printhex8
+		pop	edx
+		call	newline
+	.endif
+
+	# REMEMBER: eax might be updated, so always store it after a call!
+
+	ret
+
+
+# in: eax = base ptr
+# in: ecx = entry size / size of memory to remove
+# in: edx = entry to release
+array_remove:
+	add	edx, ecx
+	cmp	edx, [eax + buf_capacity]
+	jae	0f	# ja -> misalignment
+	mov	esi, edx
+	mov	edi, edx
+	sub	edi, ecx
+	add	esi, eax
+	add	edi, eax
+	push	ecx
+	rep	movsb
+	pop	ecx
+0:	sub	[eax + buf_index], ecx
+	ret
+
+
+######################################### OOP ###########################
+
 .data
 DEFAULT_OBJECT_POOL_SIZE = 16
 DEFAULT_OBJECT_POOL_GROW_SIZE = 4
@@ -213,7 +341,7 @@ CLASS_ARRAY	= 2
 global_class_pool: .long 0
 .text
 
-array_new:
+array_newinstance:
 	mov	eax, CLASS_ARRAY
 	#mov	eax, offset global_class_pool + eax * 4
 	call	object_new
@@ -227,6 +355,8 @@ array_new:
 	mov	[eax], dword ptr 0
 	mov	[eax+4], dword ptr 0
 	ret
+
+
 
 # in: eax = reference to memory address holding global class pool pointer
 # in: ecx = bytes to allocate for the object.
@@ -410,3 +540,5 @@ object_new:
 #	
 #
 #
+
+

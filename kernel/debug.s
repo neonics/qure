@@ -168,3 +168,119 @@
 .endif
 .endm
 
+
+DEBUG_COLOR1 = 0x80
+DEBUG_COLOR2 = 0x87
+DEBUG_COLOR3 = 0x8f
+
+.macro DEBUG str
+printc DEBUG_COLOR3, "\str "
+.endm
+
+.macro DEBUGS
+pushcolor DEBUG_COLOR1
+push	eax
+mov	al, '\''
+call	printchar
+COLOR DEBUG_COLOR2
+call	print
+COLOR DEBUG_COLOR1
+call	printchar
+call	printspace
+pop	eax
+popcolor
+.endm
+
+
+
+.macro DEBUG_R8 r
+DEBUG_BYTE \r
+.endm
+
+.macro DEBUG_R16 r
+DEBUG_WORD \r
+.endm
+
+.macro DEBUG_R32 r
+DEBUG_DWORD \r
+.endm
+
+
+.macro DEBUG_BYTE r8
+	pushcolor DEBUG_COLOR1
+	print	"\r8="
+	color	DEBUG_COLOR2
+	.if \r8 == dl
+	call	printhex2
+	.else
+	push	edx
+	mov	dl, \r8
+	call	printhex2
+	pop	edx
+	.endif
+	call	printspace
+
+	popcolor
+.endm
+
+.macro DEBUG_WORD r16
+	pushcolor DEBUG_COLOR1
+	print	"\r16="
+	color	DEBUG_COLOR2
+	.if \r16 != dx
+	push	edx
+	mov	dx, \r16
+	call	printhex4
+	pop	edx
+	.else
+	call	printhex4
+	.endif
+	call	printspace
+	popcolor
+.endm
+
+.macro DEBUG_DWORD r32
+	pushcolor DEBUG_COLOR1
+	print	"\r32="
+	color	DEBUG_COLOR2
+	.if \r32 != dx
+	push	edx
+	mov	edx, \r32
+	call	printhex8
+	pop	edx
+	.else
+	call	printhex8
+	.endif
+	call	printspace
+	popcolor
+.endm
+
+
+.macro DEBUG_DIV_PRE r32
+	pushcolor 8
+	push	edx
+	call	printhex8
+	printchar ':'
+	mov	edx, eax
+	call	printhex8
+	printchar '/'
+	mov	edx, \r32
+	call	printhex8
+	pop	edx
+	popcolor
+.endm
+
+
+.macro DEBUG_DIV_POST
+	pushcolor 8
+	printchar '='
+	push	edx
+	mov	edx, eax
+	call	printhex8
+	pop	edx
+	printchar '.'
+	call	printhex8
+	popcolor
+.endm
+
+
