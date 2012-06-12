@@ -10,6 +10,7 @@ kernel_start:
 ###################################
 DEFINE = 1
 .include "print.s"
+.include "debugger.s"
 .include "pmode.s"
 .include "pit.s"
 .include "keyboard.s"
@@ -142,14 +143,18 @@ kmain:
 
 	call	ata_list_drives
 
+	I "Mounting root filesystem"
+	call	mount_init$
+	call	newline
+
 	#MORE
 .if SHOWOFF
 	WAITSCREEN
 .endif
 
-	I "CD-ROM ISO9660 Test: "
-	call	newline
-	call	iso9660_test
+#	I "CD-ROM ISO9660 Test: "
+#	call	newline
+#	call	iso9660_test
 
 	##################################################################
 

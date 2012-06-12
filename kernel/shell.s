@@ -1,7 +1,15 @@
 .intel_syntax noprefix
 
-.data 2
+CMDLINE_DEBUG = 1	# 1: include cmdline_print_args$;
+			# 2: 
+
 MAX_CMDLINE_LEN = 1024
+
+.data
+insertmode: .byte 1
+.data 2
+cursorpos: .long 0
+
 cmdlinelen: .long 0
 cmdline: .space MAX_CMDLINE_LEN
 cmdline_tokens_end: .long 0
@@ -10,21 +18,23 @@ cmdline_tokens: .space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
 MAX_CMDLINE_ARGS = 256
 cmdline_argdata: .space MAX_CMDLINE_LEN + MAX_CMDLINE_ARGS
 cmdline_args:	.space MAX_CMDLINE_ARGS * 4
-insertmode: .byte 1
-cursorpos: .long 0
 
 cmdline_prompt_label_length: .long 0 # "the_prefix> ".length
 
 MAX_PATH_LEN = 1024
+
 cwd$:	.space MAX_PATH_LEN
 cd_cwd$:	.space MAX_PATH_LEN
+cwd_handle$: .long 0
+
+
 ############################################################################
 .struct 0
 shell_command_code: .long 0
 shell_command_string: .long 0
 shell_command_length: .word 0
 SHELL_COMMAND_STRUCT_SIZE: 
-.text
+.data
 
 .macro SHELL_COMMAND string, addr
 	.data 1
@@ -37,7 +47,6 @@ SHELL_COMMAND_STRUCT_SIZE:
 	.text
 .endm
 
-.data
 ### Shell Command list
 .align 4
 SHELL_COMMANDS:
@@ -47,13 +56,13 @@ SHELL_COMMAND "cluster",	cmd_cluster$
 SHELL_COMMAND "cd",		cmd_cd$
 SHELL_COMMAND "cls",		cls
 SHELL_COMMAND "pwd",		cmd_pwd$
-SHELL_COMMAND "disks",		disks_print$
+SHELL_COMMAND "disks",		cmd_disks_print$
 SHELL_COMMAND "fdisk",		cmd_fdisk$
 SHELL_COMMAND "partinfo",	cmd_partinfo$
 SHELL_COMMAND "mount",		cmd_mount$
 SHELL_COMMAND "umount",		cmd_umount$
 SHELL_COMMAND "mtest",		malloc_test$
-SHELL_COMMAND "mem",		print_handles$
+SHELL_COMMAND "mem",		cmd_mem$
 SHELL_COMMAND "quit",		cmd_quit$
 SHELL_COMMAND "exit",		cmd_quit$
 SHELL_COMMAND "help",		cmd_help$
@@ -61,11 +70,14 @@ SHELL_COMMAND "hist",		cmdline_history_print
 SHELL_COMMAND "lspci",		pci_list_devices
 SHELL_COMMAND "strlen",		cmd_strlen$
 SHELL_COMMAND "echo",		cmd_echo$
+SHELL_COMMAND "listdrives",	ata_list_drives
+SHELL_COMMAND "fs_tree",	fs_printtree
+SHELL_COMMAND "hs",		cmd_human_readable_size$
 #SHELL_COMMAND "regexp",		regexp_parse
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
-
+############################################################################
 
 .text	
 .code32
@@ -80,6 +92,20 @@ shell:	push	ds
 
 	mov	[cwd$], word ptr '/'
 	mov	[insertmode], byte ptr 1
+
+	.data
+	9: .asciz "mount"
+	8: .asciz "hdb0"
+	7: .asciz "/b"
+	6: .long 9b, 8b, 7b, 0
+	.text
+
+	mov	esi, offset 6b
+	call	cmd_mount$
+
+	mov	eax, offset cwd$
+	call	fs_opendir
+	mov	[cwd_handle$], eax
 
 start$:
 	print "!"
@@ -97,7 +123,7 @@ start0$:
 	call	print
 	printcharc 15, ':'
 
-	mov	edx, [cmdline_history_index]
+	mov	edx, [cmdline_history_current]
 	call	printdec32
 	printc 15, "> "
 	#POP_SCREENPOS
@@ -106,7 +132,7 @@ start0$:
 
 
 start1$:
-	call	print_cmdline$
+	call	cmdline_print$
 
 	mov	edi, offset cmdline
 	add	edi, [cursorpos]
@@ -129,16 +155,16 @@ start1$:
 	.endif
 
 	cmp	ax, K_ESC
-	jz	clear$
+	jz	key_escape$
 
 	cmp	ax, K_ENTER
-	jz	enter$
+	jz	key_enter$
 
 	cmp	ax, K_BACKSPACE
-	jz	bs$
+	jz	key_backspace$
 
 	cmp	ax, K_DELETE
-	jz	del$
+	jz	key_delete$
 
 	cmp	ax, K_LEFT
 	jz	key_left$
@@ -150,7 +176,7 @@ start1$:
 	jz	key_down$
 
 	cmp	ax, K_INSERT
-	jz	toggleinsert$
+	jz	key_insert$
 
 	cmp	al, 127
 	jae	start1$	# ignore
@@ -187,6 +213,7 @@ start1$:
 
 	jmp	start1$
 
+
 cursor_toggle$:
 	PRINT_START
 	mov	ecx, [cursorpos]
@@ -194,8 +221,12 @@ cursor_toggle$:
 	xor	es:[edi + ecx * 2 + 1], byte ptr 0xff
 	PRINT_END
 	ret
+
+##########################################################################
+## Keyboard handler for the shell
 	
-enter$:	
+# Shell and History key handler
+key_enter$:	
 	call	cursor_toggle$
 	call	newline
 
@@ -203,7 +234,7 @@ enter$:
 	jc	1f
 	mov	eax, [cmdline_history]
 	mov	edx, [eax + buf_index]
-1:	mov	[cmdline_history_index], edx
+1:	mov	[cmdline_history_current], edx
 
 	xor	ecx, ecx
 	mov	[cursorpos], ecx
@@ -211,17 +242,248 @@ enter$:
 	or	ecx, ecx
 	jz	start$
 
+	call	cmdline_execute$
+	
+	jmp	start$
+	
+############################################
+## Line Editor key handlers
+
+key_delete$:	
+	mov	ecx, [cmdlinelen]
+	sub	ecx, edi
+	add	ecx, offset cmdline
+	jle	start1$
+	mov	esi, edi
+	inc	esi
+	rep	movsb
+	dec	dword ptr [cmdlinelen]
+	jmp	start1$
+
+key_backspace$:	
+	cmp	edi, offset cmdline 
+	jbe	start1$
+	cmp	edi, [cmdlinelen]
+	jz	1f
+	mov	esi, edi
+	dec	edi
+	mov	ecx, 1024 + offset cmdline
+	sub	ecx, esi
+	jz	1f
+	rep	movsb
+
+1:	dec	dword ptr [cursorpos]
+	jns	1f
+	printc 4, "Error: cursorpos < 0"
+1:
+	dec	dword ptr [cmdlinelen]
+	jns	1f
+	PRINTlnc 4, "Error: cmdlinelen < 0"
+1:	jmp	start1$
+
+key_left$:
+	dec	dword ptr [cursorpos]
+	jns	start1$
+	inc	dword ptr [cursorpos]
+	jmp	start1$
+
+key_right$:
+	mov	eax, [cursorpos]
+	cmp	eax, [cmdlinelen]
+	jae	start1$
+	inc	dword ptr [cursorpos]
+	jmp	start1$
+
+key_insert$:
+	xor	byte ptr [insertmode], 1
+	jmp	start$
+
+key_escape$:
+	call	cmdline_clear$
+	jmp	start1$
+
+#########################################
+## History key handlers
+
+key_up$:
+	mov	eax, [cmdline_history]
+	mov	ebx, [cmdline_history_current]
+	sub	ebx, 4
+	jns	0f
+	xor	ebx, ebx
+	jmp	0f
+
+key_down$:
+	mov	eax, [cmdline_history]
+	mov	ebx, [cmdline_history_current]
+	add	ebx, 4
+	cmp	ebx, [eax + buf_index]
+	jb	0f
+	mov	ebx, [eax + buf_index]
+	sub	ebx, 4
+	js	start0$	# empty
+
+0:	mov	[cmdline_history_current], ebx
+
+	call	cursor_toggle$
+
+	call	cmdline_clear$
+
+	# copy history entry to commandline buffer
+
+	mov	edi, offset cmdline
+	mov	esi, [eax+ebx]
+0:	lodsb
+	stosb
+	or	al, al
+	jnz	0b
+	sub	edi, offset cmdline
+	dec	edi
+	mov	[cursorpos], edi
+	mov	[cmdlinelen], edi
+
+	jmp	start0$
+
+
+##########################################################################
+# commandline utility functions
+
+cmdline_clear$:
+	push	eax
+	push	ecx
+	mov	ax,(7<<8)| ' '
+	xor	ecx, ecx
+	mov	[cursorpos], ecx
+	xchg	ecx, [cmdlinelen]
+	add	ecx, [cmdline_prompt_label_length]
+	jecxz	2f	# used to jump to start$
+	PRINT_START
+	push	edi
+	inc	ecx
+1:	stosw	#call	printchar
+	loop	1b
+	pop	edi
+	PRINT_END
+2:	pop	ecx
+	pop	eax
+	ret
+
+cmdline_print$:
+	push	esi
+	push	ecx
+	push	ebx
+
+	PRINT_START
+	push	edi
+
+	# print the prompt
+
+	mov	ebx, edi
+
+	mov	ah, 7
+	mov	esi, offset cwd$
+	call	__print
+
+	mov	ah, 15
+	mov	al, ':'
+	stosw
+
+	mov	ah, 7
+	mov	edx, [cmdline_history_current]
+	shr	edx, 2
+	call	__printdec32
+	stosw
+	mov	edx, [cursorpos]
+	call	__printdec32
+
+	mov	ah, 15
+	mov	al, '>'
+	stosw
+	mov	al, ' '
+	stosw
+
+	mov	ah, 7
+
+	sub	ebx, edi
+	neg	ebx
+	shr	ebx, 1
+	mov	[cmdline_prompt_label_length], ebx
+
+	# print the line editor contents
+
+	mov	ebx, edi
+
+	mov	ecx, [cmdlinelen]
+	jecxz	2f
+	mov	esi, offset cmdline
+
+1:	lodsb
+	stosw
+	loop	1b
+
+2:	mov	al, ' '
+	stosw
+	stosw
+
+	add	ebx, [cursorpos]
+	add	ebx, [cursorpos]
+	xor	es:[ebx + 1], byte ptr 0xff
+
+	pop	edi
+	PRINT_END
+
+	pop	ebx
+	pop	ecx
+	pop	esi
+
+	ret
+
+.if CMDLINE_DEBUG
+
+cmdline_print_args$:
+	pushcolor 8
+	print	"ARGS: "
+	push	esi
+	push	edx
+0:	mov	edx, [esi]
+	or	edx, edx
+	jz	0f
+	printcharc 10, '<'
+	push	esi
+	mov	esi, edx
+	color 7
+	call	print
+	printcharc 10, '>'
+	call	printspace
+	pop	esi
+	add	esi, 4
+	jmp	0b
+0:
+	call	newline
+	pop	edx
+	pop	esi
+	popcolor
+	ret
+
+.endif
+
+
+###################################################
+## Commandline execution
+
+# parses the commandline and executes the command(s)
+cmdline_execute$:
 
 	DEBUG_TOKENS = 0
 
 	.if DEBUG_TOKENS
-	PRINTc 9, "CMDLINE: \""
-	mov	esi, offset cmdline
-	call	nprint
-	PRINTLNc 9, "\""
-	mov	edx, ecx
-	call	printhex8
-	call	newline
+		PRINTc 9, "CMDLINE: \""
+		mov	esi, offset cmdline
+		call	nprint
+		PRINTLNc 9, "\""
+		mov	edx, ecx
+		call	printhex8
+		call	newline
 	.endif
 
 	push	ecx
@@ -231,9 +493,9 @@ enter$:
 	call	tokenize
 	mov	[cmdline_tokens_end], edi
 	.if DEBUG_TOKENS
-	mov	ebx, edi
-	mov	esi, offset cmdline_tokens
-	call	printtokens
+		mov	ebx, edi
+		mov	esi, offset cmdline_tokens
+		call	printtokens
 	.endif
 	pop	ecx
 
@@ -248,23 +510,8 @@ enter$:
 	########################
 
 	# debug the arguments:
-	.if DEBUG_TOKENS
-	printc 10, "ARGS: "
-	mov	edx, ebx
-	sub	edx, offset cmdline_args
-	shr	edx, 2
-	call	printdec32
-	mov	ebx, offset cmdline_args
-0:	
-	mov	esi, [ebx]
-	or	esi, esi
-	jz	0f
-	printcharc 10, '<'
-	call	print
-	printcharc 10, '>'
-	add	ebx, 4
-	jmp	0b
-0:	call	newline
+	.if DEBUG_TOKENS && CMDLINE_DEBUG
+		call	cmdline_print_args$
 	.endif
 
 	# Find the command.
@@ -300,709 +547,42 @@ enter$:
 	add	edx, [realsegflat]
 	call	edx
 
-	jmp	start$
-	
-#######
-###################################################################
-
-cmd_quit$:
-	printlnc 12, "Terminating shell."
-	add	esp, 4	# skip returning to the shell loop and return from it.
 	ret
-
-
-cmd_pwd$:
-	mov	esi, offset cwd$
-	call	println
-	ret
-
-cmd_help$:
-	mov	ebx, offset SHELL_COMMANDS
-0:	mov	esi, [ebx + shell_command_string]
-	or	esi, esi
-	jz	0f
-	cmp	[ebx + shell_command_code], dword ptr 0
-	jz	0f
-	call	print
-	mov	al, ' '
-	call	printchar
-	add	ebx, SHELL_COMMAND_STRUCT_SIZE
-	jmp	0b
-0:	call	newline
-	ret
-
-## Keyboard handler for the shell
-
-del$:	
-	mov	ecx, [cmdlinelen]
-	sub	ecx, edi
-	add	ecx, offset cmdline
-	jle	start1$
-	mov	esi, edi
-	inc	esi
-	rep	movsb
-	dec	dword ptr [cmdlinelen]
-	jmp	start1$
-
-bs$:	
-	cmp	edi, offset cmdline 
-	jbe	start1$
-	cmp	edi, [cmdlinelen]
-	jz	1f
-	mov	esi, edi
-	dec	edi
-	mov	ecx, 1024 + offset cmdline
-	sub	ecx, esi
-	jz	1f
-	rep	movsb
-
-1:	dec	dword ptr [cursorpos]
-	jns	1f
-	printc 4, "Error: cursorpos < 0"
-1:
-	dec	dword ptr [cmdlinelen]
-	jns	1f
-	PRINTlnc 4, "Error: cmdlinelen < 0"
-1:	jmp	start1$
-
-key_left$:
-	dec	dword ptr [cursorpos]
-	jns	start1$
-	inc	dword ptr [cursorpos]
-	jmp	start1$
-
-key_right$:
-	mov	eax, [cursorpos]
-	cmp	eax, [cmdlinelen]
-	jae	start1$
-	inc	dword ptr [cursorpos]
-	jmp	start1$
-
-key_up$:
-	mov	eax, [cmdline_history]
-	mov	ebx, [cmdline_history_index]
-	sub	ebx, 4
-	jns	0f
-#	printlnc 10, "hist first"
-#	jmp	start$
-	xor	ebx, ebx
-	jmp	0f
-
-key_down$:
-	mov	eax, [cmdline_history]
-	mov	ebx, [cmdline_history_index]
-	add	ebx, 4
-	cmp	ebx, [eax + buf_index]
-	jb	0f
-#	printlnc 10, "hist last"
-#	jmp	start$
-	mov	ebx, [eax + buf_index]
-	sub	ebx, 4
-	js	start0$	# empty
-
-0:	mov	[cmdline_history_index], ebx
-
-#mov	edx, ebx
-#call	printhex8
-#printchar ' '
-#mov	esi, [eax+ebx]
-#call	println
-
-	call	cursor_toggle$
-
-	call	cmdline_clear$
-
-	# copy history entry to commandline buffer
-.if 1
-	mov	edi, offset cmdline
-	mov	esi, [eax+ebx]
-0:	lodsb
-	stosb
-	or	al, al
-	jnz	0b
-	sub	edi, offset cmdline
-	dec	edi
-	mov	[cursorpos], edi
-	mov	[cmdlinelen], edi
-
-.endif
-	jmp	start0$
-
-
-clear$:	
-	call	cmdline_clear$
-	jmp	start1$
-
-cmdline_clear$:
-	push	eax
-	push	ecx
-	mov	ax,(7<<8)| ' '
-	xor	ecx, ecx
-	mov	[cursorpos], ecx
-	xchg	ecx, [cmdlinelen]
-	add	ecx, [cmdline_prompt_label_length]
-	jecxz	2f	# used to jump to start$
-	PRINT_START
-	push	edi
-	inc	ecx
-1:	stosw	#call	printchar
-	loop	1b
-	pop	edi
-	PRINT_END
-2:	pop	ecx
-	pop	eax
-	ret
-
-
-
-toggleinsert$:
-	xor	byte ptr [insertmode], 1
-	jmp	start$
-
-# destroys: ecx, esi, ebx
-print_cmdline$:
-
-	push	esi
-	push	ecx
-	push	ebx
-
-	PRINT_START
-	push	edi
-
-	#############
-	mov	ebx, edi
-
-	mov	ah, 7
-	mov	esi, offset cwd$
-	call	__print
-
-	mov	ah, 15
-	mov	al, ':'
-	stosw
-
-	mov	ah, 7
-	mov	edx, [cmdline_history_index]
-	shr	edx, 2
-	call	__printdec32
-	stosw
-	mov	edx, [cursorpos]
-	call	__printdec32
-
-	mov	ah, 15
-	mov	al, '>'
-	stosw
-	mov	al, ' '
-	stosw
-
-	mov	ah, 7
-
-	sub	ebx, edi
-	neg	ebx
-	shr	ebx, 1
-	mov	[cmdline_prompt_label_length], ebx
-
-	#############
-	mov	ebx, edi
-
-	mov	ecx, [cmdlinelen]
-	jecxz	2f
-	mov	esi, offset cmdline
-
-1:	lodsb
-	stosw
-	loop	1b
-
-2:	mov	al, ' '
-	stosw
-	stosw
-
-	add	ebx, [cursorpos]
-	add	ebx, [cursorpos]
-	xor	es:[ebx + 1], byte ptr 0xff
-
-	pop	edi
-	PRINT_END
-
-	pop	ebx
-	pop	ecx
-	pop	esi
-
-	ret
-
-
-.data
-cmdline_identifier: .byte ALPHA, DIGIT, '_', '.'
-cmdline_id_size = . - cmdline_identifier
-CMDTOK_ID = 1
-CMDTOK_PATH = 2
-.text
-
-# merge tokens
-process_tokens:
-	mov	esi, offset cmdline_tokens
-	xor	edx, edx
-0:	lodsd
-	cmp	eax, -1
-	jz	1f
-
-	# check for identifier tokens
-	mov	edi, offset cmdline_identifier
-	mov	ecx, cmdline_id_size
-	repne	scasb
-	jnz	2f
-
-id$:	shl	dx, 8
-	mov	dl, CMDTOK_ID
-	println "Identifier"
-
-	cmp	dl, dh
-	jz	0b
-	PRINT "End token: "
-	ror	dx, 8
-	call	printhex2
-	ror	dx, 8
-	jmp	3f
-
-2:	cmp	al, '\\'
-	jnz	2f
-2:
-
-3:	lodsd
-	jmp	0b
-
-1:
-	ret
-
-_tmp_init$:
-	.data
-	8: .asciz "0"
-	9: .long 0, 8b
-	.text
-	mov	esi, offset 9b
-	call	cmd_partinfo$
-	ret
-
-######################################
-#cmd_cd$:	
-	mov	ebx, [fat_root_lba$]
-	or	ebx, ebx
-	jnz	0f
-
-	push	esi
-	call	_tmp_init$
-	pop	esi
-0:	
-	#########
-cmd_cd$:	
-	push	dword ptr 0
-	mov	ebp, esp
-
-	# check parameters
-	cmp	[esi + 8], dword ptr 0
-	jz	0f
-	printc 13, "parsing options: "
-
-	mov	eax, [esi + 4]
-	push	esi
-	mov	esi, eax
-	call	print
-	pop	esi
-
-	cmp	word ptr [eax], ('d'<<8)|'-'
-	jnz	5f
-	cmp	byte ptr [eax + 2], 0
-	jnz	5f
-
-	inc	dword ptr [ebp]
-
-	add	esi, 4
-	printc 13, " arg1: "
-	push	esi
-	mov	esi, [esi + 4]
-	call	println
-	pop	esi
-
-0:	mov	esi, [esi + 4]
-	or	esi, esi
-	jnz	0f
-
-	# no path given, change to home directory
-	.data
-	9: .asciz "/"
-	.text
-	mov	esi, offset 9b
-0:
-	# new code
-	cmp	byte ptr [ebp], 0
-	jz	1f
-	print "chdir "
-	call	println
-1:
-
-#	call	cd_apply$
-#	print " -> "
-#	call	println
-
-	push	esi
-	mov	esi, offset cwd$
-	mov	edi, offset cd_cwd$
-	mov	ecx, MAX_PATH_LEN
-	rep	movsb
-	pop	esi
-
-	mov	edi, offset cd_cwd$
-
-	mov	ax, [esi]
-	cmp	ax, '/'
-	jnz	0f
-	stosw
-	jmp	4f
-0:	cmp	al, '/'
-	jnz	2f
-
-	inc	esi
-	inc	edi
-	mov	byte ptr [edi], 0
-	jmp	3f
-
-2:	xor	al, al
-	mov	ecx, MAX_PATH_LEN
-	repne	scasb	
-	dec	edi	# skip z, assume it ends with /
-
-########
-	# edi points to somewhere within original path
-3:	mov	ebx, esi
-0:	xor	edx, edx
-1:	lodsb
-	or	al, al
-	jz	1f
-	cmp	al, '/'	# append / go deeper
-	jz	2f
-	cmp	al, '.'	# remove tail / ascend
-	jnz	1b
-	inc	edx
-	jmp	1b
-
-1:	mov	byte ptr [esi -1 ], '/'
-2:	# calculate path entry length
-	mov	ecx, esi
-	sub	ecx, ebx	# strlen
-	dec	ecx
-	jz	7f	# no length - no effect
-
-		cmp	byte ptr [ebp], 0
-		jz	1f
-		push	esi
-		mov	esi, ebx
-		call	nprint
-		printchar ' '
-		pushcolor 13
-		mov	esi, offset cd_cwd$
-		call	print
-		print " -> "
-		popcolor
-		pop	esi
-	1:
-
-	# check whether we just had a ... sequence
-	sub	ecx, edx	# edx contains dotcount
-	jnz	1f
-
-	dec	edx	# single dot has no effect
-	jz	7f
-
-	shl	ax, 8	# preserve character
-	dec	edi
-2:	mov	al, '/'
-	mov	ecx, edi
-	sub	ecx, offset cd_cwd$
-	jb	4f
-	je	3f
-	dec	edi
-	std
-	repne	scasb
-	cld
-	inc	edi
-	dec	edx
-	jnz	2b
-	#printchar '?'
-3:	#printchar '!'
-	#jmp	3f
-4:	#printchar '*'
-3:	shr	ax, 8
-
-	mov	word ptr [edi], '/'
-	inc	edi
-
-	jmp	7f
-
-1:	#
-	mov	ecx, esi
-	sub	ecx, ebx
-
-	push	esi
-	mov	esi, ebx
-	rep	movsb
-	mov	byte ptr [edi], 0
-	pop	esi
-
-7:	
-		cmp	byte ptr [ebp], 0
-		jz	1f
-		pushcolor 13
-		push	esi
-		mov	esi, offset cd_cwd$
-		call	println
-		pop	esi
-		popcolor
-	1:
-
-	mov	ebx, esi
-	or	al, al
-	jnz	0b
-########
-
-4:	
-		cmp	byte ptr [esp], 0
-		jz	1f
-		printc 10, "chdir "
-		mov	esi, offset cd_cwd$
-		call	println
-	1:
-
-
-	# copy path:
-	mov	ecx, edi
-	mov	edi, offset cwd$
-	mov	esi, offset cd_cwd$
-	sub	ecx, edi
-	rep	movsb
-
-	pop	eax
-	ret
-
-5:	printlnc 10, "usage: cd [<directory>]"
-
-	pop	eax
-	ret
-
-
-	# old code resuming
-
-#########################
-	push	edi
-	push	ebx
-	push	ebp
-
-	push	esi
-	push	ecx
-
-	# now find what lba to load.
-	
-	cmp	ecx, 1
-	jnz	2f
-	mov	ebx, [fat_root_lba$]
-	jmp	3f
-2:	
-	# find the directory entry
-	dec	ecx
-	call	fat_find_dir	# esi ecx
-	# returns ebx = cluster
-
-
-
-3:	mov	edi, offset tmp_buf$
-	mov	ecx, 1
-	.data
-	tmp_drv$: .long 0
-	.text
-	mov	al, [tmp_drv$]
-	call	ata_read	# ebx=lba
-	jc	2f
-
-	##
-
-
-
-	##
-
-
-	clc
-2:	pop	ecx
-	pop	esi
-
-	pop	ebp
-	pop	ebx
-	pop	edi
-#########################
-
-.data 2
-tmp_buf$: .space 2 * 512
-.text
-
-cmd_ls$:
-	xor	eax, eax
-	jmp	ls$
-
-cmd_cluster$:
-	mov	eax, 2
-	jmp	ls$
-
-
-ls$:	mov	ebx, [fat_root_lba$]
-	or	ebx, ebx
-	jnz	lsdir$
-	call	_tmp_init$
-	mov	ebx, [fat_root_lba$]
-lsdir$:	mov	edi, offset tmp_buf$
-	mov	ecx, 1
-	mov	al, [tmp_drv$]
-	call	ata_read
-	jc	read_error$
-
-	mov	esi, offset tmp_buf$
-0:	
-	cmp	byte ptr [esi], 0
-	jz	0f
-	PRINT	"Name: "
-	mov	ecx, 11
-	call	nprint
-
-	PRINT	" Attr "
-	mov	dl, [esi + FAT_DIR_ATTRIB]
-	call	printhex2
-	.data
-		9: .ascii "RHSVDA78"
-	.text
-	mov	ebx, offset 9b
-	mov	ecx, 8
-1:	mov	al, ' '
-	shr	dl, 1
-	jnc	2f
-	mov	al, [ebx]
-2:	call	printchar
-	inc	ebx
-	loop	1b
-	
-
-	PRINT	" Cluster "
-	mov	dx, [esi + FAT_DIR_CLUSTER]
-	call	printhex4
-
-	PRINT	" Size: "
-	mov	edx, [esi + FAT_DIR_SIZE]
-	call	printdec32
-	call	newline
-
-	add	esi, 32
-	cmp	esi, 512 + offset tmp_buf$	# overflow check
-	jb	0b
-0:
-mov	esi, -1
-mov	edi, esi
-mov	ebx, esi
-mov	edx, esi
-	ret
-
-
-#######################
-write_boo:
-	mov	al, TYPE_ATA
-	call	ata_find_first_drive
-	jns	1f
-
- 	PRINTLNc 10, "No ATA drive found"
-	ret
-1:
-	PRINTc	10, "Writing bootsector to ATA drive: "
-	mov	dl, al
-	call	printhex2
-	call	newline
-
-# Read data:
-
-	mov	[tmp_drv$], al
-
-	mov	edi, offset tmp_buf$
-	mov	ecx, 2
-	mov	ebx, 0
-	call	ata_read
-	jnc	0f
-	PRINTLNc 4, "ATA read error"
-	ret
-0:	PRINTLN "ATA read OKAY"
-	
-	mov	esi, offset tmp_buf$ + 512
-	mov	ecx, 10
-0:	lodsb
-	call	printchar
-	mov	dl, al
-	mov	al, ' '
-	call	printchar
-	call	printhex2
-	mov	al, ' '
-	call	printchar
-	loop	0b
-
-	call	newline
-
-####
-.if 0
-	.data 2
-	tmp_buf2$: .asciz "Hello World! First ATA sector written!"
-	.space 512 - (.-tmp_buf2$)
-	.asciz "second sector"
-	.space 512
-	.text
-	PRINTln "ATA WRITE"
-	mov	al, [tmp_drv$]
-	mov	dl, al
-	call	printhex2
-	call	newline
-
-	mov	esi, offset tmp_buf2$
-	mov	ecx, 2
-	mov	ebx, 0
-	call	ata_write
-.endif
-	ret
-
-
-############################
-
-read_error$:
-	PRINTLNc 10, "ATA Read ERROR"
-	stc
-	ret
-
-
 
 
 ##############################################################################
 # Commandline History
 #
-# This is a 'static class', a singleton, as it uses a hardcoded memory
-# address to store the pointers to the two objects it uses: a stringbuffer,
-# and an array.
+# uses buf_*
+#
+# singleton
 
 .data
 CMDLINE_HISTORY_MAX_ITEMS = 16
+CMDLINE_HISTORY_SHARE = 1
 cmdline_history: .long 0	# list/array/linked list.
 
-cmdline_history_index: .long 0	# the current array item offset (up/down keys)
+cmdline_history_current: .long 0 # the current array item offset (up/down keys)
 .text
 
 # static constructor
 cmdline_history_new:	
+	mov	eax, [cmdline_history]
+	or	eax, eax
+	.if CMDLINE_HISTORY_SHARE
+	jnz	1f
+	.else
+	call	buf_free
+	.endif
 	mov	eax, CMDLINE_HISTORY_MAX_ITEMS * 4
 	call	buf_new
 	mov	[cmdline_history], eax
-	ret
+1:	ret
 
 # static destructor
 cmdline_history_delete:
-	mov	eax, [cmdline_history]
+	xor	eax, eax
+	xchg	eax, [cmdline_history]
 	call	buf_free
 	ret
 
@@ -1074,7 +654,6 @@ cmdline_history_add:
 
 	jmp	1b
 
-#######################################################################
 
 cmdline_history_print:
 	mov	eax, [cmdline_history]
@@ -1090,7 +669,57 @@ cmdline_history_print:
 	loop	0b
 1:	ret
 
-##############################################################################
+
+#############################################################################
+## Public shell functions
+
+## Commandline Arguments:
+#
+# The commandline calls the 'main' function with esi pointing to a zero
+# terminated array of string pointers, the first of which is the name
+# under which the command was called.
+# C: byte * args[] = { "cmd", ["arg1", ["arg2", [...] ] ], 0 };
+
+# in: esi = array address of current argument pointer
+# out: eax = pointer to cur
+getopt:
+	mov	eax, [esi]
+	cmp	byte ptr [eax], '-'
+	stc
+	jnz	0f
+	add	esi, 4
+	clc
+0:	ret
+
+
+#############################################################################
+## Builtin Shell commands
+
+cmd_quit$:
+	printlnc 12, "Terminating shell."
+	add	esp, 4	# skip returning to the shell loop and return from it.
+	ret
+
+
+cmd_pwd$:
+	mov	esi, offset cwd$
+	call	println
+	ret
+
+cmd_help$:
+	mov	ebx, offset SHELL_COMMANDS
+0:	mov	esi, [ebx + shell_command_string]
+	or	esi, esi
+	jz	0f
+	cmp	[ebx + shell_command_code], dword ptr 0
+	jz	0f
+	call	print
+	mov	al, ' '
+	call	printchar
+	add	ebx, SHELL_COMMAND_STRUCT_SIZE
+	jmp	0b
+0:	call	newline
+	ret
 
 cmd_strlen$:
 	mov	eax, [esi+4]
@@ -1099,6 +728,47 @@ cmd_strlen$:
 	call	printdec32
 	call	newline
 	ret
+
+
+cmd_human_readable_size$:
+
+
+.if 1
+	add	esi, 4
+	mov	eax, [esi]
+	or	eax, eax
+	jz	0f
+
+	call	htoid	# out: edx:eax
+	jc	1f
+.else
+	mov	edx, 1
+	mov	eax, 0x80000000
+.endif
+	call	printhex8
+	call	printspace
+	push	edx
+	mov	edx, eax
+	call	printhex8
+	call	printspace
+	pop	edx
+
+	call	print_fixedpoint_32_32
+
+
+	.if 0
+	call	atoi
+	mov	edx, eax
+	call	printdec32
+	print ": "
+	xor	edx, edx
+	call	print_size_kb
+	.endif
+	call	newline
+0:	ret
+1:	printlnc 4, "syntax error"
+	stc
+	jmp	0b
 
 cmd_echo$:
 	xor	ah, ah
@@ -1117,7 +787,6 @@ cmd_echo$:
 	jmp	0b
 	ret
 	###
-
 1:	
 	lodsw
 	cmp	ax, ('n'<<8 ) | '-'
@@ -1145,12 +814,212 @@ cmd_echo$:
 	jmp	1b
 	###
 
-
 2:	or	ah, ah
 	jnz	0f
 	call	newline
 0:	ret
 
+
+
+######################################################
+
+_tmp_init$:
+	.data
+	8: .asciz "hdb0"
+	9: .long 0, 8b
+	tmp_drv$: .long 1
+	.text
+	.text
+	mov	esi, offset 9b
+	call	cmd_partinfo$
+	ret
+
+######################################
+
+cmd_cd$:	
+	push	dword ptr 0
+	mov	ebp, esp
+
+	# check parameters
+	cmp	[esi + 8], dword ptr 0
+	jz	0f
+	printc 13, "parsing options: "
+
+	mov	eax, [esi + 4]
+	push	esi
+	mov	esi, eax
+	call	print
+	pop	esi
+
+	cmp	word ptr [eax], ('d'<<8)|'-'
+	jnz	5f
+	cmp	byte ptr [eax + 2], 0
+	jnz	5f
+
+	inc	dword ptr [ebp]
+
+	add	esi, 4
+
+	printc 13, " arg1: "
+	push	esi
+	mov	esi, [esi + 4]
+	call	println
+	pop	esi
+
+0:	mov	esi, [esi + 4]
+	or	esi, esi
+	jnz	0f
+
+	# no path given, change to home directory
+	.data
+	9: .asciz "/"
+	.text
+	mov	esi, offset 9b
+0:
+	# new code
+	cmp	byte ptr [ebp], 0
+	jz	1f
+	print "chdir "
+	call	println
+1:
+
+#	call	cd_apply$
+#	print " -> "
+#	call	println
+
+	push	esi
+	mov	esi, offset cwd$
+	mov	edi, offset cd_cwd$
+	mov	ecx, MAX_PATH_LEN
+	rep	movsb
+	pop	esi
+
+	mov	edi, offset cd_cwd$
+
+	call	fs_update_path
+##############################################################################
+		cmp	byte ptr [esp], 0
+		jz	1f
+		printc 10, "chdir "
+		mov	esi, offset cd_cwd$
+		call	println
+	1:
+
+	mov	eax, offset cd_cwd$
+	call	fs_opendir
+	mov	[cwd_handle$], eax
+
+	# copy path:
+	mov	ecx, edi
+	mov	edi, offset cwd$
+	mov	esi, offset cd_cwd$
+	sub	ecx, edi
+	rep	movsb
+
+	pop	eax
+	ret
+
+5:	printlnc 10, "usage: cd [<directory>]"
+
+	pop	eax
+	ret
+
+
+###############################################################################
+###############################################################################
+###############################################################################
+
+.data 2
+tmp_buf$: .space 2 * 512
+.text
+
+cmd_ls$:
+	mov	eax, offset cwd$
+	printc	11, "ls "
+	mov	esi, eax
+	call	println
+DEBUG_REGSTORE
+	call	fs_opendir
+DEBUG_REGDIFF
+	ret
+
+
+
+################################
+cmd_ls_old$:
+	xor	eax, eax
+	jmp	ls$
+
+cmd_cluster$:
+	mov	eax, 2
+	jmp	ls$
+
+
+ls$:	mov	ebx, [fat_root_lba$]
+	or	ebx, ebx
+	jnz	lsdir$
+	call	_tmp_init$
+	mov	ebx, [fat_root_lba$]
+lsdir$:	mov	edi, offset tmp_buf$
+	mov	ecx, 1
+	mov	al, [tmp_drv$]
+	call	ata_read
+	jc	read_error$
+
+	mov	esi, offset tmp_buf$
+0:	
+	cmp	byte ptr [esi], 0
+	jz	0f
+	PRINT	"Name: "
+	mov	ecx, 11
+	call	nprint
+
+	PRINT	" Attr "
+	mov	dl, [esi + FAT_DIR_ATTRIB]
+	call	printhex2
+	.data
+		9: .ascii "RHSVDA78"
+	.text
+	mov	ebx, offset 9b
+	mov	ecx, 8
+1:	mov	al, ' '
+	shr	dl, 1
+	jnc	2f
+	mov	al, [ebx]
+2:	call	printchar
+	inc	ebx
+	loop	1b
+	
+
+	PRINT	" Cluster "
+	mov	dx, [esi + FAT_DIR_CLUSTER]
+	call	printhex4
+
+	PRINT	" Size: "
+	mov	edx, [esi + FAT_DIR_SIZE]
+	call	printdec32
+	call	newline
+
+	add	esi, 32
+	cmp	esi, 512 + offset tmp_buf$	# overflow check
+	jb	0b
+0:
+mov	esi, -1
+mov	edi, esi
+mov	ebx, esi
+mov	edx, esi
+	ret
+
+
+############################
+
+read_error$:
+	PRINTLNc 10, "ATA Read ERROR"
+	stc
+	ret
+
+
+##############################################################################
 
 #####################################
 

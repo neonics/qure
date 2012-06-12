@@ -773,6 +773,13 @@ malloc_internal$:
 		printchar ' '
 	.endif
 
+	push	eax
+	add	eax, [mem_heap_alloc_start]
+	sub	eax, [mem_heap_start]
+	cmp	eax, [mem_heap_size]
+	pop	eax
+	jae	1f
+
 	push	dword ptr [mem_heap_alloc_start]
 	add	[mem_heap_alloc_start], eax
 	pop	eax
@@ -785,6 +792,13 @@ malloc_internal$:
 		pop	edx
 	.endif
 	ret
+
+1:	printlnc 4, "malloc_internal: out of memory"
+call more
+	stc
+	ret
+
+########################################################################
 
 .text
 kalloc_test:
@@ -1456,6 +1470,7 @@ mallocz:
 	push	ecx
 	mov	ecx, eax
 	call	malloc
+	jc	1f
 	push	edi
 	mov	edi, eax
 	push	eax
@@ -1466,9 +1481,10 @@ mallocz:
 	pop	ecx
 	shr	ecx, 2
 	rep	stosd
+	clc
 	pop	eax
 	pop	edi
-	pop	ecx
+1:	pop	ecx
 	ret
 
 #########################################################
@@ -1500,6 +1516,7 @@ malloc:
 	jmp	1f
 
 2:	call	get_handle$
+	jc	2f
 
 	.if MEM_DEBUG
 		pushcolor 13
@@ -1515,6 +1532,7 @@ malloc:
 
 	mov	[esi + ebx + handle_size], eax
 	call	malloc_internal$
+	jc	3f
 
 	.if MEM_DEBUG
 		push	edx
@@ -1533,17 +1551,28 @@ malloc:
 	sub	esi, offset handle_base
 	pop	edi
 
+	clc
 
 1:	pop	esi
 	pop	ebx
 
 	.if MEM_DEBUG > 1
+		pushf
 		pushcolor 8
 		call	print_handles$
 		MORE
 		popcolor
+		popf
 	.endif
 	ret
+
+2:	printlnc 4, "malloc: no more handles"
+	stc
+	jmp	1b
+3:	printlnc 4, "malloc: out of memory"
+	stc
+	jmp	1b
+
 
 .if 0
 # in: eax = mem base ptr
@@ -2297,11 +2326,32 @@ malloc_optimized:
 
 #	call	get_pid
 #	mov	eax, [esi+pi_heap]
-
-	
 	
 	ret
 
-FOOBAR:	or	ecx, ecx	# 0x09 0xc9
-	cmp	ecx, -1		# 0x83 0xf9 0xff
+
+##############################################################################
+# Commandline utility
+
+cmd_mem$:
+	printc 15, "Heap: "
+	mov	eax, [mem_heap_size]
+	xor	edx, edx
+	call	print_size
+
+	printc 15, " Allocated: "
+	mov	eax, [mem_heap_alloc_start]
+	sub	eax, [mem_heap_start]
+	call	print_size
+
+	printc 15, " Free: "
+	sub	eax, [mem_heap_size]
+	neg	eax
+	call	print_size
+
+	call	newline
+
+	call	print_handles$
 	ret
+
+
