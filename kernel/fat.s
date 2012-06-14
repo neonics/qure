@@ -72,8 +72,10 @@
 
 .data
 fs_fat16_class:
-	.long fs_fat16_opendir
-
+.long fs_fat16b_mount	# constructor
+.long fs_fat16b_umount	# destructor
+.long fs_fat16_opendir
+.long fs_fat16_close
 
 .struct 0
 fs_class:		.long 0
@@ -122,16 +124,53 @@ FAT_DIR_LONG_CKSUM: .byte 0
 FAT_DIR_LONG_NAME2: .space 12 # 6 2-byte characteres
 	.word 0 # always 0
 FAT_DIR_NAME3: .space 4	# final 2 2-byte characters (total: 5+6+2=13)
+
+.data
+fs_fat_partition_types$:
+	.byte	0x01	# FAT12 max 32mb
+	.byte	0x04	# FAT16 max 32mb
+	.byte	0x06	# FAT16b, FAT16, FAT12
+	.byte	0x08	# FAT12, FAT16
+	.byte	0x0b	# FAT32
+	.byte	0x0c	# FAT32X
+	.byte	0x0e	# FAT16x
+	.byte	0x11	# FAT12, FAT16
+	.byte	0x86	# FAT16 legacy
+	.byte	0x8b	# FAT32 legacy
+	.byte	0x8c	# FAT32 LBA legacy
+	.byte	0x8d	# Freedos hidden FAT12 (0x01)
+	.byte	0x90	# Freedos hidden FAT16 (0x04)
+	.byte	0x92	# Freedos hidden FAT16b (0x06)
+	.byte	0x97	# FAT32 hidden (0x0b)
+
+fs_fat_num_partition_types$ = . - fs_fat_partition_types$
 .text
 
+fs_fat16b_umount:
+	printlnc 4, "fs_fat: umount not implemented"
+	stc
+	ret
 
 # in: ax = disk/partition
 # in: esi = partition info
 # out: edi = pointer to filesystem structure
-# destroys: edx (ata_read)
-fs_fat16b_load:
-	push	esi
+fs_fat16b_mount:
+	# check if system supported: scan for partition types
+	push	edi
+	push	ecx
+	push	eax
+	mov	al, [esi + PT_TYPE]
+	mov	edi, offset fs_fat_partition_types$
+	mov	ecx, fs_fat_num_partition_types$
+	repnz	scasb
+	pop	eax
+	pop	ecx
+	pop	edi
+	jz	0f
+	stc
+	ret
 
+0:	push	esi
 	# allocate fat structure + sector
 	push	eax
 	mov	eax, 512 + FAT_STRUCT_SIZE
@@ -140,8 +179,6 @@ fs_fat16b_load:
 	pop	eax
 	mov	[edi + fat_disk$], ax
 	add	edi, FAT_STRUCT_SIZE
-call newline
-DEBUG "ata_read"
 	# load sector
 	push	eax
 	push	ebx
@@ -438,13 +475,14 @@ fs_fat16_calculate:
 ############################################################################
 # fs_fat class - virtual method pointers:
 
-# in: eax = pointer to fs info structure
+# in: eax = pointer to fs_instance structure
 # in: ebx = directory handle (-1 for root)
 # in: esi = directory name
 # out: ebx = directory handle
 fs_fat16_opendir:
 
-		DEBUG "fs_info"
+	.if FS_DEBUG > 1
+		DEBUG "fs_instance"
 		DEBUG_DWORD eax
 
 		pushcolor 0xf1
@@ -455,6 +493,7 @@ fs_fat16_opendir:
 
 		DEBUG_DWORD ebx
 		call newline
+	.endif
 
 	cmp	ebx, -1
 	jnz	0f
@@ -471,7 +510,7 @@ fs_fat16_opendir:
 0:
 ##
 	# load the directory
-	# in: eax = fs info structure, ebx = dir handle
+	# in: eax = fs_instance structure, ebx = dir handle
 	call	fs_fat16_load_directory$
 	jc	1f
 	# call	fs_fat16_print_directory$
@@ -528,7 +567,14 @@ fs_fat16_opendir:
 1:	ret
 
 
-# in: eax = pointer to fs info
+# in: eax = fs_instance
+# in: ebx = directory/file handle
+fs_fat16_close:
+	# release resources
+	ret
+
+
+# in: eax = pointer to fs_instance
 # in: edx = cluster
 fs_fat16_get_next_cluster$:
 	sub	edx, 2
@@ -546,7 +592,7 @@ fs_fat16_get_next_cluster$:
 	ret
 
 
-# in: eax = fs info
+# in: eax = fs_instance
 # in: edx = cluster
 # out: ebx = sector
 fs_fat16_cluster_to_sector$:
@@ -580,15 +626,16 @@ _err_inv_cluster$:
 	ret
 
 
-# in: eax = fs info
+# in: eax = fs_instance
 # in: esi = directory to find
 # out: edi = pointer to directory entry
 fs_fat16_find_entry$:
 
-	DEBUG_DWORD eax
-
-	DEBUG "find "
-	DEBUGS
+	.if FS_DEBUG > 1
+		DEBUG "find "
+		DEBUGS
+		DEBUG_DWORD eax
+	.endif
 
 	push	ecx
 	push	edx
@@ -606,14 +653,16 @@ fs_fat16_find_entry$:
 	stc
 	jz	1f
 
+	.if FS_DEBUG > 1
 	DEBUGS
-	push esi
-	push ecx
-	mov esi, edi
-	mov ecx, 11
-	call nprint
-	pop ecx
-	pop esi
+		push esi
+		push ecx
+		mov esi, edi
+		mov ecx, 11
+		call nprint
+		pop ecx
+		pop esi
+	.endif
 
 	
 	push	esi
@@ -630,18 +679,19 @@ fs_fat16_find_entry$:
 	add	edi, 32
 	cmp	edi, edx
 	jb	0b
-	DEBUG "not found"
 	stc
 	jmp	1f
 
-2:	DEBUG "found:"
-	#sub	edi, edx
-	#DEBUG_DWORD edi
-	DEBUG "Cluster: "
-	mov	dx, [edi + FAT_DIR_HI_CLUSTER]
-	shl	edx, 16
-	mov	dx, [edi + FAT_DIR_CLUSTER]
-	DEBUG_DWORD edx
+2:	.if FS_DEBUG  >1
+		DEBUG "found:"
+		#sub	edi, edx
+		#DEBUG_DWORD edi
+		DEBUG "Cluster: "
+		mov	dx, [edi + FAT_DIR_HI_CLUSTER]
+		shl	edx, 16
+		mov	dx, [edi + FAT_DIR_CLUSTER]
+		DEBUG_DWORD edx
+	.endif
 
 	clc
 1:	pop	eax
@@ -650,8 +700,9 @@ fs_fat16_find_entry$:
 	ret
 
 
-# in: eax = fs info pointer
+# in: eax = fs_instance pointer
 # in: ebx = directory handle (LBA address)
+# out: edi = buffer
 fs_fat16_load_directory$:
 	push	eax
 	push	ebx
@@ -922,6 +973,7 @@ DEBUG_DWORD edx
 	# add the bytes-per-sector -1 to round up
 	push	ecx
 	movzx	ecx, word ptr [esi + BPB_BYTES_PER_SECTOR]
+	jecxz	0f
 DEBUG_DWORD ecx
 	add	edx, ecx
 	dec	edx
@@ -929,7 +981,7 @@ DEBUG_DWORD ecx
 	xchg	edx, eax
 	# divide by bytes per sector
 	div	ecx
-	pop	ecx
+0:	pop	ecx
 DEBUG_DWORD eax
 DEBUG_DWORD edx
 

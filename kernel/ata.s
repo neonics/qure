@@ -440,6 +440,7 @@ ata_list_drive:
 
 	shl	ah, 1
 	add	al, ah
+	shr	ah, 1
 	mov	bl, al
 
 	push	eax

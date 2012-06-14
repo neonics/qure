@@ -73,6 +73,8 @@ SHELL_COMMAND "echo",		cmd_echo$
 SHELL_COMMAND "listdrives",	ata_list_drives
 SHELL_COMMAND "fs_tree",	fs_printtree
 SHELL_COMMAND "hs",		cmd_human_readable_size$
+SHELL_COMMAND "cat",		cmd_cat$
+SHELL_COMMAND "lsof",		fs_list_openfiles
 #SHELL_COMMAND "regexp",		regexp_parse
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
@@ -905,9 +907,15 @@ cmd_cd$:
 		call	println
 	1:
 
+	mov	eax, [cwd_handle$]
+	call	fs_close
+
 	mov	eax, offset cd_cwd$
 	call	fs_opendir
+	jc	6f
 	mov	[cwd_handle$], eax
+
+	call	fs_handle_printinfo
 
 	# copy path:
 	mov	ecx, edi
@@ -916,7 +924,7 @@ cmd_cd$:
 	sub	ecx, edi
 	rep	movsb
 
-	pop	eax
+6:	pop	eax
 	ret
 
 5:	printlnc 10, "usage: cd [<directory>]"
@@ -1020,6 +1028,11 @@ read_error$:
 
 
 ##############################################################################
+
+cmd_cat$:
+	
+
+	ret
 
 #####################################
 

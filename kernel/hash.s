@@ -212,8 +212,8 @@ buf_resize:
 	push	edx
 	add	edx, 8
 	call	mrealloc
-	pop	dword ptr [eax + buf_capacity]
 	add	eax, 8
+	pop	dword ptr [eax + buf_capacity]
 
 	.if BUF_DEBUG
 		push edx
@@ -278,36 +278,12 @@ array_newentry:
 	cmp	edx, [eax + buf_capacity]
 	jb	0f
 
-	.if ARRAY_DEBUG
-		printc 10, "mtab grow "
-		call	printhex8
-		printchar ' '
-		push	edx
-		mov	edx, eax
-		call	printhex8
-		call	newline
-		pop	edx
-	.endif
-	
 	add	edx, ecx # MTAB_ENTRY_SIZE
 	# optionally: increase grow size
 	call	buf_resize	# in: eax, out: eax
 	mov	edx, [eax + buf_index]
 0:	add	[eax + buf_index], ecx # dword ptr MTAB_ENTRY_SIZE
-
-	.if ARRAY_DEBUG
-		printc 10, "mtab_entry_alloc "
-		call	printdec32
-		printchar ' '
-		push	edx
-		mov	edx, eax
-		call	printhex8
-		pop	edx
-		call	newline
-	.endif
-
 	# REMEMBER: eax might be updated, so always store it after a call!
-
 	ret
 
 

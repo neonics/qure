@@ -187,6 +187,14 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	call	print_
 .endm
 
+.macro PRINTS_
+	call	print_
+.endm
+
+.macro PRINTLNS_
+	call	println_
+.endm
+
 
 .macro PRINTSKIP_
 91:	lodsb
@@ -412,6 +420,8 @@ __newline:
 	mov	di, ax
 	pop	dx
 	pop	ax
+	PRINT_START -1
+	PRINT_END
 	ret
 
 .global newline
@@ -535,7 +545,10 @@ print_:
 	jnz	0b
 	PRINT_END
 	ret
-	ret
+
+println_:
+	call	print_
+	jmp	newline
 
 __println:
 	call	__print
@@ -564,6 +577,10 @@ printbin4:
 	mov	ecx, 4
 	rol	edx, 28
 	jmp	0f
+printbin2:
+	push	ecx
+	mov	ecx, 2
+	rol	edx, 30
 	jmp	0f
 printbin8:
 	push	ecx
