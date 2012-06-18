@@ -16,6 +16,7 @@ IRQ_BASE = 0x20	# base number for PIC hardware interrupts
 
 realsegflat:.long 0
 codeoffset: .long 0
+database: .long 0
 kernel_location: .long 0
 bkp_reg_cs: .word 0
 bkp_reg_ds: .word 0
@@ -289,7 +290,7 @@ OK
 
 	OK
 
-	PIC_SET_MASK 0xffff
+	PIC_SET_MASK 0xffff & ~(1<<IRQ_CASCADE)
 
 	call	keyboard_hook_isr
 	call	pit_hook_isr

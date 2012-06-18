@@ -34,13 +34,9 @@
 
 
 .data 2
+
 .align 4
 
-IDT:
-.rept 256
-#.space 8
-DEFIDT 0, SEL_flatCS, ACC_PR+ACC_RING0+ACC_SYS+IDT_ACC_GATE_INT32
-.endr
 pm_idtr:.word . - IDT - 1
 	.long IDT
 
@@ -48,6 +44,13 @@ pm_idtr:.word . - IDT - 1
 rm_idtr:.word 256 * 4
 	.long 0
 
+
+
+IDT:
+.rept 256
+#.space 8
+DEFIDT 0, SEL_flatCS, ACC_PR+ACC_RING0+ACC_SYS+IDT_ACC_GATE_INT32
+.endr
 .text
 .code32
 
@@ -166,7 +169,7 @@ jmp_table_target:
 	.text
 	push	ebp
 	mov	ebp, esp
-	add	ebp, 4	# skip ebp itselt
+	add	ebp, 4	# skip ebp itself
 	push	eax
 	push	ecx
 	push	ds
@@ -187,9 +190,8 @@ jmp_table_target:
 	add	ebp, 2			# we're done with referencing that
 
 	# print count
-	shl	edx, 3
-	inc	dword ptr [edx + int_count]
-	mov	edx, [edx + int_count]
+	inc	dword ptr [edx*4 + int_count]
+	mov	edx, [edx*4 + int_count]
 	PRINT " count "
 	call	printhex8
 	PRINTCHAR ' '
@@ -222,9 +224,9 @@ jmp_table_target:
 	# instruction. If so, there is no error code.
 	mov	edx, [ebp + 4] # code selector when there is no error code
 	cmp	edx, SEL_MAX
-	ja	0f
+	ja	2f
 	test	dl, 0b100
-	jnz	0f
+	jnz	2f
 	# the value checks out as a segment selector. See if the instruction
 	# is an INT call
 	push	ds
@@ -234,12 +236,12 @@ jmp_table_target:
 	mov	dx, [edx-2]
 	pop	ds
 	cmp	dl, 0xcd
-	jne	0f
+	jne	2f
 	cmp	dh, cl
-	jne	0f
+	jne	2f
 	PRINTc	13, " Explicitly triggered"
 	jmp	1f
-0:
+2:
 .endif
 
 	PRINT " Error code: "

@@ -1,3 +1,7 @@
+###############################################################################
+# PIC - Programmable Interrupt Controller
+
+.intel_syntax noprefix
 # See DOC/8259A.pdf
 # See DOC/Interrupt.txt
 #
@@ -10,7 +14,7 @@ IO_PIC2 = 0xA0
 PIC1_COMMAND = IO_PIC1
 PIC1_DATA = PIC1_COMMAND + 1
 PIC2_COMMAND = IO_PIC2
-PIC2_DATA = PIC2_COMMAND + 2
+PIC2_DATA = PIC2_COMMAND + 1
 
 
 # PIC 1
@@ -83,9 +87,6 @@ PIC_CMD_INIT	= 0b00010000
  PIC_ICW4_SFNM		= 0b10000 # specual fully nested mode
 
 
-
-
-#
 # OCW: Operation Control Words (Writing a command to DATA port)
 #
 # A0 | D7 D6 D5 D4 D3 D2 D1 D0  |
@@ -130,13 +131,15 @@ PIC_DATA_CMD_CLEAR_SMM	= PIC_OCW3_SMM
 
 PIC_CMD_EOI		= 0x20	# End Of Interrupt
 
-.intel_syntax noprefix
 
 
 .data
 pic_ivt_offset: .word 0
-
+pic_mask: .word 0
 .text
+
+##############################################################################
+# MACROS
 
 # in: al = vector offset Master PIC (default = 0x08)
 #     ah = vector offset Slave PIC  (default = 0x70)
@@ -209,26 +212,16 @@ pic_ivt_offset: .word 0
 
 	pop	eax
 	pop	bx
-	ret
 .endm
-
-.code16
-pic_init16:
-	PIC_INIT
-.code32
-pic_init32:
-	PIC_INIT
-
-.code16
-
 
 # in: al = IRQ
 # if ( al >= 8 ) outb( IO_PIC2, PIC_COMMAND_EOI );
 # outb( IO_PIC1, PIC_COMMAND_EOI );
-pic_send_eoi:
+.macro PIC_SEND_EOI for_irq=al
 	push	ax
 
-	mov	ah, al
+	mov	ah, \for_irq
+
 	mov	al, PIC_CMD_EOI
 	cmp	ah, 8
 	jb	0f
@@ -237,50 +230,40 @@ pic_send_eoi:
 	out	IO_PIC1, al
 
 	pop	ax
-	ret
-
-.macro PIC_SEND_EOI for_irq
-	mov	al, 0x20
-	.if \for_irq < 8
-	P = IO_PIC1
-	.else
-	P = IO_PIC2
-	.endif
-	out	P, al
 .endm
 
 
+#.macro PIC_SEND_EOI for_irq
+#	mov	al, 0x20
+#	.if \for_irq < 8
+#	P = IO_PIC1
+#	.else
+#	P = IO_PIC2
+#	.endif
+#	out	P, al
+#.endm
 
-.macro SETUP_IRQLINE_MASK
-	mov	dx, IO_PIC1 + 1
-	and	al, 0xf
-	cmp	al, 8
-	jb	0f
-	sub	al, 8
-	add	dx, IO_PIC2 - IO_PIC1
-0:	xchg	al, ah
-.endm
 
-.macro PIC_ENABLE_IRQ irqline
-	.if \irqline < 8
+.macro PIC_ENABLE_IRQ irq_line
+	.if \irq_line < 8
 		P = IO_PIC1 + 1
-		A = \irqline
+		A = \irq_line
 	.else
 		P = IO_PIC2 + 1
-		A = irqline - 8
+		A = irq_line - 8
 	.endif
 	in	al, P
 	and	al, ~ ( 1 << A )
 	out	P, al
 .endm
 
-.macro PIC_DISABLE_IRQ irqline
-	.if \irqline < 8
+.macro PIC_DISABLE_IRQ irq_line
+	.if \irq_line < 8
 		P = IO_PIC1 + 1
-		A = \irqline
+		A = \irq_line
 	.else
 		P = IO_PIC2 + 1
-		A = irqline - 8
+		A = irq_line - 8
 	.endif
 	in	al, P
 	or	al, 1 << A
@@ -288,23 +271,27 @@ pic_send_eoi:
 .endm
 
 
+# in: al = irq number (0..f)
+# out: al = irq %8
+# out: ah = 1 << (irq %8)
+# out: dx = irq < 8 ? IO_PIC1+1 : IO_PIC2+1
+.macro SETUP_IRQLINE_MASK
+	push	cx
+	mov	dx, IO_PIC1 + 1
+	and	al, 0xf
+	cmp	al, 8
+	jb	0f
+	sub	al, 8
+	add	dx, IO_PIC2 - IO_PIC1
+0:	mov	ah, 1
+	mov	cl, al
+	shl	ah, cl
+	pop	cx
+.endm
 
 
 # in: al = bit number, < 16
-pic_enable_irq_line:
-	push	ax
-	push	dx
-
-	SETUP_IRQLINE_MASK
-	in	al, dx
-	or	al, ah
-	out	dx, al
-
-	pop	dx
-	pop	ax
-	ret
-
-pic_disable_irq_line:
+.macro PIC_ENABLE_IRQ_LINE
 	push	ax
 	push	dx
 
@@ -316,66 +303,28 @@ pic_disable_irq_line:
 
 	pop	dx
 	pop	ax
-	ret
+.endm
 
-# works in 16, 32 and 64 bit mode...
-.macro PIC_SET_MASK mask
+.macro PIC_DISABLE_IRQ_LINE
 	push	ax
-	mov	ax, \mask
-	out	IO_PIC1+1, al
-	ror	ax, 8
-	out	IO_PIC2+1, al
+	push	dx
+
+	SETUP_IRQLINE_MASK
+	in	al, dx
+	or	al, ah
+	out	dx, al
+
+	pop	dx
 	pop	ax
 .endm
 
 
-# in: ax = bitmask (al = master, ah = slave)
-pic_set_mask:
-	push	ax
-	out	IO_PIC1+1, al
-	shr	ax, 8
-	out	IO_PIC1+1, al
-	pop	ax
-	ret
-
-
-# out: ax = bitmask (al = master, ah = slave)
-pic_get_mask:
-	in	al, IO_PIC2 + 1
-	shl	ax, 8
-	in	al, IO_PIC1 + 1
-	ret
-
-
-pic_disable:
-	push	ax
-	mov	ax, 0xffff
-	call	pic_set_mask
-	pop	ax
-	ret
-
-.data
-pic_mask: .word 0
-.text
-pic_savemask:
-	push	ax
-	call	pic_get_mask
-	mov	[pic_mask], ax
-	pop	ax
-	ret
-pic_restore:
-	push	ax
-	mov	ax, [pic_mask]
-	call	pic_set_mask
-	pop	ax
-	ret
-	
 # in: al = irq.
 # out: cf = 1: yes, spurious. Dont send EOI.
 #
 # If the interrupt is spurious, the ISR does not need to be reset.
 # Another way to view this is to check whether the interrupt is 'in service'.
-pic_is_spurious_irq:
+.macro PIC_IS_SPURIOUS_IRQ
 	push	ax
 	push	dx
 	cmp	al, 7
@@ -403,7 +352,145 @@ pic_is_spurious_irq:
 0:	
 	pop	dx
 	pop	ax
+.endm
+## works in 16, 32 and 64 bit mode...
+#.macro PIC_SET_MASK mask
+#	push	ax
+#	mov	ax, \mask
+#	out	IO_PIC1+1, al
+#	ror	ax, 8
+#	out	IO_PIC2+1, al
+#	pop	ax
+#.endm
+
+
+# in: ax = bitmask (al = master, ah = slave)
+.macro PIC_SET_MASK mask=ax
+	push	ax
+	.if \mask != ax
+	mov	ax, \mask
+	.endif
+	out	IO_PIC1+1, al
+	shr	ax, 8
+	out	IO_PIC2+1, al
+	pop	ax
+.endm
+
+
+# out: ax = bitmask (al = master, ah = slave)
+.macro PIC_GET_MASK
+	in	al, IO_PIC2 + 1
+	shl	ax, 8
+	in	al, IO_PIC1 + 1
+.endm
+
+.macro PIC_DISABLE
+	PIC_SET_MASK 0xffff
+.endm
+
+.macro PIC_SAVE_MASK
+	push	ax
+	PIC_GET_MASK
+	mov	[pic_mask], ax
+	pop	ax
+.endm
+
+.macro PIC_RESTORE_MASK
+	push	ax
+	mov	ax, [pic_mask]
+	PIC_SET_MASK 
+	pop	ax
+.endm
+	
+##############################################################################
+# 16 bit CODE
+
+.code16
+pic_init16:
+	PIC_INIT
 	ret
+
+pic_send_eoi16:
+	PIC_SEND_EOI
+	ret
+
+pic_is_spurious_irq16:
+	PIC_IS_SPURIOUS_IRQ
+	ret
+
+pic_enable_irq_line16:
+	PIC_ENABLE_IRQ_LINE
+	ret
+
+pic_disable_irq_line16:
+	PIC_DISABLE_IRQ_LINE
+	ret
+
+pic_set_mask16:
+	PIC_SET_MASK
+	ret
+
+pic_get_mask16:
+	PIC_GET_MASK
+	ret
+
+pic_disable16:
+	PIC_DISABLE
+	ret
+
+pic_save_mask16:
+	PIC_SAVE_MASK
+	ret
+
+pic_restore_mask16:
+	PIC_RESTORE_MASK
+	ret
+
+
+##############################################################################
+# 32 bit CODE
+
+.code32
+pic_init32:
+	PIC_INIT
+	ret
+
+pic_send_eoi32:
+	PIC_SEND_EOI
+	ret
+
+pic_is_spurious_irq32:
+	PIC_IS_SPURIOUS_IRQ
+	ret
+
+pic_enable_irq_line32:
+	PIC_ENABLE_IRQ_LINE
+	ret
+
+pic_disable_irq_line32:
+	PIC_DISABLE_IRQ_LINE
+	ret
+
+pic_set_mask32:
+	PIC_SET_MASK
+	ret
+
+pic_get_mask32:
+	PIC_GET_MASK
+	ret
+
+pic_disable32:
+	PIC_DISABLE
+	ret
+
+pic_save_mask32:
+	PIC_SAVE_MASK
+	ret
+
+pic_restore_mask32:
+	PIC_RESTORE_MASK
+	ret
+
 
 # irq_handler( int irq_num ) 
 # {

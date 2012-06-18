@@ -175,7 +175,8 @@ rm_gdtr:.word 0
 
 .macro GDT_GET_BASE sel
 	xor	eax, eax
-	mov	al, [GDT + \sel + 7]
+	mov	ah, [GDT + \sel + 7]
+	mov	al, [GDT + \sel + 4]
 	shl	eax, 16
 	mov	ax, [GDT + \sel + 2]
 .endm
@@ -251,6 +252,7 @@ init_gdt_16:
 	mov	ax, ds
 	shl	eax, 4
 	mov	ebx, eax
+	mov	[database], eax
 
 	.if DEBUG > 2
 		PH8_16 "  Data base: " eax
