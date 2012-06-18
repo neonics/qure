@@ -14,7 +14,7 @@ alias hd "hexdump -C build/boot.bin | grep -e '*' -e '|'"
 alias hdi "hexdump -C build/boot.img | grep -e '*' -e '|' |& less"
 # qemu-img create -f raw hdd0.raw 32M
 #alias qemu "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -no-reboot -cdrom os.iso" -hda fat:root/ -boot d
-alias qemu "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -no-reboot -hda hdd0.raw -hdb hdd-dos.raw -cdrom os.iso" -boot d
+alias qemu "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -no-reboot -hda hdd0.raw -hdb hdd-dos.raw -cdrom os.iso" -boot d -net nic,model=rtl8139  -net tap,ifname=tap-bridge
 alias qemu-dos "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -no-reboot -hda hdd-dos.raw -hdb hdd0.raw"
 alias da32 objdump -d -Mintel-mnemonic build/bootloader.o
 alias w "grep \!* kernel/*.s"

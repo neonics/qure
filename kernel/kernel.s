@@ -32,6 +32,9 @@ DEFINE = 1
 .include "shell.s"
 
 .include "iso9660.s"
+
+.include "nic.s"
+.include "net.s"
 ###################################
 
 .text

@@ -229,14 +229,16 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 .macro PRINT msg
 	push	esi
-	PRINT_	"\msg"
+	LOAD_TXT "\msg"
+	call	print_
 	pop	esi
 .endm
 
 
 .macro PRINTLN msg
 	push	esi
-	PRINTLN_ "\msg"
+	LOAD_TXT "\msg"
+	call	println_
 	pop	esi
 .endm
 

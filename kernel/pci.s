@@ -539,11 +539,19 @@ std$:	# Header Type 0
 	or	eax, eax
 	jz	4f
 
+##
+	push	eax
+
 	# Memory BAR:
 	# bits 31:4:	16 byte aligned base address (& ~ 0b1111)
 	# bit  3:	prefetchable
 	# bits 2:1	type
 	# bit  0:	0
+
+	# IO BAR:
+	# bits 31:2:	4 byte aligned base address
+	# bit  1:	resered
+	# bit  0:	1
 	PRINTc	8, "  BAR"
 	mov	dl, bl
 	sub	dl, 16
@@ -553,6 +561,62 @@ std$:	# Header Type 0
 	PRINT ": "
 	mov	edx, eax
 	call	printhex8
+
+	# create mask: bit 0 = 1: 11b (IO) bit 0 = 0: 1111b (MEM)
+	push	ecx
+	mov	cl, al
+	and	cl, 1	# 1 = 4 byte io, 0 = 16 byte mem
+	mov	bh, 0b1111
+	shl	cl, 1	# 2 or 0
+	shr	bh, cl	# 0b11 or 0b1111
+	not	bh	# mask 0b11110000 or 0b11111100
+	pop	ecx
+
+	test	al, 1
+	jz	3f
+#
+	print " IO "
+	and	dl, ~ 0b11
+	jmp	5f
+#
+3:	print " MEM "
+	test	dl, 1<<3
+	jz	3f
+	print "PF "	# prefetchable
+3:	and	dl, ~ 0b1111
+	and	al, 0b110
+	cmp	al, 0 << 1
+	jz	3f
+	cmp	al, 2 << 1
+	jz	6f
+	print "?? "
+	jmp	5f
+6:	print "64 "
+	jmp	5f
+3:	print "32 "
+	#jmp	5f
+5:
+	call	printhex8
+	print "-"
+#
+	mov	ax, cx
+	mov	edx, -1	# determine memory used
+	call	pci_write_config
+	mov	edx, eax
+	and	dl, bh
+	not	edx
+	inc	edx	# edx = memory/io size used
+	#call	printhex8
+	#call	printspace
+	add	edx, [esp]
+	and	dl, bh
+	call	printhex8
+	# restore original address
+	pop	edx
+	mov	ax, cx
+	call	pci_write_config
+##	
+
 4:
 	add	bl, 4
 	cmp	bl, 0x24
@@ -666,6 +730,26 @@ pci_read_config:
 	mov	dx, IO_PCI_CONFIG_ADDRESS
 	out	dx, eax
 	add	dx, 4
+	in	eax, dx
+	ret
+
+# in: ah = bus (8 bits) al = slot (5 bits)
+# in: bl = register (4 byte align)
+# in: edx = value to write
+pci_write_config:
+	push	edx
+	and	eax, 0x0000ff1f
+	shl	al, 3
+	shl	eax, 8
+	and	bl, 0b11111100
+	mov	al, bl
+	or	eax, 1 << 31
+
+	mov	dx, IO_PCI_CONFIG_ADDRESS
+	out	dx, eax
+	add	dx, 4
+	pop	eax
+	out	dx, eax
 	in	eax, dx
 	ret
 

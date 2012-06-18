@@ -75,6 +75,11 @@ SHELL_COMMAND "fs_tree",	fs_printtree
 SHELL_COMMAND "hs",		cmd_human_readable_size$
 SHELL_COMMAND "cat",		cmd_cat$
 SHELL_COMMAND "lsof",		fs_list_openfiles
+SHELL_COMMAND "nic", 		nic_test
+SHELL_COMMAND "nicp", 		nic_status
+SHELL_COMMAND "ints",		cmd_int_count
+SHELL_COMMAND "ifup"		cmd_ifup
+SHELL_COMMAND "ifdown"		cmd_ifdown
 #SHELL_COMMAND "regexp",		regexp_parse
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
@@ -1030,10 +1035,44 @@ read_error$:
 ##############################################################################
 
 cmd_cat$:
-	
+	call	newline
+
+	CUR_INT = 0x20
+	.macro TEST_INT
+	int	CUR_INT
+	CUR_INT = CUR_INT+1
+	.endm
+
+	.rept 0
+	TEST_INT
+	.endr
+
+	call	newline
+	print "INT : "
+	int	0x20 + 0x0b
+	call	newline
 
 	ret
 
+#####################################
+cmd_int_count:
+	mov	esi, offset int_count
+	mov	ecx, 256
+	xor	edx, edx
+0:	lodsd
+	or	eax, eax
+	jz	1f
+	call	printhex2
+	print ": "
+	xchg	edx, eax
+	call	printdec32
+	call	printspace
+	mov	edx, eax
+
+1:	inc	edx
+	loop	0b
+	call	newline
+	ret
 #####################################
 
 	.if 0 # works...
