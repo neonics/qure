@@ -185,3 +185,49 @@ Shell: argument escaping
 
 	Use the parsed tokens, write a little grammar for them:
 	see process_tokens in shell.s and trash/cd_apply.s
+
+
+FileSystem: cd, ls
+
+	ls: opendir, readent (in custom structure).
+
+	ls uses fs_opendir which uses the internal filesystem tree
+	to access mounted volumes.
+	
+	Each filesystem type has its own implementation (bits and
+	pointers stored in the mtab).
+	
+	First attempt: simply only the ability to 
+		mount hdb0 /a
+		cd /a
+		ls
+	next attempt:
+		mount hdb0 /a
+		ls /a
+	When this is unified, the next attempt is:
+		ls /a/directory
+
+	This will require some cleanup of:
+		ata.s, partition.s, fs.s, fat.s, shell.s and hash.s.
+
+
+Mounting filesystems:
+	(mounting partitions already works, recording wise).
+
+	Filesystems may be mounted on top of anything, so opendir
+	should check for the longest match in mtab in order to find
+	the proper filesystem handing code;
+	for permissions and such, a top down approach should be applied.
+
+	The opendir implementation then first checks mtab, and
+	if there is no match it delegates to the current filesystem handler.
+
+	The root handler then is the 'memory filesystem', containing
+	the virtual root and the mount points,
+	aswell as any other custom filesystems (such as a kernel filesystem
+	or /dev and such).
+
+	right now the mount point does not have to exist in order to mount
+	there.
+
+	

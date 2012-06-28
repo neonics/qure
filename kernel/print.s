@@ -69,6 +69,7 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 # 0  : load ah with screen_color
 # > 0: load ah with constant
 # < 0: skip load ah. Note that ax will still be pushed.
+
 .macro PRINT_START c=0, char=0
 	push	ax
 	push	es
@@ -95,10 +96,29 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 #	.endif
 .endm
 
+
+.macro PRINT_START_ c=0, char=0
+	push	es
+	push	edi
+	movzx	edi, word ptr [screen_sel]
+	mov	es, edi
+	mov	edi, [screen_pos]
+
+	.if \c == 0
+	mov	ah, [screen_color]
+	mov	al, \char
+	.else
+	.if \c < 0
+	.else
+	mov	ax, (\c << 8) | \char
+	.endif
+	.endif
+.endm
+
 # flags:
 # 01: do not store position
 # 10: do not perform scroll check - only applies when flags & 01 = 00
-.macro PRINT_END ignorepos=0 noscroll=0
+.macro PRINT_END_ ignorepos=0 noscroll=0
 	.if \ignorepos
 	.else
 	
@@ -115,6 +135,11 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 	pop	edi
 	pop	es
+.endm
+
+
+.macro PRINT_END ignorepos=0 noscroll=0
+	PRINT_END_ \ignorepos, \noscroll
 	pop	ax
 .endm
 
@@ -150,13 +175,31 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	.endif
 .endm
 
+# does not preserve ax
+.macro PRINTCHAR_ c
+	mov	al, \c
+	call	printchar
+.endm
+
 .macro PRINTCHARc col, c
+	.if 1
+	push	ax
+	mov	ax, (\col<<8) | \c
+	call	printcharc
+	pop	ax
+	.else
 	PRINT_START -1
 	mov	ax, (\col<<8) | \c
 	stosw
 	PRINT_END
+	.endif
 .endm
 
+# does not preserve ax
+.macro PRINTCHARc_ col, c
+	mov	ax, (\col<<8) | \c
+	call	printchar
+.endm
 
 ###### Load String Pointer
 .macro LOAD_TXT txt, reg = esi
@@ -176,6 +219,21 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 # for printf
 .macro PUSHSTRING s
 	PUSH_TXT \s
+.endm
+
+
+.macro STRINGPTR n
+	.data 1
+	99: .asciz "\n"
+	.data
+	.long 99b
+	.text
+.endm
+
+.macro STRINGNULL
+	.data
+	.long 0
+	.text
 .endm
 
 
@@ -444,10 +502,73 @@ newline:
 	PRINT_END
 0:	ret
 
+
+##### SCROLLBACK BUFFER ######
+SCREEN_BUFFER = 1
+.if SCREEN_BUFFER
+.data 2
+SCREEN_BUF_SIZE = 160 * 24 * 4	# 4 pages
+screen_buf_offs: .long 0
+screen_buf: .space SCREEN_BUF_SIZE
+.text
+.endif
+##############################
+# this method is only to be called when edi > 160 * 24
 __scroll:
 	push	esi
 	push	ecx
 	push	ds
+
+	.if SCREEN_BUFFER
+	# |bufA  |      |bufB_|
+	# |bufB__|	|A____|
+	#  _____	 _____
+	# |A____|	|B____|
+	# |B____|	|C____|
+	# |C____|	|D____|
+	# |D____|abc#	|abc#_|
+
+		# edi = # (left)
+		push eax
+		push edx
+		xor	edx, edx
+		mov	eax, edi
+		sub	eax, 160 * 24 - 159 # for modulo add
+		# eax = len(abc)
+		# calculate nr of lines
+		mov	ecx, 160
+		div	ecx
+		mul	ecx
+		mov	ecx, eax
+
+
+		# shift the buffer
+		push	esi
+		push	edi
+		push	es
+		mov	esi, ds
+		mov	eax, es
+		mov	es, esi
+		mov	edi, offset screen_buf
+		lea	esi, [edi + ecx]
+		push	ecx
+		rep	movsb
+		pop	ecx
+		# es:edi = ok
+		# ecx = ok
+		# ds:esi:
+		mov	ds, eax
+		mov	esi, 160 * 24
+		sub	edi, ecx
+		rep	movsb
+		pop	es
+		pop	edi
+		pop	esi
+
+		pop edx
+		pop eax
+	.endif
+
 
 	mov	esi, es
 	mov	ds, esi
@@ -459,9 +580,13 @@ __scroll:
 	push	ecx
 	rep	movsd
 	pop	edi
+
+
+	pop	ds
+.if SCREEN_BUFFER
 push edi
 push edx
-mov edx, edi
+mov edx, [screen_buf_offs]
 mov edi, 80
 push eax
 mov ah, 0xe0
@@ -469,7 +594,7 @@ call __printhex8
 pop eax
 pop edx
 pop edi
-	pop	ds
+.endif
 	pop	ecx
 	pop	esi
 
@@ -489,13 +614,21 @@ printchar:
 	PRINT_END
 	ret
 
+.if 0
 printchar_:
 	push	ax
 	lodsb
-	PRINT_START
+	PRINT_START_
 	stosw
-	PRINT_END
+	PRINT_END_
 	pop	ax
+	ret
+.endif
+
+printcharc:
+	PRINT_START_ -1
+	stosw
+	PRINT_END_
 	ret
 
 nprintln:
@@ -1002,6 +1135,44 @@ printf:
 	pop	ecx
 	pop	eax
 	pop	ebp
+	ret
+
+#########################################################################
+
+# in: al = flags
+# in: esi = pointer to 8 packed asciz strings
+print_flags8:
+	push	ebx
+	push	ecx
+	mov	bl, al
+	mov	ecx, 8
+0:	shl	bl, 1
+	jnc	1f
+	call	print_
+	call	printspace
+	jmp	2f
+1:	PRINTSKIP_
+2:	loop	0b
+	pop	ecx
+	pop	ebx
+	ret
+
+# in: ax = flags
+# in: esi = pointer to 16 packed asciz strings
+print_flags16:
+	push	ebx
+	push	ecx
+	mov	ecx, 16
+	mov	bx, ax
+0:	shl	bx, 1
+	jnc	1f
+	call	print_
+	call	printspace
+	jmp	2f
+1:	PRINTSKIP_
+2:	loop	0b
+	pop	ecx
+	pop	ebx
 	ret
 
 .endif

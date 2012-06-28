@@ -33,8 +33,7 @@
 .endm
 
 
-.data 2
-
+.data	# not data 2 due to large sizes of data 0 and 1 > 64k for realmode
 .align 4
 
 pm_idtr:.word . - IDT - 1
@@ -172,10 +171,12 @@ jmp_table_target:
 	add	ebp, 4	# skip ebp itself
 	push	eax
 	push	ecx
-	push	ds
-	push	es
+	push	ds	# [ebp - 14]
+	push	es	# [ebp - 16]
 	push	edi
+	push	esi
 	push	edx
+	push	ebp	# ebp will be modifed, use for reference of stack regs
 
 	mov	eax, SEL_compatDS
 	mov	ds, ax
@@ -330,7 +331,48 @@ ics$:	COLOR 11
 
 	COLOR 8
 	PRINT	")"
+.if 1
+	#############################
+	push	ebp
+	mov	ebp, [esp + 4]
+	call	newline
+	printc_ 7, "cs="
+	mov	edx, [ebp + 14]
+	call	printhex4
+	printc_ 7, " eip="
+	mov	edx, [ebp + 10]
+	call	printhex8
 
+	printc_ 7, " ds="
+	mov	edx, [ebp - 14]
+	call	printhex4
+	printc_ 7, " es="
+	mov	edx, [ebp - 16]
+	call	printhex4
+	pop	ebp
+
+	printc 11, "STACK: "
+	printc 10, "esp="
+	mov	edx, esp
+	call	printhex8
+	call	newline
+	push	ebp
+	push	ecx
+	mov	ecx, 10
+0:	mov	edx, ebp
+	color	12
+	call	printhex8
+	printc	8, ": "
+	mov	edx, [ebp]
+	color	7
+	call	printhex8
+	call	newline
+	add	ebp, 4
+	loop	0b
+	pop	ecx
+	pop	ebp
+	#############################
+.endif
 	cmp	cx, 0x20 #PF
 	jb	halt
 
@@ -354,7 +396,9 @@ ics$:	COLOR 11
 	POPCOLOR
 	call	newline
 
+	pop	ebp
 	pop	edx
+	pop	esi
 	pop	edi
 	pop	es
 	pop	ds

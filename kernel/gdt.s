@@ -155,6 +155,53 @@ rm_gdtr:.word 0
 .equ SEL_biosCS,	8 * 15	# 78 # origin F000:0000
 .equ SEL_MAX, SEL_biosCS + 0b11	# ring level 3
 
+
+
+.macro R8H r
+	.if \r == eax
+		_R8H = ah
+	.endif
+	.if \r == ebx
+		_R8H = bh
+	.endif
+	.if \r == ecx
+		_R8H = ch
+	.endif
+	.if \r == edx
+		_R8H = dh
+	.endif
+.endm
+
+.macro R8L r
+	.if \r == eax
+		_R8L = al
+	.endif
+	.if \r == ebx
+		_R8L = bl
+	.endif
+	.if \r == ecx
+		_R8L = cl
+	.endif
+	.if \r == edx
+		_R8L = dl
+	.endif
+.endm
+
+.macro R16 r
+	.if \r == eax
+		_R16 = ax
+	.endif
+	.if \r == ebx
+		_R16 = bx
+	.endif
+	.if \r == ecx
+		_R16 = cx
+	.endif
+	.if \r == edx
+		_R16 = dx
+	.endif
+.endm
+
 .macro GDT_STORE_SEG seg
 	mov	[\seg + 2], ax
 	shr	eax, 16
@@ -172,14 +219,22 @@ rm_gdtr:.word 0
 	# ignore ah as realmode addresses are 20 bits
 .endm
 
+.macro GDT_GET_BASE target, sel
+	push	esi
+	mov	esi, \sel
+	_R32 = \target
+	R16 \target
+	R8H \target
+	R8L \target
 
-.macro GDT_GET_BASE sel
-	xor	eax, eax
-	mov	ah, [GDT + \sel + 7]
-	mov	al, [GDT + \sel + 4]
-	shl	eax, 16
-	mov	ax, [GDT + \sel + 2]
+	mov	_R8H, [GDT + esi + 7]
+	mov	_R8L, [GDT + esi + 4]
+	shl	_R32, 16
+	mov	_R16, [GDT + esi + 2]
+	pop	esi
 .endm
+
+
 
 	# QEMU: GDT limit 37 base FCD80  IDT limit  3ff base 0
 	# VBOX: GDT limit 30 base FC7F3  IDT limit ffff base 1

@@ -14,13 +14,14 @@ atoi:
 	jz	1f
 
 0:	mov	dl, [esi]
-	inc	esi
 	or	dl, dl
 	jz	0f	# also cf = 0
 	sub	dl, '0'
 	js	1f
 	cmp	dl, 9
 	ja	1f
+
+	inc	esi
 
 	imul	eax, 10
 	add	eax, edx
@@ -30,6 +31,36 @@ atoi:
 0:	pop	edx
 	pop	esi
 	ret
+
+# in: esi = pointer to string
+# out: eax = number on CF=0; CF=1: error
+# out: esi
+atoi_:
+	push	edx
+	xor	eax, eax
+	xor	edx, edx
+
+	cmp	byte ptr [esi], 0
+	jz	1f
+
+0:	mov	dl, [esi]
+	or	dl, dl
+	jz	0f	# also cf = 0
+	sub	dl, '0'
+	js	1f
+	cmp	dl, 9
+	ja	1f
+
+	inc	esi
+
+	imul	eax, 10
+	add	eax, edx
+
+	jmp	0b
+1:	stc
+0:	pop	edx
+	ret
+
 
 
 # in: eax = pointer to radix 16 (hex) string

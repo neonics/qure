@@ -177,17 +177,21 @@ DEBUG_COLOR3 = 0x8f
 printc DEBUG_COLOR3, "\str "
 .endm
 
-.macro DEBUGS
+.macro DEBUGS reg=esi
 pushcolor DEBUG_COLOR1
-push	eax
-mov	al, '\''
-call	printchar
+PRINTCHAR '\''
 COLOR DEBUG_COLOR2
+.if \reg == esi
 call	print
+.else
+push	esi
+mov	esi, \reg
+call	print
+pop	esi
+.endif
 COLOR DEBUG_COLOR1
-call	printchar
+PRINTCHAR '\''
 call	printspace
-pop	eax
 popcolor
 .endm
 
@@ -254,7 +258,6 @@ DEBUG_DWORD \r
 	call	printspace
 	popcolor
 .endm
-
 
 .macro DEBUG_DIV_PRE r32
 	pushcolor 8

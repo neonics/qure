@@ -112,7 +112,7 @@ rmI "Remapping PIC"
 		call newline_16
 	.endif
 
-	mov	ax, 0x2820
+	mov	ax, (( IRQ_BASE + 8 )<<8) | IRQ_BASE	# 0x2820
 	call	pic_init16
 
 rmOK
@@ -334,8 +334,7 @@ real_mode:
 	mov	bx, SEL_compatDS
 	mov	ds, bx
 
-	mov	bx, cs	# add base of current selector to stack
-	GDT_GET_BASE bx
+	GDT_GET_BASE eax, cs	# add base of current selector to stack
 	add	edx, eax
 
 	push	dx

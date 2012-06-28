@@ -50,36 +50,51 @@ SHELL_COMMAND_STRUCT_SIZE:
 ### Shell Command list
 .align 4
 SHELL_COMMANDS:
-
+SHELL_COMMAND "cls",		cls
+# filesystem
 SHELL_COMMAND "ls",		cmd_ls$
 SHELL_COMMAND "cluster",	cmd_cluster$
 SHELL_COMMAND "cd",		cmd_cd$
-SHELL_COMMAND "cls",		cls
 SHELL_COMMAND "pwd",		cmd_pwd$
 SHELL_COMMAND "disks",		cmd_disks_print$
+SHELL_COMMAND "listdrives",	ata_list_drives
 SHELL_COMMAND "fdisk",		cmd_fdisk$
 SHELL_COMMAND "partinfo",	cmd_partinfo$
 SHELL_COMMAND "mount",		cmd_mount$
 SHELL_COMMAND "umount",		cmd_umount$
+SHELL_COMMAND "fs_tree",	fs_printtree
+SHELL_COMMAND "lsof",		fs_list_openfiles
+# memory
 SHELL_COMMAND "mtest",		malloc_test$
 SHELL_COMMAND "mem",		cmd_mem$
+# shell
 SHELL_COMMAND "quit",		cmd_quit$
 SHELL_COMMAND "exit",		cmd_quit$
 SHELL_COMMAND "help",		cmd_help$
 SHELL_COMMAND "hist",		cmdline_history_print
-SHELL_COMMAND "lspci",		pci_list_devices
+
+SHELL_COMMAND "set"		cmd_set
+SHELL_COMMAND "unset"		cmd_unset
+
 SHELL_COMMAND "strlen",		cmd_strlen$
 SHELL_COMMAND "echo",		cmd_echo$
-SHELL_COMMAND "listdrives",	ata_list_drives
-SHELL_COMMAND "fs_tree",	fs_printtree
-SHELL_COMMAND "hs",		cmd_human_readable_size$
 SHELL_COMMAND "cat",		cmd_cat$
-SHELL_COMMAND "lsof",		fs_list_openfiles
-SHELL_COMMAND "nic", 		nic_test
-SHELL_COMMAND "nicp", 		nic_status
+# hardware
+SHELL_COMMAND "dev"		cmd_dev
+SHELL_COMMAND "lspci",		pci_list_devices
 SHELL_COMMAND "ints",		cmd_int_count
+# network
+SHELL_COMMAND "nics", 		cmd_nic_list
+SHELL_COMMAND "ifconfig"	cmd_ifconfig
 SHELL_COMMAND "ifup"		cmd_ifup
 SHELL_COMMAND "ifdown"		cmd_ifdown
+SHELL_COMMAND "route"		cmd_route
+#SHELL_COMMAND "dhcp"		cmd_dhcp
+SHELL_COMMAND "ping"		cmd_ping
+SHELL_COMMAND "arp"		cmd_arp
+SHELL_COMMAND "netdump"		cmd_netdump
+# utils
+SHELL_COMMAND "hs",		cmd_human_readable_size$
 #SHELL_COMMAND "regexp",		regexp_parse
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
@@ -181,6 +196,11 @@ start1$:
 	jz	key_up$
 	cmp	ax, K_DOWN
 	jz	key_down$
+
+	cmp	ax, K_PGUP
+	jz	key_pgup
+	cmp	ax, K_PGDN
+	jz	key_pgdown
 
 	cmp	ax, K_INSERT
 	jz	key_insert$
@@ -307,6 +327,33 @@ key_insert$:
 
 key_escape$:
 	call	cmdline_clear$
+	jmp	start1$
+
+#########################################
+## Screen buffer key handlers
+
+key_pgup:
+	# test the buffer using more
+	mov	ecx, 24
+0:	call	newline
+	loop	0b
+
+	mov	edx, 3
+	mov	esi, offset screen_buf
+0:	printlnc 11, "***********************"
+	mov	ecx, 160 * 24
+DEBUG_DWORD ecx
+	PRINT_START
+	xor	edi, edi
+	rep	movsb
+	PRINT_END # 0, 1
+	call	newline
+	call	more
+	dec	edx
+	jnz	0b
+
+	jmp	start1$
+key_pgdown:
 	jmp	start1$
 
 #########################################
@@ -1036,22 +1083,6 @@ read_error$:
 
 cmd_cat$:
 	call	newline
-
-	CUR_INT = 0x20
-	.macro TEST_INT
-	int	CUR_INT
-	CUR_INT = CUR_INT+1
-	.endm
-
-	.rept 0
-	TEST_INT
-	.endr
-
-	call	newline
-	print "INT : "
-	int	0x20 + 0x0b
-	call	newline
-
 	ret
 
 #####################################
@@ -1074,42 +1105,191 @@ cmd_int_count:
 	call	newline
 	ret
 #####################################
+cmd_set:
+	lea	eax, [esi + 4]
+	mov	esi, [eax]
+	or	esi, esi
+	jz	shell_variables_list
 
-	.if 0 # works...
-		movzx	edx, word ptr [esi + FAT_DIR_CLUSTER]
-		push	edx
-		movzx	edx, byte ptr [esi + FAT_DIR_ATTRIB]
-		push	edx
-		push	dword ptr 2
-		push	esi
-		push	dword ptr 11
-		PUSH_TXT "Name: %.*s  Attr: %*x  Cluster: %x\n"
-		call	printf
-		add	esp, 4 * 6
-	.endif
+	mov	ebx, esi
+	printc 11, "SET "
+	call	print
 
-			.if 0 # doesnt seem to work
-			push	esi
-			push dword ptr [cmdline_tokens_end]
-			push	dword ptr offset cmdline_tokens
-			PUSH_TXT "Token offset start: %x  end %x token \nr calc: %x\n"
-			call	printf
-			add	esp, 3 * 4
-			.endif
+	add	eax, 4
+	mov	esi, [eax]
+	cmp	word ptr [esi], '='
+	jnz	1f
+	printc 11, " = "
+
+	add	eax, 4
+	mov	esi, [eax]
+	call	println
+
+	mov	edi, esi
+	mov	esi, ebx
+	call	shell_variable_set
+
+	ret
+1:	printlnc 12, "Usage: set name = value"
+	stc
+	ret
+
+	.data
+	shell_variables: .long 0
+	.text
+
+shell_variables_list:
+0:	mov	eax, [shell_variables]
+	or	eax, eax
+	jz	1f
+	mov	ecx, [eax + array_index]
+	shr	ecx, 3
+	jz	1f
+0:	mov	esi, [eax + 0]
+	call	print
+	print_ " = "
+	mov	esi, [eax + 4]
+	call	println
+	add	eax, 8
+	loop	0b
+1:	ret
 
 
-			.if 0 # works
+# in: esi = varname
+# out: eax + edx = var ptr: [+0] = name ptr [+4] = value ptr
+# out: CF = 1: not found
+shell_variable_get:
+	push	edi
+	push	ecx
 
-			mov	al, '<'
-			pushcolor 3
-			mov	edx, offset cmdline_tokens
-			call	printhex8
-			call	printchar
-			mov	edx, esi
-			call	printhex8
-			call	printchar
-			mov	edx, [cmdline_tokens_end]
-			call	printhex8
-			popcolor
+	mov	eax, [shell_variables]
+	or	eax, eax
+	stc
+	jz	1f
 
-			.endif
+	push	eax
+	mov	eax, esi
+	call	strlen
+	inc	eax
+	mov	ecx, eax
+	pop	eax
+
+	mov	edx, [eax + array_index]
+
+0:	sub	edx, 8
+	jc	1f
+	mov	edi, [eax + edx]
+	push	esi
+	repz	cmpsb
+	pop	esi
+	jnz	0b
+	clc
+1:	pop	ecx
+	pop	edi
+	ret
+
+cmd_unset:
+	add	esi, 4
+0:	lodsd
+	or	eax, eax
+	jz	0f
+	push	esi
+	mov	esi, eax
+	call	shell_variable_unset
+	pop	esi
+	jmp	0b
+0:	ret
+
+# in: esi = varname
+shell_variable_unset:
+	push	eax
+	push	ebx
+	push	ecx
+	push	edx
+	call	shell_variable_get
+	jc	0f
+	mov	ebx, eax
+	mov	eax, [ebx + edx]
+	call	mfree
+	mov	eax, [ebx + edx + 4]
+	call	mfree
+	mov	eax, ebx
+	mov	ecx, 8
+	call	array_remove
+9:	pop	edx
+	pop	ecx
+	pop	ebx
+	pop	eax
+	ret
+0:	printc	4, "unset: variable not found: "
+	call	println
+	stc
+	jmp	9b
+
+# in: esi = varname
+# in: edi = value
+# out: eax = var struct: .long name, value
+shell_variable_set:
+	call	shell_variable_get
+	jc	1f
+	# found
+	xchg	eax, edi
+	call	strdup
+	# free string
+	xchg	eax, [edi + 4]	
+	call	mfree
+	mov	eax, edi
+	ret
+	
+1:	# add
+	mov	eax, [shell_variables]
+	or	eax, eax
+	mov	ecx, 8
+	jnz	1f	
+	inc	eax	
+	call	array_new
+1:	call	array_newentry
+	mov	[shell_variables], eax
+	add	eax, edx
+	xchg	eax, esi
+	call	strdup
+	mov	[esi], eax
+	mov	eax, edi
+	call	strdup
+	mov	[esi + 4], eax
+	ret
+
+#####################################
+cmd_netdump:
+	call	nic_zeroconf
+	jc	9f
+
+	LOAD_TXT "ethdump"
+	push	esi
+	mov	edi, esi
+	call	shell_variable_set
+	printlnc 11, "Capturing Ethernet packets - press any key to quit."
+	xor	ax, ax
+	call	keyboard
+	pop	esi
+	call	shell_variable_unset
+	printlnc 11, "capture complete."
+9:	ret
+#####################################
+
+.macro CMD_ISARG str
+	.data
+	79: .asciz "\str"
+	78: 
+	.text
+	push	esi
+	mov	esi, offset 79b
+	push	ecx
+	mov	ecx, 78b - 79b
+	push	edi
+	mov	edi, eax
+	repz	cmpsb
+	pop	ecx
+	pop	edi
+	pop	esi
+.endm

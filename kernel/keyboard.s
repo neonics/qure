@@ -1,15 +1,60 @@
 .intel_syntax noprefix
 
-# PS/2:
-KB_FLAG_OBF	= 0b00000001	# Output buffer full
-KB_FLAG_IBF	= 0b00000010	# Output buffer full
-KB_FLAG_SYS	= 0b00000100	# POST: 0: power-on reset; 1: BAT code, powered
-KB_FLAG_A2	= 0b00001000	#
+KB_IO_DATA	= 0x60
+KB_IO_CONTROL	= 0x61
+KB_IO_CMD	= 0x64	# write
+KB_IO_STATUS	= 0x64	# read
 
-KB_FLAG_INH	= 0b00010000	# Communication inhibited
-KB_FLAG_MOBF	= 0b00100000	# PS2: OBF for mouse; AT: TxTO (timeout)
-KB_FLAG_TO	= 0b01000000	# PS2: Timeout; AT: RxTO
-KB_FLAG_PERR	= 0b10000000	# Parity Error
+# PS/2:
+KB_STATUS_OBF	= 0b00000001	# Output buffer full
+KB_STATUS_IBF	= 0b00000010	# Input buffer full
+KB_STATUS_SYS	= 0b00000100	# POST: 0: power-on reset; 1: BAT code, powered
+KB_STATUS_A2	= 0b00001000	#
+KB_STATUS_INH	= 0b00010000	# Communication inhibited
+KB_STATUS_MOBF	= 0b00100000	# PS2: OBF for mouse; AT: TxTO (timeout)
+KB_STATUS_TO	= 0b01000000	# PS2: Timeout; AT: RxTO
+KB_STATUS_PERR	= 0b10000000	# Parity Error
+
+KB_MODE_INT		= 0b00000001	# irq 1
+KB_MODE_MOUSE_INT	= 0b00000001	# irq 12
+KB_MODE_SYS		= 0b00000001
+KB_MODE_NO_KEYLOCK	= 0b00000001
+KB_MODE_DISABLE_KBD	= 0b00000001
+KB_MODE_DISABLE_MOUSE	= 0b00000001
+KB_MODE_KCC		= 0b00000001
+KB_MODE_RFU		= 0b00000001
+
+# keyboard controller
+KB_C_CMD_MODE_READ	= 0x20
+KB_C_CMD_MODE_WRITE	= 0x60
+KB_C_CMD_GET_VERSION	= 0xa1
+KB_C_CMD_DISABLE	= 0xAD
+KB_C_CMD_ENABLE		= 0xAE
+KB_C_CMD_WRITE_AUX	= 0xd2
+KB_C_CMD_WRITE_MOUSE	= 0xd4
+
+# keyboard
+KB_CMD_SET_LEDS		= 0xed
+KB_CMD_SET_RATE		= 0xf3
+KB_CMD_ENABLE		= 0xf4
+KB_CMD_DISABLE		= 0xf5
+KB_CMD_RESET		= 0xff
+
+KB_REPLY_POR		= 0xaa
+KB_REPLY_ACK		= 0xfa
+KB_REPLY_RESEND		= 0xfe
+
+KB_LED_SCROLL_LOCK	= 0b001
+KB_LED_NUM_LOCK		= 0b010
+KB_LED_CAPS_LOCK	= 0b100
+
+# control keys
+CK_LEFT_SHIFT		= 0b000001
+CK_LEFT_ALT		= 0b000010
+CK_LEFT_CTRL		= 0b000100
+CK_RIGHT_SHIFT		= 0b001000
+CK_RIGHT_ALT		= 0b010000
+CK_RIGHT_CTRL		= 0b100000
 
 .include "keycodes.s"
 
@@ -42,7 +87,7 @@ isr_keyboard:
 #	and	al, 1
 #	jz	0b
 
-	in	al, 0x60
+	in	al, KB_IO_DATA
 
 	######################################################################
 	# check for protocol scancodes
@@ -51,29 +96,29 @@ isr_keyboard:
 	jne	0f
 
 	# signal ready to read next byte without sending EOI
-	in	al, 0x61
+	in	al, KB_IO_CONTROL
 	or	al, 0x80
-	out	0x61, al
+	out	KB_IO_CONTROL, al
 	and	al, 0x7f
-	out	0x61, al
+	out	KB_IO_CONTROL, al
 
 	# read next byte
 
-	in	al, 0x60	
+	in	al, KB_IO_DATA
 
 	############################################################
 	cmp	al, 0xf0	# some break codes are e0 f0 MAKE
 	jne	0f
 	# signal ready to read next byte without sending EOI
-	in	al, 0x61
+	in	al, KB_IO_CONTROL
 	or	al, 0x80
-	out	0x61, al
+	out	KB_IO_CONTROL, al
 	and	al, 0x7f
-	out	0x61, al
+	out	KB_IO_CONTROL, al
 
 	# read next byte
 
-	in	al, 0x60	
+	in	al, KB_IO_DATA
 	or	al, 0x80	# turn it into a regular break code
 	############################################################
 
@@ -330,7 +375,11 @@ isr_keyboard:
 .code32
 keyboard_hook_isr:
 	pushf
+
+	call	keyboard_init
+
 	cli
+
 	mov	al, 0x20 # [pic_ivt_offset]
 	add	al, IRQ_KEYBOARD
 	mov	cx, SEL_compatCS
@@ -339,18 +388,81 @@ keyboard_hook_isr:
 	
 	PIC_ENABLE_IRQ IRQ_KEYBOARD
 
-	PRINT	"Keyboard Status: "
-	in	al, 0x64
+	in	al, KB_IO_STATUS
 	mov	dl, al
+
+	push	esi
+	PRINT_	"Keyboard Status: "
 	mov	ah, 0xf0
 	call	printhex2
-	PRINT	"("
+	PRINT_	"("
 	call	printbin8
+	call	printspace
+	LOAD_TXT "PERR\0TO\0MOBF\0INH\0A2\0SYS\0IBF\0OBF"
+	call	print_flags8
 	PRINT	")"
 	call	newline
+	pop	esi
+
 	popf
 	ret
 
+keyboard_init:
+	call	keyboard_wait
+	mov	al, KB_CMD_SET_RATE
+	out	KB_IO_DATA, al
+
+	call	keyboard_wait
+	xor	al, al
+	out	KB_IO_DATA, al
+	ret
+
+KEYBOARD_TIMEOUT = 0xffff
+
+keyboard_wait:
+	push	ecx
+	mov	ecx, KEYBOARD_TIMEOUT
+0:	in	al, KB_IO_STATUS
+
+.if 0
+push dx
+mov dl, al
+call printhex2
+call printspace
+	LOAD_TXT "PERR\0TO\0MOBF\0INH\0A2\0SYS\0IBF\0OBF"
+	call	print_flags8
+	call newline
+pop dx
+.endif
+	test	al, KB_STATUS_IBF
+	jnz	0f
+	loop	0b
+	printlnc 4, "keyboard: timeout"
+	stc
+0:	pop	ecx
+	ret
+
+keyboard_wait_data:
+	push	ecx
+	mov	ecx, KEYBOARD_TIMEOUT
+0:	call	keyboard_read_data
+	jnc	0f
+	loop	0b
+	printlnc 4, "keyboard: timeout"
+	stc
+	pop	ecx
+0:	ret
+
+keyboard_read_data:
+	in	al, KB_IO_STATUS
+	test	al, KB_STATUS_OBF
+	stc
+	jz	1f
+	mov	ah, al
+	in	al, KB_IO_DATA
+	# if status GTO or PERR return error
+1:	# 
+	ret
 
 .data
 KB_BUF_SIZE = 32

@@ -2,7 +2,7 @@
 
 DEBUG_KERNEL_REALMODE = 0	# waitkey
 
-.data 2
+.data # keep near beginning due to realmode 64k limit
 low_memory_size: .word 0 # in kb
 memory_map:	.space 24 * 10	# 10 lines (qemu has 5)
 cdrom_spec_packet:	.space 0x13	# see interrupt 13h
@@ -80,7 +80,19 @@ call	newline_16
 
 	# print signature
 	print_16 "Signature: "
+	.if 0	# kernel < 64k
 	mov	edx, [sig] # [kernel_end - 4]
+	.else
+	sub	edx, 4
+	mov	bl, dl
+	and	bl, 0xf
+	shr	edx, 4
+	push	ds
+	mov	ds, dx
+	mov	edx, [bx]
+	pop	ds
+	.endif
+
 	rmCOLOR	0x0b
 	call	printhex8_16
 	rmCOLOR	0x0f

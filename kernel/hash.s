@@ -224,21 +224,6 @@ buf_resize:
 	.endif
 	ret
 
-# in: esi = buf metadata
-# out: esi+eax = pointer to item
-#buf_newitem:
-#	mov	eax, [esi + buf_index]
-#	cmp	eax, [esi + buf_capacity]
-#	jb	0f
-#	mov	eax, [esi + buf_growsize]
-#	call	buf_grow
-#
-#	mov	eax, [esi + buf_index]
-#	cmp	eax, [esi + buf_capacity]
-#	jb	0f
-#
-#0:	
-#	ret
 
 # in: eax = base ptr
 array_appendcopy:
@@ -286,6 +271,80 @@ array_newentry:
 	# REMEMBER: eax might be updated, so always store it after a call!
 	ret
 
+.macro ARRAY_ITER_START base, index
+	xor	\index, \index
+	jmp	91f
+90:	
+.endm
+
+.macro ARRAY_ITER_NEXT base, index, size
+	add	\index, \size
+91:	cmp	\index, [\base + array_index]
+	jb	90b
+.endm
+
+##################################################
+# Pointer Array
+
+ptr_array_new:
+	push	edx
+	shl	eax, 2
+	call	buf_new
+	pop	edx
+	ret
+
+
+ptr_array_newentry:
+	mov	edx, [eax + array_index]
+	cmp	edx, [eax + array_capacity]
+	jb	0f
+	add	edx, 4*4
+	call	buf_resize
+	mov	edx, [eax + array_index]
+0:	add	[eax + array_index], dword ptr 4
+	ret
+
+
+.macro PTR_ARRAY_ITER_START base, index, ref
+	xor	\index, \index
+	jmp	91f
+90:	mov	\ref, [\base + \index]
+.endm
+
+.macro PTR_ARRAY_ITER_NEXT base, index, ref
+	add	\index, 4
+91:	cmp	\index, [\base + array_index]
+	jb	90b
+.endm
+
+
+##################################################
+# Variable Length Object Array
+
+.struct 0
+obj_size: .long 0
+OBJ_STRUCT_SIZE = .
+.text
+
+obj_array_newentry:
+	call	array_newentry
+	mov	[eax + edx + obj_size], ecx
+	ret
+
+.macro OBJ_ARRAY_ITER_START base, index, ref
+	xor	\index, \index
+	jmp	91f
+90:	
+.endm
+
+.macro OBJ_ARRAY_ITER_NEXT base, index, ref
+	add	\index, [\base + \index + obj_size]
+91:	cmp	\index, [\base + array_index]
+	jb	90b
+.endm
+
+
+##################################################
 
 # in: eax = base ptr
 # in: ecx = entry size / size of memory to remove
@@ -304,217 +363,4 @@ array_remove:
 	pop	ecx
 0:	sub	[eax + buf_index], ecx
 	ret
-
-
-######################################### OOP ###########################
-
-.data
-DEFAULT_OBJECT_POOL_SIZE = 16
-DEFAULT_OBJECT_POOL_GROW_SIZE = 4
-CLASS_CLASS	= 0
-CLASS_OBJECT	= 1
-CLASS_ARRAY	= 2
-global_class_pool: .long 0
-.text
-
-array_newinstance:
-	mov	eax, CLASS_ARRAY
-	#mov	eax, offset global_class_pool + eax * 4
-	call	object_new
-	# e
-	add	edx, eax
-
-	mov	eax, 8
-	call	malloc
-	mov	[edx], eax
-
-	mov	[eax], dword ptr 0
-	mov	[eax+4], dword ptr 0
-	ret
-
-
-
-# in: eax = reference to memory address holding global class pool pointer
-# in: ecx = bytes to allocate for the object.
-# out: eax = pointer to newly allocated object of given class.
-# out: edx = reference to memory address holding pointer
-#
-# 2^30 bit classes (due to 32 bit limitation), dynamically allocated.
-
-.data
-foo_class:
-	.long 0 # offset to class constructor
-	.long 0 # bytes to allocate
-	.long 0 # offset to new
-	.long 0 # pool pointer (class id)
-.text
-
-test_class:
-	mov	ebx, offset foo_class
-
-
-
-	# class initialization
-	# dword array
-	mov	eax, [global_class_pool]
-	or	eax, eax
-	jz	1f	# malloc
-
-		# check if initialized ([[global_class_pool]+[ebx+12])
-	.if 1
-	mov	edx, [ebx + 3*4]
-	or	edx, edx
-	jnz	6f
-	mov	edx, [eax + 4]	# load used size
-	cmp	edx, [eax]	# cmp with allocated size
-	jae	2f		# realloc
-0:	# [edx] is free pointer in array
-
-2:	add	edx, 4	# grow by one pointer
-	push	edx
-	call	mrealloc
-	pop	[eax]
-	sub	edx, 4
-	mov	[ebx + 3*4], edx
-	ret
-
-	.else
-	lea	edx, [edx * 4 + 16]
-	cmp	edx, [eax]
-	jae	2f	# realloc
-	.endif
-0:	
-	sub	edx, 16
-	add	eax, 16
-
-	mov	ecx, [eax + edx]
-	or	ecx, ecx
-	jz	5f
-6:	add	edx, eax
-	mov	eax, [ecx + 4]
-	call	malloc
-	mov	[edx], eax
-	call	[ecx + 4]	# constructor
-	ret
-
-5:	call	[ebx]	# call class constructor
-	mov	[eax + edx], ecx	# store pointer
-	jmp	6b
-	
-
-
-
-object_new:
-
-
-	# class initialization
-	# dword array
-	mov	edx, eax
-	mov	eax, [global_class_pool]
-	or	eax, eax
-	jz	1f
-	lea	edx, [edx * 4 + 16]
-	cmp	edx, [eax]
-	jae	2f
-0:	
-	sub	edx, 16
-	add	eax, 16
-
-	# eax = array/buf base
-	# edx = relative offset into array/buf, guaranteed to exist.
-	# append
-	mov	edx, [eax+4]
-	add	[eax+4], dword ptr 4
-	add	edx, eax
-	# [eax + edx ] = available memory address
-	# eax = object array base
-	# edx = pointer to object (size 4)
-	ret
-
-2:	add	edx, 4
-	push	edx
-	call	mrealloc
-	pop	[eax]
-	sub	edx, 4
-	ret
-
-# in: eax = memory pointer
-# in: ecx = address of memory to hold the address
-# in: edx = class number
-# out: eax
-1:	lea	eax, [edx * 4 + 16]
-	push	eax
-	call	malloc
-	pop	[eax]
-	mov	[global_class_pool], eax
-	jmp	0b
-	
-
-##############################################################################
-	mov	ecx, offset global_class_pool
-	mov	eax, [ecx]
-	or	eax, eax
-	mov	ebx, offset 0f
-	jz	2f	
-	cmp	edx, [eax]
-	jae	2f
-
-# First call:
-# in: eax = base address of mem to realloc
-# in: edx = class number
-2:	add	edx, DEFAULT_OBJECT_POOL_GROW_SIZE * 4
-	call	mrealloc
-	mov	[ecx], eax	# double reference: ptr->buf->size
-	mov	[eax], edx	#                   ecx->eax->edx
-	sub	edx, DEFAULT_OBJECT_POOL_GROW_SIZE * 4
-	jmp	ebx
-
-
-#
-#object_new:
-#	# class initialization
-#	# dword array
-#	mov	edx, eax
-#	mov	eax, [global_class_pool]
-#	or	eax, eax
-#	jz	1f
-#	lea	edx, [edx * 4 + 16]
-#	cmp	edx, [eax]
-#	jae	2f
-#0:	
-#	sub	edx, 16
-#	add	eax, 16
-#
-#	# eax = array/buf base
-#	# edx = relative offset into array/buf, guaranteed to exist.
-#	# append
-#	mov	edx, [eax+4]
-#	add	[eax+4], dword ptr 4
-#	add	edx, eax
-#	# [eax + edx ] = available memory address
-#	# eax = object array base
-#	# edx = pointer to object (size 4)
-#	ret
-#
-#2:	add	edx, 4
-#	push	edx
-#	call	mrealloc
-#	pop	[eax]
-#	sub	edx, 4
-#	ret
-#
-## in: eax = memory pointer
-## in: ecx = address of memory to hold the address
-## in: edx = class number
-## out: eax
-#1:	lea	eax, [edx * 4 + 16]
-#	push	eax
-#	call	malloc
-#	pop	[eax]
-#	mov	[global_class_pool], eax
-#	jmp	0b
-#	
-#
-#
-
 

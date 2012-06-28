@@ -25,7 +25,7 @@ debug_regstore$:
 	mov	[debug_registers$ + 4 * 5], edi
 	mov	[debug_registers$ + 4 * 6], ebp
 	mov	[debug_registers$ + 4 * 7], esp
-	sub	[debug_registers$ + 4 * 7], dword ptr 2	# pushcolor adjust
+	sub	[debug_registers$ + 4 * 7], dword ptr 6	# pushf/pushcolor adjust
 	ret
 
 
@@ -50,6 +50,7 @@ debug_regstore$:
 .endm
 
 debug_regdiff$:
+	pushf
 	pushcolor 0xf4
 	DEBUG_REGDIFF0 0, eax
 	DEBUG_REGDIFF0 1, ebx
@@ -60,6 +61,7 @@ debug_regdiff$:
 	DEBUG_REGDIFF0 6, ebp
 	DEBUG_REGDIFF0 7, esp
 	popcolor
+	popf
 	ret
 
 

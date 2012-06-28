@@ -80,3 +80,13 @@ build/asm.exe: util/asm.y util/asm.l
 
 build/malloc.exe: util/malloc.cpp
 	g++ -std=c++0x -o $@ $<
+
+
+##########################################################################
+
+site:	site.html
+	[ -f build/boot.img.gz ] && rm build/boot.img.gz || true
+	[ -f build/os.iso.gz ] && rm build/os.iso.gz || true
+	gzip build/boot.img -c > build/boot.img.gz 
+	gzip os.iso -c > build/os.iso.gz
+	

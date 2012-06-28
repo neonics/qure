@@ -15,25 +15,27 @@ DEFINE = 1
 .include "pit.s"
 .include "keyboard.s"
 
+.include "mem.s"
+.include "hash.s"
+.include "string.s"
+
+.include "token.s"
+.include "shell.s"
+
+.include "dev.s"
 .include "pci.s"
 .include "bios.s"
 .include "cmos.s"
 .include "ata.s"
 
-.include "mem.s"
-.include "hash.s"
-.include "string.s"
-
 .include "fs.s"
 .include "partition.s"
 .include "fat.s"
 
-.include "token.s"
-.include "shell.s"
-
 .include "iso9660.s"
 
 .include "nic.s"
+.include "rtl8139.s"
 .include "net.s"
 ###################################
 

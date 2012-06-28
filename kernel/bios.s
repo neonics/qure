@@ -4,6 +4,8 @@
 # Memory address: 0000:0400 Size 100h
 
 bios_list_bda:
+	push	es
+
 	call	newline
 	COLOR	8
 
@@ -131,6 +133,7 @@ bios_list_bda:
 	PRINT	"XT HDD IO Port: "
 	call	printhex2
 
+	pop	es
 	ret
 
 

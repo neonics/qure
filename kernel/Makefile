@@ -1,4 +1,4 @@
-all: kernel.bin
+all: kernel.bin Makefile
 
 clean:
 	[ -f kernel.bin ] && /bin/rm kernel.bin || true
@@ -15,7 +15,7 @@ KERNEL_SRC = kernel.s debug.s debugger.s realmode.s print.s \
 	mem.s hash.s list.s string.s
 
 HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s \
-	nic.s 
+	nic.s rtl8139.s dev.s
 
 NET_SRC = net.s
 

@@ -1,8 +1,7 @@
 ###############################################################################
 # IDE / ATAPI
-
 .intel_syntax noprefix
-
+.code32
 
 ATA_DEBUG = 1
 
@@ -227,9 +226,9 @@ ata_find_first_drive:
 # in: al = disk nr: (bus<<1)+device
 # out: CF; error message printed.
 ata_is_disk_known:
-	push	eax
 	cmp	al, ATA_MAX_DRIVES
 	jae	ata_err_unknown_disk$
+	push	eax
 	movzx	eax, al
 	cmp	byte ptr [ata_drive_types + eax], 0
 	pop	eax
@@ -238,11 +237,11 @@ ata_is_disk_known:
 	ret
 
 ata_err_unknown_disk$:
-1:	printc 4, "ata: unknown device: bus "
+	printc 4, "ata: unknown device: bus "
 	push	edx
-	mov	dl, al
+	movzx	edx, al
 	shr	dl, 1
-	call	printhex1
+	call	printdec32
 	mov	dl, al
 	and	dl, 1
 	printc 4, " device "
@@ -256,7 +255,6 @@ ata_err_unknown_disk$:
 ata_get_capacity:
 	call	ata_is_disk_known
 	jc	1f
-
 	mov	ah, ATA_DRIVEINFO_STRUCT_SIZE
 	mul	ah
 	movzx	eax, ax
@@ -496,6 +494,20 @@ ata_list_drive:
 	call	ata_wait_status$
 	jc	ata_timeout$
 
+		push	eax
+		push	edx
+		mov	al, DEV_TYPE_ATA
+		push	ecx
+		mov	cl, bl
+		call	dev_getinstance
+		pop	ecx
+		jnc	1f
+		call	dev_newinstance
+	1:	lea	esi, [eax + edx]
+		mov	[esi + dev_ata_device], bl
+		pop	edx
+		pop	eax
+
 	push	edx
 	ror	edx, 16
 	mov	al, 0b0001010 # 'nIEN'(1000b) - skip INTRQ_WAIT
@@ -540,6 +552,7 @@ ata_list_drive:
 		PRINTCHAR ' '
 	.endif
 	pop	dx
+
 
 	# ax=0000 : PATA
 	# ax=c33c : SATA
@@ -612,11 +625,13 @@ read$:	call	print
 
 	.if ATA_DEBUG > 1
 		PRINTLNc 14, "Raw Data: "
+		push	esi
 		mov	esi, offset parameters_buffer$
 		mov	ecx, 256
 	0:	lodsb
 		PRINTCHAR al
 		loop	0b
+		pop	esi
 		call	newline
 	.endif
 
@@ -641,11 +656,14 @@ read$:	call	print
 	.endm
 
 	PRINTc	15, "Model: "
+	push	esi
 	mov	esi, offset parameters_buffer$
 	add	esi, ATA_ID_MODEL_NAME
 	mov	ecx, 40 / 2
 	ATA_ID_STRING_PRINT
-0:
+	pop	esi
+0:#?
+	push	esi
 	PRINTc	15, " Serial: "
 	mov	esi, offset parameters_buffer$
 	add	esi, ATA_ID_SERIAL_NO
@@ -657,6 +675,7 @@ read$:	call	print
 	add	esi, ATA_ID_FIRMWARE_REV
 	mov	ecx, 8 / 2
 	ATA_ID_STRING_PRINT
+	pop	esi
 
 	call	newline
 
@@ -1252,6 +1271,7 @@ atapi_packet_clear$:
 	pop	edi
 	ret
 
+# in: edx = io ports
 # out: ebx = last LBA
 # out: eax = block length
 atapi_read_capacity$:

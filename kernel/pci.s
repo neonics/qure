@@ -36,16 +36,16 @@ IO_PCI_CONFIG_DATA	= 0xcfc
 #PCI_COMMAND_IO_WRITE			= 0b0011
 #PCI_COMMAND_RESERVED1			= 0b0100
 #PCI_COMMAND_RESERVED2			= 0b0101
-#PCI_COMMAND_MEMORY_READ			= 0b0110
+#PCI_COMMAND_MEMORY_READ		= 0b0110
 #PCI_COMMAND_MEMORY_WRITE		= 0b0111
 #PCI_COMMAND_RESERVED3			= 0b1000
 #PCI_COMMAND_RESERVED4			= 0b1001
 #PCI_COMMAND_CONFIGURATION_READ		= 0b1010
-#PCI_COMMAND_CONFIGURATION_WRITE		= 0b1011
+#PCI_COMMAND_CONFIGURATION_WRITE	= 0b1011
 #PCI_COMMAND_MEMORY_READ_MULTIPLE	= 0b1100
 #PCI_COMMAND_DUAL_ADDRESS_CYCLE		= 0b1101
 #PCI_COMMAND_MEMORY_READ_LINE		= 0b1110
-#PCI_COMMAND_MEMORY_WRITE_AND_INVALIDATE	= 0b1111
+#PCI_COMMAND_MEMORY_WRITE_AND_INVALIDATE= 0b1111
 
 # 11 bits word
 PCI_CMD_IO_SPACE		= 0b00000000001	# 1=can respond, 0=disable resp
@@ -99,14 +99,14 @@ dc11$: .asciz "Data Acquisition and Signal Processing Controller"
 # 0x12 - 0xFE = reserved
 # 0xff = doesnt fit a defined class
 
-MAX_KNOWN_DEVICE_CLASS = 0x11
+PCI_MAX_KNOWN_DEVICE_CLASS = 0x11
 
 .macro SUBCLASS subclass, prog_if, name
-	.byte \subclass, \prog_if
 	.data 2
-	9: .asciz "\name"
+	99: .asciz "\name"
 	.data
-	.long 9b
+	.byte \subclass, \prog_if
+	.long 99b
 .endm
 
 # Subclass list: subclass 0x80 = end of list/other device
@@ -326,6 +326,7 @@ loop$:	mov	ax, cx	# bus, device
 	jz	1f	# nonexistent device
 	dec	eax
 
+			push	eax	# remember device and vendor
 	###################
 	PRINTc	10, "Bus "
 	mov	dl, ch
@@ -344,10 +345,12 @@ loop$:	mov	ax, cx	# bus, device
 	COLOR	7
 	call	printhex4
 
+
 	PRINTc	13, " Device ID "
 	shr	edx, 16
 	COLOR	7
 	call	printhex4
+
 
 	#################
 	mov	bl, 4	# status, command
@@ -376,6 +379,27 @@ loop$:	mov	ax, cx	# bus, device
 
 	mov	edx, eax
 
+			push	edx
+			mov	al, DEV_TYPE_PCI
+			call	dev_getinstance	# in: al, cx; out: eax+edx
+			jnc	2f
+			DEBUG "no match"
+			mov	al, DEV_TYPE_PCI
+			call	dev_newinstance	# in: al, edx
+		2:	lea	edi, [eax + edx]
+		DEBUG_DWORD edi
+		push ecx
+		mov 	ecx, [edi]
+		DEBUG_DWORD ecx
+		pop ecx
+			mov	[edi + dev_pci_addr], cx
+			pop	edx
+
+			pop	eax	# device/vendor
+			mov	[edi + dev_pci_vendor], ax
+			shr	eax, 16
+			mov	[edi + dev_pci_device_id], ax
+
 	PRINTc	8, " Revision "
 	COLOR	7
 	call	printhex2
@@ -385,16 +409,25 @@ loop$:	mov	ax, cx	# bus, device
 	rol	edx, 8	# subclass, prog if, rev id, class
 	call	printhex2
 	PRINTCHAR '.'
+
+			mov	[edi + dev_pci_class], dl
+
+
 	rol	edx, 8	# prog if, rev id, class, subclass
 	call	printhex2
 	PRINTCHAR '.'
+		
+			mov	[edi + dev_pci_subclass], dl
+
 	rol	edx, 8	# rev id, class, subclass, prog if
 	call	printhex2
+
+			mov	[edi + dev_pci_progif], dl
 
 	################################################################
 	ror	edx, 8	# prog if, rev, class, subclass
 	movzx	eax, dh	
-	cmp	eax, MAX_KNOWN_DEVICE_CLASS
+	cmp	eax, PCI_MAX_KNOWN_DEVICE_CLASS
 	ja	4f
 	PRINTCHAR ' '
 
@@ -572,11 +605,17 @@ std$:	# Header Type 0
 	not	bh	# mask 0b11110000 or 0b11111100
 	pop	ecx
 
+		push	edi
+
 	test	al, 1
 	jz	3f
 #
 	print " IO "
 	and	dl, ~ 0b11
+
+		mov	[edi + dev_io], edx
+		add	edi, dev_io_size
+
 	jmp	5f
 #
 3:	print " MEM "
@@ -584,6 +623,10 @@ std$:	# Header Type 0
 	jz	3f
 	print "PF "	# prefetchable
 3:	and	dl, ~ 0b1111
+
+		mov	[edi + dev_mmio], edx
+		add	edi, dev_mmio_size
+
 	and	al, 0b110
 	cmp	al, 0 << 1
 	jz	3f
@@ -598,6 +641,7 @@ std$:	# Header Type 0
 5:
 	call	printhex8
 	print "-"
+
 #
 	mov	ax, cx
 	mov	edx, -1	# determine memory used
@@ -606,6 +650,10 @@ std$:	# Header Type 0
 	and	dl, bh
 	not	edx
 	inc	edx	# edx = memory/io size used
+	
+		mov	[edi], edx
+		pop	edi
+
 	#call	printhex8
 	#call	printspace
 	add	edx, [esp]
@@ -615,8 +663,8 @@ std$:	# Header Type 0
 	pop	edx
 	mov	ax, cx
 	call	pci_write_config
-##	
 
+##	
 4:
 	add	bl, 4
 	cmp	bl, 0x24
@@ -683,6 +731,8 @@ std$:	# Header Type 0
 	PRINTc	8, "   Interrupt Line "
 	mov	edx, eax
 	call	printhex2
+
+		mov	[edi + dev_irq], dx
 	
 	PRINTc	8, "   Interrupt PIN "
 	shr	edx, 8
@@ -699,6 +749,10 @@ std$:	# Header Type 0
 	call	newline
 0:
 
+		mov	ebx, edi
+		push	ecx	# the only register with meaningful data here
+		call	[edi + dev_api_constructor]
+		pop	ecx
 
 ###################
 cont$:
@@ -765,75 +819,4 @@ pci_print_dev$:
 	call	printhex
 	call	newline
 1:	ret
-
-
-pci_list_devices_old:
-	xor	eax, eax
-
-	mov	dx, IO_PCI_CONFIG_ADDRESS
-	out	dx, al
-	add	dx, 4
-	out	dx, al
-	sub	dx, 4
-
-	in	al, dx
-	shl	ax, 8
-	add	dx, 4
-	in	al, dx
-	or	ax, ax
-	jz	2f		# pci type 2
-
-	mov	dx, IO_PCI_CONFIG_ADDRESS
-	in	eax, dx		# backup
-	mov	ebx, eax
-
-	mov	eax, 1<<31
-	out	dx, eax
-	in	eax, dx
-
-	xchg	eax, ebx	# restore
-	out	dx, eax
-
-	cmp	ebx, 1<<31
-	je	1f		# pci type 1
-
-	PRINTln "PCI Type 0"
-	ret
-
-#######
-1:	PRINTln "PCI Type 1"
-	xor	ecx, ecx
-0:	mov	eax, ecx
-	shl	eax, 11
-	or	eax, 1 << 31
-	mov	dx, IO_PCI_CONFIG_ADDRESS
-	out	dx, eax
-	in	eax, dx
-	call	pci_print_dev$
-
-1:
-	inc	ecx
-	cmp	eax, 511
-	jbe	0b
-	ret
-
-#######
-2:	PRINTln "PCI Type 2"
-	mov	dx, IO_PCI_CONFIG_ADDRESS
-	mov	al, 0x80
-	out	dx, al
-	add	dx, 4
-	xor	al, al
-	out	dx, al
-
-	mov	ecx, 16
-	mov	dx, 0xc000
-0:	in	eax, dx
-	call	pci_print_dev$
-	add	dx, 256
-	loop	0b
-
-	
-	ret
-
 

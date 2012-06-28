@@ -2351,7 +2351,18 @@ cmd_mem$:
 
 	call	newline
 
-	call	print_handles$
-	ret
+	add	esi, 4
+	call	getopt
+	jc	0f
+	mov	eax, [eax]
+	and	eax, 0x00ffffff
+	cmp	eax, '-' |('h'<<8)
+	jnz	1f
 
+	call	print_handles$
+0:	ret
+
+1:	printlnc 4, "usage: mem [-h]"
+	printlnc 4, "  -h   print handles"
+	ret
 
