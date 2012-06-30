@@ -376,13 +376,13 @@ ata_list_drives:
 	println "Attempting to read CDROM (press key)"
 	xor	ah, ah
 	call	keyboard
-.endif
+
 	mov	ah, dh
 	mov	al, ah
 	shr	ah, 1
 	and	al, 1
 	call	ata_get_ports2$
-
+# doesnt yield proper results in virtualbox - the 'transfer size' is -1/0xffff
 	push	edx
 	call	atapi_read_capacity$
 	pop	edx
@@ -390,8 +390,7 @@ ata_list_drives:
 	mov	ebx, 16	# LBA
 	mov	ecx, 1	# number of sectors
 	call	atapi_read12$
-
-	
+.endif
 0:
 	ret
 
@@ -496,15 +495,19 @@ ata_list_drive:
 
 		push	eax
 		push	edx
-		mov	al, DEV_TYPE_ATA
 		push	ecx
+		mov	al, DEV_TYPE_ATA
 		mov	cl, bl
 		call	dev_getinstance
-		pop	ecx
 		jnc	1f
 		call	dev_newinstance
 	1:	lea	esi, [eax + edx]
 		mov	[esi + dev_ata_device], bl
+		push	ebx
+		mov	ebx, esi
+		call	[esi + dev_api_constructor]
+		pop	ebx
+		pop	ecx
 		pop	edx
 		pop	eax
 
@@ -662,7 +665,7 @@ read$:	call	print
 	mov	ecx, 40 / 2
 	ATA_ID_STRING_PRINT
 	pop	esi
-0:#?
+
 	push	esi
 	PRINTc	15, " Serial: "
 	mov	esi, offset parameters_buffer$
@@ -736,7 +739,6 @@ read$:	call	print
 	add	dl, 12
 	PRINT "CMDPacketSize: "
 	call	printdec32
-
 	##################################################
 	
 
@@ -1280,6 +1282,7 @@ atapi_read_capacity$:
 	mov	esi, offset atapi_packet
 	mov	ecx, 8
 	call	atapi_packet_command
+	jc	1f
 	mov	edx, ecx
 	PRINT "Received "
 	call	printdec32
@@ -1312,7 +1315,7 @@ atapi_read_capacity$:
 	call	printhex8
 	call	newline
 	pop	eax
-	ret
+1:	ret
 
 atapi_print_packet$:
 
@@ -1403,12 +1406,12 @@ atapi_packet_command:
 	stc
 	ret
 0:
+ATA_DEBUG = 2
 	.if ATA_DEBUG > 1
 		PRINT "Select Drive "
 	.endif
 	call	ata_select_drive$
 	jc	ata_timeout$
-
 
 	mov	ax, ( ATA_STATUS_BSY | ATA_STATUS_DRQ ) << 8
 	call	ata_wait_status$
@@ -1463,28 +1466,30 @@ atapi_packet_command:
 	# TODO: check IO clear and CoD set
 
 	.macro WAIT_DATAREADY
-	.if ATA_DEBUG > 1
-		PRINT "Wait ready "
-	.endif
-	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
-	call	ata_wait_status$
-	jc	ata_timeout$
+		.if ATA_DEBUG > 1
+			PRINT "Wait ready "
+		.endif
+		mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
+		call	ata_wait_status$
+		jc	ata_timeout$
 
-	.if ATA_DEBUG > 1
-		call	ata_dbg$
-	.endif
-	# DRQ is set, so read size:
-	push	dx
-	add	dx, ATA_PORT_ADDRESS2
-	in	ax, dx
-	mov	dx, ax
-	mov	dx, ax
-	.if ATA_DEBUG > 1
-		PRINT "Transfer size: "
-		call	printhex4
-		call	newline
-	.endif
-	pop	dx
+		.if ATA_DEBUG > 1
+			call	ata_dbg$
+		.endif
+		# DRQ is set, so read size:
+		push	dx
+		add	dx, ATA_PORT_ADDRESS2
+		in	ax, dx
+		mov	dx, ax
+		.if ATA_DEBUG > 1
+			PRINT "Transfer size: "
+			call	printhex4
+			call	newline
+		.endif
+		pop	dx
+		cmp	ax, -1
+		stc
+		jz	1f
 	.endm
 
 	WAIT_DATAREADY
@@ -1534,8 +1539,16 @@ atapi_packet_command:
 	.endif
 
 	.data
-		data_buffer$: .space ATAPI_SECTOR_SIZE
+		data_buffer$: .long 0
 	.text
+
+	call	malloc
+	jc	1f
+	xchg	eax, [data_buffer$]
+	or	eax, eax
+	jz	0f
+	call	mfree
+0:
 
 	push	ecx
 	push	dx
@@ -1543,14 +1556,13 @@ atapi_packet_command:
 	push	es
 	push	ds
 	pop	es
-	mov	edi, offset data_buffer$
+	mov	edi, [data_buffer$]
 	inc	ecx
 	shr	ecx, 1
 	rep	insw
 	pop	es
 	pop	dx
 	pop	ecx
-
 	push	dx
 	add	dx, ATA_PORT_STATUS
 	in	al, dx
@@ -1566,7 +1578,7 @@ atapi_packet_command:
 
 	mov	esi, offset data_buffer$
 	clc
-	ret
+1:	ret
 
 
 

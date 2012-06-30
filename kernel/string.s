@@ -173,6 +173,16 @@ strlen:
 	pop	edi
 	ret
 
+# in: esi, edi, ecx
+strncmp:push	edi
+	push	esi
+	push	ecx
+	repz	cmpsb
+	pop	ecx
+	pop	esi
+	pop	edi
+	ret
+
 # in: eax
 # out: eax
 strdup:

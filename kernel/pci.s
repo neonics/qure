@@ -86,7 +86,7 @@ dc04$: .asciz "Multimedia Controller"
 dc05$: .asciz "Memory Controller"
 dc06$: .asciz "Bridge Device"
 dc07$: .asciz "Simple Communications Device"
-dc08$: .asciz "Base System Pheripheral"
+dc08$: .asciz "Base System Peripheral"
 dc09$: .asciz "Input Device"
 dc0a$: .asciz "Docking Station"
 dc0b$: .asciz "Processor"
@@ -101,12 +101,24 @@ dc11$: .asciz "Data Acquisition and Signal Processing Controller"
 
 PCI_MAX_KNOWN_DEVICE_CLASS = 0x11
 
-.macro SUBCLASS subclass, prog_if, name
+.macro SUBCLASS subclass, prog_if, devname="", name
 	.data 2
 	99: .asciz "\name"
+	88: .asciz "\devname"
 	.data
 	.byte \subclass, \prog_if
 	.long 99b
+	.long 88b
+.endm
+
+pci_subclass_unk$: .asciz "unknown"
+pci_subclass_eol$: .asciz "Other"
+
+.macro SUBCLASS_EOL
+	.data
+	.byte 0x80, 0x00
+	.long pci_subclass_eol$
+	.long pci_subclass_unk$
 .endm
 
 # Subclass list: subclass 0x80 = end of list/other device
@@ -115,182 +127,184 @@ PCI_MAX_KNOWN_DEVICE_CLASS = 0x11
 # for a (mostly) complete list: http://pciids.sourceforge.net/v2.2/pci.ids
 
 sc00$:	# Class 0: Display
-SUBCLASS 0x00, 0x00, "Non-VGA compatible"
-SUBCLASS 0x01, 0x00, "VGA compatible"
-SUBCLASS 0x80, 0x00, "END OF LIST"
+SUBCLASS 0x00, 0x00, "display", "Non-VGA compatible"
+SUBCLASS 0x01, 0x00, "display", "VGA compatible"
+SUBCLASS_EOL
 
 sc01$:	# Class 1: Mass Storage
-SUBCLASS 0x00, 0x00, "SCSI Bus"
-SUBCLASS 0x01, 0xFF, "IDEd"
-SUBCLASS 0x02, 0x00, "FLoppy Disk"
-SUBCLASS 0x03, 0x00, "IPI Bus"
-SUBCLASS 0x04, 0x00, "RAID"
-SUBCLASS 0x05, 0x20, "ATA (Single DMA)"
-SUBCLASS 0x05, 0x30, "ATA (Chained DMA)"
-SUBCLASS 0x06, 0x00, "Serial ATA (Direct Port Access)"
-SUBCLASS 0x80, 0x00, "Ohther"
+SUBCLASS 0x00, 0x00, "sd",	"SCSI Bus"
+SUBCLASS 0x01, 0xFF, "ide",	"IDE"
+SUBCLASS 0x02, 0x00, "fd", 	"FLoppy Disk"
+SUBCLASS 0x03, 0x00, "ipi",	"IPI Bus"
+SUBCLASS 0x04, 0x00, "rd",	"RAID"
+SUBCLASS 0x05, 0x20, "ata",	"ATA (Single DMA)"
+SUBCLASS 0x05, 0x30, "ata",	"ATA (Chained DMA)"
+SUBCLASS 0x06, 0x00, "sata",	"Serial ATA (Direct Port Access)"
+SUBCLASS_EOL
 
 sc02$:	# Class 2: Network Controller
-SUBCLASS 0x00, 0x00, "Ethernet"
-SUBCLASS 0x01, 0x00, "Token Ring"
-SUBCLASS 0x02, 0x00, "FDDI"
-SUBCLASS 0x03, 0x00, "ATM"
-SUBCLASS 0x04, 0x00, "ISDN"
-SUBCLASS 0x05, 0x00, "WorldFip"
-SUBCLASS 0x06, 0xFF, "PICMG 2.14 Multi Computing"
-SUBCLASS 0x80, 0x00, "Other"
+SUBCLASS 0x00, 0x00, "eth",	"Ethernet"
+SUBCLASS 0x01, 0x00, "",	"Token Ring"
+SUBCLASS 0x02, 0x00, "",	"FDDI"
+SUBCLASS 0x03, 0x00, "",	"ATM"
+SUBCLASS 0x04, 0x00, "",	"ISDN"
+SUBCLASS 0x05, 0x00, "",	"WorldFip"
+SUBCLASS 0x06, 0xFF, "",	"PICMG 2.14 Multi Computing"
+SUBCLASS_EOL
 
 sc03$:	# Class 3: Display Controller
-SUBCLASS 0x00, 0x00, "VGA Compatible"
-SUBCLASS 0x00, 0x01, "8512-Compatible"
-SUBCLASS 0x01, 0x00, "XGA"
-SUBCLASS 0x02, 0x00, "3D"
-SUBCLASS 0x80, 0x00, "Other"
+SUBCLASS 0x00, 0x00, "display",	"VGA Compatible"
+SUBCLASS 0x00, 0x01, "",	"8512-Compatible"
+SUBCLASS 0x01, 0x00, "",	"XGA"
+SUBCLASS 0x02, 0x00, "",	"3D"
+SUBCLASS_EOL
 
 sc04$:	# Class 4: Multimedia Device
-SUBCLASS 0x00, 0x00, "Video Device"
-SUBCLASS 0x01, 0x00, "Audio Device"
-SUBCLASS 0x02, 0x00, "Telephony Device"
-SUBCLASS 0x80, 0x00, "Other"
+SUBCLASS 0x00, 0x00, "",	"Video Device"
+SUBCLASS 0x01, 0x00, "",	"Audio Device"
+SUBCLASS 0x02, 0x00, "",	"Telephony Device"
+SUBCLASS_EOL
 
 sc05$:	# Class 5: Memory Controllers
-SUBCLASS 0x00, 0x00, "RAM"
-SUBCLASS 0x01, 0x00, "Flash"
-SUBCLASS 0x80, 0x00, "Other"
+SUBCLASS 0x00, 0x00, "",	"RAM"
+SUBCLASS 0x01, 0x00, "",	"Flash"
+SUBCLASS_EOL
 
 sc06$:	# Class 6: Bridges
-SUBCLASS 0x00, 0x00, "Host"
-SUBCLASS 0x01, 0x00, "ISA"
-SUBCLASS 0x02, 0x00, "EISA"
-SUBCLASS 0x03, 0x00, "MCA"
-SUBCLASS 0x04, 0x00, "PCI-to-PCI"
-SUBCLASS 0x04, 0x01, "PCI-to-PCI (Subtractive Decode)"
-SUBCLASS 0x05, 0x00, "PCMCIA"
-SUBCLASS 0x06, 0x00, "NuBus"
-SUBCLASS 0x07, 0x00, "CardBus"
-SUBCLASS 0x08, 0xFF, "RACEway"
-SUBCLASS 0x09, 0x40, "PCI-to-PCI (Semi-Transparent, Primary)"
-SUBCLASS 0x09, 0x80, "PCI-to-PCI (Semi-Transparent, Secondary)"
-SUBCLASS 0x0A, 0x00, "InfiniBrand-to-PCI Host"
-SUBCLASS 0x80, 0x00, "Other"
+SUBCLASS 0x00, 0x00, "host",	"Host"
+SUBCLASS 0x01, 0x00, "isa",	"ISA"
+SUBCLASS 0x02, 0x00, "",	"EISA"
+SUBCLASS 0x03, 0x00, "",	"MCA"
+SUBCLASS 0x04, 0x00, "",	"PCI-to-PCI"
+SUBCLASS 0x04, 0x01, "",	"PCI-to-PCI (Subtractive Decode)"
+SUBCLASS 0x05, 0x00, "",	"PCMCIA"
+SUBCLASS 0x06, 0x00, "",	"NuBus"
+SUBCLASS 0x07, 0x00, "",	"CardBus"
+SUBCLASS 0x08, 0xFF, "",	"RACEway"
+SUBCLASS 0x09, 0x40, "",	"PCI-to-PCI (Semi-Transparent, Primary)"
+SUBCLASS 0x09, 0x80, "",	"PCI-to-PCI (Semi-Transparent, Secondary)"
+SUBCLASS 0x0A, 0x00, "",	"InfiniBrand-to-PCI Host"
+SUBCLASS_EOL
 
 sc07$:	# Class 7: Simple Communications (Serial, parallel)
-SUBCLASS 0x00, 0x00, "Generic XT-Compatible Serial Controller"
-SUBCLASS 0x00, 0x01, "16450-Compatible Serial Controller"
-SUBCLASS 0x00, 0x02, "16550-Compatible Serial Controller"
-SUBCLASS 0x00, 0x03, "16650-Compatible Serial Controller"
-SUBCLASS 0x00, 0x04, "16750-Compatible Serial Controller"
-SUBCLASS 0x00, 0x05, "16850-Compatible Serial Controller"
-SUBCLASS 0x00, 0x06, "16950-Compatible Serial Controller"
-SUBCLASS 0x01, 0x00, "Parallel Port"
-SUBCLASS 0x01, 0x01, "Bi-Directional Parallel Port"
-SUBCLASS 0x01, 0x02, "ECP 1.X Compliant Parallel Port"
-SUBCLASS 0x01, 0x03, "IEEE 1284 Controller"
-SUBCLASS 0x01, 0xFE, "IEEE 1284 Target Device"
-SUBCLASS 0x02, 0x00, "Multiport Serial Controller"
-SUBCLASS 0x03, 0x00, "Generic Modem"
-SUBCLASS 0x01, 0x01, "Hayes Compatible Modem (16450-Compatible Interface)"
-SUBCLASS 0x01, 0x02, "Hayes Compatible Modem (16550-Compatible Interface)"
-SUBCLASS 0x01, 0x03, "Hayes Compatible Modem (16650-Compatible Interface)"
-SUBCLASS 0x01, 0x04, "Hayes Compatible Modem (16750-Compatible Interface)"
-SUBCLASS 0x04, 0x00, "IEEE 488.1/2 (GPIB) Controller"
-SUBCLASS 0x05, 0x00, "Smart Card"
-SUBCLASS 0x80, 0x00, "Other Communications Device"
+SUBCLASS 0x00, 0x00, "",	"Generic XT-Compatible Serial Controller"
+SUBCLASS 0x00, 0x01, "",	"16450-Compatible Serial Controller"
+SUBCLASS 0x00, 0x02, "",	"16550-Compatible Serial Controller"
+SUBCLASS 0x00, 0x03, "",	"16650-Compatible Serial Controller"
+SUBCLASS 0x00, 0x04, "",	"16750-Compatible Serial Controller"
+SUBCLASS 0x00, 0x05, "",	"16850-Compatible Serial Controller"
+SUBCLASS 0x00, 0x06, "",	"16950-Compatible Serial Controller"
+SUBCLASS 0x01, 0x00, "",	"Parallel Port"
+SUBCLASS 0x01, 0x01, "",	"Bi-Directional Parallel Port"
+SUBCLASS 0x01, 0x02, "",	"ECP 1.X Compliant Parallel Port"
+SUBCLASS 0x01, 0x03, "",	"IEEE 1284 Controller"
+SUBCLASS 0x01, 0xFE, "",	"IEEE 1284 Target Device"
+SUBCLASS 0x02, 0x00, "",	"Multiport Serial Controller"
+SUBCLASS 0x03, 0x00, "",	"Generic Modem"
+SUBCLASS 0x01, 0x01, "",	"Hayes Compatible Modem (16450-Compatible Interface)"
+SUBCLASS 0x01, 0x02, "",	"Hayes Compatible Modem (16550-Compatible Interface)"
+SUBCLASS 0x01, 0x03, "",	"Hayes Compatible Modem (16650-Compatible Interface)"
+SUBCLASS 0x01, 0x04, "",	"Hayes Compatible Modem (16750-Compatible Interface)"
+SUBCLASS 0x04, 0x00, "",	"IEEE 488.1/2 (GPIB) Controller"
+SUBCLASS 0x05, 0x00, "",	"Smart Card"
+SUBCLASS_EOL
 
 sc08$:	# Class 8: Integrated peripherals
-SUBCLASS 0x00, 0x00, "Generic 8259 PIC"
-SUBCLASS 0x00, 0x01, "ISA PIC"
-SUBCLASS 0x00, 0x02, "EISA PIC"
-SUBCLASS 0x00, 0x10, "I/O APIC Interrupt Controller"
-SUBCLASS 0x00, 0x20, "I/O(x) APIC Interrupt Controller"
-SUBCLASS 0x01, 0x00, "Generic 8237 DMA Controller"
-SUBCLASS 0x01, 0x01, "ISA DMA Controller"
-SUBCLASS 0x01, 0x02, "EISA DMA Controller"
-SUBCLASS 0x02, 0x00, "Generic 8254 System Timer"
-SUBCLASS 0x02, 0x01, "ISA System Timer"
-SUBCLASS 0x02, 0x02, "EISA System Timer"
-SUBCLASS 0x03, 0x00, "Generic RTC Controller"
-SUBCLASS 0x03, 0x01, "ISA RTC Controller"
-SUBCLASS 0x04, 0x00, "Generic PCI Hot-Plug Controller"
-SUBCLASS 0x80, 0x00, "Other System Peripheral"
+SUBCLASS 0x00, 0x00, "pic",	"Generic 8259 PIC"
+SUBCLASS 0x00, 0x01, "ipic",	"ISA PIC"
+SUBCLASS 0x00, 0x02, "eipic",	"EISA PIC"
+SUBCLASS 0x00, 0x10, "ioapic",	"I/O APIC Interrupt Controller"
+SUBCLASS 0x00, 0x20, "ioapic",	"I/O(x) APIC Interrupt Controller"
+SUBCLASS 0x01, 0x00, "dma",	"Generic 8237 DMA Controller"
+SUBCLASS 0x01, 0x01, "dma",	"ISA DMA Controller"
+SUBCLASS 0x01, 0x02, "dma",	"EISA DMA Controller"
+SUBCLASS 0x02, 0x00, "timer",	"Generic 8254 System Timer"
+SUBCLASS 0x02, 0x01, "timer",	"ISA System Timer"
+SUBCLASS 0x02, 0x02, "timer",	"EISA System Timer"
+SUBCLASS 0x03, 0x00, "rtc",	"Generic RTC Controller"
+SUBCLASS 0x03, 0x01, "rtc",	"ISA RTC Controller"
+SUBCLASS 0x04, 0x00, "hotplug",	"Generic PCI Hot-Plug Controller"
+SUBCLASS_EOL
 
 sc09$:	# Class 9: Input Devices
-SUBCLASS 0x00, 0x00, "Keyboard Controller"
-SUBCLASS 0x01, 0x00, "Digitizer"
-SUBCLASS 0x02, 0x00, "Mouse Controller"
-SUBCLASS 0x03, 0x00, "Scanner Controller"
-SUBCLASS 0x04, 0x00, "Gameport Controller (Generic)"
-SUBCLASS 0x04, 0x10, "Gameport Contrlller (Legacy)"
-SUBCLASS 0x80, 0x00, "Other Input Controller"
+SUBCLASS 0x00, 0x00, "kb",	"Keyboard Controller"
+SUBCLASS 0x01, 0x00, "",	"Digitizer"
+SUBCLASS 0x02, 0x00, "mouse",	"Mouse Controller"
+SUBCLASS 0x03, 0x00, "",	"Scanner Controller"
+SUBCLASS 0x04, 0x00, "game",	"Gameport Controller (Generic)"
+SUBCLASS 0x04, 0x10, "game",	"Gameport Contrlller (Legacy)"
+SUBCLASS_EOL
 
 sc0a$:
-SUBCLASS 0x00, 0x00, "Generic Docking Station"
-SUBCLASS 0x80, 0x00, "Other Docking Station"
+SUBCLASS 0x00, 0x00, "",	"Generic Docking Station"
+SUBCLASS_EOL
 
 sc0b$:
-SUBCLASS 0x00, 0x00, "386 Processor"
-SUBCLASS 0x01, 0x00, "486 Processor"
-SUBCLASS 0x02, 0x00, "Pentium Processor"
-SUBCLASS 0x10, 0x00, "Alpha Processor"
-SUBCLASS 0x20, 0x00, "PowerPC Processor"
-SUBCLASS 0x30, 0x00, "MIPS Processor"
-SUBCLASS 0x40, 0x00, "Co-Processor"
-SUBCLASS 0x80, 0x00, "Other"
-
+SUBCLASS 0x00, 0x00, "cpu",	"386 Processor"
+SUBCLASS 0x01, 0x00, "cpu",	"486 Processor"
+SUBCLASS 0x02, 0x00, "cpu",	"Pentium Processor"
+SUBCLASS 0x10, 0x00, "cpu",	"Alpha Processor"
+SUBCLASS 0x20, 0x00, "cpu",	"PowerPC Processor"
+SUBCLASS 0x30, 0x00, "cpu",	"MIPS Processor"
+SUBCLASS 0x40, 0x00, "fpu",	"Co-Processor"
+SUBCLASS_EOL
 
 sc0c$:
-SUBCLASS 0x00, 0x00, "IEEE 1394 Controller (FireWire)"
-SUBCLASS 0x00, 0x10, "IEEE 1394 Controller (1394 OpenHCI Spec)"
-SUBCLASS 0x01, 0x00, "ACCESS.bus"
-SUBCLASS 0x02, 0x00, "SSA"
-SUBCLASS 0x03, 0x00, "USB (Universal Host Controller Spec)"
-SUBCLASS 0x03, 0x10, "USB (Open Host Controller Spec"
-SUBCLASS 0x03, 0x20, "USB2 Host Controller (Intel Enhanced Host Controller Interface)"
-SUBCLASS 0x03, 0x80, "USB"
-SUBCLASS 0x03, 0xFE, "USB (Not Host Controller)"
-SUBCLASS 0x04, 0x00, "Fibre Channel"
-SUBCLASS 0x05, 0x00, "SMBus"
-SUBCLASS 0x06, 0x00, "InfiniBand"
-SUBCLASS 0x07, 0x00, "IPMI SMIC Interface"
-SUBCLASS 0x07, 0x01, "IPMI Kybd Controller Style Interface"
-SUBCLASS 0x07, 0x02, "IPMI Block Transfer Interface"
-SUBCLASS 0x08, 0x00, "SERCOS Interface Standard (IEC 61491)"
-SUBCLASS 0x09, 0x00, "CANbus"
-SUBCLASS 0x80, 0x00, "Other"
+SUBCLASS 0x00, 0x00, "",	"IEEE 1394 Controller (FireWire)"
+SUBCLASS 0x00, 0x10, "",	"IEEE 1394 Controller (1394 OpenHCI Spec)"
+SUBCLASS 0x01, 0x00, "",	"ACCESS.bus"
+SUBCLASS 0x02, 0x00, "",	"SSA"
+SUBCLASS 0x03, 0x00, "usb",	"USB (Universal Host Controller Spec)"
+SUBCLASS 0x03, 0x10, "usb",	"USB (Open Host Controller Spec)"
+SUBCLASS 0x03, 0x20, "usb",	"USB2 Host Controller (Intel Enhanced Host Controller Interface)"
+SUBCLASS 0x03, 0x80, "usb",	"USB"
+SUBCLASS 0x03, 0xFE, "usb",	"USB (Not Host Controller)"
+SUBCLASS 0x04, 0x00, "",	"Fibre Channel"
+SUBCLASS 0x05, 0x00, "",	"SMBus"
+SUBCLASS 0x06, 0x00, "",	"InfiniBand"
+SUBCLASS 0x07, 0x00, "",	"IPMI SMIC Interface"
+SUBCLASS 0x07, 0x01, "",	"IPMI Kybd Controller Style Interface"
+SUBCLASS 0x07, 0x02, "",	"IPMI Block Transfer Interface"
+SUBCLASS 0x08, 0x00, "",	"SERCOS Interface Standard (IEC 61491)"
+SUBCLASS 0x09, 0x00, "",	"CANbus"
+SUBCLASS_EOL
 
 sc0d$:
-SUBCLASS 0x00, 0x00, "iRDA Compatible Controller"
-SUBCLASS 0x01, 0x00, "Consumer IR Controller"
-SUBCLASS 0x10, 0x00, "RF Controller"
-SUBCLASS 0x11, 0x00, "Bluetooth Controller"
-SUBCLASS 0x12, 0x00, "Broadband Controller"
-SUBCLASS 0x20, 0x00, "Ethernet Controller (802.11a)"
-SUBCLASS 0x21, 0x00, "Ethernet Controller (802.11b)"
-SUBCLASS 0x80, 0x00, "Other Wireless Controller"
+SUBCLASS 0x00, 0x00, "",	"iRDA Compatible Controller"
+SUBCLASS 0x01, 0x00, "",	"Consumer IR Controller"
+SUBCLASS 0x10, 0x00, "",	"RF Controller"
+SUBCLASS 0x11, 0x00, "",	"Bluetooth Controller"
+SUBCLASS 0x12, 0x00, "",	"Broadband Controller"
+SUBCLASS 0x20, 0x00, "",	"Ethernet Controller (802.11a)"
+SUBCLASS 0x21, 0x00, "",	"Ethernet Controller (802.11b)"
+SUBCLASS_EOL
 
 sc0e$:
-SUBCLASS 0x00, 0x00, "Message FIFO"
-SUBCLASS 0x00, 0xFF, "I20 Architecture"
-SUBCLASS 0x80, 0x00, "Other"
+SUBCLASS 0x00, 0x00, "",	"Message FIFO"
+SUBCLASS 0x00, 0xFF, "",	"I20 Architecture"
+SUBCLASS_EOL
 
 sc0f$:
-SUBCLASS 0x01, 0x00, "TV Controller"
-SUBCLASS 0x02, 0x00, "Audio Controller"
-SUBCLASS 0x03, 0x00, "Voice Controller"
-SUBCLASS 0x04, 0x00, "Data Controller"
-SUBCLASS 0x80, 0x00, "Other"
+SUBCLASS 0x01, 0x00, "",	"TV Controller"
+SUBCLASS 0x02, 0x00, "",	"Audio Controller"
+SUBCLASS 0x03, 0x00, "",	"Voice Controller"
+SUBCLASS 0x04, 0x00, "",	"Data Controller"
+SUBCLASS_EOL
 
 sc10$:
-SUBCLASS 0x00, 0x00, "Network and Computing Encrpytion/Decryption"
-SUBCLASS 0x10, 0x00, "Entertainment Encryption/Decryption"
-SUBCLASS 0x80, 0x00, "Other Encryption/Decryption"
+SUBCLASS 0x00, 0x00, "",	"Network and Computing Encrpytion/Decryption"
+SUBCLASS 0x10, 0x00, "",	"Entertainment Encryption/Decryption"
+SUBCLASS_EOL
 
-sc11$:
-SUBCLASS 0x00, 0x00, "DPIO Modules"
-SUBCLASS 0x01, 0x00, "Performance Counters"
-SUBCLASS 0x10, 0x00, "Communications Syncrhonization Plus Time and Frequency Test/Measurment"
-SUBCLASS 0x20, 0x00, "Management Card"
-SUBCLASS 0x80, 0x00, "Other Data Acquisition/Signal Processing Controller "
+sc11$:	# data acquisition/signal processing controllers
+SUBCLASS 0x00, 0x00, "", "DPIO Modules"
+SUBCLASS 0x01, 0x00, "", "Performance Counters"
+SUBCLASS 0x10, 0x00, "", "Communications Synchronization Plus Time and Frequency Test/Measurment"
+SUBCLASS 0x20, 0x00, "", "Management Card"
+SUBCLASS_EOL
+
+scunknown$:
+SUBCLASS 0x00, 0xff, "", "unknown"
 
 pci_device_class_names:
 .long dc00$, sc00$
@@ -311,14 +325,108 @@ pci_device_class_names:
 .long dc0f$, sc0f$
 .long dc10$, sc10$
 .long dc11$, sc11$
-
-
-
 .text
-pci_list_devices:
-	xor	cx, cx	# bus 0, dev 0
 
-loop$:	mov	ax, cx	# bus, device
+# in: al = eax = pci device class
+# in: dh = prog if
+# in: dl = subclass
+# out: esi points to subclass structure
+pci_get_device_subclass_info:
+	mov	esi, [pci_device_class_names + 4 + eax * 8]
+	push	eax
+	# entrylen is 10: byte subclass, byte prog if, long name, long devname
+5:	mov	ax, [esi]
+	cmp	al, dl		# check subclass
+	jne	6f
+	cmp	ah, 0xff	# check prog if
+	je	9f
+	cmp	dh, ah
+	je	9f
+
+6:	add	esi, 10
+	cmp	al, 0x80
+	jne	5b
+DEBUG "not found"
+	stc
+	mov	esi, offset scunknown$
+
+9:	pop	eax
+	ret
+
+
+.data
+
+dev_pci_obj_counters: .long 0
+.text
+pci_clear_obj_counters:
+	push	eax
+	push	ecx
+	mov	eax, [dev_pci_obj_counters]
+	or	eax, eax
+	jz	1f
+	call	array_free
+1:	mov	eax, 16
+	mov	ecx, 5
+	call	array_new
+	mov	[dev_pci_obj_counters], eax
+	pop	ecx
+	pop	eax
+	ret
+
+# in: eax = const device class name pointer
+# out: al = object counter
+pci_get_obj_counter:
+	push	esi
+	push	edi
+	push	ecx
+
+	mov	esi, eax
+	call	strlen
+	mov	ecx, eax
+	mov	eax, [dev_pci_obj_counters]
+	ARRAY_ITER_START eax, edx
+	mov	edi, [eax + edx]
+	call	strncmp
+	jz	0f
+	ARRAY_ITER_NEXT eax, edx, 5
+
+	mov	ecx, 5
+	call	array_newentry
+	mov	[dev_pci_obj_counters], eax
+	mov	[eax + edx], esi
+
+0:	add	edx, eax
+	mov	al, [edx + 4]
+	inc	byte ptr [edx + 4]
+
+	pop	ecx
+	pop	edi
+	pop	esi
+	ret
+
+pci_list_obj_counters:
+	mov	eax, [dev_pci_obj_counters]
+	or	eax, eax
+	jz	0f
+	ARRAY_ITER_START eax, ecx
+	mov	esi, [eax + ecx]
+	call	print
+	call	printspace
+	movzx	edx, byte ptr [eax + ecx + 4]
+	call	printdec32
+	call	newline
+	ARRAY_ITER_NEXT eax, ecx, 5
+0:	ret
+
+
+pci_list_devices:
+
+	call	pci_clear_obj_counters
+
+	xor	cx, cx	# bus 0, dev 0
+loop$:	
+
+	mov	ax, cx	# bus, device
 	xor	bl, bl	# 0: device id, vendor
 	call	pci_read_config
 
@@ -326,7 +434,7 @@ loop$:	mov	ax, cx	# bus, device
 	jz	1f	# nonexistent device
 	dec	eax
 
-			push	eax	# remember device and vendor
+			push	eax	# remember device, vendor (pop as edi)
 	###################
 	PRINTc	10, "Bus "
 	mov	dl, ch
@@ -350,7 +458,6 @@ loop$:	mov	ax, cx	# bus, device
 	shr	edx, 16
 	COLOR	7
 	call	printhex4
-
 
 	#################
 	mov	bl, 4	# status, command
@@ -383,15 +490,9 @@ loop$:	mov	ax, cx	# bus, device
 			mov	al, DEV_TYPE_PCI
 			call	dev_getinstance	# in: al, cx; out: eax+edx
 			jnc	2f
-			DEBUG "no match"
 			mov	al, DEV_TYPE_PCI
 			call	dev_newinstance	# in: al, edx
 		2:	lea	edi, [eax + edx]
-		DEBUG_DWORD edi
-		push ecx
-		mov 	ecx, [edi]
-		DEBUG_DWORD ecx
-		pop ecx
 			mov	[edi + dev_pci_addr], cx
 			pop	edx
 
@@ -438,30 +539,14 @@ loop$:	mov	ax, cx	# bus, device
 	########### find device - subclass & if
 
 	push	esi
-	mov	esi, [pci_device_class_names + 4 + eax * 8]
 
-	push	eax
-	# entrylen is 6: byte subclass, byte prog if, long name
-5:	mov	al, [esi]	# check subclass
-	cmp	al, dh	
-	jne	6f
-	mov	ah, [esi+1]	# check prog if
-	cmp	ah, 0xff
-	je	7f
-	cmp	dl, [esi+1]	
-	jne	6f
-7:	
-	push	esi
+	# al = eax = device class
+	# dh = subclass
+	# dl = prog if
+	xchg	dh, dl
+	call	pci_get_device_subclass_info
 	mov	esi, [esi + 2]
 	call	print
-	pop	esi
-	jmp	5f
-
-6:	add	esi, 6
-	cmp	al, 0x80
-	jne	5b
-5:
-	pop	eax
 
 
 	COLOR 15
@@ -613,8 +698,8 @@ std$:	# Header Type 0
 	print " IO "
 	and	dl, ~ 0b11
 
-		mov	[edi + dev_io], edx
-		add	edi, dev_io_size
+			mov	[edi + dev_io], edx
+			add	edi, dev_io_size
 
 	jmp	5f
 #
@@ -624,8 +709,8 @@ std$:	# Header Type 0
 	print "PF "	# prefetchable
 3:	and	dl, ~ 0b1111
 
-		mov	[edi + dev_mmio], edx
-		add	edi, dev_mmio_size
+			mov	[edi + dev_mmio], edx
+			add	edi, dev_mmio_size
 
 	and	al, 0b110
 	cmp	al, 0 << 1
@@ -651,8 +736,8 @@ std$:	# Header Type 0
 	not	edx
 	inc	edx	# edx = memory/io size used
 	
-		mov	[edi], edx
-		pop	edi
+			mov	[edi], edx
+			pop	edi
 
 	#call	printhex8
 	#call	printspace
@@ -732,7 +817,7 @@ std$:	# Header Type 0
 	mov	edx, eax
 	call	printhex2
 
-		mov	[edi + dev_irq], dx
+			mov	[edi + dev_irq], dx
 	
 	PRINTc	8, "   Interrupt PIN "
 	shr	edx, 8
@@ -749,10 +834,10 @@ std$:	# Header Type 0
 	call	newline
 0:
 
-		mov	ebx, edi
-		push	ecx	# the only register with meaningful data here
-		call	[edi + dev_api_constructor]
-		pop	ecx
+			mov	ebx, edi
+			push	ecx	
+			call	[edi + dev_api_constructor]
+			pop	ecx
 
 ###################
 cont$:

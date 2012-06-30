@@ -1,10 +1,10 @@
 ###############################################################################
 # Device Driver Base
 
-DEV_DEBUG = 2
+DEV_DEBUG = 0
 DEV_PRINT_IO = 0	# 1 = print IRQ, io, mmio
 DEV_PCI_PRINT_BUS = 0
-DEV_PCI_PRINT_VENDOR_ID = 0
+DEV_PCI_PRINT_VENDOR_ID = 1
 DEV_ATA_PRINT_BUS = 0
 
 .intel_syntax noprefix
@@ -12,7 +12,10 @@ DEV_ATA_PRINT_BUS = 0
 
 ###############################
 .struct OBJ_STRUCT_SIZE	# variable length objects
+dev_name:		.space 16	# short device name (/dev/)
+
 dev_type:		.byte 0	# see device_classes/DEV_TYPE
+#dev_nr:		.byte 0 # device tpe-specific number (usb0, usb1)
 
 dev_irq:		.byte 0
 dev_irq_pin:		.byte 0
@@ -20,6 +23,7 @@ dev_io:			.long 0
 dev_io_size:		.long 0
 dev_mmio:		.long 0
 dev_mmio_size:		.long 0
+
 #################
 .align 4
 dev_api:
@@ -47,7 +51,6 @@ dev_pci_class:		.byte 0
 dev_pci_subclass:	.byte 0
 dev_pci_progif:		.byte 0	
 # dev_pci_revision:	.byte 0
-dev_pci_objnum:		.byte 0
 DEV_PCI_STRUCT_SIZE = .
 
 ################################
@@ -110,9 +113,6 @@ dev_class_ata:
 	.long	dev_ata_constructor
 	.long	dev_ata_print
 ###############################
-
-
-.data
 devices: .long 0
 .text
 
@@ -147,34 +147,6 @@ dev_newentry:
 	call	dev_init$
 0:	call	obj_array_newentry
 	mov	[devices], eax
-	ret
-
-
-
-	.if DEV_DEBUG > 1
-		DEBUG "newentry base="
-		DEBUG_DWORD eax
-	.endif
-
-	.if 0	# taken care of by dev_consruct
-	push	edx
-	push	eax
-	push	ecx
-	add	eax, edx
-	mov	edx, [realsegflat]
-	mov	ecx, DEV_API_SIZE / 4
-0:	mov	[eax + ecx * 4 - 4 + dev_api], edx
-	loop	0b
-	pop	ecx
-	pop	eax
-	pop	edx
-	.endif
-
-	.if DEV_DEBUG > 1
-		DEBUG "api_print"
-		mov ecx, [eax + edx + dev_api_print]
-		DEBUG_DWORD ecx
-	.endif
 	ret
 
 # The dev_newentry is the first method that stores the relocation [realsegflat],
@@ -215,7 +187,6 @@ dev_relocate:
 # out: esi = method pointers
 dev_get_class_info:
 	movsx	ebx, al
-
 	cmp	ebx, ( offset device_classes_end - offset device_classes ) / 4
 	jb	1f
 	printc 4, "dev_newinstance: warning: unknown device type: "
@@ -236,9 +207,11 @@ dev_get_class_info:
 		DEBUG_DWORD ecx
 		push	edx
 		mov	edx, [devices]
+		or	edx, edx
+		jz	1f
 		mov	edx, [edx + array_index]
 		DEBUG_DWORD edx
-		pop	edx
+	1:	pop	edx
 	.endif
 
 	# call the class' init method, it may change the object size etc.
@@ -361,8 +334,6 @@ dev_print:
 		DEV_PRINT_ "\msg", \offs, 2
 	.endm
 
-	PRINTc 15, "/dev"
-
 	.if DEV_DEBUG > 1
 		DEBUG "objsize"
 		lea edx, [ebx + obj_size]
@@ -375,6 +346,16 @@ dev_print:
 		mov edx, [ebx + dev_api_print]
 		DEBUG_DWORD edx
 	.endif
+
+	printc	7, "/dev/"
+
+	pushcolor 15
+	push	esi
+	lea	esi, [ebx + dev_name]
+	call	print
+	call	printspace
+	pop	esi
+	popcolor
 
 	call	[ebx + dev_api_print]
 
@@ -402,30 +383,6 @@ dev_print:
 
 ############################################################################
 # dev_pci class methods
-.data
-dev_pci_obj_counters: .space PCI_MAX_KNOWN_DEVICE_CLASS + 2 # 255 dev each
-dev_pci_class_names:
-	STRINGPTR "Ancient"
-	STRINGPTR "Mass Storage Controller"
-	STRINGPTR "eth" # "Network Controller"
-	STRINGPTR "display"
-	STRINGPTR "Multimedia Controller"
-	STRINGPTR "Memory Controller"
-	STRINGPTR "Bridge Device"
-	STRINGPTR "Simple Communications Device"
-	STRINGPTR "Base System Pheripheral"
-	STRINGPTR "Input Device"
-	STRINGPTR "Docking Station"
-	STRINGPTR "cpu" # "Processor"
-	STRINGPTR "com" # "Serial Bus Controller"
-	STRINGPTR "wifi" # "Wireless Controller"
-	STRINGPTR "Intelligent IO Controller"
-	STRINGPTR "Satellite Communication Controller"
-	STRINGPTR "crypto" # "Cryptographic Controller"
-	STRINGPTR "Data Acquisition and Signal Processing Controller"
-	# 0x12 - 0xFE = reserved
-	STRINGPTR "unknown"
-.text
 
 # in: eax + edx = device object
 # in: cx = pci address
@@ -457,46 +414,56 @@ dev_pci_pre_constructor:
 
 # in: ebx = device object
 dev_pci_constructor:
-	printlnc 0xf5, "PCI CONSTRUCTOR"
-
+	push	esi
+	push	edi
+	push	edx
 	# the fields are already filled in.
-	
+
+	# get the device name
 	movzx	eax, byte ptr [ebx + dev_pci_class]
-	mov	dl, byte ptr [dev_pci_obj_counters + eax]
-	cmp	dl, PCI_MAX_KNOWN_DEVICE_CLASS
-	jbe	0f
-	mov	dl, PCI_MAX_KNOWN_DEVICE_CLASS + 1
-0:	inc	byte ptr [dev_pci_obj_counters + eax]
-	mov	[ebx + dev_pci_objnum], dl
+	mov	dx, [ebx + dev_pci_subclass]
+	call	pci_get_device_subclass_info	# out: esi
+
+	# get a counter
+	mov	eax, [esi + 2 + 4]
+	mov	esi, eax
+	call	pci_get_obj_counter	# out: al
+	movzx	edx, al
+
+	lea	edi, [ebx + dev_name]
+
+	push	ecx
+	mov	ecx, 16 - 4	# max nr 255 + terminating 0
+0:	lodsb
+	or	al, al
+	jz	0f
+	stosb
+	loop	0b
+0:	pop	ecx
+	
+	call	sprintdec32
 
 
 	# lets see if it is a nic:
 
-	cmp	[ebx + dev_pci_class], word ptr 2	# Ethernet NIC
+	cmp	[ebx + dev_pci_class], word ptr 0x0002	# Ethernet NIC
 	jnz	0f
 	# the pre-constructor will have taken care of offering the right
 	# size for the structure.
 
 	# it's a nic, check if we support it:
+	call	nic_constructor
 
-	cmp	[ebx + dev_pci_device_id], word ptr 0x8139
-	jnz	0f
-
-	# good enough.
-	push	edx
-	mov	dx, [ebx + dev_io]
-	or	dx, dx
-	jz	1f
-	call	rtl8139_init
-	jc	1f
-	# ...
-1:	pop	edx
-
-0:	ret
+0:	pop	edx
+	pop	edi
+	pop	esi
+	ret
 
 
 dev_pci_print:
 	push	esi
+	pushcolor 7
+
 	.if DEV_PCI_PRINT_BUS
 		DEV_PRINT_B "/pci/bus", dev_pci_bus
 		DEV_PRINT_B "/slot", dev_pci_slot
@@ -505,23 +472,29 @@ dev_pci_print:
 		DEV_PRINT_B ".", dev_pci_progif
 	.endif
 
-	pushcolor 15
-	printchar_ '/'
-	movzx	eax, byte ptr [ebx + dev_pci_class]
-	mov	esi, [dev_pci_class_names + eax * 4]
-	call	print
-	movzx	edx, byte ptr [ebx + dev_pci_objnum]
-	call	printdec32
-	popcolor
+	DEV_PRINT_B "class ", dev_pci_class
+	DEV_PRINT_B ".", dev_pci_subclass
+	DEV_PRINT_B ".", dev_pci_progif
+	call	printspace
 
+	movzx	eax, byte ptr [ebx + dev_pci_class]
+	mov	dx, [ebx + dev_pci_subclass]
+	call	pci_get_device_subclass_info
+	mov	esi, [esi + 2]
+	color 10
+	call	print
 	call	printspace
 	mov	esi, [pci_device_class_names + eax * 8]
+	color 11
 	call	print
 
 	.if DEV_PCI_PRINT_VENDOR_ID
+	color 9
 		DEV_PRINT_W " vendor ", dev_pci_vendor
 		DEV_PRINT_W " deviceid ", dev_pci_device_id
 	.endif
+
+	popcolor
 	pop	esi
 	ret
 
@@ -539,6 +512,16 @@ dev_ata_pre_constructor:
 	ret
 
 dev_ata_constructor:
+	push	ecx
+	mov	[ebx + dev_name], dword ptr 'h' | ('d'<<8)
+	add	cl, 'a'
+	mov	[ebx + dev_name + 2], cl
+
+#	xor	ch, ch
+#	shl	ecx, 16
+#	mov	cx, 'h' | ('d'<<8)
+#	mov	[ebx + dev_name], ecx
+	pop	ecx
 	ret
 
 dev_ata_print:
@@ -556,13 +539,7 @@ dev_ata_print:
 		call	printhex1
 	.endif
 
-	pushcolor 15
-	print	"/hd"
-	add	al, 'a'
-	call	printchar
-	popcolor
-
-	print	" capacity "
+	print	"capacity "
 	mov	al, [ebx + dev_ata_device]
 	call	ata_print_capacity
 	ret

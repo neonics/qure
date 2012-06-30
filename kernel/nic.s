@@ -20,10 +20,12 @@ nic_netmask:	.long 0
 nic_network:	.long 0
 # API - method pointers
 .align 4
+nic_api:
 nic_api_ifup:	.long 0
 nic_api_ifdown:	.long 0
 nic_api_send:	.long 0
 nic_api_print_status: .long 0
+NIC_API_SIZE = . - nic_api
 NIC_STRUCT_SIZE = .
 ############################################################################
 .data
@@ -209,14 +211,98 @@ nic_list_short:
 
 ############################################################################
 # NIC Base Class API
-# 
-# Proxy methods
 
+nic_constructor:
+
+	mov	[ebx + nic_name + 0], dword ptr ( 'u' | 'n'<<8|'k'<<16|'n'<<24)
+	mov	[ebx + nic_name + 4], dword ptr ( 'o' | 'w'<<8|'n'<<16)
+
+	# fill in all method pointers
+
+	mov	dword ptr [ebx + nic_api_send], offset nic_unknown_send
+	mov	dword ptr [ebx + nic_api_print_status], offset nic_unknown_print_status
+	mov	dword ptr [ebx + nic_api_ifup], offset nic_unknown_ifup
+	mov	dword ptr [ebx + nic_api_ifdown], offset nic_unknown_ifdown
+
+	# check for supported drivers
+
+	# RTL8139
+	cmp	[ebx + dev_pci_device_id], word ptr 0x8139
+	jnz	0f
+
+	# good enough.
+	push	edx
+	mov	dx, [ebx + dev_io]
+	or	dx, dx
+	jz	1f
+	call	rtl8139_init
+	jc	1f
+	# ...
+1:	pop	edx
+	jmp	9f
+
+0:	# unknown nic
+
+9:	# relocate the methods
+	push	ecx
+	push	eax
+	mov	eax, [realsegflat]
+	mov	ecx, NIC_API_SIZE / 4
+0:	add	[ebx + nic_api + ecx * 4 - 4], eax
+	loop	0b
+	pop	eax
+	pop	ecx
+	ret
+
+
+#####################
+# default methods
+
+nic_unknown_send:
+	push	esi
+	LOAD_TXT "send"
+	jmp	0f
+
+nic_unknown_print_status:
+	push	esi
+	LOAD_TXT "print_status"
+	jmp	0f
+
+nic_unknown_ifup:
+	push	esi
+	LOAD_TXT "ifup"
+	jmp	0f
+
+nic_unknown_ifdown:
+	push	esi
+	LOAD_TXT "ifdown"
+	jmp	0f
+
+0:	pushcolor 12
+	print	"nic_"
+	push	esi
+	lea	esi, [ebx + nic_name]
+	color	7
+	call	print
+	pop	esi
+	color 12
+	printchar '_'
+	call	print
+	printlnc 4, ": not implemented"
+	pop	esi
+	popcolor
+	stc
+	ret
+
+
+############################################### 
+# Proxy methods
+.if 0
 # in: ebx = nic object
 nic_ifup:
 	pushad
 	mov	edx, [ebx + nic_api_ifup]
-	add	edx, [realsegflat]
+	#add	edx, [realsegflat]
 	call	edx
 	popad
 	jc	0f
@@ -227,7 +313,7 @@ nic_ifup:
 nic_ifdown:
 	pushad
 	mov	edx, [ebx + nic_api_ifdown]
-	add	edx, [realsegflat]
+	#add	edx, [realsegflat]
 	call	edx
 	popad
 	jc	0f
@@ -249,7 +335,7 @@ nic_send:
 	mov	edx, [ebx + nic_api_send]
 	or	edx, edx
 	jz	1f
-	add	edx, [realsegflat]
+	#add	edx, [realsegflat]
 	pushad
 	call	edx	# changes eax, edx
 	popad
@@ -262,13 +348,13 @@ nic_send:
 	ret
 
 nic_print_status:
-	mov	edx, [ebx + nic_api_print_status]
-	add	edx, [realsegflat]
 	pushad
+	mov	edx, [ebx + nic_api_print_status]
+	#add	edx, [realsegflat]
 	call	edx
 	popad
 	ret
-
+.endif
 ############################################################################
 # NIC API
 
@@ -302,11 +388,9 @@ cmd_nic_list:
 	call	newline
 
 	push	ecx
-	mov	ecx, [ebx + nic_api_print_status]
-	add	ecx, [realsegflat]
 	push	ebx
 	push	edx
-	call	ecx
+	call	[ebx + nic_api_print_status]
 	pop	edx
 	pop	ebx
 	pop	ecx
@@ -327,16 +411,14 @@ cmd_ifup:
 	xor	eax, eax
 	call	nic_getobject
 	jc	1f
-	#jnz	nic_ifup
-	call	nic_ifup
+	call	[ebx + nic_api_ifup]
 1:	ret
 
 cmd_ifdown:
 	xor	eax, eax
 	call	nic_getobject
 	jc	1f
-	call	nic_ifdown
-	#jnz	nic_ifdown
+	call	[ebx + nic_api_ifdown]
 1:	ret
 
 
@@ -366,7 +448,7 @@ DEBUG_REGDIFF
 	jnz	1f
 
 	push	esi
-	call	nic_ifup
+	call	[ebx + nic_api_ifup]
 	pop	esi
 	jmp	0b
 1:
@@ -377,7 +459,7 @@ DEBUG_REGDIFF
 	jnz	1f
 
 	push	esi
-	call	nic_ifdown
+	call	[ebx + nic_api_ifdown]
 	pop	esi
 	jmp	0b
 
@@ -395,9 +477,7 @@ DEBUG_REGDIFF
 	jmp	0b
 
 0:	# print nic status
-	mov	ecx, [ebx + nic_api_print_status]
-	add	ecx, [realsegflat]
-	call	ecx
+	call	[ebx + nic_api_print_status]
 	clc
 
 	ret

@@ -1,6 +1,8 @@
 .intel_syntax noprefix
 .code32
 
+PARTITION_DEBUG = 0
+
 # Partition Table
 .struct 0
 PT_STATUS: .byte 0
@@ -67,15 +69,19 @@ disk_read_partition_tables:
 	push	ecx
 	push	ebx
 	push	edi
-DEBUG "read ptables"
-DEBUG_R16 ax
+
+	.if PARTITION_DEBUG
+		DEBUG "read ptables"
+		DEBUG_R16 ax
+	.endif
+
 	movzx	ebx, al
 	mov	ebx, dword ptr [disk_ptables$ + ebx * 4]
+	or	ebx, ebx
 	jz	1f
 	# reset array to zero size
 	mov	[ebx + array_index], dword ptr 0
 1:
-
 	xor	ebx, ebx	# first sector
 	call	disk_load_partition_table$	# out: esi = ptable in MBR/EBR
 	jc	1f
@@ -115,8 +121,10 @@ DEBUG_R16 ax
 # out: CF = failure (error already printed)
 # out: esi = offset to partition table structure
 disk_load_partition_table$:
-DEBUG "load ptable"
-DEBUG_R16 ax
+	.if PARTITION_DEBUG
+		DEBUG "load ptable"
+		DEBUG_R16 ax
+	.endif
 	call	ata_is_disk_known
 	jc	disk_err_unknown_disk$
 
@@ -722,31 +730,29 @@ disk_br_verify$:
 # out: esi = pointer to partition table entry
 # out: CF
 disk_get_partition:
-DEBUG "get partition"
-DEBUG_BYTE al
-DEBUG_BYTE dl
+	.if PARTITION_DEBUG
+		DEBUG "get partition"
+		DEBUG_BYTE al
+		DEBUG_BYTE dl
+	.endif
+
 	call	disk_read_partition_tables
 	jc	1f
-DEBUG_DWORD esi
 	movzx	esi, al
 	mov	esi, [disk_ptables$ + esi * 4]
-DEBUG_DWORD esi
 	push	edx
 	movzx	edx, ah
-DEBUG_R8 ah
 	shl	edx, 4
-DEBUG_DWORD edx
 	cmp	edx, [esi + array_index]
 	jb	2f
 	printc 4, "unknown partition: "
 	call	disk_print_label
 2:	add	esi, edx
 	pop	edx
-1:	
+	ret
 
-DEBUG_BYTE dl
-DEBUG_BYTE al
-clc
+1:	printlnc 4, "disk_get_partition: failed to load ptable"
+	stc
 	ret
 
 

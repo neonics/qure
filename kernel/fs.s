@@ -229,7 +229,6 @@ cmd_mount$:
 	jc	4f
 
 	# ax = disk, ecx = partition info pointer, esi = mountpoint
-DEBUG_DWORD edi
 	# mount the filesystem
 	push	eax
 	push	ecx
@@ -240,7 +239,6 @@ DEBUG_DWORD edi
 	pop	ecx
 	pop	eax
 	jc	4f
-DEBUG_DWORD edi
 	# create a new mtab entry
 
 	call	mtab_entry_alloc$	# out: ebx + edx

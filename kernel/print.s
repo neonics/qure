@@ -803,6 +803,54 @@ __printdec32:
 
 	ret
 
+# identical except uses stosb
+sprintdec32:
+	push	edx
+	push	eax
+	push	ebx
+	push	ecx
+
+	or	edx, edx
+	jns	0f
+	neg	edx
+	mov	al, '-'
+	stosb
+0:
+
+	mov	bh, ah
+	mov	ecx, 10
+
+	xor	eax, eax
+	xchg	edx, eax
+
+	push	dword ptr -1	# stack marker (no need for counter then)
+
+0:	div	ecx
+
+	mov	bl, dl
+	add	bl, '0'
+
+	push	ebx
+
+	xor	edx, edx
+	or	eax, eax
+	jnz	0b
+
+	# print loop
+0:	pop	eax
+	cmp	eax, -1
+	jz	1f
+	stosb
+	jmp	0b
+1:
+	pop	ecx
+	pop	ebx
+	pop	eax
+	pop	edx
+
+	ret
+
+
 #############################################################################
 # Fixed Point
 

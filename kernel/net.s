@@ -281,7 +281,7 @@ protocol_arp_response:
 		call	net_packet_hexdump
 	.endif
 
-	call	nic_send
+	call	[ebx + nic_api_send]	
 	ret
 
 #######################################################
@@ -503,7 +503,7 @@ arp_request:
 	mov	esi, offset net_packet$
 	mov	ecx, edi
 	sub	ecx, esi
-	call	nic_send
+	call	[ebx + nic_api_send]
 
 	.if NET_ARP_DEBUG
 		DEBUG "Wait for ARP on "
@@ -1653,7 +1653,7 @@ call arp_table_put_mac
 	.endif
 	.endif
 
-	call	nic_send
+	call	[ebx + nic_api_send]
 	ret
 
 ###########################################################################
@@ -1966,7 +1966,7 @@ cmd_ping:
 	mov	ecx, edi
 	sub	ecx, offset net_packet$
 	mov	edi, offset net_packet$
-	call	nic_send
+	call	[ebx + nic_api_send]
 	pop	edx
 
 	mov	ecx, 0x03

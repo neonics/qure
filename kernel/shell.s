@@ -96,6 +96,7 @@ SHELL_COMMAND "netdump"		cmd_netdump
 # utils
 SHELL_COMMAND "hs",		cmd_human_readable_size$
 #SHELL_COMMAND "regexp",		regexp_parse
+SHELL_COMMAND "obj"		pci_list_obj_counters
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -107,7 +108,6 @@ SHELL_COMMAND "hs",		cmd_human_readable_size$
 shell:	push	ds
 	pop	es
 	PRINTLNc 10, "Press ^D or type 'quit' to exit shell"
-
 	call	cmdline_history_new
 
 	#

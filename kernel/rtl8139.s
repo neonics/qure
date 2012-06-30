@@ -201,13 +201,6 @@ rtl8139_init:
 	stc
 	jmp	9f
 0:
-
-mov	dx, [ebp]
-add	dx, RTL8139_CR
-in	al, dx
-DEBUG "CR"
-DEBUG_BYTE al
-
 	# set receive buffer start address
 	mov	eax, 8192 + 16
 	call	mallocz
@@ -255,8 +248,6 @@ DEBUG_BYTE al
 	add	ebx, edx
 	.endif
 
-#BREAKPOINT "rtl8139"
-DEBUG_DWORD ebx
 	mov	[ebx + nic_rx_buf], ecx
 
 	# register a name
