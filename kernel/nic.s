@@ -227,7 +227,7 @@ nic_constructor:
 	# check for supported drivers
 
 	# RTL8139
-	cmp	[ebx + dev_pci_device_id], word ptr 0x8139
+	cmp	[ebx + dev_pci_vendor], dword ptr 0x10ec | ( 0x8139 << 16 )
 	jnz	0f
 
 	# good enough.
@@ -241,7 +241,13 @@ nic_constructor:
 1:	pop	edx
 	jmp	9f
 
+0:	cmp	[ebx + dev_pci_vendor], dword ptr 0x8086 | ( 0x100e << 16 )
+	jnz	0f
+	call	i8254_init
+	jmp	9f
+
 0:	# unknown nic
+	jmp	9f
 
 9:	# relocate the methods
 	push	ecx

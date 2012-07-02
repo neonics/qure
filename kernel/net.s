@@ -552,7 +552,7 @@ pph_arp$:
 
 	print  "HW "
 	mov	dx, [esi + arp_hw_type]
-	call	printhex2
+	call	printhex4
 
 	print	" PROTO "
 	mov	ax, [esi + arp_proto]
@@ -633,6 +633,10 @@ ph_arp$:
 	jmp	0f
 
 4:	# IPv4.
+	.if NET_ARP_DEBUG
+		printc 11, "IPv4"
+	.endif
+
 	# check if it is request
 	cmp	word ptr [esi + arp_opcode], ARP_OPCODE_REQUEST
 	jz	1f

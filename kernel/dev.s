@@ -402,8 +402,8 @@ dev_pci_pre_constructor:
 	jnz	1f
 
 	# use 'offset' because declared later (and thus used as memref)
-	# the + 2 is for the rtl8139 nic structure
-	mov	ecx, offset NIC_STRUCT_SIZE + 2	# for now...
+	# the + 64 is for various nic structures
+	mov	ecx, offset NIC_STRUCT_SIZE + 64	# for now...
 
 1:	pop	edx
 	ret

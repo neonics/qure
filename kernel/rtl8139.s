@@ -543,7 +543,8 @@ rtl8139_isr:
 		printlnc 0xf5, "DONE"
 	.endif
 
-	PIC_SEND_EOI NIC_IRQ
+	mov	ebx, [rtl8139_isr_dev]
+	PIC_SEND_EOI [ebx + dev_irq]
 
 	popad	# edx ebx eax
 	iret
