@@ -8,7 +8,7 @@
 NET_DEBUG = 0
 NET_ARP_DEBUG = NET_DEBUG
 NET_IPV4_DEBUG = NET_DEBUG
-NET_ICMP_DEBUG = NET_DEBUG + 1
+NET_ICMP_DEBUG = NET_DEBUG
 
 NET_TCP_CONN_DEBUG = 1
 NET_TCP_OPT_DEBUG = 0
@@ -1778,41 +1778,70 @@ tcp_conn_local_seq_ack:	.long 0
 tcp_conn_remote_seq_ack:.long 0
 tcp_conn_handler:	.long 0
 tcp_conn_state:		.byte 0
-	TCP_CONN_STATE_LISTEN		= 1	# server
-	TCP_CONN_STATE_SYN_RECEIVED	= 2	# server
-	TCP_CONN_STATE_ESTABLISHED	= 3	# both
-	TCP_CONN_STATE_FIN_WAIT_1	= 4
-	TCP_CONN_STATE_FIN_WAIT_2	= 5
-	TCP_CONN_STATE_CLOSE_WAIT	= 6
-	TCP_CONN_STATE_LAST_ACK		= 7
-	TCP_CONN_STATE_TIME_WAIT	= 8
-	TCP_CONN_STATE_CLOSED		= 9
+	# incoming
+	TCP_CONN_STATE_SYN_RX		= 1
+	TCP_CONN_STATE_SYN_ACK_TX	= 2
+	# outgoing
+	TCP_CONN_STATE_SYN_TX		= 4
+	TCP_CONN_STATE_SYN_ACK_RX	= 8
+	# incoming
+	TCP_CONN_STATE_FIN_RX		= 16
+	TCP_CONN_STATE_FIN_ACK_TX	= 32
+	# outgoing
+	TCP_CONN_STATE_FIN_TX		= 64
+	TCP_CONN_STATE_FIN_ACK_RX	= 128
+
+
+#	TCP_CONN_STATE_LISTEN		= 1	# server
+#	TCP_CONN_STATE_SYN_RECEIVED	= 2	# server
+#	TCP_CONN_STATE_ESTABLISHED	= 3	# both
+#	TCP_CONN_STATE_FIN_WAIT_1	= 4
+#	TCP_CONN_STATE_FIN_WAIT_2	= 5
+#	TCP_CONN_STATE_CLOSE_WAIT	= 6
+#	TCP_CONN_STATE_LAST_ACK		= 7
+#	TCP_CONN_STATE_TIME_WAIT	= 8
+#	TCP_CONN_STATE_CLOSED		= 9
 .align 4
 TCP_CONN_STRUCT_SIZE = .
 .data
 tcp_connections: .long 0	# volatile array
 .text
+tcp_conn_print_state_$:
+	PRINTFLAG dl, 1, "SYN_RX "
+	PRINTFLAG dl, 2, "SYN_ACK_TX "
+	PRINTFLAG dl, 4, "SYN_TX "
+	PRINTFLAG dl, 8, "SYN_ACK_RX "
+	PRINTFLAG dl, 16, "FIN_RX "
+	PRINTFLAG dl, 32, "FIN_ACK_TX "
+	PRINTFLAG dl, 64, "FIN_TX "
+	PRINTFLAG dl, 128, "FIN_ACK_RX "
+	ret
 
 tcp_conn_print_state$:
-	.data
-	tcp_conn_states$:
-	STRINGPTR "<unknown>"
-	STRINGPTR "LISTEN"
-	STRINGPTR "SYN_RECEIVED"
-	STRINGPTR "ESTABLISHED"
-	STRINGPTR "FIN_WAIT_1"
-	STRINGPTR "FIN_WAIT_2"
-	STRINGPTR "CLOSE_WAIT"
-	STRINGPTR "LAST_ACK"
-	STRINGPTR "TIME_WAIT"
-	STRINGPTR "CLOSED"
-	.text
-	cmp	esi, 9
-	jl	0f
-	xor	esi, esi
-0:	mov	esi, [tcp_conn_states$ + esi * 4]
-	call	print
+	push	edx
+	mov	edx, esi
+	call	printbin8
+	pop	edx
 	ret
+#	.data
+#	tcp_conn_states$:
+#	STRINGPTR "<unknown>"
+#	STRINGPTR "LISTEN"
+#	STRINGPTR "SYN_RECEIVED"
+#	STRINGPTR "ESTABLISHED"
+#	STRINGPTR "FIN_WAIT_1"
+#	STRINGPTR "FIN_WAIT_2"
+#	STRINGPTR "CLOSE_WAIT"
+#	STRINGPTR "LAST_ACK"
+#	STRINGPTR "TIME_WAIT"
+#	STRINGPTR "CLOSED"
+#	.text
+#	cmp	esi, TCP_CONN_STATE_CLOSED + 1
+#	jl	0f
+#	xor	esi, esi
+#0:	mov	esi, [tcp_conn_states$ + esi * 4]
+#	call	print
+#	ret
 
 
 # in: edx = ip frame pointer
@@ -1832,15 +1861,6 @@ net_tcp_conn_get:
 	pop	ecx
 	ret
 
-net_tcp_conn_close:
-	push	eax
-	call	net_tcp_conn_get
-	jc	9f
-	add	eax, [tcp_connections]
-	mov	[eax + tcp_conn_state], byte ptr TCP_CONN_STATE_CLOSE_WAIT
-9:	pop	eax
-	ret
-
 
 # in: edx = ip frame pointer
 # in: esi = tcp frame pointer
@@ -1855,17 +1875,16 @@ net_tcp_conn_newentry:
 		DEBUG "(NewConn)"
 	.endif
 
-.if 0 # find free entry (use status flag)
-	push	edx
+	# find free entry (use status flag)
 	ARRAY_LOOP	[tcp_connections], TCP_CONN_STRUCT_SIZE, eax, edx, 9f
+	cmp	byte ptr [eax + edx + tcp_conn_state], -1
+	jz	1f
 	ARRAY_ENDL
-9:	pop	edx
-.endif
-
+9:	
 	push	ecx
 	ARRAY_NEWENTRY [tcp_connections], TCP_CONN_STRUCT_SIZE, 4, 9f
 	pop	ecx
-	push	edx	# retval eax
+1:	push	edx	# retval eax
 
 	add	eax, edx
 
@@ -1873,13 +1892,13 @@ net_tcp_conn_newentry:
 	# ecx = ip frame 
 	# edx = free
 
-	mov	[eax + tcp_conn_state], byte ptr TCP_CONN_STATE_SYN_RECEIVED
+	mov	[eax + tcp_conn_state], byte ptr 0
 	mov	[eax + tcp_conn_handler], edi
 
 	mov	edx, [ecx + ipv4_src]
 	mov	[eax + tcp_conn_remote_addr], edx
 			.if NET_TCP_CONN_DEBUG > 1
-				DEBUG "remote"
+			DEBUG "remote"
 				push	eax
 				mov	eax, edx
 				call	net_print_ip
@@ -1917,10 +1936,10 @@ net_tcp_conn_newentry:
 
 	# fallthrough
 
+# in: eax = tcp_conn array index
 # in: edx = ip frame pointer
 # in: esi = tcp frame pointer
 # in: ecx = tcp frame len (incl header)
-# in: eax = tcp_conn array index
 net_tcp_conn_update:
 	.if NET_TCP_CONN_DEBUG > 1
 		DEBUG "tcp_conn update"
@@ -1931,7 +1950,6 @@ net_tcp_conn_update:
 	push	ebx
 
 	add	eax, [tcp_connections]
-
 	mov	ebx, [esi + tcp_seq]
 	bswap	ebx
 	mov	[eax + tcp_conn_remote_seq], ebx
@@ -2038,12 +2056,11 @@ net_ipv4_tcp_handle:
 	jc	0f
 	# known connection
 	call	net_tcp_conn_update
-	call	net_tcp_handle	# in: eax+edx=tcp_conn, ebx=ip, esi=tcp,ecx=len
+	call	net_tcp_handle	# in: eax=tcp_conn idx, ebx=ip, esi=tcp,ecx=len
 	ret
 
 
 0:	# firewall: new connection
-
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_SYN
 	jz	9f # its not a new or known connection
 
@@ -2076,36 +2093,38 @@ net_tcp_handle:
 	# C->S  FIN, ACK  
 	# S->C  FIN, ACK
 	# C->S  ACK
+
+	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_ACK
+	jz	0f
+	call	net_tcp_conn_update_ack
+0:
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_FIN
 	jz	0f
 	# FIN
 
+	.if NET_TCP_CONN_DEBUG > 1
+		printc 12, "tcp: terminate connection: "
+	.endif
 
 	push	eax
 	add	eax, [tcp_connections]
 	inc	dword ptr [eax + tcp_conn_remote_seq]
-	cmp	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_WAIT_1
+	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_RX
+	test	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_TX
 	pop	eax
-	jz	1f
-
-	.if NET_TCP_CONN_DEBUG > 1
-		printc 12, "tcp: terminate connection: "
-	.endif
-		# send FIN,ACK
-		call	net_tcp_conn_send_fin
-		call	net_tcp_conn_close
-		ret
-
-	1:	
-	.if NET_TCP_CONN_DEBUG > 1
-		printc 12, "tcp: terminate ack"
-	.endif
-		# alread sent fin, send ACK
-		call	net_tcp_conn_send_ack
-		call	net_tcp_conn_close
-		ret
+	push	edx
+	push	ecx
+	mov	dl, TCP_FLAG_ACK
+	jnz	1f
+	or	dl, TCP_FLAG_FIN
+1:	xor	ecx, ecx
+	# send ACK [FIN]
+	call	net_tcp_send
+	pop	ecx
+	pop	edx
+	ret
+########
 0:
-
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_ACK
 	jz	0f
 	call	net_tcp_conn_update_ack
@@ -2161,9 +2180,17 @@ net_tcp_conn_update_ack:
 	add	eax, [tcp_connections]
 	mov	ebx, [esi + tcp_ack_nr]
 	mov	[eax + tcp_conn_local_seq_ack], ebx
+	movzx	ebx, byte ptr [eax + tcp_conn_state]
+	test	bl, TCP_CONN_STATE_FIN_TX
+	jz	1f
+	or	bh, TCP_CONN_STATE_FIN_ACK_RX
+1:	test	bl, TCP_CONN_STATE_SYN_TX
+	or	bh, TCP_CONN_STATE_SYN_ACK_RX
+	or	[eax + tcp_conn_state], bh
 	pop	ebx
 	pop	eax
 	ret
+
 
 net_tcp_conn_send_ack:
 	push	edx
@@ -2174,21 +2201,6 @@ net_tcp_conn_send_ack:
 	pop	ecx
 	pop	edx
 	ret
-
-net_tcp_conn_send_fin:
-	push	eax
-	add	eax, [tcp_connections]
-	mov	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_WAIT_1
-	pop	eax
-	push	edx
-	push	ecx
-	mov	dl, TCP_FLAG_FIN
-	xor	ecx, ecx
-	call	net_tcp_send
-	pop	ecx
-	pop	edx
-	ret
-
 
 # in: esi = tcp frame
 net_tcp_service_get:
@@ -2253,6 +2265,8 @@ ep1: .space 260, ' '
 .ascii "    <h2><a name='s_source'>Source / Issues / Wiki</h2>\n"
 .ascii "      <a href='https://github.com/neonics/qure'>GitHub</a>\n"
 .ascii "    </code>\n"
+.word 0
+html2:
 .ascii "  </body>"
 .ascii "</html>"
 .word 0
@@ -2359,7 +2373,28 @@ net_service_tcp_http:
 	pop	eax
 
 	push	edx
-	mov	dl, TCP_FLAG_PSH | TCP_FLAG_FIN
+	mov	dl, TCP_FLAG_PSH # | TCP_FLAG_FIN
+	call	net_tcp_send
+	pop	edx
+
+.if 1
+	mov	esi, offset html2
+	push	eax
+	mov	eax, esi
+	call	strlen
+	mov	ecx, eax
+	inc	ecx
+	pop	eax
+
+	push	edx
+	mov	dl, TCP_FLAG_PSH # | TCP_FLAG_FIN
+	call	net_tcp_send
+	pop	edx
+.endif
+
+	push	edx
+	xor	ecx, ecx
+	mov	dl, TCP_FLAG_FIN
 	call	net_tcp_send
 	pop	edx
 	ret
@@ -2405,20 +2440,17 @@ net_tcp_send:
 	add	eax, [tcp_connections]
 
 	mov	ebx, [eax + tcp_conn_local_port]
-	#rol	ebx, 16
 	mov	[edi + tcp_sport], ebx
 
 	mov	ebx, [eax + tcp_conn_local_seq]
 	bswap	ebx
 	mov	[edi + tcp_seq], ebx
 	add	[eax + tcp_conn_local_seq], ecx
-	#add	[eax + tcp_conn_local_seq], dword ptr TCP_HEADER_SIZE
 
 	mov	ebx, [eax + tcp_conn_remote_seq]
 	mov	[eax + tcp_conn_remote_seq_ack], ebx
 	bswap	ebx
 	mov	[edi + tcp_ack_nr], ebx # dword ptr 0	# maybe ack
-
 	pop	ebx
 
 
@@ -2427,8 +2459,7 @@ net_tcp_send:
 	xchg	al, ah
 	mov	[edi + tcp_flags], ax
 
-	mov	ax, [esi + tcp_windowsize]
-	mov	[edi + tcp_windowsize], ax
+	mov	[edi + tcp_windowsize], word ptr 0x20
 
 	mov	[edi + tcp_checksum], word ptr 0
 	mov	[edi + tcp_urgent_ptr], word ptr 0
@@ -2459,8 +2490,23 @@ net_tcp_send:
 	mov	esi, offset net_packet$
 	sub	ecx, esi
 	call	[ebx + nic_api_send]
+	jc	9f
 
-	pop	eax
+	# update flags
+	add	eax, [tcp_connections]
+	mov	dh, [eax + tcp_conn_state]
+
+	test	dl, TCP_FLAG_FIN
+	jz	1f
+	or	dh, TCP_CONN_STATE_FIN_TX
+1:	test	dh, TCP_CONN_STATE_FIN_RX
+	jz	1f
+	test	dl, TCP_FLAG_ACK
+	jz	1f
+	or	dh, TCP_CONN_STATE_FIN_ACK_TX
+1:	or	[eax + tcp_conn_state], dh
+
+9:	pop	eax
 	pop	esi
 	ret
 
@@ -2493,9 +2539,7 @@ net_tcp_handle_syn$:
 	call	net_ipv4_header_put # mod eax, esi, edi
 	pop	esi
 	pop	edx
-	jnc	4f
-	printc 4, "ipv4 header error"
-4:
+	jc	9f
 
 	# add tcp header
 	push	edi
@@ -2517,6 +2561,7 @@ net_tcp_handle_syn$:
 		mov	edx, [ebp - 4]
 		add	edx, [tcp_connections]
 		mov	[edx + tcp_conn_remote_seq_ack], eax
+		or	[edx + tcp_conn_state], byte ptr TCP_CONN_STATE_SYN_RX
 	bswap	eax
 	mov	[edi + tcp_ack_nr], eax
 
@@ -2528,7 +2573,6 @@ net_tcp_handle_syn$:
 		pop	edx
 
 	mov	[edi + tcp_seq], eax
-
 
 	mov	ax, TCP_FLAG_SYN | TCP_FLAG_ACK | ((_TCP_HLEN/4)<<12)
 	xchg	al, ah
@@ -2545,7 +2589,14 @@ net_tcp_handle_syn$:
 
 	# in: esi = source tcp frame
 	# in: edi = target tcp frame
+	.if 1
+	add	esi, TCP_HEADER_SIZE
+	mov	esi, edi
+	add	edi, TCP_HEADER_SIZE
+	add	edi, 3*4
+	.else
 	call	net_tcp_copyoptions
+	.endif
 
 	# calculate checksum
 
@@ -2564,11 +2615,13 @@ net_tcp_handle_syn$:
 	sub	ecx, esi
 	call	[ebx + nic_api_send]
 
-	jmp	9f
-1:
+9:	pop	eax
+	jc	1f
 
-9:
-	pop	eax
+	add	eax, [tcp_connections]
+	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_SYN_ACK_TX | TCP_CONN_STATE_SYN_TX
+
+1:
 	pop	ebp
 	popad
 	ret
@@ -2757,6 +2810,7 @@ net_tcp_copyoptions:
 net_tcp_checksum:
 	push	esi
 	push	edi
+	push	edx
 	push	ecx
 	push	eax
 	
@@ -2796,6 +2850,7 @@ net_tcp_checksum:
 
 	pop	eax
 	pop	ecx
+	pop	edx
 	pop	edi
 	pop	esi
 	ret
@@ -3447,7 +3502,7 @@ cmd_route:
 	mov	eax, edi
 	call	net_print_ip
 	call	printspace
-	mov	esi, [ebx + dev_name]
+	lea	esi, [ebx + dev_name]
 	call	print
 
 	call	newline

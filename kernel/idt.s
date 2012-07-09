@@ -262,8 +262,8 @@ jmp_table_target:
 
 	# check code selector validity
 
-	mov	dx, [ebp + 4]		# cs
-	verr	ax
+	movzx	edx, word ptr [ebp + 4]	# cs
+	verr	dx
 	jnz	ics$
 	cmp	dx, SEL_MAX		# max selector
 	ja	ics$
@@ -271,15 +271,15 @@ jmp_table_target:
 	jnz	0f
 
 	PRINTc	7, "RPL"
-	mov	ax, dx
+	mov	eax, edx
 	and	dl, 3
-	push	ax
+	push	eax
 	mov	ah, dl
 	add	ah, 9
 	PUSHCOLOR ah
 	call	printhex1
 	POPCOLOR
-	pop	ax
+	pop	eax
 	mov	dl, al
 	and	dl, 0b11111000
 
@@ -296,11 +296,21 @@ jmp_table_target:
 	pop	edx
 	PRINTc	7, ") "
 	
+	# check if edx within limit:
+	push	ebx
+	GDT_GET_LIMIT ebx, eax
+	cmp	edx, ebx
+	pop	ebx
+	jb	1f
+	PRINTc 12, "IP beyond limit"
+	jmp	0f
+1: 
+
 	push	ds
 	mov	ds, ax
 	mov	edx, [edx-4]	# check instruction XXX
-	call	printhex
 	pop	ds
+	call	printhex
 	
 	PRINTc	9, " OPCODE["
 	.rept 3
