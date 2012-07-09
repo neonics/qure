@@ -2,9 +2,18 @@
 
 SHOWOFF = 0
 
+SECTION_DATA_STRINGS = 3
+SECTION_DATA_BSS = 4
+
 DEBUG = 3
 .include "debug.s"
 .include "realmode.s"
+.data
+data_0_start:
+.data SECTION_DATA_STRINGS
+data_str_start:
+.data SECTION_DATA_BSS
+data_bss_start:
 .text
 kernel_start:
 ###################################
@@ -207,8 +216,15 @@ kernel_task:
 	PRINTLNc 0x0b "Kernel Task"
 	retf
 
-
+kernel_code_end:
 
 .data
 sig:.long 0x1337c0de
+.data SECTION_DATA_STRINGS -1
+data_0_end:
+.data SECTION_DATA_STRINGS
+data_str_end:
+.data SECTION_DATA_BSS
+data_bss_end:
+.data 99
 kernel_end:

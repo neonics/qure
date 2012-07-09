@@ -186,7 +186,7 @@ ata_bus_dcr_rel:
 	.word ATA_PORT_DCR - 8
 
 
-.data 2
+.data SECTION_DATA_BSS
 	TYPE_ATA = 1
 	TYPE_ATAPI = 2
 ata_drive_types: .space 8
@@ -195,7 +195,7 @@ ata_drive_types: .space 8
 .struct 0
 ata_driveinfo_capacity: .long 0, 0
 ATA_DRIVEINFO_STRUCT_SIZE = .
-.data 2
+.data SECTION_DATA_BSS
 ata_drives_info: .space ATA_DRIVEINFO_STRUCT_SIZE * 8
 
 .text
@@ -803,7 +803,7 @@ ata_error$:
 
 # in: al = status register byte
 ata_print_status$:
-	.data
+	.data SECTION_DATA_STRINGS
 	9:	.ascii "BSY\0 DRDY\0DF\0  DSC\0 DRQ\0 CORR\0IDX\0 ERR\0\0"
 	.text
 	push	esi
@@ -815,7 +815,7 @@ ata_print_status$:
 	ret
 
 ata_print_error$:
-	.data
+	.data SECTION_DATA_STRINGS
 	9: .ascii "BBK\0 UNC\0 MC\0  IDNF\0MCR\0 ABRT\0T0NF\0AMNF\0"
 	.text
 	push	esi
@@ -1649,7 +1649,7 @@ cmd_disks_print$:
 	or	ah, ah
 	jz	1f
 
-	.data
+	.data SECTION_DATA_STRINGS
 	9:	.asciz ", ", "hd", " (", "ATA", "PI", "UNKNOWN", ")"
 	.text
 	mov	esi, offset 9b

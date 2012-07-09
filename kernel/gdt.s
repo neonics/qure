@@ -235,6 +235,22 @@ rm_gdtr:.word 0
 .endm
 
 
+.macro GDT_GET_LIMIT target, sel
+	push	esi
+	mov	esi, \sel
+	_R32 = \target
+	R16 \target
+	R8H \target
+	R8L \target
+	xor	_R8H, _R8H
+	mov	_R8L, [GDT + esi + 6]
+	and	_R8L, 0xf
+	shl	_R32, 16
+	mov	_R16, [GDT + esi + 0]
+	pop	esi
+.endm
+
+
 
 	# QEMU: GDT limit 37 base FCD80  IDT limit  3ff base 0
 	# VBOX: GDT limit 30 base FC7F3  IDT limit ffff base 1
@@ -288,6 +304,10 @@ init_gdt_16:
 	GDT_STORE_SEG GDT_realmodeCS
 	mov	eax, ebx
 	GDT_STORE_SEG GDT_compatCS
+
+	# find len
+	mov	eax, (offset kernel_code_end - offset realmode_kernel_entry)>> 12
+	GDT_STORE_LIMIT GDT_compatCS
 
 	xor	eax, eax
 	call	0f	# determine possible relocation

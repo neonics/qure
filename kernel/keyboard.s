@@ -154,7 +154,7 @@ isr_keyboard:
 
 	and	al, 0x7f	# al = key
 
-	.data 2
+	.data SECTION_DATA_BSS
 		keys_pressed: .space 128
 		kb_shift: .byte 0
 		kb_caps: .byte 0

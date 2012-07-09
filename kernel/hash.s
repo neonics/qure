@@ -211,7 +211,7 @@ buf_resize:
 	sub	eax, 8
 	push	edx
 	add	edx, 8
-	call	mrealloc
+	call	mreallocz
 	add	eax, 8
 	pop	dword ptr [eax + buf_capacity]
 
@@ -363,4 +363,35 @@ array_remove:
 	pop	ecx
 0:	sub	[eax + buf_index], ecx
 	ret
+
+
+	.macro ARRAY_LOOP arrayref, entsize, base=eax, index=edx, errlabel=9f
+		L_entsize = \entsize
+		L_base = \base
+		L_index = \index
+
+		mov	\base, \arrayref
+		or	\base, \base
+		jz	\errlabel
+		ARRAY_ITER_START \base, \index
+	.endm
+
+
+	.macro ARRAY_ENDL
+		ARRAY_ITER_NEXT L_base, L_index, L_entsize
+	.endm
+
+	# modifies ecx, eax, edx
+	.macro ARRAY_NEWENTRY arrayref, entsize, initcapacity, errlabel
+		mov	ecx, \entsize
+		mov	eax, \arrayref
+		or	eax, eax
+		jnz	66f
+		mov	eax, \initcapacity
+		call	array_new
+		jc	\errlabel
+	66:	call	array_newentry
+		jc	\errlabel
+		mov	\arrayref, eax
+	.endm
 

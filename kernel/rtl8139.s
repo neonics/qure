@@ -480,6 +480,9 @@ rtl8139_isr:
 	push	ebx
 	push	eax
 	sub	ecx, 4	# the header includes the header size
+	# NOTE: packets of 0x34 bytes for instance will have a len
+	# of 0x40 - 4 = 0x3c - seems qword padded. So the real packet
+	# length is unknown.
 	call	net_rx_packet
 	pop	eax
 	pop	ebx
@@ -556,6 +559,7 @@ rtl8139_isr:
 # in: esi = packet
 # in: ecx = packet size
 rtl8139_send:
+	pushad
 
 	.if RTL8139_DEBUG > 1
 		DEBUG "send"
@@ -624,6 +628,7 @@ DEBUG_DWORD eax
 #	call	newline
 	
 #		call	rtl8139_print_status
+	popad
 	ret
 
 

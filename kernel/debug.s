@@ -174,25 +174,29 @@ DEBUG_COLOR2 = 0x87
 DEBUG_COLOR3 = 0x8f
 
 .macro DEBUG str
-printc DEBUG_COLOR3, "\str "
+	printc DEBUG_COLOR3, "\str "
+.endm
+
+.macro DEBUGc c, str
+	printc (DEBUG_COLOR3 & 0xf0) | (\c & 0xf), "\str "
 .endm
 
 .macro DEBUGS reg=esi
-pushcolor DEBUG_COLOR1
-PRINTCHAR '\''
-COLOR DEBUG_COLOR2
-.if \reg == esi
-call	print
-.else
-push	esi
-mov	esi, \reg
-call	print
-pop	esi
-.endif
-COLOR DEBUG_COLOR1
-PRINTCHAR '\''
-call	printspace
-popcolor
+	pushcolor DEBUG_COLOR1
+	PRINTCHAR '\''
+	COLOR	DEBUG_COLOR2
+	.if \reg == esi
+	call	print
+	.else
+	push	esi
+	mov	esi, \reg
+	call	print
+	pop	esi
+	.endif
+	COLOR	DEBUG_COLOR1
+	PRINTCHAR '\''
+	call	printspace
+	popcolor
 .endm
 
 

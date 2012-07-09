@@ -5,6 +5,8 @@
 .code32
 
 ############################################################################
+IFCONFIG_OLDSKOOL = 0
+
 NIC_DEBUG = 0
 ############################################################################
 .struct DEV_PCI_STRUCT_SIZE
@@ -16,8 +18,10 @@ nic_mcast:	.space 8
 .align 4
 nic_rx_buf:	.long 0
 nic_ip:		.long 0
+.if IFCONFIG_OLDSKOOL
 nic_netmask:	.long 0
 nic_network:	.long 0
+.endif
 # API - method pointers
 .align 4
 nic_api:
@@ -102,6 +106,7 @@ nic_getobject:
 1:	ret
 
 
+.if IFCONFIG_OLDSKOOL
 # in: eax = ip
 # out: ebx = device for the network of ip (using device's netmask)
 # out: CF
@@ -130,6 +135,7 @@ nic_get_by_network:
 	pop	ecx
 	pop	eax
 	ret
+.endif
 
 # in: eax = ip
 # out: ebx = nic
@@ -301,66 +307,6 @@ nic_unknown_ifdown:
 	ret
 
 
-############################################### 
-# Proxy methods
-.if 0
-# in: ebx = nic object
-nic_ifup:
-	pushad
-	mov	edx, [ebx + nic_api_ifup]
-	#add	edx, [realsegflat]
-	call	edx
-	popad
-	jc	0f
-	or	[ebx + nic_status], byte ptr NIC_STATUS_UP
-0:	ret
-
-# in: ebx = nic object
-nic_ifdown:
-	pushad
-	mov	edx, [ebx + nic_api_ifdown]
-	#add	edx, [realsegflat]
-	call	edx
-	popad
-	jc	0f
-	and	[ebx + nic_status], byte ptr NIC_STATUS_UP
-0:	ret
-
-# in: ebx = nic object
-# in: esi
-# in: ecx
-nic_send:
-	.if NIC_DEBUG 
-		print	"Send packet: "
-		push	eax
-		mov	eax, [ebx + nic_ip]
-		call	net_print_ip
-		pop	eax
-	.endif
-
-	mov	edx, [ebx + nic_api_send]
-	or	edx, edx
-	jz	1f
-	#add	edx, [realsegflat]
-	pushad
-	call	edx	# changes eax, edx
-	popad
-	ret
-1:	printc 4, "nic_api_send not implemented for "
-	push	esi
-	mov	esi, [ebx + nic_name]
-	call	println
-	pop	esi
-	ret
-
-nic_print_status:
-	pushad
-	mov	edx, [ebx + nic_api_print_status]
-	#add	edx, [realsegflat]
-	call	edx
-	popad
-	ret
-.endif
 ############################################################################
 # NIC API
 
@@ -383,14 +329,14 @@ cmd_nic_list:
 	print	" IP "
 	mov	eax, [ebx + nic_ip]
 	call	net_print_ip
-
+.if IFCONFIG_OLDSKOOL
 	print	" NETWORK "
 	mov	eax, [ebx + nic_network]
 	call	net_print_ip
 	printchar_ '/'
 	mov	eax, [ebx + nic_netmask]
 	call	net_print_ip
-
+.endif
 	call	newline
 
 	push	ecx
@@ -436,14 +382,24 @@ cmd_ifconfig:
 	call	nic_parse	# out: ebx
 	jc	9f
 
-DEBUG_REGSTORE
-	push	ebx
-	call	dev_print
+
+	push	esi
+	lea	esi, [ebx + nic_name]
+	call	print
 	call	printspace
-	pop	ebx
-DEBUG_REGDIFF
+	pop	esi
 
 	# check for options
+	.if IFCONFIG_OLDSKOOL
+		xor	edi, edi
+		mov	eax, [ebx + nic_gateway]
+		mov	ecx, [ebx + nic_network]
+		mov	edx, [ebx + nic_netmask]
+		call	route_del	# in: ebx
+		mov	ecx, 0xffffff00
+		xor	ecx, ecx	# netmask
+	.endif
+
 0:	lodsd
 	or	eax, eax
 	jz	0f
@@ -469,6 +425,35 @@ DEBUG_REGDIFF
 	pop	esi
 	jmp	0b
 
+	.if IFCONFIG_OLDSKOOL
+	1:
+		CMD_ISARG "mask"
+		jnz	1f
+
+		lodsd
+		call	net_parse_ip
+		jc	9f
+		printc 11, " mask "
+		call	net_print_ip
+		mov	ecx, eax
+
+		and	eax, [ebx + nic_ip]
+		cmp	eax, [ebx + nic_ip]
+		LOAD_TXT "netmask does not include ip"
+		jnz	9f
+		jmp	0b
+
+	1:
+		CMD_ISARG "gw"
+		jnz	1f
+		lodsd
+		call	net_parse_ip
+		jc	9f
+		printc 11, " gw "
+		call	net_print_ip
+		mov	[ebx + nic_gateway], eax
+	.endif
+
 1:
 	# parse ip
 	call	net_parse_ip
@@ -476,14 +461,25 @@ DEBUG_REGDIFF
 	printc 11, "ip "
 	call	net_print_ip
 	mov	[ebx + nic_ip], eax
-	mov	[ebx + nic_netmask], dword ptr 0x00ffffff
-	and	eax, 0x00ffffff
-	mov	[ebx + nic_network], eax
-	call	newline
+
+	.if IFCONFIG_OLDSKOOL
+		mov	[ebx + nic_netmask], ecx # dword ptr 0x00ffffff
+		and	eax, ecx # 0x00ffffff
+		mov	[ebx + nic_network], eax
+	.endif
+
 	jmp	0b
 
 0:	# print nic status
+	call	newline
 	call	[ebx + nic_api_print_status]
+
+	.if IFCONFIG_OLDSKOOL
+		mov	eax, [ebx + nic_gateway]
+		mov	ecx, [ebx + nic_network]
+		mov	edx, [ebx + nic_netmask]
+		call	route_add	# in: ebx
+	.endif
 	clc
 
 	ret
@@ -566,6 +562,33 @@ nic_zeroconf:
 	call	cmdline_print_args$
 	call	cmd_route
 	jc	0f
+	.data
+77:	STRINGPTR "route"
+	STRINGPTR "add"
+	STRINGPTR "net"
+	STRINGPTR "192.168.1.0"
+	STRINGPTR "mask"
+	STRINGPTR "255.255.255.0"
+	STRINGPTR "eth0"
+	STRINGNULL
+	.text
+	mov	esi, offset 77b
+	mov	eax, esi
+	call	cmdline_print_args$
+	call	cmd_route
+	jc	0f
+.if 0
+	.data
+77:	STRINGPTR "ping"
+	STRINGPTR "192.168.1.1"
+	STRINGNULL
+	.text
+	mov	esi, offset 77b
+	mov	eax, esi
+	call	cmdline_print_args$
+	call	cmd_ping
+	jc	0f
+.endif
 0:	
 	pop	eax
 	pop	esi

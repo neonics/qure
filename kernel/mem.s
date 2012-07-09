@@ -1617,13 +1617,12 @@ get_handle_by_base$:
 	pop	esi
 	ret
 
-# in: eax = mem, edx = new size
-# out: eax = reallocated (memcpy) mem
-mrealloc:	# UNTESTED
+
+.macro MREALLOC malloc
 	or	eax, eax
 	jnz	1f
 	mov	eax, edx
-	jmp	malloc
+	jmp	\malloc
 1:
 ########
  	push	ebx
@@ -1722,7 +1721,7 @@ mrealloc:	# UNTESTED
 	mov	esi, eax
 
 	mov	eax, edx
-	call	malloc
+	call	\malloc
 	# copy
 	or	ecx, ecx	# shouldnt happen if malloc checks for it.
 	jz	1f
@@ -1748,8 +1747,18 @@ mrealloc:	# UNTESTED
 	pop	esi
 	pop	ecx
 	pop	ebx
+.endm
+
+
+# in: eax = mem, edx = new size
+# out: eax = reallocated (memcpy) mem
+mrealloc:
+	MREALLOC malloc
 	ret
 
+mreallocz:
+	MREALLOC mallocz
+	ret
 
 # in: eax = memory pointer
 mfree:
@@ -2351,18 +2360,51 @@ cmd_mem$:
 
 	call	newline
 
-	add	esi, 4
+0:	add	esi, 4
 	call	getopt
 	jc	0f
 	mov	eax, [eax]
 	and	eax, 0x00ffffff
-	cmp	eax, '-' |('h'<<8)
-	jnz	1f
+	cmp	eax, '-' | ('h'<<8)
+	jz	1f
+	cmp	eax, '-' | ('k'<<8)
+	jnz	9f
+	
+	printc 15, "Kernel: "
+	mov	eax, kernel_end - realmode_kernel_entry
+	call	print_size
+	printc 15, " Code: "
+	mov	eax, kernel_code_end - realmode_kernel_entry 
+	call	print_size
+	printc 15, " Data: "
+	mov	eax, kernel_end - data_0_start
+	call	print_size
+	printc 15, " (0: "
+	mov	eax, data_0_end - data_0_start
+	call	print_size
+	printc 15, " str: "
+	mov	eax, data_str_end - data_str_start
+	call	print_size
+	printc 15, " bss: "
+	mov	eax, data_bss_end - data_bss_start
+	call	print_size
+	printc 15, " 99: "
+	mov	eax, kernel_end - data_bss_end
+	call	print_size
+	printlnc 15, ")"
 
+
+	jmp	0b
+
+1:	push	esi
 	call	print_handles$
-0:	ret
+	pop	esi
+	jmp	0b
+0:	
+	ret
 
-1:	printlnc 4, "usage: mem [-h]"
+9:	printlnc 4, "usage: mem [-hk]"
+	printlnc 4, "  -k   print kernel sizes"
 	printlnc 4, "  -h   print handles"
 	ret
 

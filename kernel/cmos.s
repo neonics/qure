@@ -35,16 +35,6 @@ cmos_list:
 	.endif
 	.endm
 
-	.macro PRINTFLAG reg, bit, msg, altmsg=""
-		test	\reg, \bit
-		jz	9f
-		PRINT	"\msg"
-		jmp	8f
-	9:	
-		PRINT	"\altmsg"
-	8:
-	.endm
-
 	.macro PRINTBITS8 reg, firstbit, width, msg
 		PRINTc	7, "\msg"
 		mov	dl, \reg
@@ -169,7 +159,7 @@ cmos_list:
 	PRINTCHAR ' '
 	xor	eax, eax
 	CMOS_READ 6
-	.data
+	.data SECTION_DATA_STRINGS
 	day_of_week$: .ascii "Sun\0Mon\0Tue\0Wed\0Thu\0Fri\0Sat\0"
 	.text
 	lea	esi, [day_of_week$ + eax*4 - 4]

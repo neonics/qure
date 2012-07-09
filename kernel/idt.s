@@ -106,7 +106,7 @@ isr_jump_table:
 		INT_NR = INT_NR + 1
 	.endr
 
-.data 
+.data SECTION_DATA_STRINGS
 msg_int_00$: 	.asciz "Division by zero"
 msg_int_01$: 	.asciz "Debugger"
 msg_int_02$: 	.asciz "NMI"
@@ -127,6 +127,8 @@ msg_int_10$: 	.asciz "Math Fault"
 msg_int_11$: 	.asciz "Alignment Check"
 msg_int_12$: 	.asciz "Machine Check"
 msg_int_13$: 	.asciz "SIMD Floating-Point Exception"
+
+.data
 
 int_labels$:
 	.long msg_int_00$
@@ -163,7 +165,7 @@ int_labels$:
 #(dd [ErrCode ] ebp + 6	) only when exception (intnr < 0x20)
 # dw [ intnr  ] ebp + 4	  the interrupt number as pushed by the jump table.
 jmp_table_target:
-	.data 2
+	.data SECTION_DATA_BSS
 		int_count: .rept 256; .long 0; .endr
 	.text
 	push	ebp

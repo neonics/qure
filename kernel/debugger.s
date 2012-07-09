@@ -12,7 +12,7 @@
 
 BREAKPOINT "foo"
 
-.data 2
+.data SECTION_DATA_BSS
 debug_registers$: .space 4 * 32
 .text
 
@@ -65,7 +65,8 @@ debug_regdiff$:
 	ret
 
 
-.macro DEBUG_REGSTORE
+.macro DEBUG_REGSTORE name=""
+	DEBUG "\name"
 	call	debug_regstore$
 .endm
 .macro DEBUG_REGDIFF

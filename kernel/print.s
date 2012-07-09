@@ -175,6 +175,11 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	.endif
 .endm
 
+.macro sPRINTCHAR c
+	mov	[edi], byte ptr \c
+	inc	edi
+.endm
+
 # does not preserve ax
 .macro PRINTCHAR_ c
 	mov	al, \c
@@ -203,14 +208,14 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 ###### Load String Pointer
 .macro LOAD_TXT txt, reg = esi
-	.data
+	.data SECTION_DATA_STRINGS
 		99: .asciz "\txt"
 	.text
 	mov	\reg, offset 99b
 .endm
 
 .macro PUSH_TXT txt
-	.data 
+	.data SECTION_DATA_STRINGS
 		99: .asciz "\s"
 	.text
 	push	dword ptr offset 99b
@@ -223,7 +228,7 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 
 .macro STRINGPTR n
-	.data 1
+	.data SECTION_DATA_STRINGS
 	99: .asciz "\n"
 	.data
 	.long 99b
@@ -292,6 +297,12 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	pop	esi
 .endm
 
+.macro SPRINT msg
+	push	esi
+	LOAD_TXT "\msg"
+	call	sprint
+	pop	esi
+.endm
 
 .macro PRINTLN msg
 	push	esi
@@ -343,6 +354,18 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 .endm
 
 
+.macro PRINTFLAG reg, bit, msg, altmsg=""
+	test	\reg, \bit
+	jz	9f
+	PRINT	"\msg"
+	jmp	8f
+9:	
+	PRINT	"\altmsg"
+8:
+.endm
+
+
+
 ############################## debug ####################
 .macro DBGSO16 msg, seg, offs
 	mov	ah, 0xf0
@@ -373,8 +396,8 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 
 .data
-	screen_pos:	.long 0
 	screen_color:	.word 0x0f	# is a byte, but word for push/pop
+	screen_pos:	.long 0
 	screen_sel:	.word 0
 .text
 
@@ -506,7 +529,7 @@ newline:
 ##### SCROLLBACK BUFFER ######
 SCREEN_BUFFER = 1
 .if SCREEN_BUFFER
-.data 2
+.data SECTION_DATA_BSS
 SCREEN_BUF_SIZE = 160 * 24 * 4	# 4 pages
 screen_buf_offs: .long 0
 screen_buf: .space SCREEN_BUF_SIZE
@@ -669,6 +692,17 @@ print:	PRINT_START
 
 	pop	esi
 	PRINT_END
+	ret
+
+sprint:	push	esi
+	jmp	1f
+
+0:	stosb
+1:	lodsb
+	test	al, al
+	jnz	0b
+
+	pop	esi
 	ret
 
 print_:
@@ -885,6 +919,37 @@ print_fixedpoint_32_32:
 	pop	ebx
 	ret
 
+###########################################
+# in: bl = digits
+sprint_fixedpoint_32_32$:
+	push	eax
+	push	edx
+
+	call	sprintdec32
+	or	eax, eax
+	jz	1f
+
+	sprintchar '.'	# i18n
+	push	ecx
+	mov	ecx, 10
+0:	mul	ecx
+	call	sprintdec32
+	dec	bl
+	jnz	0b
+	pop	ecx
+1:
+	pop	edx
+	pop	eax
+	ret
+
+sprint_fixedpoint_32_32:
+	push	ebx
+	mov	bl, 3
+	call	sprint_fixedpoint_32_32$
+	pop	ebx
+	ret
+
+
 ##############################################################################
 # Byte-Size (kb, Mb, Gb etc)
 
@@ -971,6 +1036,94 @@ print_size_kb:
 	pop	edx
 	pop	eax
 	ret
+
+##########
+
+# in: edi = buf ptr
+sprint_size:
+	push	eax
+	push	edx
+
+
+	or	edx, edx
+	jnz	1f
+	cmp	eax, 1024
+	jae	1f
+
+	mov	edx, eax
+	call	sprintdec32
+	sprintchar 'b'
+	jmp	2f
+
+1:	
+	shr	edx, 1
+	sar	eax, 1
+	shr	edx, 1
+	sar	eax, 1
+	mov	al, dl
+	shr	edx, 8
+	ror	eax, 8
+
+	call	sprint_size_kb
+
+2:	pop	edx
+	pop	eax
+	ret
+
+# in: edi = buf ptr
+# in: edx:eax = size in kilobytes to print
+# destroys: edx, eax
+sprint_size_kb:
+	push	eax
+	push	edx
+	push	esi
+
+	# check 1Mb limit:
+	or	edx, edx
+	jnz	1f	# nope
+	cmp	eax, 1024	# check 1Mb
+	jae	2f
+	# print it in kb
+	xchg	edx, eax
+	LOAD_TXT "kb"
+	jmp	3f
+2:	cmp	eax, 1024*1024	# check 1Gb
+	jae	2f
+	LOAD_TXT "Mb"
+	mov	edx, eax
+	shr	edx, 10
+	shl	eax, 10
+	jmp	3f
+2:	cmp	eax, 1024*1024*1024	# 30 bits, check 1Tb
+	jae	2f
+	LOAD_TXT "Gb"
+	mov	edx, eax
+	shr	edx, 20
+	shl	eax, 20
+	jmp	3f
+2:	LOAD_TXT "Tb"
+	shl	eax, 1
+	sal	edx, 1
+	shl	eax, 1
+	sal	edx, 1
+	jmp	3f
+
+##### edx != 0
+1:	cmp	edx, 1024 / 4	# check Pb
+	jb	2b
+	LOAD_TXT "Pb"
+	shr	edx, 1
+	sar	eax, 1
+	shr	edx, 1
+	sar	edx, 1
+
+3:	call	sprint_fixedpoint_32_32
+	call	sprint
+	pop	esi
+	pop	edx
+	pop	eax
+	ret
+
 
 
 ############################ PRINT FORMATTED STRING ###########
@@ -1223,4 +1376,38 @@ print_flags16:
 	pop	ebx
 	ret
 
+
+screen_pos_mark:
+	.data SECTION_DATA_BSS
+	screen_pos_mark$: .long 0
+	.text
+	push	eax
+	mov	eax, [screen_pos]
+	mov	[screen_pos_mark], eax
+	pop	eax
+	ret
+
+# prints eax - [screen_pos] + [screen_pos_mark] spaces.
+# in: eax = max nr of spaces
+# out: eax = nr of printed chars
+#   (call with 0 to get strlen of output since screen_pos_mark)
+print_spaces:
+	push	ecx
+	mov	ecx, eax
+	mov	eax, [screen_pos]
+	sub	eax, [screen_pos_mark]
+	jle	9f
+	shr	eax, 1
+	sub	ecx, eax
+#pushf
+#DEBUG_DWORD ecx
+#popf
+	jle	9f
+0:	call	printspace
+	loop	0b
+#	PRINT_START
+#	rep	stosw
+#	PRINT_END
+9:	pop	ecx
+	ret
 .endif

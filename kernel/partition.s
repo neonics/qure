@@ -488,7 +488,7 @@ cmd_fdisk$:
 	push	esi
 	mov	esi, eax
 	mov	ebx, offset fdisk_cmd_init$
-	.data
+	.data SECTION_DATA_STRINGS
 	9: .asciz "init"
 	.text
 	mov	edi, offset 9b

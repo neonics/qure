@@ -37,7 +37,7 @@ SHELL_COMMAND_STRUCT_SIZE:
 .data
 
 .macro SHELL_COMMAND string, addr
-	.data 1
+	.data SECTION_DATA_STRINGS
 		9: .asciz "\string"
 		8:
 	.data
@@ -84,7 +84,11 @@ SHELL_COMMAND "dev"		cmd_dev
 SHELL_COMMAND "lspci",		pci_list_devices
 SHELL_COMMAND "ints",		cmd_int_count
 # network
+# nonstandard
 SHELL_COMMAND "nics", 		cmd_nic_list
+SHELL_COMMAND "netdump"		cmd_netdump
+SHELL_COMMAND "zconf"		nic_zeroconf
+# standard
 SHELL_COMMAND "ifconfig"	cmd_ifconfig
 SHELL_COMMAND "ifup"		cmd_ifup
 SHELL_COMMAND "ifdown"		cmd_ifdown
@@ -92,11 +96,15 @@ SHELL_COMMAND "route"		cmd_route
 #SHELL_COMMAND "dhcp"		cmd_dhcp
 SHELL_COMMAND "ping"		cmd_ping
 SHELL_COMMAND "arp"		cmd_arp
-SHELL_COMMAND "netdump"		cmd_netdump
+SHELL_COMMAND "icmp"		net_icmp_list
+SHELL_COMMAND "host"		cmd_host
+SHELL_COMMAND "netstat"		net_tcp_conn_list
 # utils
 SHELL_COMMAND "hs",		cmd_human_readable_size$
 #SHELL_COMMAND "regexp",		regexp_parse
 SHELL_COMMAND "obj"		pci_list_obj_counters
+
+SHELL_COMMAND "gdt"		cmd_print_gdt
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -116,18 +124,21 @@ shell:	push	ds
 	mov	[insertmode], byte ptr 1
 
 	.data
-	9: .asciz "mount"
-	8: .asciz "hdb0"
-	7: .asciz "/b"
-	6: .long 9b, 8b, 7b, 0
+	99:
+	STRINGPTR "mount"
+	STRINGPTR "hdb0"
+	STRINGPTR "/b"
+	STRINGNULL
 	.text
 
-	mov	esi, offset 6b
+	mov	esi, offset 99b
 	call	cmd_mount$
 
 	mov	eax, offset cwd$
 	call	fs_opendir
 	mov	[cwd_handle$], eax
+
+	call	nic_zeroconf
 
 start$:
 	print "!"
@@ -1278,7 +1289,7 @@ cmd_netdump:
 #####################################
 
 .macro CMD_ISARG str
-	.data
+	.data SECTION_DATA_STRINGS
 	79: .asciz "\str"
 	78: 
 	.text
@@ -1293,3 +1304,26 @@ cmd_netdump:
 	pop	edi
 	pop	esi
 .endm
+
+
+
+cmd_print_gdt:
+
+	.macro PRINT_GDT seg
+		printc	11, "\seg: "
+		mov	edx, \seg
+		call	printhex8
+		GDT_GET_BASE edx, \seg
+		printc	15, " base "
+		call	printhex8
+		GDT_GET_LIMIT edx, \seg
+		printc	15, " limit "
+		call	printhex8
+		call	newline
+	.endm
+
+	PRINT_GDT cs
+	PRINT_GDT ds
+	PRINT_GDT es
+	PRINT_GDT ss
+	ret
