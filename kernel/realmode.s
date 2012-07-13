@@ -1,20 +1,103 @@
+##############################################################################
+# Realmode Kernel Entry
+#
+# Performs last-minute realmode tasks before entering protected mode.
 .intel_syntax noprefix
 
 DEBUG_KERNEL_REALMODE = 0	# waitkey
 
-.data # keep near beginning due to realmode 64k limit
-low_memory_size: .word 0 # in kb
-memory_map:	.space 24 * 10	# 10 lines (qemu has 5)
-cdrom_spec_packet:	.space 0x13	# see interrupt 13h
-.struct 0
-memory_map_base:	.long 0, 0
-memory_map_length: 	.long 0, 0
-memory_map_region_type:	.long 0
-memory_map_attributes:	.long 0 	# ACPI compliancy
-memory_map_struct_size: 
+#########################################################
+
+.macro PRINT_START_16
+	push	es
+	push	di
+	push	ax
+	mov	ax, 0xb800
+	mov	es, ax
+	mov	di, [screen_pos]
+	mov	ah, [screen_color]
+.endm
+
+.macro PRINT_END_16
+	mov	[screen_pos], di
+	pop	ax
+	pop	di
+	pop	es	
+.endm
+
+
+.macro PRINT_16 m
+	# need to declare realmode strings in .text as kernel .text shifts
+	# data beyond 64kb reach.
+	jmp	98f
+	99:.asciz "\m"
+	98:
+	push	si
+	mov	si, offset 99b
+	call	print_16
+	pop	si
+.endm
+
+
+.macro PRINTLN_16 m
+	PRINT_16 "\m"
+	call	newline_16
+.endm
+
+
+.macro PH8_16 m x
+	PRINT_16 "\m"
+	.if \x != edx
+	push	edx
+	mov	edx, \x
+	pop	edx
+	.endif
+	call	printhex8_16
+.endm
+
+
+.macro rmCOLOR c
+	mov	[screen_color], byte ptr \c
+.endm
+
+
+.macro rmD a b
+	PRINT_START_16
+	mov	ax, (\a << 8 ) + \b
+	stosw
+	PRINT_END_16
+.endm
+
+
+.macro rmPC c m
+	rmCOLOR \c
+	PRINT_16 "\m"
+.endm
+
+
+.macro rmI m
+	rmD 0x09 '>'
+	rmPC 0x0f " \m"
+	rmCOLOR 7
+.endm
+
+
+.macro rmI2 m
+	rmPC 0x08 "\m"
+.endm
+
+
+.macro rmOK
+	rmCOLOR 0x0a
+	PRINTLN_16 " Ok"
+.endm
+
+
+#########################################################
 .text
 .code16
 
+# in: es = 0xb800
 realmode_kernel_entry:
 	push	cx
 	mov	ax, 0x0f00
@@ -65,9 +148,8 @@ print_16 "kernel load size: "
 call	printhex_16
 call	newline_16
 
-
 	rmI "CS:IP "
-	mov	dx, ax
+	mov	dx, cs
 	call	printhex_16
 	call	0f
 0:	pop	dx
@@ -84,7 +166,7 @@ call	newline_16
 	mov	edx, [sig] # [kernel_end - 4]
 	.else
 	sub	edx, 4
-	mov	bl, dl
+	movzx	bx, dl
 	and	bl, 0xf
 	shr	edx, 4
 	push	ds
@@ -245,9 +327,23 @@ call	newline_16
 	mov	ax, 0
 
 	# make it return elsewhere
-	push	word ptr offset kmain
+	push	dword ptr offset kmain
 	jmp	protected_mode
 
+
+
+#########################################################
+.struct 0
+memory_map_base:	.long 0, 0
+memory_map_length: 	.long 0, 0
+memory_map_region_type:	.long 0
+memory_map_attributes:	.long 0 	# ACPI compliancy
+memory_map_struct_size: 
+
+.text # keep near beginning due to realmode 64k limit
+low_memory_size: .word 0 # in kb
+memory_map:	.space 24 * 10	# 10 lines (qemu has 5)
+cdrom_spec_packet: .space 0x13
 
 
 ################################
@@ -311,3 +407,5 @@ print_16:
 1:	PRINT_END_16
 	ret
 
+
+realmode_kernel_end:

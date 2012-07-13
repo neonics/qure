@@ -131,9 +131,7 @@ PIC_DATA_CMD_CLEAR_SMM	= PIC_OCW3_SMM
 
 PIC_CMD_EOI		= 0x20	# End Of Interrupt
 
-
-
-.data
+.text	# realmode access, keep within 64k
 pic_ivt_offset: .word 0
 pic_mask: .word 0
 .text

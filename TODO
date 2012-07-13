@@ -231,3 +231,18 @@ Mounting filesystems:
 	there.
 
 	
+- i8254 does not immediately send packets, only when there are a number of
+  them.
+
+v realmode 'data' is slowly being pushed outside of the 64k range.
+  option 1) Consider separating the realmode/pmode code, as the binary formats
+    do not allow interleaving code/data segments. So, compile 2 obj files,
+    and copy them. Don't want to use elf loading here as the code would need
+    to be duplicated in pmode.
+  option 2) define all data in .text for realmode/pmode/gdt/idt, anything
+    doubly referenced.
+  option 3) have a quick enter-pmode in the realmode.s, and
+    do the dynamic setup of the GDT in pmode.s.
+
+  DONE: option 2.
+

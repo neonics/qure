@@ -12,7 +12,7 @@ IRQ_BASE = 0x20	# base number for PIC hardware interrupts
 
 ###########################
 
-.data
+.text	# realmode access, keep within 64k
 
 realsegflat:.long 0
 codeoffset: .long 0
@@ -219,7 +219,7 @@ pmode_entry$:
 
 	# adjust return address 
 	xor	edx, edx
-	pop	dx	# real mode return address
+	pop	edx	# real mode return address
 	# this offset is based on the realmode segment we were called with.
 	# If we return in flat CS mode, we'll need to adjust it:
 	# setup

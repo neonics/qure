@@ -1,4 +1,4 @@
-.data
+.text # realmode access, keep within 64k
 .align 4
 # in the syntax below, the second word of '.word 0,0' is always reserved,
 # as the entry is a 32 bit aligned 16 bit value.

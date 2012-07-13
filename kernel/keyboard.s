@@ -68,7 +68,7 @@ isr_keyboard:
 	push	es
 	push	edi
 	push	eax
-	push	dx
+	push	edx
 
 	mov	ax, SEL_compatDS
 	mov	ds, ax
@@ -364,7 +364,7 @@ isr_keyboard:
 2:	mov	[scr_o], di
 
 	PIC_SEND_EOI IRQ_KEYBOARD
-	pop	dx
+	pop	edx
 	pop	eax
 	pop	edi
 	pop	es

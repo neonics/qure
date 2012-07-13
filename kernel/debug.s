@@ -12,106 +12,6 @@
 # 4: interrupts - use fixed screen coordinates
 
 
-########################## 16 bit macros
-
-.macro PRINT_START_16
-	push	es
-	push	di
-	push	ax
-	mov	ax, 0xb800
-	mov	es, ax
-	mov	di, [screen_pos]
-	mov	ah, [screen_color]
-.endm
-
-.macro PRINT_END_16
-	mov	[screen_pos], di
-	pop	ax
-	pop	di
-	pop	es	
-.endm
-
-
-.macro PRINT_16 m
-	.data
-		9:.asciz "\m"
-	.text
-	push	si
-	mov	si, offset 9b
-	call	print_16
-	pop	si
-.endm
-
-
-.macro PRINTLN_16 m
-	PRINT_16 "\m"
-	call	newline_16
-.endm
-
-
-.macro PH8_16 m x
-	PRINT_16 "\m"
-	.if \x != edx
-	push	edx
-	mov	edx, \x
-	pop	edx
-	.endif
-	call	printhex8_16
-.endm
-
-
-.macro rmCOLOR c
-	mov	[screen_color], byte ptr \c
-.endm
-
-
-.macro rmD a b
-	PRINT_START_16
-	mov	ax, (\a << 8 ) + \b
-	stosw
-	PRINT_END_16
-.endm
-
-
-.macro rmW
-	D 0x2f '?'
-	push	ax
-	xor	ah, ah
-	int	0x16
-	pop	ax
-.endm
-
-
-.macro rmH
-	D 0x4f 'H'
-9:	hlt
-	jmp 9b
-.endm
-
-
-.macro rmPC c m
-	rmCOLOR \c
-	PRINT_16 "\m"
-.endm
-
-
-.macro rmI m
-	rmD 0x09 '>'
-	rmPC 0x0f " \m"
-	rmCOLOR 7
-.endm
-
-
-.macro rmI2 m
-	rmPC 0x08 "\m"
-.endm
-
-
-.macro rmOK
-	rmCOLOR 0x0a
-	PRINTLN_16 " Ok"
-.endm
-
 ############################# 32 bit macros 
 .macro OK
 	COLOR 0x0a
@@ -174,14 +74,19 @@ DEBUG_COLOR2 = 0x87
 DEBUG_COLOR3 = 0x8f
 
 .macro DEBUG str
+	pushf
 	printc DEBUG_COLOR3, "\str "
+	popf
 .endm
 
 .macro DEBUGc c, str
+	pushf
 	printc (DEBUG_COLOR3 & 0xf0) | (\c & 0xf), "\str "
+	popf
 .endm
 
 .macro DEBUGS reg=esi
+	pushf
 	pushcolor DEBUG_COLOR1
 	PRINTCHAR '\''
 	COLOR	DEBUG_COLOR2
@@ -197,6 +102,7 @@ DEBUG_COLOR3 = 0x8f
 	PRINTCHAR '\''
 	call	printspace
 	popcolor
+	popf
 .endm
 
 
@@ -215,6 +121,7 @@ DEBUG_DWORD \r
 
 
 .macro DEBUG_BYTE r8
+	pushf
 	pushcolor DEBUG_COLOR1
 	print	"\r8="
 	color	DEBUG_COLOR2
@@ -227,11 +134,12 @@ DEBUG_DWORD \r
 	pop	edx
 	.endif
 	call	printspace
-
 	popcolor
+	popf
 .endm
 
 .macro DEBUG_WORD r16
+	pushf
 	pushcolor DEBUG_COLOR1
 	print	"\r16="
 	color	DEBUG_COLOR2
@@ -245,9 +153,11 @@ DEBUG_DWORD \r
 	.endif
 	call	printspace
 	popcolor
+	popf
 .endm
 
 .macro DEBUG_DWORD r32
+	pushf
 	pushcolor DEBUG_COLOR1
 	print	"\r32="
 	color	DEBUG_COLOR2
@@ -261,6 +171,7 @@ DEBUG_DWORD \r
 	.endif
 	call	printspace
 	popcolor
+	popf
 .endm
 
 .macro DEBUG_DIV_PRE r32

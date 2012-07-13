@@ -32,8 +32,7 @@
 .word (\offset) >> 16
 .endm
 
-
-.data	# not data 2 due to large sizes of data 0 and 1 > 64k for realmode
+.text	# realmode access, keep within 64k
 .align 4
 
 pm_idtr:.word . - IDT - 1
@@ -43,7 +42,7 @@ pm_idtr:.word . - IDT - 1
 rm_idtr:.word 256 * 4
 	.long 0
 
-
+.data
 
 IDT:
 .rept 256
@@ -196,7 +195,7 @@ jmp_table_target:
 	inc	dword ptr [edx*4 + int_count]
 	mov	edx, [edx*4 + int_count]
 	PRINT " count "
-	call	printhex8
+	call	printdec32
 	PRINTCHAR ' '
 
 ########
@@ -370,7 +369,7 @@ ics$:	COLOR 11
 	call	newline
 	push	ebp
 	push	ecx
-	mov	ecx, 10
+	mov	ecx, 16
 0:	mov	edx, ebp
 	color	12
 	call	printhex8

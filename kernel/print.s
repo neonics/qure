@@ -395,12 +395,10 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 .ifdef DEFINE
 
 
-.data
+.text	# realmode access, keep within 64k
 	screen_color:	.word 0x0f	# is a byte, but word for push/pop
 	screen_pos:	.long 0
 	screen_sel:	.word 0
-.text
-
 
 .text
 .code32

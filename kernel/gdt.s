@@ -102,8 +102,7 @@
 .byte \base >> 24
 .endm
 
-.align 4
-.data
+.text	# real-mode access, keep within 64k
 .space 4 # DEBUG: align in file for hexdump
 
 GDT: 	.space 8	# null descriptor
@@ -125,12 +124,13 @@ GDT_realmodeFS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 GDT_realmodeGS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 
 GDT_biosCS:	DEFGDT 0xf0000, 0x00ffff, ACCESS_CODE, FLAGS_16 #ffff 0000 00 92 00 00
-
+.text	# realmode access, keep witin 64k
 pm_gdtr:.word . - GDT -1
 	.long GDT
 rm_gdtr:.word 0
 	.long 0
 
+.data
 # Segment selector format:
 # [15:3] descriptor index (0..8191). Offset in descriptor table: & ~7
 # [2]: Local/Global: 1 = LDT, 0 = GDT
@@ -209,13 +209,13 @@ rm_gdtr:.word 0
 	# ignore ah as realmode addresses are 20 bits
 .endm
 
-.macro GDT_STORE_LIMIT lim
-	mov	[\lim + 0], ax
+.macro GDT_STORE_LIMIT GDT
+	mov	[\GDT + 0], ax
 	shr	eax, 16
-	mov	ah, [\lim + 6] # preserve high nybble
+	mov	ah, [\GDT + 6] # preserve high nybble
 	and	ax, 0xf00f
 	or	al, ah
-	mov	[\lim + 6], al
+	mov	[\GDT + 6], al
 	# ignore ah as realmode addresses are 20 bits
 .endm
 
