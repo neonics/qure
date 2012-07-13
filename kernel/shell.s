@@ -105,6 +105,7 @@ SHELL_COMMAND "hs",		cmd_human_readable_size$
 SHELL_COMMAND "obj"		pci_list_obj_counters
 
 SHELL_COMMAND "gdt"		cmd_print_gdt
+SHELL_COMMAND "p"		cmd_ping_gateway
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -124,14 +125,13 @@ shell:	push	ds
 	mov	[insertmode], byte ptr 1
 
 	.data
-	99:
+	0:
 	STRINGPTR "mount"
 	STRINGPTR "hdb0"
 	STRINGPTR "/b"
 	STRINGNULL
 	.text
-
-	mov	esi, offset 99b
+	mov	esi, offset 0b
 	call	cmd_mount$
 
 	mov	eax, offset cwd$
@@ -1326,4 +1326,16 @@ cmd_print_gdt:
 	PRINT_GDT ds
 	PRINT_GDT es
 	PRINT_GDT ss
+	ret
+
+cmd_ping_gateway:
+	.data
+	0:
+	STRINGPTR "ping"
+	STRINGPTR "192.168.1.1"
+	STRINGNULL
+	.text
+	mov	eax, offset 0b
+	mov	esi, eax
+	call	cmd_ping
 	ret

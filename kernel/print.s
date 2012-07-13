@@ -955,7 +955,6 @@ print_size:
 	push	eax
 	push	edx
 
-
 	or	edx, edx
 	jnz	1f
 	cmp	eax, 1024
@@ -968,13 +967,14 @@ print_size:
 	jmp	2f
 
 1:	
-	shr	edx, 1
-	sar	eax, 1
-	shr	edx, 1
-	sar	eax, 1
 	mov	al, dl
 	shr	edx, 8
 	ror	eax, 8
+
+	shr	edx, 1
+	sar	eax, 1
+	shr	edx, 1
+	sar	eax, 1
 
 	call	print_size_kb
 

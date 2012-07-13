@@ -773,11 +773,11 @@ malloc_internal$:
 		printchar ' '
 	.endif
 
-	push	eax
-	add	eax, [mem_heap_alloc_start]
-	sub	eax, [mem_heap_start]
-	cmp	eax, [mem_heap_size]
-	pop	eax
+	push	edx
+	mov	edx, [mem_heap_alloc_start]
+	add	edx, [mem_heap_size]
+	sub	edx, [mem_heap_start]
+	cmp	eax, edx
 	jae	1f
 
 	push	dword ptr [mem_heap_alloc_start]
@@ -791,12 +791,18 @@ malloc_internal$:
 		popcolor 10
 		pop	edx
 	.endif
+
+0:	pop	edx
 	ret
 
-1:	printlnc 4, "malloc_internal: out of memory"
-call more
+1:	printc 4, "malloc_internal: out of memory: free="
+	call	printhex8
+	printc 4, " requested: "
+	mov	edx, eax
+	call	printhex8
+	call	newline
 	stc
-	ret
+	jmp	0b
 
 ########################################################################
 
@@ -1470,7 +1476,8 @@ mallocz:
 	push	ecx
 	mov	ecx, eax
 	call	malloc
-	jc	1f
+_mallocz_malloc_ret$:
+	jc	9f
 	push	edi
 	mov	edi, eax
 	push	eax
@@ -1486,6 +1493,20 @@ mallocz:
 	pop	edi
 1:	pop	ecx
 	ret
+9:	printc 4, "mallocz: can't allocate "
+	push	edx
+	push	eax
+	mov	eax, ecx
+	xor	edx, edx
+	call	print_size
+	pop	eax
+	printc 4, " called from "
+	mov	edx, [esp + 2*4]	# edx+ecx
+	call	printhex8
+	call	newline
+	pop	edx
+	jmp	1b
+
 
 #########################################################
 # in: eax = size
@@ -1495,7 +1516,6 @@ malloc:
 	push	ebx
 	push	esi
 	mov	esi, [mem_handles]
-
 	call	find_handle$
 	jc	2f
 	# jz	2f	# for find_handle_linear$
@@ -1569,7 +1589,26 @@ malloc:
 2:	printlnc 4, "malloc: no more handles"
 	stc
 	jmp	1b
-3:	printlnc 4, "malloc: out of memory"
+
+3:	
+	push	edx
+	push	eax
+	# check if called from mallocz. if so, dont print as mallocz will.
+	mov	edx, offset _mallocz_malloc_ret$
+	add	edx, [realsegflat]
+	cmp	edx, [esp + 4*4]
+	jz	2f
+
+	printc 4, "malloc: out of memory: can't allocate "
+	xor	edx, edx
+	call	print_size
+	printc 4, ": called from: "
+	mov	edx, [esp + 4*4]	# eax+edx+esi+ebx
+	call	printhex8
+	call	newline
+2:	pop	eax
+	pop	edx
+	
 	stc
 	jmp	1b
 
@@ -2376,6 +2415,13 @@ cmd_mem$:
 	printc 15, " Code: "
 	mov	eax, kernel_code_end - realmode_kernel_entry 
 	call	print_size
+	printc 15, " (realmode: "
+	mov	eax, realmode_kernel_end - realmode_kernel_entry
+	call	print_size
+	printc 15, " pmode: "
+	mov	eax, kernel_code_end - realmode_kernel_end
+	call	print_size
+	printlnc 15, ")"
 	printc 15, " Data: "
 	mov	eax, kernel_end - data_0_start
 	call	print_size

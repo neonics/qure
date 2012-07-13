@@ -395,3 +395,15 @@ array_remove:
 		mov	\arrayref, eax
 	.endm
 
+	# modifies eax, edx
+	.macro PTR_ARRAY_NEWENTRY arrayref, initcapacity, errlabel
+		mov	eax, \arrayref
+		or	eax, eax
+		jnz	66f
+		mov	eax, \initcapacity
+		call	ptr_array_new
+		jc	\errlabel
+	66:	call	ptr_array_newentry
+		jc	\errlabel
+		mov	\arrayref, eax
+	.endm
