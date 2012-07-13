@@ -9,8 +9,9 @@ NET_DEBUG = 0
 NET_ARP_DEBUG = NET_DEBUG
 NET_IPV4_DEBUG = NET_DEBUG
 NET_ICMP_DEBUG = NET_DEBUG
+NET_TCP_DEBUG = NET_DEBUG
 
-NET_TCP_CONN_DEBUG = 1
+NET_TCP_CONN_DEBUG = 0
 NET_TCP_OPT_DEBUG = 0
 
 
@@ -104,7 +105,114 @@ PROTO_STRUCT_SIZE = .
 #############################################################################
 .data SECTION_DATA_BSS
 ipv4_id$: .word 0
-net_packet$: .space 2048
+BUFFER_SIZE = 0x600
+net_buffers: .long 0	# ptr_array
+net_buffer_index: .long 0
+NET_BUFFERS_NUM = 4
+.text
+##############################################################################
+.macro DEBUG_NET_BUF
+	push	ecx
+	push	eax
+	push	edx
+	pushcolor 0x1f
+	call	newline
+	printc 0x1d, "NETBUFS "
+	mov	eax, [net_buffers]
+	or	eax, eax
+	jnz	1f
+	printlnc 4, "none"
+	jmp	2f
+
+1:	mov	edx, eax
+	call	printhex8
+
+	printc	0x1d, " idx "
+	mov	edx, [eax + array_index]
+	call	printhex8
+
+	printc 0x1d, " cap "
+	mov	edx, [eax + array_capacity]
+	call	printhex8
+
+	printc	0x1c, " INDEX "
+	mov	edx, [net_buffer_index]
+	call	printhex8
+	call	newline
+
+	printc 0x1e, "ptrs: "
+	xor	ecx, ecx
+90:	mov 	edx, [eax + ecx]
+	call	printhex8
+	call	printspace
+	add	ecx, 4
+	cmp	ecx, 4 * NET_BUFFERS_NUM
+	jbe	90b
+	call	newline
+2:	popcolor
+	pop	edx
+	pop	eax
+	pop	ecx
+.endm
+
+
+# out: eax = mem address of BUFFER_SIZE bytes, paragraph aligned
+# modifies: edx
+net_buffer_allocate:
+	PTR_ARRAY_NEWENTRY [net_buffers], NET_BUFFERS_NUM, 9f	# out: eax + edx
+	jc	9f
+	mov	[net_buffer_index], edx
+	add	edx, eax
+	mov	eax, BUFFER_SIZE + 16
+	call	malloc
+	jc	9f
+	mov	[edx], eax
+	add	eax, 15
+	and	al, 0xf0
+	ret
+9:	printlnc 0x4f, "net_buffer_allocate: malloc error"
+	stc
+	ret
+
+# mod: eax edx
+net_buffer_get:
+	mov	eax, [net_buffers]
+	or	eax, eax
+	jz	net_buffer_allocate
+	mov	edx, [net_buffer_index]
+	add	edx, 4
+	cmp	edx, [eax + array_capacity]
+	jb	0f
+	xor	edx, edx
+0:	mov	[net_buffer_index], edx
+	cmp	edx, [eax + array_index]
+	mov	eax, [eax + edx]
+	jnb	net_buffer_allocate
+	add	eax, 15
+	and	al, 0xf0
+	clc
+	ret
+
+# out: edi
+.macro NET_BUFFER_GET
+	push	eax
+	push	edx
+	call	net_buffer_get
+	mov	edi, eax
+	pop	edx
+	pop	eax
+.endm
+
+# in: esi = start of buffer
+# in: edi = end of data in buffer
+# in: ebx = nic
+# modifies: ecx
+.macro NET_BUFFER_SEND
+	mov	ecx, edi
+	sub	ecx, esi
+	call	[ebx + nic_api_send]
+.endm
+
 ##############################################################################
 # IEEE 802.3 Ethernet / Ethernet II Frame:
 .struct 0
@@ -589,8 +697,13 @@ net_arp_handle:
 protocol_arp_response:
 	# set up ethernet frame
 
+	NET_BUFFER_GET
+	jc	9f
+	push	edi
+
+#	mov	esi, edi	# esi = start of packet, edi = end of packet
+
 	# destination mac
-	mov	edi, offset net_packet$
 
 	push	esi
 	add	esi, arp_src_mac
@@ -651,8 +764,10 @@ protocol_arp_response:
 
 	# done, send the packet.
 
+	pop	esi
+	# mov	ecx, edi
+	# sub	ecx, esi
 	mov	ecx, ARP_HEADER_SIZE + ETH_HEADER_SIZE
-	mov	esi, offset net_packet$
 
 	.if NET_ARP_DEBUG > 1
 		printlnc 11, "Sending ARP response"
@@ -660,7 +775,7 @@ protocol_arp_response:
 	.endif
 
 	call	[ebx + nic_api_send]	
-	ret
+9:	ret
 
 
 
@@ -717,21 +832,20 @@ net_arp_resolve_ipv4:
 	jmp	1b
 
 
-
 # in: eax = ip
 # in: ebx = nic
 arp_probe:
-	mov	edi, offset net_packet$
+	NET_BUFFER_GET
+	jc	9f
+	push	edi
 	mov	dx, ETH_PROTO_ARP
 	mov	esi, offset mac_bcast
 	call	net_eth_header_put
 	call	net_arp_header_put
 	mov	[edi - ARP_HEADER_SIZE + arp_src_ip], dword ptr 0
-	mov	esi, offset net_packet$
-	mov	ecx, edi
-	sub	ecx, esi
-	call	[ebx + nic_api_send]
-	ret
+	pop	esi
+	NET_BUFFER_SEND
+9:	ret
 
 # in: ebx = nic
 # in: eax = ip
@@ -743,13 +857,19 @@ arp_request:
 		call net_print_ip
 	.endif
 	push	edi
+	push	ecx
+	push	esi
+
+	NET_BUFFER_GET
+	jc	6f
+	push	edi
+
 	# in: ebx = nic object
 	# in: edi = packet buffer
 	# in: dx = protocol
 	# in: esi = pointer to destination mac
 	# out: edi = updated packet pointer
 	push	edx
-	mov	edi, offset net_packet$
 	mov	dx, ETH_PROTO_ARP
 	mov	esi, offset mac_bcast
 	call	net_eth_header_put
@@ -760,22 +880,16 @@ arp_request:
 	# in: eax = target ip
 	call	net_arp_header_put
 
-	# in: esi
-	# in: ecx
-	push	ecx
-	push	esi
-	mov	esi, offset net_packet$
-	mov	ecx, edi
-	sub	ecx, esi
-	call	[ebx + nic_api_send]
 	pop	esi
-	pop	ecx
+	NET_BUFFER_SEND
 	jc	9f
 
 	mov	edi, [arp_table]
 	mov	byte ptr [edi + edx + arp_entry_status], ARP_STATUS_REQ
 
-0:	pop	edi
+0:	pop	esi
+	pop	ecx
+	pop	edi
 	ret
 
 9:	printlnc 4, "arp_request: send error"
@@ -906,21 +1020,22 @@ IPV4_HEADER_SIZE = .
 .text
 
 # in: edi = out packet
-# in: ebx = nic object (for src mac & ip)
 # in: dl = ipv4 sub-protocol
-# in: esi = destination mac
 # in: eax = destination ip
-# in: cx = payload length (without ethernet/ip frame)
+# in: ecx = payload length (without ethernet/ip frame)
 # out: edi = points to end of ethernet+ipv4 frames in packet
+# out: ebx = nic object (for src mac & ip) [calculated from eax]
+# out: esi = destination mac [calculated from eax]
 net_ipv4_header_put:
-	call	net_arp_resolve_ipv4
+	push	esi
+	call	net_arp_resolve_ipv4	# out: ebx=nic, esi=mac
 	jc	arp_err$
 
-	mov	edi, offset net_packet$
 	push	dx
 	mov	dx, 0x0800	# ipv4
 	call	net_eth_header_put # in: edi, ebx, eax, esi, dx, cx 
 	pop	dx
+
 	# out: edi points to end of ethernet frame, start of embedded protocol
 
 	mov	[edi + ipv4_v_hlen], byte ptr 0x45 # 4=version, 5*32b=hlen
@@ -944,25 +1059,25 @@ net_ipv4_header_put:
 	mov	[edi + ipv4_src], ecx
 
 	# checksum
-	push	esi
 	push	edi
 	mov	esi, edi
 	mov	edi, offset ipv4_checksum
 	mov	ecx, IPV4_HEADER_SIZE / 2
 	call	protocol_checksum
 	pop	edi
-	pop	esi
 	pop	ecx
 
 	add	edi, IPV4_HEADER_SIZE
 
+0:	pop	esi
 	ret
 
 arp_err$:
 	printlnc 4, "ARP error"
 	stc
-	ret
+	jmp	0b
 
+######
 
 net_ipv4_print:
 	printc 	COLOR_PROTO, "IPv4 "
@@ -1213,6 +1328,8 @@ icmp_checksum: .word 0
 icmp_id: .word 0
 icmp_seq: .word 0
 ICMP_HEADER_SIZE = .
+.data
+icmp_sequence$: .word 0
 .text
 # in: eax = target ip
 # in: esi = payload
@@ -1229,19 +1346,26 @@ net_icmp_header_put:
 	call	net_ipv4_header_put
 	jc	0f
 
+	sub	ecx, ICMP_HEADER_SIZE
+
 	mov	[edi + icmp_type], byte ptr 8	# ping request
 	mov	[edi + icmp_id], word ptr 0x0100# bigendian 1
-	.data
-	icmp_sequence$: .word 0
-	.text
 	mov	dx, [icmp_sequence$]
 	xchg	dl, dh
 	inc	word ptr [icmp_sequence$]
 	mov	[edi + icmp_seq], dx
 
+	push	edi
+	push	ecx
+	add	edi, ICMP_HEADER_SIZE
+	rep	movsb
+	pop	ecx
+	pop	edi
+
 	push	esi
 	push	ecx
 	push	edi
+	add	ecx, ICMP_HEADER_SIZE
 	shr	ecx, 1
 	mov	esi, edi
 	mov	edi, offset icmp_checksum
@@ -1250,15 +1374,9 @@ net_icmp_header_put:
 	pop	ecx
 	pop	esi
 
-	add	edi, ICMP_HEADER_SIZE
+	lea	edi, [edi + ecx + ICMP_HEADER_SIZE]
 
-	#rep	movsb
-
-	#mov	ecx, edi
-	#mov	esi, offset net_packet$
-	#sub	ecx, esi
-0:	
-	pop	ecx
+0:	pop	ecx
 	pop	edx
 	ret
 
@@ -2046,6 +2164,65 @@ net_tcp_conn_list:
 9:
 	ret
 
+
+TCP_DEBUG_COL_RX = 0xf9
+TCP_DEBUG_COL_TX = 0xfd
+TCP_DEBUG_COL    = 0xf3
+TCP_DEBUG_COL2   = 0xf2
+TCP_DEBUG_COL3   = 0xf4
+
+.macro TCP_DEBUG_CONN
+	push	eax
+	push	edx
+	pushcolor TCP_DEBUG_COL
+	print	"tcp["
+	mov	edx, eax
+	call	printdec32
+	print	"] "
+	popcolor
+	pop	edx
+	pop	eax
+.endm
+
+.macro TCP_DEBUG_REQUEST
+	pushcolor TCP_DEBUG_COL_RX
+	print "tcp["
+	color	TCP_DEBUG_COL2
+	push	edx
+	movzx	edx, word ptr [esi + tcp_sport]
+	xchg	dl, dh
+	call	printdec32
+	color	TCP_DEBUG_COL_RX
+	print "->"
+	color	TCP_DEBUG_COL2
+	movzx	edx, word ptr [esi + tcp_dport]
+	xchg	dl, dh
+	call	printdec32
+	pop	edx
+	color	TCP_DEBUG_COL_RX
+	print	"]: Rx ["
+	push	eax
+	mov	ax, [esi + tcp_flags]
+	xchg	al, ah
+	color	TCP_DEBUG_COL2
+	TCP_DEBUG_FLAGS ax
+	pop	eax
+	printc TCP_DEBUG_COL_RX "] "
+	popcolor
+.endm
+
+.macro TCP_DEBUG_FLAGS r=ax
+	PRINTFLAG ax, TCP_FLAG_NS, "NS "
+	PRINTFLAG ax, TCP_FLAG_CWR, "CWR "
+	PRINTFLAG ax, TCP_FLAG_ECE, "ECE "
+	PRINTFLAG ax, TCP_FLAG_URG, "URG "
+	PRINTFLAG ax, TCP_FLAG_ACK, "ACK "
+	PRINTFLAG ax, TCP_FLAG_PSH, "PSH "
+	PRINTFLAG ax, TCP_FLAG_RST, "RST "
+	PRINTFLAG ax, TCP_FLAG_SYN, "SYN "
+	PRINTFLAG ax, TCP_FLAG_FIN, "FIN "
+.endm
+
 # in: edx = ipv4 frame
 # in: esi = tcp frame
 # in: ecx = tcp frame len
@@ -2054,6 +2231,12 @@ net_ipv4_tcp_handle:
 
 	call	net_tcp_conn_get
 	jc	0f
+
+	.if NET_TCP_DEBUG
+		TCP_DEBUG_CONN
+		TCP_DEBUG_REQUEST
+	.endif
+
 	# known connection
 	call	net_tcp_conn_update
 	call	net_tcp_handle	# in: eax=tcp_conn idx, ebx=ip, esi=tcp,ecx=len
@@ -2062,19 +2245,47 @@ net_ipv4_tcp_handle:
 
 0:	# firewall: new connection
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_SYN
-	jz	9f # its not a new or known connection
+	jz	8f # its not a new or known connection
+
+	.if NET_TCP_DEBUG
+		pushcolor TCP_DEBUG_COL_RX
+		print	"tcp: Rx SYN "
+		color	TCP_DEBUG_COL2
+		push	edx
+		movzx	edx, word ptr [esi + tcp_dport]
+		xchg	dl, dh
+		call	printdec32
+		pop	edx
+		call	printspace
+		popcolor
+	.endif
 
 	# firewall / services:
 
 	call	net_tcp_service_get	# out: edi = handler
 	jc	9f
+	.if NET_TCP_DEBUG
+		printc TCP_DEBUG_COL, "tcp: ACCEPT SYN"
+	.endif
 	call	net_tcp_conn_newentry	# in: edx, esi, edi
 	call	net_tcp_handle_syn$
+	.if NET_TCP_DEBUG
+		call	newline
+	.endif
 	ret
 
 	#
-9:	printc 4, "tcp: incoming connection dropped: "
-9:	mov	eax, [edx + ipv4_src]
+8:	# unknown connection, not SYN
+	.if NET_TCP_DEBUG
+		TCP_DEBUG_REQUEST
+		printc TCP_DEBUG_COL3, "tcp: unknown connection"
+	.endif
+	jmp	1f
+9:	
+	.if NET_TCP_DEBUG
+		printc 0x8c, "tcp: DROP SYN: "
+	.endif
+1:	mov	eax, [edx + ipv4_src]
 	call	net_print_ip
 	printc 4, " port "
 	movzx	edx, word ptr [esi + tcp_dport]
@@ -2093,17 +2304,34 @@ net_tcp_handle:
 	# C->S  FIN, ACK  
 	# S->C  FIN, ACK
 	# C->S  ACK
+	.if NET_TCP_DEBUG
+		printc	TCP_DEBUG_COL_RX, "<"
+	.endif
+
+	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_SYN
+	jz	0f
+	.if NET_TCP_DEBUG
+		printc	TCP_DEBUG_COL_RX, "dup SYN"
+	.endif
+0:
+
 
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_ACK
 	jz	0f
+	.if NET_TCP_DEBUG
+		printc TCP_DEBUG_COL_RX, "ACK "
+	.endif
 	call	net_tcp_conn_update_ack
 0:
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_FIN
 	jz	0f
+	.if NET_TCP_DEBUG
+		printc TCP_DEBUG_COL_RX, "FIN "
+	.endif
 	# FIN
 
-	.if NET_TCP_CONN_DEBUG > 1
-		printc 12, "tcp: terminate connection: "
+	.if NET_TCP_DEBUG
+		printc TCP_DEBUG_COL_TX, "tcp: Tx "
 	.endif
 
 	push	eax
@@ -2114,25 +2342,36 @@ net_tcp_handle:
 	pop	eax
 	push	edx
 	push	ecx
+	.if NET_TCP_DEBUG
+		printc TCP_DEBUG_COL_TX, "ACK "
+	.endif
 	mov	dl, TCP_FLAG_ACK
 	jnz	1f
+	.if NET_TCP_DEBUG
+		printc TCP_DEBUG_COL_TX, "FIN "
+	.endif
 	or	dl, TCP_FLAG_FIN
 1:	xor	ecx, ecx
 	# send ACK [FIN]
 	call	net_tcp_send
 	pop	ecx
 	pop	edx
+	.if NET_TCP_DEBUG
+		call	newline
+	.endif
 	ret
 ########
 0:
-	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_ACK
-	jz	0f
-	call	net_tcp_conn_update_ack
-0:
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_PSH
 	jz	0f
+	.if NET_TCP_DEBUG
+		printc TCP_DEBUG_COL_RX, "PSH "
+	.endif
 	call	net_tcp_handle_psh
-0:
+0:	
+	.if NET_TCP_DEBUG
+		printlnc	TCP_DEBUG_COL_RX, ">"
+	.endif
 	ret
 
 
@@ -2163,6 +2402,7 @@ net_tcp_handle_psh:
 	mov	edi, [tcp_connections]
 	add	edi, eax
 	mov	edi, [edi + tcp_conn_handler]
+DEBUG_DWORD edi
 	add	edi, [realsegflat]
 	pushad
 	call	edi
@@ -2406,8 +2646,13 @@ net_service_tcp_http:
 net_tcp_send:
 	push	esi
 	push	eax
+	push	ebp
+	lea	ebp, [esp + 4]
 
-	mov	edi, offset net_packet$
+	NET_BUFFER_GET
+	jc	9f
+	push	edi
+
 	push	esi
 	push	edx
 	push	ecx
@@ -2459,6 +2704,14 @@ net_tcp_send:
 	xchg	al, ah
 	mov	[edi + tcp_flags], ax
 
+	.if NET_TCP_DEBUG
+		pushcolor TCP_DEBUG_COL_TX
+		print "Tx "
+		xchg	al, ah
+		TCP_DEBUG_FLAGS ax
+		popcolor
+	.endif
+
 	mov	[edi + tcp_windowsize], word ptr 0x20
 
 	mov	[edi + tcp_checksum], word ptr 0
@@ -2477,7 +2730,7 @@ net_tcp_send:
 	# calculate checksum
 
 	# in: eax = tcp conn
-	mov	eax, [esp]
+	mov	eax, [ebp]
 	# in: esi = tcp frame pointer
 	mov	esi, edi
 	# in: ecx = tcp frame len
@@ -2486,8 +2739,8 @@ net_tcp_send:
 
 	# send packet
 
-	add	ecx, edi
-	mov	esi, offset net_packet$
+	pop	esi
+	add	ecx, edi	# add->mov ?
 	sub	ecx, esi
 	call	[ebx + nic_api_send]
 	jc	9f
@@ -2506,7 +2759,8 @@ net_tcp_send:
 	or	dh, TCP_CONN_STATE_FIN_ACK_TX
 1:	or	[eax + tcp_conn_state], dh
 
-9:	pop	eax
+9:	pop	ebp
+	pop	eax
 	pop	esi
 	ret
 
@@ -2529,7 +2783,10 @@ net_tcp_handle_syn$:
 	_TCP_OPTS = 12	# mss (4), ws (3), nop(1), sackp(2), nop(2)
 	_TCP_HLEN = (TCP_HEADER_SIZE + _TCP_OPTS)
 
-	mov	edi, offset net_packet$
+	NET_BUFFER_GET
+	jc	9f
+	push	edi
+
 	mov	eax, [edx + ipv4_src]
 	push	edx
 	mov	dl, IP_PROTOCOL_TCP
@@ -2544,8 +2801,8 @@ net_tcp_handle_syn$:
 	# add tcp header
 	push	edi
 	push	ecx
-	mov	ecx, TCP_HEADER_SIZE
-	xor	eax, eax
+	mov	ecx, _TCP_HLEN
+	xor	al, al
 	rep	stosb
 	pop	ecx
 	pop	edi
@@ -2575,6 +2832,9 @@ net_tcp_handle_syn$:
 	mov	[edi + tcp_seq], eax
 
 	mov	ax, TCP_FLAG_SYN | TCP_FLAG_ACK | ((_TCP_HLEN/4)<<12)
+	.if NET_TCP_DEBUG
+		printc TCP_DEBUG_COL_TX, "tcp: Tx SYN ACK"
+	.endif
 	xchg	al, ah
 	mov	[edi + tcp_flags], ax
 
@@ -2593,7 +2853,10 @@ net_tcp_handle_syn$:
 	add	esi, TCP_HEADER_SIZE
 	mov	esi, edi
 	add	edi, TCP_HEADER_SIZE
-	add	edi, 3*4
+	mov	eax, 0x01010101	# 'nop'
+	stosd
+	stosd
+	stosd
 	.else
 	call	net_tcp_copyoptions
 	.endif
@@ -2601,7 +2864,7 @@ net_tcp_handle_syn$:
 	# calculate checksum
 
 	# in: eax = tcp_conn
-	mov	eax, [esp]
+	mov	eax, [ebp - 4]
 	# in: esi = tcp frame pointer
 	# in: ecx = tcp frame len
 	mov	ecx, _TCP_HLEN
@@ -2610,10 +2873,8 @@ net_tcp_handle_syn$:
 
 	# send packet
 
-	mov	ecx, edi
-	mov	esi, offset net_packet$
-	sub	ecx, esi
-	call	[ebx + nic_api_send]
+	pop	esi
+	NET_BUFFER_SEND
 
 9:	pop	eax
 	jc	1f
@@ -2891,16 +3152,18 @@ net_ivp4_icmp_print:
 # in: esi - edx = ipv4 header length
 protocol_icmp_ping_response:
 
-	# set up ethernet and ip frame
-
-	# in: ebx = nic object (for src mac & ip (ip currently static))
 	# in: edi = out packet
-	mov	edi, offset net_packet$
+	NET_BUFFER_GET
+	jc	9f
+	push	edi
+
+	# set up ethernet and ip frame
 
 	push	esi
 	# in: eax = destination ip
 	mov	eax, [edx + ipv4_src]
 	# in: esi = destination mac
+	# in: ebx = nic object (for src mac & ip (ip currently static))
 	lea	esi, [edx - ETH_HEADER_SIZE + eth_src]
 
 # FIXME bypass arp lookup - this code is triggered from the NIC ISR and thus
@@ -2948,19 +3211,14 @@ call arp_table_put_mac
 
 	# done, send the packet.
 
-	mov	ecx, ICMP_HEADER_SIZE + IPV4_HEADER_SIZE + ETH_HEADER_SIZE + 32
-	mov	esi, offset net_packet$
-
 	.if NET_ICMP_DEBUG
 		printlnc 11, "Sending ICMP PING response"
-	.if NET_ICMP_DEBUG > 1
-		call	net_packet_hexdump
-		DEBUG_DWORD ebx
-	.endif
 	.endif
 
+	pop	esi
+	mov	ecx, ICMP_HEADER_SIZE + IPV4_HEADER_SIZE + ETH_HEADER_SIZE + 32
 	call	[ebx + nic_api_send]
-	ret
+9:	ret
 
 ###########################################################################
 # UDP
@@ -3171,6 +3429,10 @@ net_dns_request:
 	.data
 	dns_server_ip: .byte 192, 168, 1, 1
 	.text
+
+	NET_BUFFER_GET
+	push	edi
+
 	# 6:
 	# 1 byte trailing zero for domain name
 	# 1 byte leading zero for first name-part
@@ -3186,7 +3448,6 @@ net_dns_request:
 	# in: eax = destination ip
 	mov	eax, [dns_server_ip]
 	# in: edi = out packet
-	mov	edi, offset net_packet$
 	# in: ebx = nic object (for src mac & ip (ip currently static))
 	# in: dl = ipv4 sub-protocol
 	mov	dl, IP_PROTOCOL_UDP
@@ -3246,10 +3507,8 @@ net_dns_request:
 	mov	ax, 1 << 8	# Class IN
 	stosw
 
-	mov	esi, offset net_packet$
-	mov	ecx, edi
-	sub	ecx, esi
-	call	[ebx + nic_api_send]
+	pop	esi
+	NET_BUFFER_SEND
 
 9:	ret
 
@@ -3517,26 +3776,16 @@ cmd_route:
 
 ############################################################################
 
-cmd_ping:
-	lodsd
-	lodsd
-	or	eax, eax
-	jz	9f
-	call	net_parse_ip
-	jc	9f
-
-	print	"Pinging "
-	call	net_print_ip
-	print	": "
-
-	# Construct Packet
-	mov	ecx, 32
-	mov	esi, offset mac_bcast
-	mov	edi, offset net_packet$
-	call	net_icmp_header_put	# in: edi, eax, esi, ecx
-	jc	9f
-
+.data SECTION_DATA_BSS
+icmp_payload$: .space 32
+.text
+icmp_get_payload:
 	# payload
+	mov	esi, offset icmp_payload$
+
+	# 30 bytes code, generating 32 bytes
+	push	edi
+	mov	edi, esi
 	push	eax
 	mov	ecx, 23
 	mov	al, 'a'
@@ -3549,13 +3798,41 @@ cmd_ping:
 	inc	al
 	loop	0b
 	pop	eax
+	pop	edi
+	mov	ecx, 32
+	ret
 
+
+cmd_ping:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	9f
+	call	net_parse_ip
+	jc	9f
+
+	print	"Pinging "
+	call	net_print_ip
+	print	": "
+
+########
+	NET_BUFFER_GET
+	jc	6f
+	push	edi
+
+	# Construct Packet
+	call	icmp_get_payload	# out: esi, ecx
+	call	net_icmp_header_put	# in: edi, eax, esi, ecx
+	jnc	0f
+	pop	edi
+	jmp	6f
+0:
 	call	net_icmp_register_request
 
-	mov	esi, offset net_packet$
-	mov	ecx, edi
-	sub	ecx, esi
-	call	[ebx + nic_api_send]
+	pop	esi
+
+	NET_BUFFER_SEND
+
 
 	# Wait for response
 
@@ -3573,7 +3850,7 @@ cmd_ping:
 	call	net_print_ip
 	call	newline
 	dec	byte ptr [eax + edx + 0] # not really needed
-
+########
 6:	ret
 9:	printlnc 12, "usage: ping <ip>"
 	ret
