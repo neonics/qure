@@ -6,7 +6,7 @@ SECTION_DATA_STRINGS = 3
 SECTION_DATA_BSS = 4
 
 DEBUG = 3
-.include "debug.s"
+
 .include "realmode.s"
 .data
 data_0_start:
@@ -19,6 +19,7 @@ kernel_start:
 ###################################
 DEFINE = 1
 .include "print.s"
+.include "debug.s"
 .include "debugger.s"
 .include "pmode.s"
 .include "pit.s"
@@ -40,6 +41,7 @@ DEFINE = 1
 .include "fs.s"
 .include "partition.s"
 .include "fat.s"
+.include "sfs.s"
 
 .include "iso9660.s"
 

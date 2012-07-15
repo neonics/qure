@@ -2,6 +2,7 @@
 
 CMDLINE_DEBUG = 1	# 1: include cmdline_print_args$;
 			# 2: 
+SHELL_DEBUG_FS = 0
 
 MAX_CMDLINE_LEN = 1024
 
@@ -59,6 +60,7 @@ SHELL_COMMAND "pwd",		cmd_pwd$
 SHELL_COMMAND "disks",		cmd_disks_print$
 SHELL_COMMAND "listdrives",	ata_list_drives
 SHELL_COMMAND "fdisk",		cmd_fdisk$
+SHELL_COMMAND "mkfs",		cmd_sfs_format
 SHELL_COMMAND "partinfo",	cmd_partinfo$
 SHELL_COMMAND "mount",		cmd_mount$
 SHELL_COMMAND "umount",		cmd_umount$
@@ -978,7 +980,10 @@ cmd_cd$:
 	jc	6f
 	mov	[cwd_handle$], eax
 
+	.if SHELL_DEBUG_FS
 	call	fs_handle_printinfo
+	call	newline
+	.endif
 
 	# copy path:
 	mov	ecx, edi
@@ -1006,13 +1011,64 @@ tmp_buf$: .space 2 * 512
 
 cmd_ls$:
 	mov	eax, offset cwd$
-	printc	11, "ls "
-	mov	esi, eax
-	call	println
-DEBUG_REGSTORE
-	call	fs_opendir
-DEBUG_REGDIFF
-	ret
+	.if SHELL_DEBUG_FS
+		printc	11, "ls "
+		mov	esi, eax
+		call	println
+	.endif
+	call	fs_opendir	# out: eax
+	jc	9f
+
+	printlnc 11, "Directory Listing:"
+0:	call	fs_nextentry	# in: eax; out: esi
+	jc	0f
+	push	eax
+
+	DIRENT_SIZE_ALIGN = 10
+	.data
+	55: .space DIRENT_SIZE_ALIGN
+	.text
+
+	mov	edx, [esi + fs_dirent_size]
+	mov	edi, offset 55b
+	call	sprintdec32
+	sub	edi, offset 55b
+	mov	ecx, DIRENT_SIZE_ALIGN
+	sub	ecx, edi
+	mov	al, ' '
+4:	call	printchar
+	loop	4b
+	push	esi
+	mov	esi, offset 55b
+	call	print
+	pop	esi
+	call	printspace
+
+	# print attr
+	mov	dl, [esi + fs_dirent_attr]
+	call	printhex2
+	call	printspace
+	LOAD_TXT "RHSVDA78", ebx
+	mov	ecx, 8
+1:	mov	al, ' '
+	shr	dl, 1
+	jnc	2f
+	mov	al, [ebx]
+2:	call	printchar
+	inc	ebx
+	loop	1b
+
+	call	printspace
+	call	print
+
+
+
+	call	newline
+	pop	eax
+	jmp	0b
+
+0:	call	fs_close	# in: eax
+9:	ret
 
 
 

@@ -50,6 +50,43 @@ PT_SECTORS: .long 0
 # 0x97	Hidden FAT32 (0x0b)
 # 0x97	Hidden FAT32 (0x0b)
 
+# http://en.wikipedia.org/wiki/GUID_Partition_Table
+.struct 0 #GUID Parition Table - LBA 1  (LBA 0 remains MBR, with 1 0xEE part)
+gpt_sig:	.long 0,0	# signature	"EFI PART"
+gpt_rev:	.long 0		# revision	0,0,1,0
+gpt_hsize:	.long 0		# header size	5c,0,0,0  (92 bytes)
+gpt_crc32:	.long 0
+gpt_reserved:	.long 0
+gpt_cur_lba:	.long 0, 0
+gpt_bkp_lba:	.long 0, 0
+gpt_first_lba:	.long 0, 0	# prim ptable last lba +1
+gpt_last_lba:	.long 0, 0	# sec ptable first lba -1
+gpt_disk_guid:	.space 16
+gpt_pt_lba:	.long 0, 0	# parttion entries lba - 2 in prim
+gpt_pt_num:	.long 0
+gpt_pt_entsize:	.long 0		# size of partition entry (128)
+gpt_pt_crc32:	.long 0		# crc of partition array
+# the rest of the block is reserved (420 bytes for 512b)
+
+.struct 0
+gpte_type_guid:	.space 16
+	# EFI System	{C12A7328-F81F-11D2-BA4B-00A0C93EC93B}
+	# The first 3 blocks are stored little endian:
+	#   28 73 2a c1 - 1f f8 - d2 11 
+	# the last 2 blocks are as is:
+	#   ba 4b - 00 a0 c9 3e c9 3b
+gpte_uniq_guid:	.space 16 # unique partition guid
+gpte_first_lba:	.long 0, 0
+gpte_last_lba:	.long 0, 0	# inclusice
+gpte_attr:	.long 0, 0	# bit 60 = readonly
+	GPTE_ATTR_BIT_SYSTEM = 0
+	GPTE_ATTR_BIT_BOOTABLE = 2
+	GPTE_ATTR_RO = 60
+	GPTE_ATTR_H  = 62
+	GPTE_ATTR_NO_AUTO_MOUNT = 63
+gpte_name:	.space 72	# 36 UTF-16LE chars
+
+
 MAX_PARTITIONS = 64
 
 .data
@@ -65,6 +102,8 @@ disk_ptables$: .space ATA_MAX_DRIVES * 4
 # out: esi = pointer to the ptables info for the disk: all partition tables
 #  for the disk, concatenated: MBR, and optionally EBR's. esi is an array.
 disk_read_partition_tables:
+	call	ata_is_disk_known
+	jc	disk_err_unknown_disk$
 	push	eax
 	push	ecx
 	push	ebx
@@ -157,7 +196,8 @@ disk_load_partition_table$:
 	pop	edi
 0:	ret
 
-2:	call	disk_ptable_print$
+2:
+	call	disk_ptable_print$
 	# sets carry on error (which is why this code is run)
 	jmp	1b
 
@@ -199,7 +239,7 @@ disk_get_buf_$:
 	jnz	0f
 	push	eax
 	mov	eax, ecx
-	call	malloc
+	call	mallocz
 	mov	edi, eax
 	pop	eax
 	mov	[ebx + eax * 4], edi
@@ -443,9 +483,14 @@ disk_ptables_print$:
 cmd_fdisk$:
 	cmp	[esi + 4], dword ptr 0
 	jne	1f
-0:	printlnc 12, "Usage: fdisk [-l] <drive>"
+fdisk_print_usage$:
+0:	printlnc 12, "Usage: fdisk [-l] [cmd] [args] <drive>"
 	printlnc 12, " -l:    large: use 255 heads in CHS/LBA calculations"
 	printlnc 12, "        for harddisks larger than 0x100000 sectors (512Mb)"
+	printlnc 12, "  cmd:  list - the default; lists the partition table"
+	call	newline
+	printlnc 12, "        init - writes the partition table"
+	printlnc 12, "             args:  -t [nr]   : select partition, set partition type (hex)"
 	printlnc 12, " drive: hdX with X lowercase alpha (hda, hdb, ...)"
 	printlnc 12, "Run 'disks' to see available disks."
 	ret
@@ -466,11 +511,10 @@ cmd_fdisk$:
 
 	printcharc 4, '!'
 
-	mov	eax, [esi]
-
+	lodsd
 	call	disk_parse_drivename
 	jc	0b
-
+	mov	dx, ax	# remember partition/drive
 1:
 	# now check other arguments
 
@@ -479,8 +523,7 @@ cmd_fdisk$:
 
 	xor	ebx, ebx	# command ptr
 
-	add	esi, 4
-	mov	eax, [esi]
+	lodsd
 	or	eax, eax
 	jz	1f
 
@@ -529,14 +572,15 @@ cmd_fdisk$:
 	println	" heads)"
 	pop	edx
 
-	call	disk_read_partition_tables
-	jc	0f
 #######
 	or	ebx, ebx
 	jz	1f
 	add	ebx, [realsegflat]
 	jmp	ebx
 1:
+	call	disk_read_partition_tables
+	jc	0f
+
 	mov	ebx, [esi + buf_index]
 	shr	ebx, 4
 	call	disk_ptables_print$
@@ -544,9 +588,25 @@ cmd_fdisk$:
 0:	printlnc 12, "error reading partition tables"
 	ret
 
+# in: dx = ax = partition/drive
 fdisk_cmd_init$:
-	push	eax
-	push	ecx
+
+	mov	edi, 0x99
+
+	lodsd
+	or	eax, eax
+	jz	0f
+	CMD_ISARG "-t"
+	jnz	fdisk_print_usage$
+	lodsd
+	call	htoi
+	jc	fdisk_print_usage$
+	mov	edi, eax
+	cmp	edi, 255
+	ja	fdisk_print_usage$
+
+0:
+
 	printlnc 11, "fdisk initialize"
 
 	xor	ebx, ebx	# first sector
@@ -560,6 +620,61 @@ fdisk_cmd_init$:
 1:
 	print	"Writing bootsector to "
 	call	disk_print_label
+
+	call	reallysure
+
+	printc 13, "Writing partition table to "
+	call	disk_print_label
+	call	newline
+
+	# prepare the bootsector
+	push	eax
+	mov	eax, 512
+	call	mallocz
+	mov	esi, eax
+	pop	eax
+	jc	1f
+
+	mov	word ptr [esi + 512 - 2], 0xaa55
+	mov	[esi + 446 + PT_STATUS], byte ptr 0x80
+	mov	[esi + 446 + PT_CHS_START + 1], byte ptr 2
+	mov	[esi + 446 + PT_TYPE], edi	# guaranteed to be <256
+	mov	[esi + 446 + PT_LBA_START], dword ptr 1
+	push	eax
+	call	ata_get_capacity
+	or	edx, edx
+	jz	2f
+	printlnc 12, "Warning: Disk capacity too large, truncating"
+	mov	eax, -1
+2:	mov	edx, eax
+	call	lba_to_chs
+	mov	[esi + 446 + PT_CHS_END], eax
+	pop	eax
+	mov	[esi + 446 + PT_SECTORS], edx
+	mov	[esi + 446 + PT_LBA_START], dword ptr 1 # chs_end overwrites
+
+	#
+
+	mov	ecx, 1	# 1 sector
+	mov	ebx, 0	# address 0
+	push	esi
+	call	ata_write
+	pop	esi
+
+	mov	eax, esi
+	call	mfree
+	
+	ret
+
+1:	printlnc 12, "Aborted."
+	pop	eax
+	ret
+
+
+reallysure:
+	push	ecx
+	push	eax
+
 	printc 0xc1, " Are you sure?"
 	
 	mov	ecx, 2
@@ -592,54 +707,9 @@ fdisk_cmd_init$:
 
 	printc 0xc1, "Are you really sure?"
 	jmp	0b
-
-0:	printc 13, "Writing partition table to "
+1:	stc
+0:	pop	eax
 	pop	ecx
-	pop	eax
-	call	disk_print_label
-	call	newline
-
-	.data
-	9: .space 446
-	8: #.space 16
-		.byte 0x80
-		.byte 0, 2, 0
-		.byte 6
-		.byte 0, 0, 0
-		.long 1
-		.long 0
-	7: .space 16
-	6: .space 16
-	5: .space 16
-	.byte 0x55, 0xaa
-	.text
-
-	push	eax
-	call	ata_get_capacity
-	or	edx, edx
-	jz	2f
-	printlnc 12, "Warning: Disk capacity too large, truncating"
-	mov	eax, -1
-2:	mov	edx, eax
-	call	lba_to_chs
-	mov	[8b + PT_CHS_END], eax
-	pop	eax
-
-	mov	[8b + PT_LBA_START], dword ptr 1
-	mov	[8b + PT_SECTORS], edx
-
-
-	#
-
-	mov	esi, offset 9b
-	mov	ecx, 1	# 1 sector
-	mov	ebx, 0	# address 0
-	call	ata_write
-	
-	ret
-
-1:	printlnc 12, "Aborted."
-	pop	eax
 	ret
 
 # This method includes the verification from disk_br_verify.
@@ -651,6 +721,7 @@ disk_ptable_print$:
 	# check for bootsector
 	cmp	word ptr [esi + 512 - 2], 0xaa55
 	je	1f
+	printlnc 4, "invalid partition table"
 	stc
 	ret
 
@@ -871,7 +942,7 @@ disk_parse_drivename:
 	mov	ah, -1
 	cmp	byte ptr [esi], 0
 	jz	0f
-
+#jmp 1f # parse partition nr
 	mov	ebx, esi
 	LOAD_TXT "trailing characters"
 	jmp	5f
@@ -899,7 +970,7 @@ disk_parse_partition_label:
 	mov	dl, al
 	
 	# now, parse the partition. might be two decimals (extended etc..)
-	mov	ebx, esi	# for error message
+1:	mov	ebx, esi	# for error message
 	mov	eax, esi
 	call	atoi
 	jc	4f

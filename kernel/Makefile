@@ -19,7 +19,7 @@ HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s \
 
 NET_SRC = net.s
 
-FS_SRC = fs.s iso9660.s partition.s fat.s
+FS_SRC = fs.s iso9660.s partition.s fat.s sfs.s
 
 
 kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s $(FS_SRC) $(NET_SRC) \

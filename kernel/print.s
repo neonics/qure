@@ -874,7 +874,7 @@ sprintdec32:
 	jz	1f
 	stosb
 	jmp	0b
-1:
+1:	mov	[edi], byte ptr 0
 	pop	ecx
 	pop	ebx
 	pop	eax

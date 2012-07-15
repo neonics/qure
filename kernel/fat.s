@@ -76,21 +76,13 @@ fs_fat16_class:
 .long fs_fat16b_umount	# destructor
 .long fs_fat16_opendir
 .long fs_fat16_close
+.long fs_fat16_nextentry
 
-.struct 0
-fs_class:		.long 0
-
-fat_disk$:		.byte 0
-fat_partition$:		.byte 0
-
-fat_partition_start_lba$:.long 0
-fat_partition_size_sectors$: .long 0
-fat_partition_end_lba$:	.long 0
-
+.struct FS_OBJ_STRUCT_SIZE
 fat_buf$:		.long 0
 fat_fatbuf$:		.long 0
 
-# The LBA addresses here are partition-relative: add fat_partition_start_lba.
+# The LBA addresses here are partition-relative: add fs_obj_p_start_lba.
 fat_lba$:		.long 0
 fat_clustersize$:	.long 0	# sectors per cluster
 fat_sectorsize$:	.long 0	# 0x200
@@ -174,10 +166,10 @@ fs_fat16b_mount:
 	# allocate fat structure + sector
 	push	eax
 	mov	eax, 512 + FAT_STRUCT_SIZE
-	call	malloc
+	call	mallocz
 	mov	edi, eax
 	pop	eax
-	mov	[edi + fat_disk$], ax
+	mov	[edi + fs_obj_disk], ax
 	add	edi, FAT_STRUCT_SIZE
 	# load sector
 	push	eax
@@ -200,12 +192,12 @@ fs_fat16b_mount:
 	sub	edi, FAT_STRUCT_SIZE
 	call	fs_fat16_calculate
 
-	mov	[edi + fs_class], dword ptr offset fs_fat16_class
+	mov	[edi + fs_obj_class], dword ptr offset fs_fat16_class
 
 	# allocate a sector buffer
 	push	eax
 	mov	eax, 512
-	call	malloc
+	call	mallocz
 	mov	[edi + fat_buf$], eax
 	pop	eax
 
@@ -221,7 +213,7 @@ fs_fat16b_mount:
 
 	# we'll assume for the malloc that the size is < 4Gb
 	push	eax
-	call	malloc
+	call	mallocz
 	mov	[edi + fat_fatbuf$], eax
 	pop	eax
 
@@ -249,10 +241,10 @@ fs_fat16b_mount:
 		DEBUG "sectors at LBA "
 
 	mov	ebx, [edi + fat_lba$]
-	add	ebx, [edi + fat_partition_start_lba$]
+	add	ebx, [edi + fs_obj_p_start_lba]
 		DEBUG_DWORD ebx
 
-	mov	al, [edi + fat_disk$]
+	mov	al, [edi + fs_obj_disk]
 	mov	edi, [edi + fat_fatbuf$]
 	call	ata_read
 	# out: cf
@@ -369,17 +361,17 @@ fs_fat16_calculate:
 
 	# partition start
 	mov	eax, [esi + BPB_HIDDEN_SECTORS]
-	mov	[edi + fat_partition_start_lba$], eax
+	mov	[edi + fs_obj_p_start_lba], eax
 
 	# partition size
 	movzx	edx, word ptr [esi + BPB_SMALL_SECTORS]
 	or	edx, edx
 	jnz	1f
 	mov	edx, [esi + BPB_LARGE_SECTORS]
-1:	mov	[edi + fat_partition_size_sectors$], edx
+1:	mov	[edi + fs_obj_p_size_sectors], edx
 	# partition end
 	add	edx, eax
-	mov	[edi + fat_partition_end_lba$], edx
+	mov	[edi + fs_obj_p_end_lba], edx
 
 
 	## Calculate start of first FAT
@@ -436,7 +428,7 @@ fs_fat16_calculate:
 	mov	edx, [edi + fat_lba$]
 	call	printhex8
 	PRINTc 10, "  Offset: "
-	add	edx, [edi + fat_partition_start_lba$]
+	add	edx, [edi + fs_obj_p_start_lba]
 	shl	edx, 9
 	call	printhex8
 	PRINTc 10, " Size: "
@@ -449,7 +441,7 @@ fs_fat16_calculate:
 	mov	edx, [edi + fat_root_lba$]
 	call	printhex8
 	PRINTc 10, "  Offset: "
-	add	edx, [edi + fat_partition_start_lba$]
+	add	edx, [edi + fs_obj_p_start_lba]
 	shl	edx, 9
 	call	printhex8
 	PRINTc 10, " Size: "
@@ -462,7 +454,7 @@ fs_fat16_calculate:
 	mov	edx, [edi + fat_user_lba$]
 	call	printhex8
 	PRINTc 10, "  Offset: "
-	add	edx, [edi + fat_partition_start_lba$]
+	add	edx, [edi + fs_obj_p_start_lba]
 	shl	edx, 9
 	call	printhex8
 	call	newline
@@ -503,8 +495,10 @@ fs_fat16_opendir:
 	mov	ebx, [eax + fat_root_lba$]
 	call	fs_fat16_load_directory$
 	jc	1f
-	call	fs_fat16_print_directory$
-	clc
+	.if FS_DEBUG > 1
+		call	fs_fat16_print_directory$
+		clc
+	.endif
 	jmp	1f
 
 0:
@@ -558,8 +552,10 @@ fs_fat16_opendir:
 	call	fs_fat16_load_directory$
 	jc	3f
 
-	call	fs_fat16_print_directory$
-	clc
+	.if FS_DEBUG > 1
+		call	fs_fat16_print_directory$
+		clc
+	.endif
 3:	pop	edx
 2:	pop	edi
 ##
@@ -702,16 +698,16 @@ fs_fat16_find_entry$:
 
 # in: eax = fs_instance pointer
 # in: ebx = directory handle (LBA address)
-# out: edi = buffer
+# out: edi = buffer [eax+fat_buf$]
 fs_fat16_load_directory$:
 	push	eax
 	push	ebx
 	push	ecx
 	push	edi
 	mov	ecx, 1
-	add	ebx, [eax + fat_partition_start_lba$]
+	add	ebx, [eax + fs_obj_p_start_lba]
 	mov	edi, [eax + fat_buf$]
-	mov	al, [eax + fat_disk$]
+	mov	al, [eax + fs_obj_disk]
 	call	ata_read
 	pop	edi
 	pop	ecx
@@ -726,9 +722,72 @@ fs_fat16_load_directory$:
 #fat_root_lba$:		.long 0
 #fat_user_lba$:		.long 0
 
+# in: eax = fs info
+# in: ebx = dir handle
+# in: ecx = cur entry
+# in: edi = fs dir entry struct
+# out: ecx = next entry (-1 for none)
+# out: edx = directory name
+fs_fat16_nextentry:
+	cmp	ecx, 512
+	jae	1f
+
+	mov	edx, [eax + fat_buf$]
+	add	edx, ecx
+	cmp	byte ptr [edx], 0
+	stc
+	jz	1f
+
+	push	ecx
+	push	esi
+	mov	esi, edx
+	push	edi
+	lea	edi, [edi + fs_dirent_name]
+	mov	ecx, 8
+0:	lodsb
+	cmp	al, ' '
+	jz	0f
+	stosb
+	loop	0b
+0:	
+	lea	esi, [edx + 8]
+	lodsb
+	cmp	al, ' '
+	jz	2f
+	mov	byte ptr [edi], '.'
+	inc	edi
+	stosb
+	.rept 2
+	lodsb
+	cmp	al, ' '
+	jz	2f
+	stosb
+	.endr
 
 
+2:	xor	al,al
+	stosb
 
+	pop	edi
+	pop	esi
+
+	mov	cl, [edx + FAT_DIR_ATTRIB]
+	mov	[edi + fs_dirent_attr], cl
+	mov	ecx, [edx + FAT_DIR_SIZE]
+	mov	[edi + fs_dirent_size], ecx
+	mov	[edi + fs_dirent_size + 4], dword ptr 0
+	pop	ecx
+
+	add	ecx, 32
+	jmp	0f
+
+1:	mov	ecx, -1
+	stc
+0:	ret
+
+
+# in: eax = fs info
+# in: [eax + fat_buf$] = sector buffer
 fs_fat16_print_directory$:
 	push	esi
 	push	ebx

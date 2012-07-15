@@ -3,11 +3,13 @@
 .code32
 
 .macro BREAKPOINT label
+	pushf
 	push 	eax
 	PRINTC 0xf0, "\label"
 	xor	eax, eax
 	call	keyboard
 	pop	eax
+	popf
 .endm
 
 BREAKPOINT "foo"
