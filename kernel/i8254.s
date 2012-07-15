@@ -121,16 +121,6 @@ I8254_IMC	= 0x00d8	# Interrupt mask clear
 	IR_TXD_LOW	= 1 << 15
 /*Rx*/	IR_SRPD		= 1 << 16	# small receive packet detection
 			# 32:17 reserved
-# Intel advises against using RDTR and RADV in favour of ITR.
-I8254_RDTR	= 0x2820	# Receive Interrupt Delay Timer
-	RDTR_DELAY	= (1<<16)-1	# 16 bits * 1.024 microsec
-					# set to 0: disable RDTR and RADV
-			# 30:16 reserved
-	RDTR_FPD	= 1 << 31	# flush partial descriptor block
-					# reads as 0b (self-clearing)
-I8254_RADV	= 0x282c	# Receive Interrupt Absolute Delay timer
-				# 16 bit delay timer * 1.024 microsec
-				# 31:16 reserved.
 
 I8254_RSRPD	= 0x2c00	# Receive Small Packet Detect Interrupt
 				# 12 bits min packet size; rest reserved.
@@ -204,7 +194,16 @@ I8254_RDLEN	= 0x2808	# Receive Descriptor Length (multiple of 128
 				# is 16 bytes: 128/16 = multiple of 8 descr.
 I8254_RDH	= 0x2810	# Receive Descriptor Head; bits 31:16 reserved
 I8254_RDT	= 0x2818	# Receive Descriptor Tail; bits 31:16 reserved
-
+# Intel advises against using RDTR and RADV in favour of ITR.
+I8254_RDTR	= 0x2820	# Receive Interrupt Delay Timer
+	RDTR_DELAY	= (1<<16)-1	# 16 bits * 1.024 microsec
+					# set to 0: disable RDTR and RADV
+			# 30:16 reserved
+	RDTR_FPD	= 1 << 31	# flush partial descriptor block
+					# reads as 0b (self-clearing)
+I8254_RADV	= 0x282c	# Receive Interrupt Absolute Delay timer
+				# 16 bit delay timer * 1.024 microsec
+				# 31:16 reserved.
 
 
 I8254_TDBAL	= 0x3800	# Transmit Descriptor Base Address low
@@ -212,6 +211,15 @@ I8254_TDBAH	= 0x3804	# Transmit Descriptor Base Address high
 I8254_TDLEN	= 0x3808	# Transmit Descriptor len
 I8254_TDH	= 0x3810	# Transmit Descriptor Head
 I8254_TDT	= 0x3818	# Transmit Descriptor Tail
+I8254_TIDV	= 0x3820	# Transmit Interrupt Delay Value (0 not allowed)
+	
+I8254_TXDCTL	= 0x3828	# Transmit Descriptor Control
+	TXDCTL_PTHRESH	= 0b111111	# prefetch threshold
+	TXDCTL_HTHRESH	= 0b111111 << 8	# host threshold
+	TXDCTL_WTHRESH	= 0b111111 << 16# write back thresh
+	TXDCTL_GRAN	= 1 << 24	# 1=txd gran:16b;0=cache line gran:512b
+	TXDCTL_LWTHRES	= 0b1111111 << 25# txd low threshold
+
 
 # 16 registers, 8 dword pairs, each 64 bit pair contains 48 bit MAC address.
 # The 2nd pair starts at 5408.
@@ -348,41 +356,8 @@ i8254_init:
 	mov	al, [ebx + dev_irq]
 	call	pic_enable_irq_line32
 
-
-	### section 14.4 from developer manual: Receive Initialisation
-
-	mov	dx, [ebx + dev_io]
-
-	## configure RAL/RAH
-
-	# read mac
-	I8254_READ RAL
-	mov	[ebx + nic_mac], eax
-	I8254_READ RAH
-	mov	[ebx + nic_mac + 4 ], ax
-
-	## initialize MTA to 0b
-	mov	ecx, 128
-0:	mov	eax, 128
-	sub	eax, ecx
-	shl	eax, 2
-	add	eax, I8254_MTA
-	out	dx, eax
-	add	dx, 4
-	xor	eax, eax
-	out	dx, ax
-	sub	dx, 4
-	loop	0b
-	
-
-	# disable receive interrupt delay timers
-	I8254_WRITE RDTR, 0
-
-	## program IMS - interrupt mask set/read: RXT, RXO, RXDMT, RXSEQ, LSC
-	I8254_WRITE IMC, -1	# clear all interrupts
-	I8254_WRITE IMS, (IR_RXT | IR_RXO | IR_RXDMT | IR_RXSEQ | IR_LSC)
-
-	## allocate and configure descriptor reception buffer
+	# allocate buffers
+	# allocate and configure descriptor reception buffer
 	_RD_NUM = 8
 	_TD_NUM = 8
 	_RX_BUFSIZE = 2048
@@ -428,19 +403,75 @@ i8254_init:
 	xor	eax, eax
 #	rep	stosd
 
+
+	#######################################################
+	# Rx Setup
+	#
+	# section 14.4 from developer manual: Receive Initialisation
+
+	mov	dx, [ebx + dev_io]
+
+	## configure RAL/RAH
+
+	# read mac
+	I8254_READ RAL
+	mov	[ebx + nic_mac], eax
+	I8254_READ RAH
+	mov	[ebx + nic_mac + 4 ], ax
+
+	## initialize MTA to 0b
+	mov	ecx, 128
+0:	mov	eax, 128
+	sub	eax, ecx
+	shl	eax, 2
+	add	eax, I8254_MTA
+	out	dx, eax
+	add	dx, 4
+	xor	eax, eax
+	out	dx, ax
+	sub	dx, 4
+	loop	0b
+
+	# disable receive interrupt delay timers
+	I8254_WRITE RDTR, 0
+
+	## program IMS - interrupt mask set/read: RXT, RXO, RXDMT, RXSEQ, LSC
+	I8254_WRITE IMC, -1	# clear all interrupts
+	I8254_WRITE IMS, (IR_RXDW | IR_RXT | IR_RXO | IR_RXDMT | IR_RXSEQ | IR_LSC)
+
 	## receive descriptor circular buffer base
 	I8254_WRITE RDBAH, 0
 	GDT_GET_BASE eax, ds
 	add	eax, [ebx + nic_i8254_rd_buf]
 	I8254_WRITE RDBAL, eax
+	# do not write RDBAH in 32 bit mode
 	## configure the descriptor length buffer.
 	I8254_WRITE RDLEN, (_RD_NUM * 16)	# must be multiple of 128
 
-	# initialize the receive-descriptor head
+	# initialize the receive-descriptor head (p 27 and 376)
 	I8254_WRITE RDH, 0
-	# one descriptor only. (see pages 27 and 376)
 	I8254_WRITE RDT, (_RD_NUM -1) 	# should be within ring. 
 	mov	[ebx + nic_i8254_rd_tail], dword ptr 0
+
+	## program RCTL
+	_RCTL_RECEPTION = RCTL_EN | RCTL_UPE | RCTL_MPE | RCTL_BAM   | RCTL_SBP | RCTL_SECRC | RCTL_LPE 
+	_RCTL_BUFSIZE = RCTL_BSEX | ( 2 << 16 )	# 32>>2 = 8kb
+	I8254_WRITE RCTL, (_RCTL_RECEPTION | _RCTL_BUFSIZE)
+
+
+	# disable flow control
+	#I8254_WRITE FCAL, 0
+	#I8254_WRITE FCAH, 0
+	#I8254_WRITE FCT, 0
+	#I8254_WRITE FCTTV, 0
+
+	# trigger interrupt
+	#DEBUG "Trigger int"
+	#I8254_WRITE ICS, IR_RXT
+
+
+	#######################################################
+	# Tx Setup
 
 	## transmit descriptor circular buffer
 	I8254_WRITE TDBAH, 0
@@ -449,20 +480,16 @@ i8254_init:
 	I8254_WRITE TDBAL, eax
 	I8254_WRITE TDLEN, (_TD_NUM * 16)
 
+	# set up transmit descriptor head BEFORE TCTL_EN!
 	I8254_WRITE TDH, 0
-	I8254_WRITE TDT, (_TD_NUM -1)
+	I8254_WRITE TDT, 0 # (_TD_NUM -1)
 	mov	[ebx + nic_i8254_td_tail], dword ptr 0
 
-	## program RCTL
-	_RCTL_RECEPTION = RCTL_EN | RCTL_UPE | RCTL_MPE | RCTL_BAM   | RCTL_SBP | RCTL_SECRC | RCTL_LPE 
-	_RCTL_BUFSIZE = RCTL_BSEX | ( 2 << 16 )	# 32>>2 = 8kb
-	I8254_WRITE RCTL, (_RCTL_RECEPTION | _RCTL_BUFSIZE)
+	I8254_WRITE TCTL, (TCTL_EN | TCTL_PSP | (0x10<<4) | (0x40<<12))
+#	I8254_WRITE TIPG, (( 10 << 0 ) | (10 << 10 ) | (10<<20))
 
-	## program IMS
-
-	# trigger interrupt
-	#DEBUG "Trigger int"
-	#I8254_WRITE ICS, IR_RXT
+	I8254_WRITE TXDCTL, TXDCTL_GRAN | (1<<8) | (1<<16) | (1<<24)
+	I8254_WRITE TIDV, 1
 
 	call	i8254_print_status
 
@@ -587,7 +614,12 @@ i8254_isr:
 i8254_send:
 	pushad
 	mov	dx, [ebx + dev_io]
+I8254_READ TDH
+DEBUG "TDH:"
+DEBUG_WORD ax
 	I8254_READ TDT
+DEBUG "TDT: "
+DEBUG_WORD ax
 	inc	eax
 	cmp	eax, _TD_NUM
 	jb	1f
@@ -601,10 +633,25 @@ i8254_send:
 	GDT_GET_BASE edx, ds
 	add	esi, edx
 	mov	[edi + tdesc_addr], esi
+	mov	[edi + tdesc_addr + 4], dword ptr 0
 	mov	[edi + tdesc_len], cx
-	mov	[edi + tdesc_cmd], byte ptr TDESC_CMD_EOP
+	.if I8254_DEBUG
+		DEBUG "Tx"
+		DEBUG_WORD cx
+	.endif
+	mov	[edi + tdesc_cso], byte ptr 0
+	mov	[edi + tdesc_cmd], byte ptr TDESC_CMD_EOP | TDESC_CMD_RPS
+	mov	[edi + tdesc_status], dword ptr 0 # status, css, special
 
 	mov	dx, [ebx + dev_io]
+push	eax
+I8254_READ TDH
+DEBUG "TDH:"
+DEBUG_WORD ax
+pop	eax
+DEBUG "TDT: "
+DEBUG_WORD ax
+call newline
 	I8254_WRITE TDT
 
 	popad
@@ -614,6 +661,7 @@ i8254_send:
 i8254_print_status:
 	push	edx
 	push	eax
+DEBUG_DWORD ecx
 DEBUG_DWORD ebx
 	mov	dx, [ebx + dev_io]
 DEBUG_WORD dx
@@ -639,7 +687,7 @@ DEBUG_DWORD eax
 	call	printspace
 	PRINTFLAG eax, STATUS_LU, "Link-Up", "Link-Down"
 	PRINTFLAG eax, STATUS_FD, "Full-Duplex", "Half-Duplex"
-	mov	cl, al
+	movzx	ecx, al
 	rol	cl, 2
 	and	cl, 3
 	PRINT "1"

@@ -1,8 +1,9 @@
 alias fasm c:/apps/fasm/FASM.EXE
 alias disasm c:/apps/nasm-2.09.10/ndisasm.exe
 alias vm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe
-alias stopvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe controlvm \"OS Test\" poweroff
-alias startvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe startvm \"OS Test\"
+alias stopvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe controlvm \"QuRe\" poweroff
+alias startvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe startvm \"QuRe\"
+alias restartvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe controlvm \"QuRe\" reset
 alias testvm "make && startvm && perl -e '<>' && stopvm"
 alias blsource objdump -Mi8086,intel-mnemonic -d build/bootloader.o
 alias vmdisk vm modifyvm \"OS Test\" --boot1 disk --boot2 none --boot3 none
