@@ -1,52 +1,132 @@
+##############################################################################
+# i8042 Keyboard Controller - PS/2
+#
+# References:
+#  http://www.computer-engineering.org/ps2keyboard/
+#  http://osdever.net/documents/kbd.php?the_id=14 [RBIL PORTS.A]
 .intel_syntax noprefix
 
-KB_IO_DATA	= 0x60
-KB_IO_CONTROL	= 0x61
-KB_IO_CMD	= 0x64	# write
-KB_IO_STATUS	= 0x64	# read
+# Keyboard registers:
+# * one byte input buffer	: R 0x60
+# * one byte output buffer	: W 0x60
+# * one byte status register	: R 0x64
+# * one byte control register	: W 0x64, 0x60 (MODE_WRITE)
+# 0x60: read = input, write = output
+# 0x64: read = status, write = command (use MODE_WRITE to access control reg)
+KB_IO_DATA	= 0x60	# R: input buffer, W: output buffer
+KB_IO_CMD	= 0x64	# W: 7 control flags; parameter on port 0x60
+KB_IO_STATUS	= 0x64	# R: 8 status flags
 
+KB_IO_CONTROL	= 0x61	# pc speaker / direct access to control register (see KB_MODE)
+# control register layout:
+# bit 0: pc speaker
+# bit 7: character has been read.
+
+# Keyboard status: port 0x60
 # PS/2:
 KB_STATUS_OBF	= 0b00000001	# Output buffer full
 KB_STATUS_IBF	= 0b00000010	# Input buffer full
 KB_STATUS_SYS	= 0b00000100	# POST: 0: power-on reset; 1: BAT code, powered
-KB_STATUS_A2	= 0b00001000	#
-KB_STATUS_INH	= 0b00010000	# Communication inhibited
+KB_STATUS_A2	= 0b00001000	# address line A2; last written: 0=0x60, 1=0x64
+KB_STATUS_INH	= 0b00010000	# Communication inhibited: 0=yes 
 KB_STATUS_MOBF	= 0b00100000	# PS2: OBF for mouse; AT: TxTO (timeout)
-KB_STATUS_TO	= 0b01000000	# PS2: Timeout; AT: RxTO
+KB_STATUS_TO	= 0b01000000	# PS2: general (TX/RX) Timeout; AT: RxTO
 KB_STATUS_PERR	= 0b10000000	# Parity Error
+# AT:
+KB_STATUS_TXTO	= 0b00100000	# transmit timeout
+KB_STATUS_RXTO	= 0b01000000	# receive timeout
 
-KB_MODE_INT		= 0b00000001	# irq 1
-KB_MODE_MOUSE_INT	= 0b00000001	# irq 12
-KB_MODE_SYS		= 0b00000001
-KB_MODE_NO_KEYLOCK	= 0b00000001
-KB_MODE_DISABLE_KBD	= 0b00000001
-KB_MODE_DISABLE_MOUSE	= 0b00000001
-KB_MODE_KCC		= 0b00000001
-KB_MODE_RFU		= 0b00000001
+########################################################################
+# i8254 Keyboard Controller Commands - port 0x64 (KB_IO_CMD)
+#
+# The keyboard controller (i8254) has 3 ports: in, out and test.
+#
+KB_C_CMD_MODE_READ	= 0x20	# read command byte (see KB_MODE_*)
+	# 0x20-0x2f/3f: read byte at address (low 5 bits). addr0=command byte
+KB_C_CMD_MODE_WRITE	= 0x60	# write command byte (see KB_MODE_*)
+	# 0x60-0x7f: write byte at address (low 5 bits).
+KB_C_CMD_WRITE_OUTPUT	= 0x90	# 0x90-0x9f: write low nybble to output port
+KB_C_CMD_FIRMWARE_VERSION=0xa1
+KB_C_CMD_PASSWORD_GET	= 0xa4	# 0xfa = password exists, 0xf1 = no password
+KB_C_CMD_PASSWORD_SET	= 0xa5	# send password as zero-terminated scancodes
+KB_C_CMD_PASSWORD_CHECK	= 0xa6	# compares keyboard input with password
+KB_C_CMD_MOUSE_DISABLE	= 0xa7	# disable PS/2 mouse interface
+KB_C_CMD_MOUSE_ENABLE	= 0xa8	# disable PS/2 mouse interface
+KB_C_CMD_MOUSE_TEST	= 0xa9	# 0=ok; stuck lo/hi: 1/2=clock; 3/4=data
+KB_C_CMD_SELF_TEST	= 0xaa	# controller self test: 0x55 = ok
+KB_C_CMD_KBI_TEST	= 0xab	# keyboard interface test
+KB_C_CMD_KBI_DISABLE	= 0xad	# keyboard interface enable
+KB_C_CMD_KBI_ENABLE	= 0xae	# keyboard interface disable
+KB_C_CMD_VERSION_GET	= 0xaf	# get version
+KB_C_CMD_INPORT_READ	= 0xc0	# read input port
+KB_C_CMD_INPORT_CPY_LSN	= 0xc1	# copy input port low nybble to status reg
+KB_C_CMD_INPORT_CPY_MSN	= 0xc2	# copy input port high nybble to status reg
+KB_C_CMD_OUTPORT_READ	= 0xd0
+KB_C_CMD_OUTPORT_WRITE	= 0xd1
+KB_C_CMD_KBUF_WRITE	= 0xd2	# write keyboard buffer
+KB_C_CMD_MBUF_WRITE	= 0xd3	# write mouse buffer
+KB_C_CMD_MDEV_WRITE	= 0xd4	# write mouse device
+KB_C_CMD_TPORT_READ	= 0xe0	# read test port
+KB_C_CMD_OPORT_PULSE	= 0xf0	# 0xf0-0xf9: pulses lo nybble onto output port
 
-# keyboard controller
-KB_C_CMD_MODE_READ	= 0x20
-KB_C_CMD_MODE_WRITE	= 0x60
-KB_C_CMD_GET_VERSION	= 0xa1
-KB_C_CMD_DISABLE	= 0xAD
-KB_C_CMD_ENABLE		= 0xAE
-KB_C_CMD_WRITE_AUX	= 0xd2
-KB_C_CMD_WRITE_MOUSE	= 0xd4
+###############
+# Keyboard command/mode bits: KB_C_CMD_MODE_(READ|WRITE) (0x20, 0x60)
+#
+# AT:	x | XLAT |  PC | EN | OVR | SYS |  x   | INT
+# PS/2:	x | XLAT | EN2 | EN |  x  | SYS | INT2 | INT
+KB_MODE_INT		= 0b00000001	# irq 1 (input buffer full) enable
+KB_MODE_MOUSE_INT	= 0b00000010	# irq 12 (mouse) enable
+KB_MODE_SYS		= 0b00000100	# 0: perform POST self test; 1: BAT rx
+#
+KB_MODE_DISABLE_KBD	= 0b00010000	# 0 = enabled, 1 = disable kb interface
+KB_MODE_DISABLE_MOUSE	= 0b00100000
+KB_MODE_XLAT		= 0b01000000	# 1 = enable translation to set 1
+#
+#KB_MODE_NO_KEYLOCK	= 0b00001000
+#KB_MODE_KCC		= 0b01000000
+#KB_MODE_RFU		= 0b10000000
 
-# keyboard
-KB_CMD_SET_LEDS		= 0xed
-KB_CMD_SET_RATE		= 0xf3
-KB_CMD_ENABLE		= 0xf4
-KB_CMD_DISABLE		= 0xf5
-KB_CMD_RESET		= 0xff
 
-KB_REPLY_POR		= 0xaa
-KB_REPLY_ACK		= 0xfa
-KB_REPLY_RESEND		= 0xfe
+#########################################
+# keyboard commands: port 0x60
+KB_CMD_RESET			= 0xff
+KB_CMD_RESEND			= 0xfe
+KB_CMD_SET_KEY_MAKE		= 0xfd	# disable brk/repeat for specific keys
+KB_CMD_SET_KEY_MAKE_BREAK	= 0xfc	# disables typematic repeat
+KB_CMD_SET_KEY_MAKE_REPT	= 0xfb	# disables break codes
+KB_CMD_SET_ALL_MAKE_BREAK_REPT	= 0xfa	# sets all keys to default (mk/brk/rept)
+KB_CMD_SET_ALL_MAKE		= 0xf9	# sets all keys to default (mk/brk/rept)
+KB_CMD_SET_ALL_MAKE_BREAK	= 0xf8	# sets all keys to default (mk/brk/rept)
+KB_CMD_SET_ALL_REPT		= 0xf7	# sets all keys to default (mk/brk/rept)
+KB_CMD_SET_DEFAULT		= 0xf6	# rate (10.9/500), mk/brk/rept, set 2
+KB_CMD_DISABLE			= 0xf5	# stop scan, set_default
+KB_CMD_ENABLE			= 0xf4	# re-enable after disable
+KB_CMD_SET_RATE_DELAY		= 0xf3	# set rate[4:0]/delay[6:5]
+# Rate: 0x00..0x1f:
+# 30.0 26.7 24.0 21.8 20.7 18.5 17.1 16.0 15.0 13.3 12.0 10.9 10.0 9.2 8.6 8.0
+#  7.5  6.7  6.0  5.5  5.0  4.6  4.3  4.0  3.7  3.3  3.0  2.7  2.5 2.3 2.1 2.0
+# Delay: 0b00..0b11: .25 .50 .75 1.0
+KB_CMD_READ_ID			= 0xf2	# response: ACK, id [i.e.0xab 0x83]
+# 0xf1 ?
+KB_CMD_SET_SCAN_CODE_SET	= 0xf0	# rx ACK; tx 1..3: rx ACK; tx 0: rx cur.
+	# 0: request current scancode set
+	# 1, 2, 3: set scancode set
+KB_CMD_ECHO			= 0xee	# ECHO or RESEND
+KB_CMD_SET_LEDS			= 0xed	# arg: 0b111: caps,num,scroll lock
 
 KB_LED_SCROLL_LOCK	= 0b001
 KB_LED_NUM_LOCK		= 0b010
 KB_LED_CAPS_LOCK	= 0b100
+
+
+KB_RESPONSE_IBO_ERR	= 0x00	# key detection error / internal buffer overrun
+KB_RESPONSE_PU		= 0xaa	# self-test passed / keyboard power up
+KB_RESPONSE_ECHO	= 0xee	# response to ECHO
+KB_RESPONSE_ACK		= 0xfa
+KB_RESPONSE_FAIL1	= 0xfc	# self test failed after power up/RESET
+KB_RESPONSE_FAIL2	= 0xfd	# self test failed after power up/RESET
+KB_RESPONSE_RESEND	= 0xfe	# keyboard asks controller to repeat last cmd
+KB_RESPONSE_IBO_ERR2	= 0xff	# key detection error /internal buffer overrun
 
 # control keys
 CK_LEFT_SHIFT		= 0b000001
@@ -58,8 +138,9 @@ CK_RIGHT_CTRL		= 0b100000
 
 .include "keycodes.s"
 
-.data
+.data # XXX .text to keep in realmode access
 old_kb_isr: .word 0, 0
+.text
 scr_o: .word 7 * 160
 .text
 .code32
@@ -90,12 +171,17 @@ isr_keyboard:
 	in	al, KB_IO_DATA
 
 	######################################################################
-	# check for protocol scancodes
+	# check for protocol scancodes (set 2)
+	#
+	# 0xe0: extended key
+	# 0xf0: break code
+	# otherwise, 0x80 indicates break
 
 0:	cmp	al, 0xe0	# escape code
 	jne	0f
 
 	# signal ready to read next byte without sending EOI
+	# NOTE: this code is obsolete, for old (AT) systems.
 	in	al, KB_IO_CONTROL
 	or	al, 0x80
 	out	KB_IO_CONTROL, al
@@ -371,8 +457,7 @@ isr_keyboard:
 	pop	ds
 	iret
 
-
-.code32
+# Hook Keyboard ISR
 keyboard_hook_isr:
 	pushf
 
@@ -388,80 +473,165 @@ keyboard_hook_isr:
 	
 	PIC_ENABLE_IRQ IRQ_KEYBOARD
 
-	in	al, KB_IO_STATUS
-	mov	dl, al
-
-	push	esi
-	PRINT_	"Keyboard Status: "
-	mov	ah, 0xf0
-	call	printhex2
-	PRINT_	"("
-	call	printbin8
-	call	printspace
-	LOAD_TXT "PERR\0TO\0MOBF\0INH\0A2\0SYS\0IBF\0OBF"
-	call	print_flags8
-	PRINT	")"
-	call	newline
-	pop	esi
-
 	popf
 	ret
 
-keyboard_init:
-	call	keyboard_wait
-	mov	al, KB_CMD_SET_RATE
-	out	KB_IO_DATA, al
+.macro KBC_CMD v
+	mov	al, KB_C_CMD_\v
+	out	KB_IO_CMD, al
+.endm
 
-	call	keyboard_wait
-	xor	al, al
+.macro KB_WRITE v=al
+	.if \v != al
+	mov	al, \v
+	.endif
 	out	KB_IO_DATA, al
+.endm
+
+.macro KB_CMD v
+	KB_WRITE KB_CMD_\v
+.endm
+
+.macro KB_READ
+	in	al, KB_IO_DATA
+.endm
+
+.macro KB_WAIT_DATA
+88:	in	al, KB_IO_STATUS
+	test	al, KB_STATUS_OBF
+	jz	88b
+.endm
+
+.macro KB_EXPECT response, errlabel
+	KB_WAIT_DATA
+	KB_READ
+	cmp	al, KB_RESPONSE_\response
+	jnz	\errlabel
+.endm
+
+
+
+###############################################################
+# Initialize Keyboard
+keyboard_init:
+	I	"Keyboard "
+#################################################
+
+	I2	"reset "
+	KB_CMD	RESET
+	KB_EXPECT ACK 9f
+	KB_EXPECT PU 9f
+	printc	2, "ok "
+
+#################################################
+
+	I2 "disable INT "
+
+	KBC_CMD	MODE_READ
+	KB_WAIT_DATA
+	KB_READ
+	mov	dl, al
+
+	KBC_CMD	MODE_WRITE
+	and	dl, ~KB_MODE_INT
+	mov	al, dl
+	KB_WRITE
+
+	KBC_CMD MODE_READ
+	KB_WAIT_DATA
+	KB_READ
+	cmp	al, dl
+	jnz	9f
+	printc	2, "ok "
+
+#################################################
+
+	I2 "echo test "
+	KB_CMD	ECHO
+	KB_EXPECT ECHO, 9f
+	printc	2, "ok "
+
+#################################################
+	# this seems to reboot
+	#mov	al, KB_CMD_ENABLE # KB_C_CMD_INPORT_READ
+	#out	KB_IO_CMD, al
+#################################################
+
+	I2	"rate "
+	KB_CMD	SET_RATE_DELAY
+	KB_EXPECT ACK, 9f
+	KB_WRITE 0	# fastest
+	KB_EXPECT ACK, 9f
+	printc	2, "ok "
+
+#################################################
+
+	I2 "enable INT "
+	KBC_CMD MODE_READ
+	KB_WAIT_DATA
+	KB_READ
+
+	or	dl, KB_MODE_INT
+	KBC_CMD MODE_WRITE
+	KB_WRITE dl
+
+	KBC_CMD MODE_READ
+	KB_WAIT_DATA
+	KB_READ
+	cmp	al, dl
+	jnz	9f
+	printc	2, "ok "
+
+
+	OK
+
+	call	newline
+	call	newline
+	call	newline
+	call	newline
+	sub	[screen_pos], dword ptr 4 * 160
 	ret
 
-KEYBOARD_TIMEOUT = 0xffff
+9:	printc	12, ": not ack: 0x"
+	mov	dl, al
+	call	printhex2
+	call	newline
+	ret
 
-keyboard_wait:
-	push	ecx
-	mov	ecx, KEYBOARD_TIMEOUT
-0:	in	al, KB_IO_STATUS
 
-.if 0
-push dx
-mov dl, al
-call printhex2
-call printspace
+keyboard_print_status:
+	printc	14, " status: "
+	in	al, KB_IO_STATUS
+	push	edx
+	mov	dl, al
+	pushcolor 8
+	call	printhex2
+	call	printspace
+	call	printbin8
+	call	printspace
+	popcolor
+	push	esi
 	LOAD_TXT "PERR\0TO\0MOBF\0INH\0A2\0SYS\0IBF\0OBF"
 	call	print_flags8
-	call newline
-pop dx
-.endif
-	test	al, KB_STATUS_IBF
-	jnz	0f
-	loop	0b
-	printlnc 4, "keyboard: timeout"
-	stc
-0:	pop	ecx
+	pop	esi
+	pop	edx
 	ret
 
-keyboard_wait_data:
-	push	ecx
-	mov	ecx, KEYBOARD_TIMEOUT
-0:	call	keyboard_read_data
-	jnc	0f
-	loop	0b
-	printlnc 4, "keyboard: timeout"
-	stc
-	pop	ecx
-0:	ret
+keyboard_print_command_reg:
+	push	edx
+	printc 14, " mode: "
 
-keyboard_read_data:
-	in	al, KB_IO_STATUS
-	test	al, KB_STATUS_OBF
-	stc
-	jz	1f
-	mov	ah, al
-	in	al, KB_IO_DATA
-	# if status GTO or PERR return error
-1:	# 
+	KBC_CMD MODE_READ
+	KB_WAIT_DATA
+	KB_READ
+	mov	dl, al
+	pushcolor 8
+	call	printhex2
+	call	printspace
+	call	printbin8
+	call	printspace
+	popcolor
+	pop	edx
 	ret
 
 .data
