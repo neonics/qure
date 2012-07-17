@@ -14,23 +14,13 @@
 
 ############################# 32 bit macros 
 .macro OK
-	COLOR 0x0a
-	PRINTLN " Ok"
-.endm
-
-.macro D c m
-	PRINT_START \c
-	.if \m ne al
-	mov	al, \m
-	.endif
-	stosw
-	PRINT_END
+	PRINTLNc 0x0a, " Ok"
 .endm
 
 .macro I m
-	D 0x09 '>'
+	PRINTCHARc 0x09 '>'
 	PRINTc 15 " \m"
-	COLOR 7
+	#COLOR 7
 .endm
 
 .macro I2 m

@@ -276,8 +276,6 @@ pmode_entry$:
 
 1:
 
-
-
 	push	edx
 
 mov [screen_pos], edi
@@ -328,49 +326,54 @@ OK
 
 # call this from protected mode!
 .code32
-real_mode:
-	pop	edx	# convert stack return address
-
+# This section will work when this method is called from pmode,
+# having a pmode return address on the stack which will be converted to
+# realmode address.
+enter_real_mode:
 	mov	bx, SEL_compatDS
 	mov	ds, bx
 
+	pop	edx	# convert stack return address
 	GDT_GET_BASE eax, cs	# add base of current selector to stack
 	add	edx, eax
-
 	push	dx
+
+# This will return to real-mode, assuming the stack points to a real-mode
+# address, possibly the address from which protected_mode was called.
+real_mode:
 
 	INTERRUPTS_OFF
 
-	# ljmp SEL_realmodeCS, offset 0f
-	# 0x66 0xea [long return address] [word sel_16bitcs]
-	# doesnt work due to non-relocated addresses;
-	# requires self modifying code,
-	# or:
-	push	SEL_realmodeCS
-	push	dword ptr offset 0f
-	retf
+	ljmp	SEL_realmodeCS, offset 0f
 .code16
-0:	# pmode 16 bit realmode code selector
+0:	# pmode 16 bit realmode-compatible code selector
+
+	# prepare return address
+	push	[bkp_reg_cs]
+	mov	ax, [codeoffset]
+	add	ax, offset rm_entry
+	push	ax
 
 	# enter realmode
 	mov	eax, cr0
 	and	al, 0xfe
 	mov	cr0, eax
-	jmp	0f	# 'serialize cpu': flush internal cache
-0:
 
-	# restore realmode cs 
-	push	[bkp_reg_cs]
-	mov	ax, [codeoffset]
-	add	ax, offset 0f
-	push	ax
+	# PLACE NO CODE HERE - serialize CPU to reload code segment
+
 	retf
-0:
+
+rm_entry:
+	mov	ax, 0xb800
+	mov	es, ax
+
+	rmI "Back in realmode"
 
 	# restore ds, es, ss
 	mov	ds, [bkp_reg_ds]
 	mov	es, [bkp_reg_es]
 	mov	ss, [bkp_reg_ss]
+#	mov	sp, [bkp_reg_sp]
 
 
 	# restore IDT
@@ -382,11 +385,46 @@ real_mode:
 	mov	ax, 0x7008
 	call	pic_init16
 
+	PIC_SET_MASK 0xffff & ~( (1<<IRQ_CASCADE) | (1<<IRQ_KEYBOARD) )
+
 	INTERRUPTS_ON
 
-	mov	bp, sp
-	mov	dx, [bp]
+	.if DEBUG_KERNEL_REALMODE
+		printc_16 8, " cs:"
+		mov	dx, cs
+		call	printhex_16
+		printc_16 8, "ds:"
+		mov	dx, ds
+		call	printhex_16
+		printc_16 8, "ss:sp: "
+		mov	dx, ss
+		call	printhex_16
+		mov	dx, sp
+		call	printhex_16
 
-	ret
+		printc_16 8, "ret cs:ip: "
+		mov	bp, sp
+		mov	dx, [bp + 2]
+		mov	fs, dx
+		call	printhex_16
+		mov	dx, [bp]
+		call	printhex_16
+		mov	bx, dx
+		call	newline_16
 
+		printc_16 8, "Target Code: "
+		mov	cx, 8
+	0:	mov	dl, fs:[bx]
+		call	printhex2_16
+		inc	bx
+		loop	0b
+		print_16 " - Press a key"
+		xor	ah, ah
+		int	0x16
+	.endif
+	call	newline_16
+
+	mov	di, [screen_pos]
+
+	retf
 

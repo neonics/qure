@@ -126,16 +126,6 @@ shell:	push	ds
 	mov	[cwd$], word ptr '/'
 	mov	[insertmode], byte ptr 1
 
-	.data
-	0:
-	STRINGPTR "mount"
-	STRINGPTR "hdb0"
-	STRINGPTR "/b"
-	STRINGNULL
-	.text
-	mov	esi, offset 0b
-	call	cmd_mount$
-
 	mov	eax, offset cwd$
 	call	fs_opendir
 	mov	[cwd_handle$], eax
@@ -764,7 +754,7 @@ getopt:
 
 cmd_quit$:
 	printlnc 12, "Terminating shell."
-	add	esp, 4	# skip returning to the shell loop and return from it.
+	add	esp, 8	# skip returning to the shell loop and return from it.
 	ret
 
 

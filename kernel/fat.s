@@ -1,5 +1,8 @@
 ##############################################################################
 # FAT File System (FAT16, FAT32)
+
+FS_FAT_DEBUG = 0
+
 #
 #  HDD
 #  ___________
@@ -223,7 +226,9 @@ fs_fat16b_mount:
 	mov	al, dl
 	ror	eax, 8
 
-	DEBUG_DWORD eax
+	.if FS_FAT_DEBUG
+		DEBUG_DWORD eax
+	.endif
 
 	# load this many sectors
 
@@ -236,13 +241,15 @@ fs_fat16b_mount:
 	push	ebx
 	push	edi
 
+	mov	ebx, [edi + fat_lba$]
+	add	ebx, [edi + fs_obj_p_start_lba]
+
+	.if FS_FAT_DEBUG
 		DEBUG "Load "
 		DEBUG_DWORD ecx
 		DEBUG "sectors at LBA "
-
-	mov	ebx, [edi + fat_lba$]
-	add	ebx, [edi + fs_obj_p_start_lba]
 		DEBUG_DWORD ebx
+	.endif
 
 	mov	al, [edi + fs_obj_disk]
 	mov	edi, [edi + fat_fatbuf$]
@@ -423,41 +430,44 @@ fs_fat16_calculate:
 	movzx	eax, word ptr [esi + BPB_BYTES_PER_SECTOR]
 	mov	[edi + fat_sectorsize$], eax
 
+	.if FS_FAT_DEBUG
 
-	PRINTc 10, "FAT LBA: "
-	mov	edx, [edi + fat_lba$]
-	call	printhex8
-	PRINTc 10, "  Offset: "
-	add	edx, [edi + fs_obj_p_start_lba]
-	shl	edx, 9
-	call	printhex8
-	PRINTc 10, " Size: "
-	mov	edx, [edi + fat_sectors$]
-	shl	edx, 9
-	call	printhex8
-	call	newline
+		PRINTc 10, "FAT LBA: "
+		mov	edx, [edi + fat_lba$]
+		call	printhex8
+		PRINTc 10, "  Offset: "
+		add	edx, [edi + fs_obj_p_start_lba]
+		shl	edx, 9
+		call	printhex8
+		PRINTc 10, " Size: "
+		mov	edx, [edi + fat_sectors$]
+		shl	edx, 9
+		call	printhex8
+		call	newline
 
-	PRINTc 10, "FAT Root Directory: "
-	mov	edx, [edi + fat_root_lba$]
-	call	printhex8
-	PRINTc 10, "  Offset: "
-	add	edx, [edi + fs_obj_p_start_lba]
-	shl	edx, 9
-	call	printhex8
-	PRINTc 10, " Size: "
-	mov	edx, [edi + fat_root_size_sectors$]
-	shl	edx, 9
-	call	printhex8
-	call	newline
+		PRINTc 10, "FAT Root Directory: "
+		mov	edx, [edi + fat_root_lba$]
+		call	printhex8
+		PRINTc 10, "  Offset: "
+		add	edx, [edi + fs_obj_p_start_lba]
+		shl	edx, 9
+		call	printhex8
+		PRINTc 10, " Size: "
+		mov	edx, [edi + fat_root_size_sectors$]
+		shl	edx, 9
+		call	printhex8
+		call	newline
 
-	PRINTc 10, "FAT Userdata LBA: "
-	mov	edx, [edi + fat_user_lba$]
-	call	printhex8
-	PRINTc 10, "  Offset: "
-	add	edx, [edi + fs_obj_p_start_lba]
-	shl	edx, 9
-	call	printhex8
-	call	newline
+		PRINTc 10, "FAT Userdata LBA: "
+		mov	edx, [edi + fat_user_lba$]
+		call	printhex8
+		PRINTc 10, "  Offset: "
+		add	edx, [edi + fs_obj_p_start_lba]
+		shl	edx, 9
+		call	printhex8
+		call	newline
+
+	.endif
 
 	pop	edx
 	pop	ecx

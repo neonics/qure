@@ -39,7 +39,13 @@ msg_sector1$: .asciz "Transcended sector limitation!"
 	mov	dx, 0x1337
 	call	printhex
 
-	call	printregisters
+#	call	printregisters
+
+	# disable cursor
+
+	mov	cx, 0x2000	# 0x2607 - underline rows 6 and 7
+	mov	ah, 1
+	int	0x10
 
 	jmp	main
 
@@ -514,17 +520,38 @@ TRACE '*'
 	call	newline
 
 	PRINT	"bx: kernel end: "
-	mov	dx, bx
-	call	printhex
+	mov	edx, ebx
+	call	printhex8
+	pop	dx
+
+
+	# simulate a far call:
+	push	cs
+	push	word ptr offset bootloader_ret
+
+	.if DEBUG_BOOTLOADER
+		push	dx
+		PRINT	"ss:sp: "
+		mov	dx, ss
+		call	printhex
+		mov	dx, sp
+		add	dx, 2
+		call	printhex
+
+		PRINT	"ret cs:ip: "
+		mov	bp, sp
+		mov	dx, [bp + 4]
+		call	printhex
+		mov	dx, [bp + 2]
+		call	printhex
+		pop	dx
+
+		call	waitkey
+	.endif
+
 	call	newline
 
-	pop	dx
-.if DEBUG_BOOTLOADER
-	call	waitkey
-
-	mov	ax, 0xf000
-	call	cls
-.endif
+	# far jump:
 	mov	eax, [chain_addr_flat]
 	ror	eax, 4
 	push	ax
@@ -533,16 +560,58 @@ TRACE '*'
 	push	ax
 	retf
 
-.if 0 ###########################
-0:	#call	cls
-	call	waitkey
+
+bootloader_ret:
+0:	mov	ax, 0xb800
+	mov	es, ax
+	push	cs
+	pop	ds
+	.if 0
+	xor	di, di
+	mov	ax, 0xf000
+	mov	cx, 80*25
+	rep	stosw
+	xor	di, di
+	.endif
+	PRINTln "Back in bootloader."
+	PRINT "Press 'q' or ESC to halt system; 'w' for warm, 'c' for cold reboot, 's' for shutdown."
+	call	newline
+0:	xor	ah, ah
+	int	0x16
 	cmp	ax, K_ESC
-	je	1f
+	jz	0f
 	cmp	al, 'q'
-	jne	0b	
-1:	PRINT "System Halt."
+	jz	0f
+	cmp	al, 'w'
+	jz	warm_reboot
+	cmp	al, 'c'
+	jz	cold_reboot
+	cmp	al, 's'
+	jz	shutdown
+	jmp	0b
+
+0:	PRINTc	0xf3, "System halt."
 	jmp	halt
-.endif ##############################
+
+warm_reboot:
+	mov	ax, 0x1234
+	jmp	1f
+cold_reboot:
+	xor	ax, ax
+1:	xor	di, di
+	mov	fs, di
+	mov	fs:[0x0472], ax
+	ljmp	0xf000, 0xfff0
+
+shutdown:
+	mov	ax, 0x5307	# APM Set Power State
+	mov	cx, 3 	#BIOS_APM_SYSTEM_STATE_OFF
+	mov	bx, 1	#BIOS_APM_DEVICE_ID_ALL
+	int	0x15		# APM 1.0+
+	printc	14, "Shutdown."
+	jmp	halt
+
+##################################################
 
 debug_print_addr$:
 	push	es

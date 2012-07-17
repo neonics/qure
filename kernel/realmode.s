@@ -4,16 +4,22 @@
 # Performs last-minute realmode tasks before entering protected mode.
 .intel_syntax noprefix
 
-DEBUG_KERNEL_REALMODE = 0	# waitkey
+DEBUG_KERNEL_REALMODE = 0	# 1: require keystrokes at certain points
 
+
+# When the protected-mode part of the kernel returns to realmode,
+# it will transfer control back to it's caller, which is tpically
+# the bootloader. Setting this to 1 will cause the transfer to the caller
+# to be indirect. It will insert a realmode-code address in the return stack.
+CHAIN_RETURN_RM_KERNEL = 1
 #########################################################
 
 .macro PRINT_START_16
 	push	es
 	push	di
 	push	ax
-	mov	ax, 0xb800
-	mov	es, ax
+	mov	di, 0xb800
+	mov	es, di
 	mov	di, [screen_pos]
 	mov	ah, [screen_color]
 .endm
@@ -38,21 +44,34 @@ DEBUG_KERNEL_REALMODE = 0	# waitkey
 	pop	si
 .endm
 
+.macro PRINTc_16 c, m
+	push	word ptr [screen_color]
+	mov	[screen_color], byte ptr \c
+	PRINT_16 "\m"
+	pop	word ptr [screen_color]
+.endm
+
 
 .macro PRINTLN_16 m
 	PRINT_16 "\m"
 	call	newline_16
 .endm
 
+.macro PRINTLNc_16 c, m
+	PRINTc_16 \c, "\m"
+	call	newline_16
+.endm
 
 .macro PH8_16 m x
 	PRINT_16 "\m"
 	.if \x != edx
 	push	edx
 	mov	edx, \x
-	pop	edx
-	.endif
 	call	printhex8_16
+	pop	edx
+	.else
+	call	printhex8_16
+	.endif
 .endm
 
 
@@ -70,8 +89,7 @@ DEBUG_KERNEL_REALMODE = 0	# waitkey
 
 
 .macro rmPC c m
-	rmCOLOR \c
-	PRINT_16 "\m"
+	PRINTc_16 \c, "\m"
 .endm
 
 
@@ -83,13 +101,12 @@ DEBUG_KERNEL_REALMODE = 0	# waitkey
 
 
 .macro rmI2 m
-	rmPC 0x08 "\m"
+	rmPC 0x03 "\m"
 .endm
 
 
 .macro rmOK
-	rmCOLOR 0x0a
-	PRINTLN_16 " Ok"
+	PRINTLNc_16 0x0a, " Ok"
 .endm
 
 
@@ -98,6 +115,10 @@ DEBUG_KERNEL_REALMODE = 0	# waitkey
 .code16
 
 # in: es = 0xb800
+# in: dl = boot drive
+# in: ds:si = mbr partition info (offset 446 in MBR in memory)
+# in: ds:cx = ramdisk address
+# in: 0:ebx = kernel load end
 realmode_kernel_entry:
 	push	cx
 	mov	ax, 0x0f00
@@ -109,63 +130,100 @@ realmode_kernel_entry:
 	mov	al, '!'
 	stosw
 
+	mov	eax, ds
+
 	push	cs
 	pop	ds
 
-.if DEBUG_KERNEL_REALMODE
-	push	dx
-	mov	dx, cs
-	call	printhex_16
+	.if DEBUG_KERNEL_REALMODE
+		push	dx
+		mov	dx, cs
+		call	printhex_16
 
-	call	0f
-0:	pop	dx
-	sub	dx, offset 0b
-	call	printhex_16
-	pop	dx
-.endif
+		call	0f
+	0:	pop	dx
+		sub	dx, offset 0b
+		call	printhex_16
+		pop	dx
+	.endif
 
 ####### print hello
 
+	rmCOLOR	14
 	println_16 "Kernel booting"
+	rmCOLOR 7
 
-print_16 "boot drive: "
-call printhex2_16
-call	newline_16
-print_16 "MBR.partition: "
-mov	dx, si
-call	printhex_16
-call	newline_16
-print_16 "Ramdisk address: "
-mov	dx, cx
-call printhex_16
-call	newline_16
-print_16 "Kernel load end: "
-mov	dx, bx
-call	printhex_16
-sub	dx, cx
-sub	dx, 0x200
-print_16 "kernel load size: "
-call	printhex_16
-call	newline_16
+	.if DEBUG
+		PRINTc_16 8, " boot drive: "
+		call	printhex2_16
+		mov	edx, eax
+		shl	edx, 4
+		printc_16 8, "MBR.partition: "
+		push	edx
+		movzx	esi, si
+		add	edx, esi
+		call	printhex8_16
+		pop	edx
+		printc_16 8, "Ramdisk address: "
+		movzx	ecx, cx
+		add	edx, ecx
+		call	printhex8_16
+		call	newline_16
 
-	rmI "CS:IP "
-	mov	dx, cs
-	call	printhex_16
-	call	0f
-0:	pop	dx
-	sub	dx, offset 0b
-	call	printhex_16
+		printc_16 8, " Kernel loaded @ "
+		add	edx, 0x200
+		call	printhex8_16
+		printc_16 8, "size: "
+		neg	edx
+		add	edx, ebx
+		call	printhex8_16
+		printc_16 8, "end: "
+		mov	edx, ebx
+		call	printhex8_16
+		call	newline_16
+	.endif
 
-	print_16 "Kernel Size: "
+	.if DEBUG
+		rmI "Registers "
+		rmI2 "CS:IP "
+		mov	dx, cs
+		call	printhex_16
+		call	0f
+	0:	pop	dx
+		sub	dx, offset 0b
+		call	printhex_16
+		rmI2 "rm DS "
+		mov	dx, ax
+		call	printhex_16
+		rmI2 "DS "
+		mov	dx, ds
+		call	printhex_16
+		rmI2 "SS:SP "
+		mov	dx, ss
+		call	printhex_16
+		mov	dx, sp
+		call	printhex_16
+		call	newline_16
+		rmI "Stack "
+		mov	bp, sp
+	0:	mov	dx, ss:[bp]
+		call	printhex_16
+		add	bp, 2
+		jnc	0b
+		call	newline_16
+	.endif
+
+	rmI	"Kernel"
+
+	rmI2	" size: "
 	mov	edx, offset kernel_end
 	call	printhex8_16
 
-	# print signature
-	print_16 "Signature: "
-	.if 0	# kernel < 64k
-	mov	edx, [sig] # [kernel_end - 4]
-	.else
-	sub	edx, 4
+	rmI2	"Signature: "
+	mov	edx, cs
+	shl	edx, 4
+	add	edx, offset kernel_signature
+
 	movzx	bx, dl
 	and	bl, 0xf
 	shr	edx, 4
@@ -173,46 +231,45 @@ call	newline_16
 	mov	ds, dx
 	mov	edx, [bx]
 	pop	ds
-	.endif
 
 	rmCOLOR	0x0b
 	call	printhex8_16
 	rmCOLOR	0x0f
 
+	call	newline_16
+
 	##############################################
 	# some last-minute realmode data gathering
 
-	call	newline_16
-	print_16 "Low mem size: "
+	rmI	"Memory: "
+
+	rmI2	"Low mem size: "
 	xor	ax, ax
 	int	0x12	# get low memory size
 	jc	1f
 	or	ax, ax
 	jnz	0f
-1:	rmCOLOR 4
-	print_16 "Can't get lo-mem size"
-	rmCOLOR 7
+1:	printc_16 4, "Can't get lo-mem size"
+	call	newline_16
 	jmp	1f
 0:	mov	[low_memory_size], ax
 	xor	edx, edx
 	mov	dx, ax
-	call	printhex_16
-	print_16 "kb / 0x"
-	shl	edx, 10
-	call	printhex8_16
+	call	printdec_16
+	print_16 "kb "
 1:
-	call	newline_16
 
-	print_16 "High memory Map:"
-	call	newline_16
+	.if DEBUG 
+		rmI2 " Memory-map address: "
+		mov	edx, ds
+		shl	edx, 4
+		add	edx, offset memory_map
+		call	printhex8_16
+		call	newline_16
+	.endif
 
-	print_16 "memory_map address: "
-	mov	dx, ds
-	call	printhex_16
-	mov	dx, offset memory_map
-	call	printhex_16
+	printc_16 15, "High memory Map:"
 	call	newline_16
-
 
 	rmCOLOR 7
 	print_16 "Base:              | Length:             | Region Type| Attributes"
@@ -284,7 +341,7 @@ call	newline_16
 
 
 	.if 1
-	print_16 "Terminating CDROM disk emulation: "
+	rmI "Terminating CDROM disk emulation: "
 	mov	ax, 0x4b00
 	mov	dl, 0x7f	# terminate all
 	push	es
@@ -295,15 +352,8 @@ call	newline_16
 	pop	es
 	mov	dx, ax
 	call	printhex_16
-	call	newline_16
+	rmOK
 	.endif
-
-.if DEBUG_KERNEL_REALMODE
-	print_16 "Press a key to continue.."
-	xor	ah,ah
-	int	0x16
-	call	newline_16
-.endif
 
 	###############################
 .if 0
@@ -322,14 +372,68 @@ call	newline_16
 
 ####### enter protected mode
 
-	rmCOLOR	11
-	println_16 "Entering protected mode"
-	mov	ax, 0
+	call	newline_16
+	printc_16 11, "Entering protected mode"
+	call	newline_16
+
+
+
+.if CHAIN_RETURN_RM_KERNEL
+	push	cs
+	push	word ptr offset 0f
+.endif
+
+	.if DEBUG_KERNEL_REALMODE
+
+		printc_16 8, "ss:sp: "
+		mov	dx, ss
+		call	printhex_16
+		mov	dx, sp
+		call	printhex_16
+
+		printc_16 8, "ret cs:ip: "
+		mov	bp, sp
+		mov	dx, ss:[bp + 2]
+		call	printhex_16
+		mov	dx, ss:[bp]
+		call	printhex_16
+
+		printc_16 14, "Press a key to continue.."
+		xor	ah,ah
+		int	0x16
+		call	newline_16
+	.endif
 
 	# make it return elsewhere
 	push	dword ptr offset kmain
+	mov	ax, 0
 	jmp	protected_mode
+	# when pmode returns it will return to the caller of the current scope
 
+.if CHAIN_RETURN_RM_KERNEL
+
+0:	rmI	"Back in realmode kernel"
+	printc_16 8, " ss:sp: "
+	mov	dx, ss
+	call	printhex_16
+	mov	dx, sp
+	call	printhex_16
+	printc_16 8, "ret cs:ip: "
+	mov	bx, dx
+	mov	dx, ss:[bx+2]
+	call	printhex_16
+	mov	dx, ss:[bx]
+	call	printhex_16
+	call	newline_16
+
+	.if DEBUG_KERNEL_REALMODE
+		println_16 " - Press a key to continue"
+		xor	ah, ah
+		int	0x16
+	.endif
+	mov	di, [screen_pos]
+	retf
+.endif
 
 
 #########################################################
@@ -350,6 +454,11 @@ cdrom_spec_packet: .space 0x13
 #### Console/Print #############
 ################################
 #### 16 bit debug functions ####
+printhex1_16:
+	push	ecx
+	mov	ecx, 1
+	rol	edx, 28
+	jmp	1f
 printhex_16:
 	push	ecx
 	mov	ecx, 4
@@ -406,6 +515,25 @@ print_16:
 	jmp	0b
 1:	PRINT_END_16
 	ret
+
+# in: dx
+printdec_16:
+	mov	ax, dx
+	mov	cx, 10
+	push	word ptr -1
+0:	xor	dx, dx
+	div	cx
+	push	dx
+	or	ax, ax
+	jnz	0b
+
+0:	pop	ax
+	cmp	ax, -1
+	jz	0f
+	add	al, '0'
+	call	printchar_16
+	jmp	0b
+0:	ret
 
 
 realmode_kernel_end:

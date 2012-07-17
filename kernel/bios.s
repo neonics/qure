@@ -155,7 +155,7 @@ bios_proxy:
 	mov	edx, [edx]	# load INT handler ptr
 	mov	ah, 0xf6
 	call	printhex
-	D 0 ':'
+	PRINTCHARc 0, ':'
 	mov	al, ':'
 	stosw
 	ror	edx, 16

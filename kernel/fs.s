@@ -531,9 +531,9 @@ fs_root_close$:
 	clc
 	ret
 fs_root_mount$:
-	printlnc 4, "fs_root_mount: not implemented"
 	stc
 	ret
+
 fs_root_umount$:
 	printlnc 4, "fs_root_umount: not implemented"
 	stc

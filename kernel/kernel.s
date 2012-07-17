@@ -5,7 +5,10 @@ SHOWOFF = 0
 SECTION_DATA_STRINGS = 3
 SECTION_DATA_BSS = 4
 
-DEBUG = 3
+# Level 0: minimal
+# Level 1, 2: same detail 
+# Level 3: full
+DEBUG = 1
 
 .include "realmode.s"
 .data
@@ -61,7 +64,7 @@ kmain:
 	mov	es, ax
 
 	PRINTLNc 11 "Protected mode initialized."
-	COLOR 0xf
+	COLOR 7
 .if SHOWOFF
 	PRINT	"Press key to stop timer."
 	mov	ah, 0
@@ -160,9 +163,18 @@ kmain:
 
 	call	ata_list_drives
 
-	I "Mounting root filesystem"
+	I "Mounting root filesystem: "
 	call	mount_init$
-	call	newline
+
+	.data
+	0:
+	STRINGPTR "mount"
+	STRINGPTR "hdb0"
+	STRINGPTR "/b"
+	STRINGNULL
+	.text
+	mov	esi, offset 0b
+	call	cmd_mount$
 
 	#MORE
 .if SHOWOFF
@@ -175,11 +187,38 @@ kmain:
 
 	##################################################################
 
+.if 0
 	I "Hash test"
 	call	newline
 	call	hash_test
+.endif
+
+OPEN_SHELL_DEFAULT = 1
 
 
+	.if !OPEN_SHELL_DEFAULT
+		printc 11, "Press enter to open shell"
+	.endif
+
+	.if DEBUG_KERNEL_REALMODE
+		printc	8, " ss:sp "
+		mov	dx, ss
+		call	printhex4
+		mov	dx, sp
+		call	printhex4
+		printc	8, ": "
+		mov	dx, [esp]
+		call	printhex4
+	.endif
+
+	.if !OPEN_SHELL_DEFAULT
+	1:	xor	ah, ah
+		call	keyboard
+		cmp	ax, K_ENTER
+		jnz	1b
+	.endif
+
+1:	call	newline
 	I "Shell"
 	call	newline
 
@@ -188,7 +227,18 @@ kmain:
 	##################################################################
 
 	call	newline
-	PRINTc 15, "Press 'q' or ESC to system halt."
+	PRINTLNc 15, "Press 'q' or ESC to system halt, enter to open shell, 'r' to return to realmode."
+	.if DEBUG_KERNEL_REALMODE
+		printc	8, "ss:sp "
+		mov	dx, ss
+		call	printhex4
+		mov	dx, sp
+		call	printhex4
+		printc	8, ": "
+		mov	dx, [esp]
+		call	printhex4
+		call	newline
+	.endif
 
 0:	
 	mov	ah, 0
@@ -202,9 +252,13 @@ kmain:
 	stosw
 	PRINT_END
 	
-	cmp	al, 'q'
-	je	1f
+	cmp	ax, K_ENTER
+	jz	1b
 	cmp	ax, K_ESC
+	je	1f
+	cmp	al, 'r'
+	jz	2f
+	cmp	al, 'q'
 	jne	0b
 1:
 
@@ -213,6 +267,14 @@ halt:	call	newline
 0:	hlt
 	jmp	0b
 
+2:	.rept 8
+	call	newline
+	.endr
+	sub	dword ptr [screen_pos], 160 * 8
+
+
+	jmp	real_mode
+
 
 kernel_task:
 	PRINTLNc 0x0b "Kernel Task"
@@ -220,12 +282,12 @@ kernel_task:
 
 kernel_code_end:
 
-.data
-sig:.long 0x1337c0de
-.data SECTION_DATA_STRINGS -1
+.data SECTION_DATA_STRINGS - 1
 data_0_end:
 .data SECTION_DATA_STRINGS
-data_str_end:
+data_str_end: .byte 0
+.data SECTION_DATA_BSS - 1
+kernel_signature:.long 0x1337c0de
 .data SECTION_DATA_BSS
 data_bss_end:
 .data 99

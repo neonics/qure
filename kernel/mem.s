@@ -2412,6 +2412,7 @@ cmd_mem$:
 	printc 15, "Kernel: "
 	mov	eax, kernel_end - realmode_kernel_entry
 	call	print_size
+	call	newline
 	printc 15, " Code: "
 	mov	eax, kernel_code_end - realmode_kernel_entry 
 	call	print_size

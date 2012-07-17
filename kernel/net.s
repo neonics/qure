@@ -2582,7 +2582,8 @@ net_service_tcp_http:
 	call	sprint_size
 
 	SPRINT ") <b>Total:</b> "
-	mov	eax, kernel_code_end - realmode_kernel_entry + kernel_end - sig
+	mov	eax, kernel_end - kernel_code_end
+	# kernel_end - realmode_kernel_entry + kernel_end - kernel_signature
 	call	sprint_size
 	SPRINT "</li>"
 

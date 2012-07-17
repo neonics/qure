@@ -604,7 +604,7 @@ __scroll:
 
 
 	pop	ds
-.if SCREEN_BUFFER
+.if 0 # SCREEN_BUFFER
 push edi
 push edx
 mov edx, [screen_buf_offs]

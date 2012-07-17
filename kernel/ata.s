@@ -3,7 +3,7 @@
 .intel_syntax noprefix
 .code32
 
-ATA_DEBUG = 1
+ATA_DEBUG = 0
 
 ATA_MAX_DRIVES = 8	# 4 buses with 2 drives each supported
 
@@ -187,10 +187,9 @@ ata_bus_dcr_rel:
 
 
 .data SECTION_DATA_BSS
+ata_drive_types: .space 8
 	TYPE_ATA = 1
 	TYPE_ATAPI = 2
-ata_drive_types: .space 8
-
 
 .struct 0
 ata_driveinfo_capacity: .long 0, 0
@@ -348,50 +347,54 @@ ata_list_drives:
 
 2:	#sti
 
-	# list array of ata_drive_types
-	mov	esi, offset ata_drive_types
-	mov	ecx, 8
-	mov	dh, -1
-0:	lodsb
-	mov	dl, al
-	call	printhex2
 
-	cmp	dl, TYPE_ATAPI
-	jne	1f
-	mov	dh, 8
-	sub	dh, cl
-1:
-	mov	al, ' '
-	call	printchar
-	loop	0b
-	call	newline
+	.if ATA_DEBUG 
+		# list array of ata_drive_types
+		mov	esi, offset ata_drive_types
+		mov	ecx, 8
+		mov	dh, -1
+	0:	lodsb
+		mov	dl, al
+		call	printhex2
 
-	mov	dl, dh
-	call	printhex2
+		cmp	dl, TYPE_ATAPI
+		jne	1f
+		mov	dh, 8
+		sub	dh, cl
+	1:
+		mov	al, ' '
+		call	printchar
+		loop	0b
+		call	newline
 
-	cmp	dh, -1
-	je	0f
+		mov	dl, dh
+		call	printhex2
 
-.if 0
-	println "Attempting to read CDROM (press key)"
-	xor	ah, ah
-	call	keyboard
 
-	mov	ah, dh
-	mov	al, ah
-	shr	ah, 1
-	and	al, 1
-	call	ata_get_ports2$
-# doesnt yield proper results in virtualbox - the 'transfer size' is -1/0xffff
-	push	edx
-	call	atapi_read_capacity$
-	pop	edx
+	.if 0
+		cmp	dh, -1
+		je	0f
 
-	mov	ebx, 16	# LBA
-	mov	ecx, 1	# number of sectors
-	call	atapi_read12$
-.endif
-0:
+		println "Attempting to read CDROM (press key)"
+		xor	ah, ah
+		call	keyboard
+
+		mov	ah, dh
+		mov	al, ah
+		shr	ah, 1
+		and	al, 1
+		call	ata_get_ports2$
+	# doesnt yield proper results in virtualbox - the 'transfer size' is -1/0xffff
+		push	edx
+		call	atapi_read_capacity$
+		pop	edx
+
+		mov	ebx, 16	# LBA
+		mov	ecx, 1	# number of sectors
+		call	atapi_read12$
+	0:
+	.endif
+	.endif
 	ret
 
 # in: al = (ata bus << 1) | drive (0 or 1)
@@ -673,22 +676,26 @@ read$:	call	print
 	mov	ecx, 20 / 2
 	ATA_ID_STRING_PRINT
 
-	PRINTc	15, " Firmware rev: "
-	mov	esi, offset parameters_buffer$
-	add	esi, ATA_ID_FIRMWARE_REV
-	mov	ecx, 8 / 2
-	ATA_ID_STRING_PRINT
+	.if ATA_DEBUG
+		PRINTc	15, " Firmware rev: "
+		mov	esi, offset parameters_buffer$
+		add	esi, ATA_ID_FIRMWARE_REV
+		mov	ecx, 8 / 2
+		ATA_ID_STRING_PRINT
+		call	newline
+	.endif
 	pop	esi
 
-	call	newline
 
 	###
 	COLOR 8
 
 	##################################################
-	PRINTc	7, "Word 0: "
-	mov	dx, [parameters_buffer$ + ATA_ID_CONFIG]
-	call	printhex
+	.if ATA_DEBUG
+		PRINTc	7, "Word 0: "
+		mov	dx, [parameters_buffer$ + ATA_ID_CONFIG]
+		call	printhex
+
 	# 15:14: protocol type: 0? = ATA, 10 = atapi, 11 = reserved
 	test	dh, 1 << 7
 	jnz	0f
@@ -699,18 +706,23 @@ read$:	call	print
 	PRINT	" ATAPI "
 	jmp	2f
 0:	PRINT	" Reserved "
-2:
+2:	# TODO: check if these values match the previously detected ones.
+	.endif
+
+
 	# 12:8: device type
-	push	dx
-	shr	dx, 8
-	and	dl, 0b11111
-	PRINT	"DevType: "
-	call	printhex1
-	pop	dx
+	.if ATA_DEBUG
+		push	dx
+		shr	dx, 8
+		and	dl, 0b11111
+		PRINT	"DevType: "
+		call	printhex1
+		pop	dx
+	.endif
 
 	# 7: removable
 	test	dl, 1<<7
-	jz	0f
+	jnz	0f
 	PRINT	" Removable "
 0:	
 
@@ -719,60 +731,65 @@ read$:	call	print
 	#    01=Interrupt DRQ: within 10 ms)
 	#    10=accellerated DRQ: assert DRQ within 50us
 	#    11=reserved
-	mov	al, dl
-	shr	al, 5
-	and	al, 3
-	jnz	0f
-	PRINT " mDRQ "
-	jmp	1f
-0:	cmp	al, 1
-	jnz	0f
-	PRINT " intDRQ "
-	jmp	1f
-0:	cmp	al, 2
-	jnz	1f
-	PRINT " aDRQ "
-1:
+	.if ATA_DEBUG
+		mov	al, dl
+		shr	al, 5
+		and	al, 3
+		jnz	0f
+		PRINT " mDRQ "
+		jmp	1f
+	0:	cmp	al, 1
+		jnz	0f
+		PRINT " intDRQ "
+		jmp	1f
+	0:	cmp	al, 2
+		jnz	1f
+		PRINT " aDRQ "
+	1:
+	.endif
+
 	# 1:0 command packet size: 00=12 bytes, 01=16 bytes, 1X=reserved
-	and	edx, 3
-	shl	dl, 2
-	add	dl, 12
-	PRINT "CMDPacketSize: "
-	call	printdec32
+	.if ATA_DEBUG
+		and	edx, 3
+		shl	dl, 2
+		add	dl, 12
+		PRINT "CMDPacketSize: "
+		call	printdec32
+	.endif
 	##################################################
 	
 
-	mov	dx, [parameters_buffer$ + 2* 83]
-	test	dx, 1<<10
-	jz	0f
-	PRINTc	7, " LBA48 "
-0:	
-	mov	dx, [parameters_buffer$ + 2* 88]
-	PRINTc	7, " UDMA: "
-	call	printhex4
+	.if ATA_DEBUG
+		mov	dx, [parameters_buffer$ + 2* 83]
+		test	dx, 1<<10
+		jz	0f
+		PRINTc	7, " LBA48 "
+	0:	
 
-	# if master drive:
-	mov	dx, [parameters_buffer$ + 2* 93]
-	test	dx, 1<<12
-	jz	0f
-	PRINTc	7, " 80-pin cable "
-0:
+		mov	dx, [parameters_buffer$ + 2* 88]
+		PRINTc	7, " UDMA: "
+		call	printhex4
 
-	PRINTc	7, " LBA28 sectors: "
-	mov	edx, [parameters_buffer$ + 2* 60]
-	call	printhex8
+		# if master drive:
+		mov	dx, [parameters_buffer$ + 2* 93]
+		test	dx, 1<<12
+		jz	0f
+		PRINTc	7, " 80-pin cable "
+	0:
 
-	PRINTc	7, " LBA48 sectors: "
-	mov	edx, [parameters_buffer$ + 2* 100 + 4]
-	call	printhex8
-	mov	[edi + ata_driveinfo_capacity + 4], edx
-	mov	edx, [parameters_buffer$ + 2* 100 + 0]
-	mov	[edi + ata_driveinfo_capacity + 0], edx
-	call	printhex8
+		PRINTc	7, " LBA28 sectors: "
+		mov	edx, [parameters_buffer$ + 2* 60]
+		call	printhex8
 
-	PRINTCHAR ' '
-	mov	dx, bx
-	call	printhex
+		PRINTc	7, " LBA48 sectors: "
+		mov	edx, [parameters_buffer$ + 2* 100 + 4]
+		call	printhex8
+		mov	[edi + ata_driveinfo_capacity + 4], edx
+		mov	edx, [parameters_buffer$ + 2* 100 + 0]
+		mov	[edi + ata_driveinfo_capacity + 0], edx
+		call	printhex8
+	.endif
+
 	call	newline
 	###
 

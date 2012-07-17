@@ -62,23 +62,28 @@ hook_isr:
 	push	ebx
 	and	eax, 0xff
 
-	push	edx
-	mov	edx, eax
-	I	"Hook INT "
-	call	printhex2
-	pop	edx
-	I2	" @ "
+	.if DEBUG
+		push	edx
+		mov	edx, eax
+		I	"Hook INT "
+		call	printhex2
+		pop	edx
+		I2	" @ "
+	.endif
 
 	shl	eax, 3
 	add	eax, offset IDT
-	push	edx
-	mov	dx, cx
-	call	printhex
-	PRINT	":"
-	mov	edx, eax
-	call	printhex8
-	call	newline
-	pop	edx
+
+	.if DEBUG
+		push	edx
+		mov	dx, cx
+		call	printhex
+		PRINT	":"
+		mov	edx, eax
+		call	printhex8
+		call	newline
+		pop	edx
+	.endif
 	
 	mov	[eax], bx
 	mov	[eax+2], cx

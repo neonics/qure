@@ -306,7 +306,6 @@ rtl8139_init:
 	call	hook_isr
 	pop	ebx
 
-	call	newline
 	mov	al, [ebx + dev_irq] # NIC_IRQ
 	call	pic_enable_irq_line32
 
