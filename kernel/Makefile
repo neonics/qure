@@ -15,7 +15,7 @@ KERNEL_SRC = kernel.s debug.s debugger.s realmode.s print.s \
 	mem.s hash.s list.s string.s
 
 HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s \
-	nic.s rtl8139.s i8254.s dev.s
+	nic.s rtl8139.s i8254.s dev.s gfx.s
 
 NET_SRC = net.s
 

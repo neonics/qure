@@ -52,6 +52,8 @@ DEFINE = 1
 .include "rtl8139.s"
 .include "i8254.s"
 .include "net.s"
+
+.include "gfx.s"
 ###################################
 
 .text

@@ -4,7 +4,7 @@
 # Performs last-minute realmode tasks before entering protected mode.
 .intel_syntax noprefix
 
-DEBUG_KERNEL_REALMODE = 0	# 1: require keystrokes at certain points
+DEBUG_KERNEL_REALMODE = 1	# 1: require keystrokes at certain points
 
 
 # When the protected-mode part of the kernel returns to realmode,
@@ -25,6 +25,12 @@ CHAIN_RETURN_RM_KERNEL = 1
 .endm
 
 .macro PRINT_END_16
+	.if 1
+	cmp	di, 160 * 25 + 2
+	jb	99f
+	call	__scroll_16
+99:
+	.endif
 	mov	[screen_pos], di
 	pop	ax
 	pop	di
@@ -534,6 +540,27 @@ printdec_16:
 	call	printchar_16
 	jmp	0b
 0:	ret
+
+__scroll_16:
+	push	ds
+	push	cx
+	push	si
+
+	mov	si, es
+	mov	ds, si
+	mov	cx, di
+	mov	si, 160
+	xor	di, di
+	sub	cx, si
+	jle	99f
+	push	cx
+	rep	movsw
+	pop	di
+99:
+	pop	si
+	pop	cx
+	pop	ds
+	ret
 
 
 realmode_kernel_end:

@@ -599,7 +599,7 @@ __scroll:
 	xor	edi, edi
 	sub	ecx, esi
 	push	ecx
-	rep	movsd
+	rep	movsw
 	pop	edi
 
 

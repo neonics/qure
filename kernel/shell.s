@@ -108,6 +108,8 @@ SHELL_COMMAND "obj"		pci_list_obj_counters
 
 SHELL_COMMAND "gdt"		cmd_print_gdt
 SHELL_COMMAND "p"		cmd_ping_gateway
+
+SHELL_COMMAND "gfx"		cmd_gfx
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list

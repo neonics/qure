@@ -374,7 +374,7 @@ ics$:	COLOR 11
 	call	newline
 	push	ebp
 	push	ecx
-	mov	ecx, 16
+	mov	ecx, 3 # 16
 0:	mov	edx, ebp
 	color	12
 	call	printhex8
