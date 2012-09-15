@@ -2,7 +2,17 @@
 .code32
 .text
 
+
+
 cmd_gfx:
+	call	cls	# some scroll bug in realmode causes kernel reboot
+	push	dword ptr offset gfx_realmode
+	call	call_realmode
+	ret
+
+
+
+cmd_gfxOLD:
 	call	cls	# some scroll bug in realmode
 	print	"GFX "
 
@@ -36,29 +46,13 @@ cmd_gfx:
 		
 	# push address to realmode function: rm seg, unrelocated offs
 
-	.if 0
-		print	" RM addr: "
-	GDT_GET_BASE edx, SEL_compatCS
-	shr	edx, 4
-		call	printhex4
-		printchar ':'
-	push	dx# xxx 
-	mov	edx, offset gfx_realmode
-	push	dx
-		call	printhex8
-		call	newline
+		mov	edx, offset gfx_realmode
+			print "  RM addr: "
+			call	printhex8
+			call	newline
 
-	jmp	real_mode
-	.else
-
-	mov	edx, offset gfx_realmode
-		print "  RM addr: "
-		call	printhex8
-		call	newline
-
-	push	dword ptr offset gfx_realmode
-	jmp	enter_real_mode
-	.endif
+		push	dword ptr offset gfx_realmode
+		jmp	real_mode_pm_unr
 
 0:
 	println "GFX returned to pmode"
@@ -78,6 +72,7 @@ cmd_gfx:
 
 gfx_realmode:
 	println_16 "GFX realmode"
+	ret
 		print_16 "cs: "
 		mov	dx, cs
 		call	printhex_16
@@ -89,7 +84,7 @@ gfx_realmode:
 		print_16 "re-entering pmode: return addr: "
 		push	bp
 		mov	bp, sp
-		add	bp, 2
+		add	bp, 4
 		mov	dx, [bp + 4]
 		call	printhex_16
 		mov	al, ':'
@@ -101,8 +96,8 @@ gfx_realmode:
 		int	0x16
 		call	newline_16
 
-	xor	ax, ax
-	jmp	reenter_protected_mode
+	ret
+
 
 
 reenter_protected_mode2:

@@ -62,7 +62,7 @@ hook_isr:
 	push	ebx
 	and	eax, 0xff
 
-	.if DEBUG
+	.if DEBUG > 1
 		push	edx
 		mov	edx, eax
 		I	"Hook INT "
@@ -74,7 +74,7 @@ hook_isr:
 	shl	eax, 3
 	add	eax, offset IDT
 
-	.if DEBUG
+	.if DEBUG > 1
 		push	edx
 		mov	dx, cx
 		call	printhex

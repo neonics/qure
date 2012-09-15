@@ -328,28 +328,66 @@ OK
 
 
 #############################################################
-TMP_DEBUG=DEBUG
-DEBUG = 3
+
+# bp cannot be used as a parameter for the realmode function.
+#
+# usage:
+# .code32
+# push dword ptr offset realmode_function # unrelocated
+# call call_realmode
+call_realmode:
+	call	real_mode_pm
 .code16
+	push	bp
+	mov	bp, sp
+	call	[bp + 6]
+	pop	bp
+
+	xor	ax, ax
+	call	reenter_protected_mode_rm
+.code32
+0:	call	pit_disable
+	push	ds
+	pop	es
+	ret	4
+
+
+#############################################################
+DEBUG=0
+.code16
+reenter_protected_mode_rm:
+	xor	edx, edx
+	pop	dx
+	push	edx
+
 # stack: protected mode far return address (dword offs, word sel)
-reenter_protected_mode:
-print_16 "Re Entering Protected Mode"
-_foo:
+reenter_protected_mode_pm:
+
 	mov	bx, ax	# save arg
 
 push cs
 pop ds
 
-xor ax, ax
-int 0x16
+	.if DEBUG > 1
+		print_16 "Re Entering Protected Mode"
+		push ax
+		xor ax, ax
+		int 0x16
+		pop ax
+	.endif
+
 	INTERRUPTS_OFF
 
-rmI "Remapping PIC"
+	.if DEBUG > 1
+		rmI "Remapping PIC"
+	.endif
 
 	mov	ax, (( IRQ_BASE + 8 )<<8) | IRQ_BASE	# 0x2820
 	call	pic_init16
 
-rmOK
+	.if DEBUG > 1
+		rmOK
+	.endif
 
 
 	# flush prefetch queue, replace cs.
@@ -375,7 +413,7 @@ rmOK
 	.if DEBUG > 1
 		rmPC 0x01 "Flat"
 		jmp 1f
-	0:	
+0:	
 		rmPC 0x03 "Realmode Compatible"
 	1:
 		rmI2 " Address mode"
@@ -403,10 +441,10 @@ rmOK
 		call	newline_16
 	.endif
 
-	.if DEBUG > 0
+	.if DEBUG > 1
 		rmI "Entering "
-		mov	edi, [screen_pos]
 	.endif
+	mov	edi, [screen_pos]
 
 	.if 0
 	xor	ax, ax
@@ -440,16 +478,18 @@ pmode_entry2$:
 	# print Pmode
 	mov	ax, SEL_vid_txt
 	mov	es, ax
-	mov	ax, (0x0c<<8)|'P'
-	stosw
-	mov	ax, (0x09<<8)|'m'
-	stosw
-	mov	al, 'o'
-	stosw
-	mov	al, 'd'
-	stosw
-	mov	al, 'e'
-	stosw
+	.if DEBUG > 1
+		mov	ax, (0x0c<<8)|'P'
+		stosw
+		mov	ax, (0x09<<8)|'m'
+		stosw
+		mov	al, 'o'
+		stosw
+		mov	al, 'd'
+		stosw
+		mov	al, 'e'
+		stosw
+	.endif
 
 	# adjust return address 
 #XXX
@@ -492,16 +532,22 @@ pmode_entry2$:
 	push	edx
 
 mov [screen_pos], edi
-OK
+	.if DEBUG > 1
+		OK
+	.endif
 
 	#	PH8 "  Return address: ", edx
 
-	I "Loading IDT"
+	.if DEBUG > 1
+		I "Loading IDT"
+	.endif
 
 	#call	init_idt
 	lidt	[pm_idtr]
 
-	OK
+	.if DEBUG > 1
+		OK
+	.endif
 
 	PIC_SET_MASK 0xffff & ~(1<<IRQ_CASCADE)
 
@@ -546,57 +592,108 @@ OK
 #call	keyboard
 #cmp	ax, K_ENTER
 #jnz	0b
-print "stack pre-return: "
-mov edx, esp
-call printhex8
-print " offs "
-mov	edx, [esp]
-call	printhex8
-print " sel "
-mov	dx, [esp+4]
-call	printhex4
-print " base "
-mov	eax, [esp + 4]
-GDT_GET_BASE edx, eax
-call	printhex8
+	.if DEBUG > 3
+		print "stack pre-return: "
+		mov edx, esp
+		call printhex8
+		print " offs "
+		mov	edx, [esp]
+		call	printhex8
+		print " sel "
+		mov	dx, [esp+4]
+		call	printhex4
+		print " base "
+		mov	eax, [esp + 4]
+		GDT_GET_BASE edx, eax
+		call	printhex8
 
-xor	ax, ax
-call	keyboard
+		xor	ax, ax
+		call	keyboard
+	.endif
 
-	retf	# at this point interrupts are on, standard handlers installed.
+	ret	# at this point interrupts are on, standard handlers installed.
 
-DEBUG = TMP_DEBUG
+
+
+
+
+
+
+
+
+
+
+
+
 #######################################################
 
+DEBUG_KERNEL_REALMODE = 0
 # call this from protected mode!
 .code32
 # This section will work when this method is called from pmode,
 # having a pmode return address on the stack which will be converted to
 # realmode address.
-enter_real_mode:
+
+
+# stack contains relocated (runtime) protected mode offset of ealmode  code.
+#
+# Example usage:
+#
+# .code32
+# call	real_mode_pm
+# .code16
+# ..next instruction
+real_mode_pm:
+	pop	edx
+	GDT_GET_BASE eax, cs
+	add	edx, eax
+	sub	edx, [realsegflat]
+	jmp	0f
+	
+
+
+# stack contains [realsegflat] relative pmode offset for realmode function.
+# (this means 'push offset realmode_function', which doesnt take into account
+# runtime relocation).
+#
+# Example usage:
+#
+# .code32
+# push	dword ptr offset 0f
+# jmp	real_mode_pm
+# .code16
+# 0:
+real_mode_pm_unr:
 	mov	bx, SEL_compatDS
 	mov	ds, bx
 
-print	"enter_real_mode: esp="
-mov	edx, esp
-call	printhex8
-print	" rm func: "
+	.if DEBUG > 2
+		print	"enter_real_mode: esp="
+		mov	edx, esp
+		call	printhex8
+		print	" rm func: "
+	.endif
+
 	pop	edx	# convert stack return address
 	GDT_GET_BASE eax, cs	# add base of current selector to stack
 	add	edx, eax
-	GDT_GET_BASE eax, SEL_compatCS
+0:	GDT_GET_BASE eax, SEL_compatCS
 	shr	eax, 4
 	push	ax
-call printhex8
+	.if DEBUG > 2
+		call printhex8
+	.endif
 	push	dx
 
-print " rm ret: "
-mov	dx, [esp + 2]
-call	printhex4
-printchar ':'
-mov	dx, [esp]
-call	printhex4
-call printspace
+	.if DEBUG > 2
+		print " rm ret: "
+		mov	dx, [esp + 2]
+		call	printhex4
+		printchar ':'
+		mov	dx, [esp]
+		call	printhex4
+		call printspace
+	.endif
 
 	.if DEBUG_KERNEL_REALMODE
 		print	"return: "
@@ -610,10 +707,9 @@ call printspace
 		call	newline
 	.endif
 
-DEBUG_KERNEL_REALMODE = 1
 # This will return to real-mode, assuming the stack points to a real-mode
 # address, possibly the address from which protected_mode was called.
-real_mode:
+real_mode_rm:
 
 	INTERRUPTS_OFF
 
@@ -640,7 +736,9 @@ rm_entry:
 	mov	ax, 0xb800
 	mov	es, ax
 
-	rmI "Back in realmode"
+	.if DEBUG > 1
+		rmI "Back in realmode"
+	.endif
 
 	# restore ds, es, ss
 	mov	ds, [bkp_reg_ds]
@@ -695,7 +793,10 @@ rm_entry:
 		xor	ah, ah
 		int	0x16
 	.endif
-	call	newline_16
+
+	.if DEBUG 
+		call	newline_16
+	.endif
 
 	mov	di, [screen_pos]
 

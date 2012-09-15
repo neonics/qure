@@ -275,7 +275,7 @@ halt:	call	newline
 	sub	dword ptr [screen_pos], 160 * 8
 
 
-	jmp	real_mode
+	jmp	real_mode_rm	# real mode address on stack (from enter_pmode)
 
 
 kernel_task:

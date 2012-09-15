@@ -514,18 +514,24 @@ keyboard_hook_isr:
 ###############################################################
 # Initialize Keyboard
 keyboard_init:
-	I	"Keyboard "
+	.if DEBUG
+		I	"Keyboard "
 #################################################
 
-	I2	"reset "
+		I2	"reset "
+	.endif
+
 	KB_CMD	RESET
 	KB_EXPECT ACK 9f
 	KB_EXPECT PU 9f
-	printc	2, "ok "
+
+	.if DEBUG
+		printc	2, "ok "
 
 #################################################
 
-	I2 "disable INT "
+		I2 "disable INT "
+	.endif
 
 	KBC_CMD	MODE_READ
 	KB_WAIT_DATA
@@ -542,14 +548,20 @@ keyboard_init:
 	KB_READ
 	cmp	al, dl
 	jnz	9f
-	printc	2, "ok "
+
+	.if DEBUG
+		printc	2, "ok "
 
 #################################################
 
-	I2 "echo test "
+		I2 "echo test "
+	.endif
+
 	KB_CMD	ECHO
 	KB_EXPECT ECHO, 9f
-	printc	2, "ok "
+
+	.if DEBUG
+		printc	2, "ok "
 
 #################################################
 	# this seems to reboot
@@ -558,15 +570,21 @@ keyboard_init:
 #################################################
 
 	I2	"rate "
+	.endif
+
 	KB_CMD	SET_RATE_DELAY
 	KB_EXPECT ACK, 9f
 	KB_WRITE 0	# fastest
 	KB_EXPECT ACK, 9f
-	printc	2, "ok "
+
+	.if DEBUG
+		printc	2, "ok "
 
 #################################################
 
 	I2 "enable INT "
+	.endif
+
 	KBC_CMD MODE_READ
 	KB_WAIT_DATA
 	KB_READ
@@ -580,10 +598,12 @@ keyboard_init:
 	KB_READ
 	cmp	al, dl
 	jnz	9f
-	printc	2, "ok "
 
+	.if DEBUG
+		printc	2, "ok "
 
-	OK
+		OK
+	.endif
 
 	call	newline
 	call	newline
