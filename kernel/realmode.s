@@ -37,6 +37,13 @@ CHAIN_RETURN_RM_KERNEL = 1
 	pop	es	
 .endm
 
+.macro PRINTCHAR_16 c
+	push	ax
+	mov	al, \c
+	call	printchar_16
+	pop	ax
+.endm
+
 
 .macro PRINT_16 m
 	# need to declare realmode strings in .text as kernel .text shifts
