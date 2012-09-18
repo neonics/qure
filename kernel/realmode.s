@@ -4,7 +4,7 @@
 # Performs last-minute realmode tasks before entering protected mode.
 .intel_syntax noprefix
 
-DEBUG_KERNEL_REALMODE = 1	# 1: require keystrokes at certain points
+DEBUG_KERNEL_REALMODE = 0	# 1: require keystrokes at certain points
 
 
 # When the protected-mode part of the kernel returns to realmode,
@@ -90,6 +90,15 @@ CHAIN_RETURN_RM_KERNEL = 1
 
 .macro rmCOLOR c
 	mov	[screen_color], byte ptr \c
+.endm
+
+.macro PUSHCOLOR_16 c
+	push	word ptr [screen_color]
+	mov	[screen_color], byte ptr \c
+.endm
+
+.macro POPCOLOR_16
+	pop	word ptr [screen_color]
 .endm
 
 
@@ -459,7 +468,7 @@ memory_map_struct_size:
 
 .text # keep near beginning due to realmode 64k limit
 low_memory_size: .word 0 # in kb
-memory_map:	.space 24 * 10	# 10 lines (qemu has 5)
+memory_map:	.space 24 * (10+1)	# 11 lines (qemu: 5, vmware: 10)
 cdrom_spec_packet: .space 0x13
 
 
@@ -531,6 +540,10 @@ print_16:
 
 # in: dx
 printdec_16:
+	push	ax
+	push	cx
+	push	dx
+
 	mov	ax, dx
 	mov	cx, 10
 	push	word ptr -1
@@ -546,7 +559,10 @@ printdec_16:
 	add	al, '0'
 	call	printchar_16
 	jmp	0b
-0:	ret
+0:	pop	dx
+	pop	cx
+	pop	ax
+	ret
 
 __scroll_16:
 	push	ds

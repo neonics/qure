@@ -29,6 +29,8 @@ LOAD_ADDR = 0x10000
 LOAD_SEG =  (LOAD_ADDR >> 4 )
 LOAD_OFFS= 0 # the base address (16 bit offset) for which the binary is coded
 
+	mov	di, cs
+	mov	ds, di
 	mov	di, LOAD_SEG
 	mov	es, di
 	#mov	ds, di

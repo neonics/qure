@@ -23,6 +23,10 @@ pit_disable:
 	PIC_DISABLE_IRQ IRQ_TIMER
 	ret
 
+.data
+pit_print_timer$: .byte 0
+.text
+
 pit_isr:
 	push	es
 	push	ds
@@ -43,8 +47,14 @@ pit_isr:
 	in	al, 0x40
 	mov	dh, al
 
-.if 1
-	cli
+	inc	dword ptr [clock]
+
+########
+	cmp	byte ptr [pit_print_timer$], 0
+	jz	0f
+
+	pushf
+	cli	# 'mutex'
 
 	PRINT_START 8
 	mov	ax, (8<<8) | '('
@@ -62,7 +72,6 @@ pit_isr:
 
 	mov	ah, 9
 
-	inc	dword ptr [clock]
 	mov	dx, [clock]
 	call	__printhex4
 
@@ -70,8 +79,8 @@ pit_isr:
 	stosw
 	PRINT_END 1
 
-	sti
-.endif
+	popf
+0:
 	
 	mov	al, 0x20
 	out	0x20, al

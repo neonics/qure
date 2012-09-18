@@ -42,6 +42,7 @@ clean:
 	[ -f root/boot/build.img ] && rm root/boot/build.img || true
 	$(call MAKE,bootloader,clean)
 	$(call MAKE,kernel,clean)
+	$(call MAKE,fonts,clean)
 
 
 build/boot.img: build/boot.bin build/kernel.bin build/write.exe
@@ -54,13 +55,17 @@ build/boot.img: build/boot.bin build/kernel.bin build/write.exe
 build/boot.bin:
 	$(call MAKE,bootloader)
 
-build/kernel.bin:
+build/kernel.bin: fonts
 	$(call MAKE,kernel)
 
-build/kernel.o: sector1.s pmode.s gfxmode.s menu.s \
-	floppy.s print2.s acpi.s pic.s gdt.s idt.s tss.s keyboard.s
-	/bin/as -R -n --warn --fatal-warnings -o build/bootloader.o bootloader.s
 
+.PHONY: fonts
+fonts: build/font.exe fonts/courier56.s
+
+
+fonts/courier56.s: fonts/courier56.fnt build/font.exe
+	build/font.exe $<
+	
 
 # Utility - Build Assistance
 
@@ -81,6 +86,8 @@ build/asm.exe: util/asm.y util/asm.l
 build/malloc.exe: util/malloc.cpp
 	g++ -std=c++0x -o $@ $<
 
+build/font.exe: util/font.cpp
+	gcc $< -o $@
 
 ##########################################################################
 

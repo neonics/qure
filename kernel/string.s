@@ -161,8 +161,11 @@ htoid:
 
 
 strlen:
+	push	es
 	push	edi
 	push	ecx
+	mov	edi, ds
+	mov	es, edi
 	mov	edi, eax
 	mov	ecx, -1
 	xor	al, al
@@ -171,6 +174,7 @@ strlen:
 	sub	eax, ecx
 	pop	ecx
 	pop	edi
+	pop	es
 	ret
 
 # in: esi, edi, ecx

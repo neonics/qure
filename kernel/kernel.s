@@ -1,6 +1,6 @@
 .intel_syntax noprefix
 
-SHOWOFF = 0
+SHOWOFF = 1
 
 SECTION_DATA_STRINGS = 3
 SECTION_DATA_BSS = 4
@@ -68,9 +68,11 @@ kmain:
 	PRINTLNc 11 "Protected mode initialized."
 	COLOR 7
 .if SHOWOFF
+	mov	[pit_print_timer$], byte ptr 1
 	PRINT	"Press key to stop timer."
 	mov	ah, 0
 	call	keyboard
+	mov	[pit_print_timer$], byte ptr 0
 .endif
 	call	pit_disable
 

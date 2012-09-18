@@ -32,6 +32,7 @@
 .if 1
 	push	eax
 	call	newline
+	call	newline
 	sub	[screen_pos], dword ptr 160
 	PUSH_SCREENPOS
 	PRINTc 0xf1, " --- More ---"

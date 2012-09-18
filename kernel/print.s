@@ -133,6 +133,12 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	mov	[screen_pos], edi
 	.endif
 
+	.if 1 # NEW!
+		mov	edi, [realsegflat]
+		add	edi, [screen_update]
+		call	edi
+	.endif
+
 	pop	edi
 	pop	es
 .endm
@@ -399,9 +405,11 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	screen_color:	.word 0x0f	# is a byte, but word for push/pop
 	screen_pos:	.long 0
 	screen_sel:	.word 0
-
+	screen_update:	.long default_screen_update
 .text
 .code32
+default_screen_update:	# 16 and 32 bit
+	ret
 
 # Methods starting with __ are to be called only when es:edi and ah are
 # set up - between PRINT_START and PRINT_END.
