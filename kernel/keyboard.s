@@ -138,12 +138,11 @@ CK_RIGHT_CTRL		= 0b100000
 
 .include "keycodes.s"
 
-.data # XXX .text32 to keep in realmode access
+.data16 # XXX .text32 to keep in realmode access
 old_kb_isr: .word 0, 0
-.text32
 scr_o: .word 7 * 160
+
 .text32
-.code32
 isr_keyboard:
 	push	ds
 	push	es
@@ -569,7 +568,7 @@ keyboard_init:
 	#out	KB_IO_CMD, al
 #################################################
 
-	I2	"rate "
+		I2	"rate "
 	.endif
 
 	KB_CMD	SET_RATE_DELAY
@@ -582,7 +581,7 @@ keyboard_init:
 
 #################################################
 
-	I2 "enable INT "
+		I2 "enable INT "
 	.endif
 
 	KBC_CMD MODE_READ
