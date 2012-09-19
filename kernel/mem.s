@@ -29,7 +29,7 @@ mem_sel_limit: .long 0
 
 MEM_DEBUG = 0
 
-.text
+.text32
 .code32
 
 # The 'handle' class is written with optimization of speed and size.
@@ -434,7 +434,7 @@ handle_fs_first: .long -1	# offset into [mem_handles]
 handle_fs_last: .long -1	# offset into [mem_handles]
 handle_fh_first: .long -1
 handle_fh_last: .long -1	# not really used...
-.text
+.text32
 
 MEM_LL = 0
 
@@ -806,7 +806,7 @@ malloc_internal$:
 
 ########################################################################
 
-.text
+.text32
 kalloc_test:
 	mov	eax, 1024
 	.rept 5
@@ -2406,21 +2406,23 @@ cmd_mem$:
 	and	eax, 0x00ffffff
 	cmp	eax, '-' | ('h'<<8)
 	jz	1f
+	cmp	eax, '-' | ('g'<<8)
+	jz	2f
 	cmp	eax, '-' | ('k'<<8)
 	jnz	9f
 	
 	printc 15, "Kernel: "
-	mov	eax, kernel_end - realmode_kernel_entry
+	mov	eax, kernel_end - kernel_code_start # realmode_kernel_entry
 	call	print_size
 	call	newline
 	printc 15, " Code: "
-	mov	eax, kernel_code_end - realmode_kernel_entry 
+	mov	eax, kernel_code_end - kernel_code_start # realmode_kernel_entry 
 	call	print_size
 	printc 15, " (realmode: "
 	mov	eax, realmode_kernel_end - realmode_kernel_entry
 	call	print_size
 	printc 15, " pmode: "
-	mov	eax, kernel_code_end - realmode_kernel_end
+	mov	eax, kernel_code_end - kernel_start # realmode_kernel_end
 	call	print_size
 	printlnc 15, ")"
 	printc 15, " Data: "
@@ -2440,13 +2442,43 @@ cmd_mem$:
 	call	print_size
 	printlnc 15, ")"
 
-
 	jmp	0b
 
 1:	push	esi
 	call	print_handles$
 	pop	esi
 	jmp	0b
+
+2:	# 'graph': block diagram
+	# iterate through handles, printing blocks
+	push	esi
+	push	eax
+	mov	esi, [mem_handles]
+	mov	ecx, [mem_numhandles]
+	xor	edx, edx
+3:	
+	.if 1
+	PRINT_START
+	mov	ah, [esi + edx + handle_flags]
+	and	ah, 0b1
+	shl	ah, 2
+	add	ah, 9
+	shl	ah, 4
+	mov	al, [esi + edx + handle_size]
+	stosw
+	PRINT_END
+	.else
+	push	edx
+	movzx	edx, byte ptr [esi + edx + handle_flags]
+	call	printhex2
+	call	printspace
+	pop	edx
+	.endif
+	add	edx, HANDLE_STRUCT_SIZE
+	loop	3b
+	pop	eax
+	pop	esi
+	call	newline
 0:	
 	ret
 

@@ -325,7 +325,7 @@ NIC_I8254_STRUCT_SIZE = .	# see dev.s/dev_pci_pre_constructor
 ############################################################################
 
 
-.text
+.text32
 # in: ebx = pci nic object
 i8254_init:
 
@@ -498,7 +498,7 @@ i8254_init:
 .data
 i8254_isr_dev: .long 0
 i8254_isr_irq: .word 0
-.text
+.text32
 i8254_isr:
 	pushad
 

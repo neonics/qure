@@ -32,7 +32,7 @@
 .word (\offset) >> 16
 .endm
 
-.text	# realmode access, keep within 64k
+.data16	# realmode access, keep within 64k
 .align 4
 
 pm_idtr:.word . - IDT - 1
@@ -42,15 +42,13 @@ pm_idtr:.word . - IDT - 1
 rm_idtr:.word 256 * 4
 	.long 0
 
-.data
-
 IDT:
 .rept 256
 #.space 8
 DEFIDT 0, SEL_flatCS, ACC_PR+ACC_RING0+ACC_SYS+IDT_ACC_GATE_INT32
 .endr
-.text
-.code32
+
+.text32
 
 # in: ax: interrupt number (at current: al, as the IDT only has 256 ints)
 #     cx: segment selector
@@ -157,7 +155,7 @@ int_labels$:
 	.long msg_int_13$
 
 
-.text
+.text32
 
 
 
@@ -171,7 +169,7 @@ int_labels$:
 jmp_table_target:
 	.data SECTION_DATA_BSS
 		int_count: .rept 256; .long 0; .endr
-	.text
+	.text32
 	push	ebp
 	mov	ebp, esp
 	add	ebp, 4	# skip ebp itself

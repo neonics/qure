@@ -1,6 +1,8 @@
 .intel_syntax noprefix
 
-SHOWOFF = 1
+.include "macros.s"
+
+SHOWOFF = 0
 
 SECTION_DATA_STRINGS = 3
 SECTION_DATA_BSS = 4
@@ -8,16 +10,24 @@ SECTION_DATA_BSS = 4
 # Level 0: minimal
 # Level 1, 2: same detail 
 # Level 3: full
-DEBUG = 1
+DEBUG = 0
+
+
+.text32
+kernel_code_start:
 
 .include "realmode.s"
+
+.text32
+.org REALMODE_KERNEL_SIZE
+
 .data
 data_0_start:
 .data SECTION_DATA_STRINGS
 data_str_start:
 .data SECTION_DATA_BSS
 data_bss_start:
-.text
+.text32
 kernel_start:
 ###################################
 DEFINE = 1
@@ -56,7 +66,7 @@ DEFINE = 1
 .include "gfx.s"
 ###################################
 
-.text
+.text32
 .code32
 kmain:
 
@@ -67,6 +77,20 @@ kmain:
 
 	PRINTLNc 11 "Protected mode initialized."
 	COLOR 7
+
+
+	# Flush keyboard buffer
+0:	mov	ah, KB_PEEK
+	call	keyboard
+	jz	0f
+	xor	ah, ah
+	call	keyboard
+	jmp	0b
+0:	# keyboard buffer flushed
+
+
+
+
 .if SHOWOFF
 	mov	[pit_print_timer$], byte ptr 1
 	PRINT	"Press key to stop timer."
@@ -77,6 +101,7 @@ kmain:
 	call	pit_disable
 
 	call	newline
+
 # debug scroll:
 #	PRINT "This is a filler line to have the next line not start at a line bounary."
 #	PRINT "this text is meant to be longer than a line to see whether or not this gets scrolled properly, or whether a part is missing at the end, or whether the source index gets offset besides a line bounary."
@@ -176,7 +201,7 @@ kmain:
 	STRINGPTR "hdb0"
 	STRINGPTR "/b"
 	STRINGNULL
-	.text
+	.text32
 	mov	esi, offset 0b
 	call	cmd_mount$
 
@@ -196,6 +221,15 @@ kmain:
 	call	newline
 	call	hash_test
 .endif
+
+
+	I "Relocation / Kernel Load Address: "
+	call	0f
+0:	pop	edx
+	sub	edx, offset 0b
+	call	printhex8
+	call	newline
+
 
 OPEN_SHELL_DEFAULT = 1
 

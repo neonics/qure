@@ -10,7 +10,7 @@ SFS_MAGIC = ( 'S' | 'F' << 8 | 'S' << 16 | '0' << 24)
 #############################################################################
 .data
 fs_sfs_class:
-.long sfs_mount, sfs_umount, sfs_opendir, sfs_close, sfs_nextentry
+.long sfs_mount, sfs_umount, sfs_open, sfs_close, sfs_nextentry, sfs_read
 .struct FS_OBJ_STRUCT_SIZE # runtime struct
 sfs_disk:		.byte 0
 sfs_partition:		.byte 0
@@ -43,7 +43,7 @@ SFS_VOL_STRUCT_SIZE = .
 
 SFS_VOL_NUM_BLOCKS = (512 - SFS_VOL_STRUCT_SIZE)/16	# = 512/16 -1 = 31
 SFS_SEC_NUM_BLOCKS = 512 / 16	# 32
-.text
+.text32
 # in: esi = sfs struct
 # in: edx = blk nr
 # out: eax = block nr
@@ -70,7 +70,7 @@ sfs_get_blk_info:
 	# size: .long 0,0
 # followed by num_blocks * 8 bytes: sfs_vol_blk_lba: .long 0, 0
 # first block is root block.
-.text
+.text32
 # in: ax = disk/partition
 # in: esi = partition info
 # out: edi = pointer to fs structure
@@ -250,13 +250,9 @@ load_blk:
 9:	
 	ret
 
-sfs_nextentry:
-sfs_opendir:
-sfs_close:
-	ret
-
 sfs_open:
-#	call	sfs_open_dir
-#	call	sfs_open_file
+sfs_close:
+sfs_read:
+sfs_nextentry:
 	ret
 

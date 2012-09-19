@@ -6,8 +6,7 @@
 
 .data
 clock: .long 0
-.text
-.code32
+.text32
 
 pit_hook_isr:
 	mov	cx, SEL_compatCS
@@ -25,7 +24,7 @@ pit_disable:
 
 .data
 pit_print_timer$: .byte 0
-.text
+.text32
 
 pit_isr:
 	push	es

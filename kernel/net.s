@@ -64,7 +64,7 @@ proto_struct_handler:	.long 0
 proto_struct_print_handler:.long 0
 proto_struct_flag:	.byte 0
 PROTO_STRUCT_SIZE = .
-.text
+.text32
 
 .macro DECL_PROTO_STRUCT name, handler1, handler2, flag
 	.data SECTION_DATA_STRINGS # was 2
@@ -98,7 +98,7 @@ PROTO_STRUCT_SIZE = .
 .macro DECL_PROTO_STRUCT_END name, const, codesize
 	.data 1
 	\const\()_PROTO_LIST_SIZE = ( . - \name\()_proto_struct$ ) / PROTO_STRUCT_SIZE
-	.text
+	.text32
 .endm
 
 #
@@ -109,7 +109,7 @@ BUFFER_SIZE = 0x600
 net_buffers: .long 0	# ptr_array
 net_buffer_index: .long 0
 NET_BUFFERS_NUM = 4
-.text
+.text32
 ##############################################################################
 .macro DEBUG_NET_BUF
 	push	ecx
@@ -251,7 +251,7 @@ ETH_HEADER_SIZE = .
 
 .data
 mac_bcast: .byte -1, -1, -1, -1, -1, -1
-.text
+.text32
 # in: ebx = nic object
 # in: edi = packet buffer
 # in: dx = protocol
@@ -313,7 +313,7 @@ DECL_PROTO_STRUCT_W ETH_PROTO_IPV4,"IPv4", net_ipv4_handle, net_ipv4_print, PROT
 DECL_PROTO_STRUCT_W ETH_PROTO_ARP, "ARP",  net_arp_handle, net_arp_print,  PROTO_PRINT_ARP
 DECL_PROTO_STRUCT_W ETH_PROTO_IPV6,"IPv6", net_ipv6_handle, net_ipv6_print, PROTO_PRINT_IPv6
 DECL_PROTO_STRUCT_END eth, ETHERNET
-.text
+.text32
 
 # in: edi = index (0, 1, 2)
 # out: edi = protocol structure offset (0, 9, 18, ..)
@@ -374,7 +374,7 @@ arp_entry_status:	.byte 0
 ARP_ENTRY_STRUCT_SIZE = .
 .data
 arp_table: .long 0	# array
-.text
+.text32
 
 # in: eax = ip
 # out: ecx + edx
@@ -493,7 +493,7 @@ arp_src_ip:	.long 0
 arp_dst_mac:	.space 6
 arp_dst_ip:	.long 0
 ARP_HEADER_SIZE = .
-.text
+.text32
 
 # in: ebx = nic
 # in: edi = arp frame pointer
@@ -1017,7 +1017,7 @@ ipv4_dst: .long 0	# .byte 10,0,2,1
 # if headerlen > 5:
 ipv4_options:
 IPV4_HEADER_SIZE = .
-.text
+.text32
 
 # in: edi = out packet
 # in: dl = ipv4 sub-protocol
@@ -1147,7 +1147,7 @@ DECL_PROTO_STRUCT_B 0x01, "ICMP", net_ipv4_icmp_handle, net_ivp4_icmp_print,  0
 DECL_PROTO_STRUCT_B 0x06, "TCP",  net_ipv4_tcp_handle, net_ipv4_tcp_print,  0
 DECL_PROTO_STRUCT_B 0x11, "UDP",  ph_ipv4_udp, net_ipv4_udp_print,  0
 DECL_PROTO_STRUCT_END ipv4, IPV4	# declare IPV4_PROTO_LIST_SIZE
-.text
+.text32
 
 ############################
 
@@ -1330,7 +1330,7 @@ icmp_seq: .word 0
 ICMP_HEADER_SIZE = .
 .data
 icmp_sequence$: .word 0
-.text
+.text32
 # in: eax = target ip
 # in: esi = payload
 # in: ecx = payload len
@@ -1419,7 +1419,7 @@ icmp_request_addr: .long 0
 ICMP_REQUEST_STRUCT_SIZE = .
 .data
 icmp_requests: .long 0	# array
-.text
+.text32
 
 # in: eax = ip
 # out: eax + edx = entry (byte status, dword ip)
@@ -1831,7 +1831,7 @@ tcp_options:	#
 	# 03 03 07:	window scale: 03 len: 03 shift 07
 	# 04 02:	tcp SACK permission: true
 	# timestamp 08 len 0a value 66 02 ae a8 echo reply 00 00 00 00
-.text
+.text32
 # in: edx = ipv4 frame
 # in: esi = tcp frame
 # in: ecx = tcp frame len
@@ -1923,7 +1923,7 @@ tcp_conn_state:		.byte 0
 TCP_CONN_STRUCT_SIZE = .
 .data
 tcp_connections: .long 0	# volatile array
-.text
+.text32
 tcp_conn_print_state_$:
 	PRINTFLAG dl, 1, "SYN_RX "
 	PRINTFLAG dl, 2, "SYN_ACK_TX "
@@ -1953,7 +1953,7 @@ tcp_conn_print_state$:
 #	STRINGPTR "LAST_ACK"
 #	STRINGPTR "TIME_WAIT"
 #	STRINGPTR "CLOSED"
-#	.text
+#	.text32
 #	cmp	esi, TCP_CONN_STATE_CLOSED + 1
 #	jl	0f
 #	xor	esi, esi
@@ -2448,7 +2448,7 @@ net_tcp_service_get:
 	tcp_service_ports: .word 80
 	TCP_NUMSERVICES = (tcp_service_ports - .)/2
 	tcp_service_handlers: .long net_service_tcp_http
-	.text
+	.text32
 	push	eax
 	push	ecx
 	mov	ax, [esi + tcp_dport]
@@ -2510,7 +2510,7 @@ html2:
 .ascii "  </body>"
 .ascii "</html>"
 .word 0
-.text
+.text32
 
 # in: eax = tcp_conn array index
 # in: esi = request data
@@ -2558,7 +2558,7 @@ net_service_tcp_http:
 	xor	edx, edx
 	mov	edi, offset ep1
 	SPRINT "<li>Kernel Size: <b>Code:</b> "
-	mov	eax, kernel_code_end - realmode_kernel_entry
+	mov	eax, kernel_code_end - kernel_code_start # realmode_kernel_entry
 	call	sprint_size
 
 	SPRINT " <b>Data:</b> "
@@ -3229,7 +3229,7 @@ udp_dport: .word 0
 udp_len:   .word 0
 udp_cksum: .word 0
 UDP_HEADER_SIZE = .
-.text
+.text32
 # in: edi = udp frame pointer
 # in: eax = sport/dport
 # in: cx = len
@@ -3310,7 +3310,7 @@ net_udp_port_get:
 	.data
 	UDP_FIRST_PORT = 48000
 	udp_port_counter: .word UDP_FIRST_PORT
-	.text
+	.text32
 	mov	ax, [udp_port_counter]
 	push	eax
 	inc	ax
@@ -3343,7 +3343,7 @@ DNS_HEADER_SIZE = .
 # 06 google 02 nl 00
 # TYPE A (00 01)
 # CLASS IN (00 01)
-.text
+.text32
 
 net_dns_print:
 	DEBUG "DNS"
@@ -3429,7 +3429,7 @@ net_dns_request:
 
 	.data
 	dns_server_ip: .byte 192, 168, 1, 1
-	.text
+	.text32
 
 	NET_BUFFER_GET
 	push	edi
@@ -3591,7 +3591,7 @@ net_route_nic: .long 0
 NET_ROUTE_STRUCT_SIZE = .
 .data
 net_route: .long 0
-.text
+.text32
 
 # in: eax = gw
 # in: ebx = device
@@ -3779,7 +3779,7 @@ cmd_route:
 
 .data SECTION_DATA_BSS
 icmp_payload$: .space 32
-.text
+.text32
 icmp_get_payload:
 	# payload
 	mov	esi, offset icmp_payload$

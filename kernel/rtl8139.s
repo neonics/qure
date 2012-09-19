@@ -170,7 +170,7 @@ RTL8139_CONFIG5	= 0xd8
 nic_rtl8139_desc_idx: .word 0
 NIC_RTL8139_STRUCT_SIZE = .
 ############################################################################
-.text
+.text32
 
 
 # in: dx = base port
@@ -353,7 +353,7 @@ rtl8139_ifdown:
 .data
 rtl8139_isr_irq: .byte 0
 rtl8139_isr_dev: .long 0	# direct memory address of device object
-.text
+.text32
 rtl8139_isr:
 	pushad
 

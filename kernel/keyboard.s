@@ -138,11 +138,11 @@ CK_RIGHT_CTRL		= 0b100000
 
 .include "keycodes.s"
 
-.data # XXX .text to keep in realmode access
+.data # XXX .text32 to keep in realmode access
 old_kb_isr: .word 0, 0
-.text
+.text32
 scr_o: .word 7 * 160
-.text
+.text32
 .code32
 isr_keyboard:
 	push	ds
@@ -382,7 +382,7 @@ isr_keyboard:
 		# power: e0 5f / e0 df	| e0 37 / e0 f0 3f
 		# power: e0 63 / e0 e3	| e0 37 / e0 f0 5e
 
-	.text
+	.text32
 
 	mov	dx, ax
 .if DEBUG > 3
@@ -662,7 +662,7 @@ keyboard_buffer:	.space KB_BUF_SIZE
 keyboard_buffer_ro:	.long 0	# write offset
 keyboard_buffer_wo:	.long 0 # read offset
 kb_count$: .long 0
-.text
+.text32
 
 buf_err$:
 	pushf

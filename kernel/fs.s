@@ -4,7 +4,7 @@
 .intel_syntax noprefix
 .code32
 
-FS_DEBUG = 0
+FS_DEBUG = 1
 
 ##############################################################################
 ## mtab
@@ -85,7 +85,7 @@ FS_DEBUG = 0
 	# or outside of one. 
 	#
 
-.text
+.text32
 
 
 mount_init$:
@@ -111,7 +111,7 @@ MTAB_ENTRY_SIZE = .
 .data
 MTAB_INITIAL_ENTRIES = 1
 mtab: .long 0
-.text
+.text32
 
 # mtab global static initializer. Call once from kernel.
 #
@@ -181,8 +181,6 @@ mtab_entry_free$:
 
 
 cmd_mount$:
-#	call	mount_init$	# TODO: remove
-
 	# check cmd arguments
 	lodsd
 	lodsd
@@ -200,7 +198,7 @@ cmd_mount$:
 	printc	11, "mount "
 
 	# parse first argument
-	call	disk_parse_partition_label
+	call	disk_parse_label
 	jc	6f
 
 	# alternative for disk_print_label
@@ -441,9 +439,10 @@ fs_api_mount:	.long 0	# constructor; in: ax = part/disk, esi = part info
 fs_api_umount:	.long 0 # destructor
 # in: esi = string (directory entry name)
 # out: ebx = fs specific handle
-fs_api_opendir:	.long 0
+fs_api_open:	.long 0
 fs_api_close:	.long 0
 fs_api_nextentry:.long 0
+fs_api_read:	.long 0	# ebx=filehandle, edi=buf, ecx=size
 FS_API_STRUCT_SIZE = .
 
 ###################################################
@@ -460,7 +459,7 @@ FS_OBJ_STRUCT_SIZE = .
 
 .data
 fs_classes:	.long 0	# array: [class_ptr, string]*
-.text
+.text32
 
 fs_init:
 	mov	ecx, 8
@@ -519,18 +518,24 @@ fs_unmount:
 fs_root_class:	# declaration of fs_api for fs_root class
 	.long fs_root_mount$
 	.long fs_root_umount$
-	.long fs_root_opendir$
+	.long fs_root_open$
 	.long fs_root_close$
 	.long fs_root_nextentry$
+	.long fs_root_read$
 
 fs_root_instance:
 .long fs_root_class
 
-.text
+.text32
 fs_root_close$:
 	clc
 	ret
 fs_root_mount$:
+	stc
+	ret
+
+fs_root_read$:
+	printlnc 4, "fs_root_read: not implemented"
 	stc
 	ret
 
@@ -545,261 +550,18 @@ fs_root_nextentry$:
 
 # in: eax = offset fs_root_instance
 # in: esi = directory
-fs_root_opendir$:
+# in: edi = fs dirent
+fs_root_open$:
 	cmp	word ptr [esi], '/'
 	jz	0f
-	printc 4, "fs_root_opendir "
+	printc 4, "fs_root_open "
 	call	print
 	printlnc 4, ": not found"
 	stc
 	ret
 0:	mov	ebx, -1	# indicates root
-	ret
-
-#############################################################################
-.struct 0
-fs_node_label:	.long 0
-fs_node_parent:	.long 0
-fs_node_data:	.long 0
-fs_node_flags:	.byte 0
-	FS_NODE_FLAG_MTAB = 1	# node_data is an mtab relative-offset
-FS_NODE_SIZE = 16
-FS_NODE_SIZE_BITS = 4
-FS_TREE_INITIAL_NODECOUNT = 4
-
-.data
-fs_root$:	.long 0
-.text
-
-
-fs_printtree:
-	call	fs_getroot$
-	jc	1f
-
-	push	edx
-	push	ebx
-	mov	ebx, edx
-
-0:	cmp	ebx, [eax + array_index]
-	jae	2f
-
-	printc	11, "FS Node: "
-	mov	edx, ebx
-	sar	edx, FS_NODE_SIZE_BITS
-	call	printdec32
-
-	printc	11, " label "
-
-	mov	esi, [eax + ebx + fs_node_label]
-	call	print
-
-	printc	11, " parent "
-	mov	edx, [eax + ebx + fs_node_parent]
-	sar	edx, FS_NODE_SIZE_BITS
-	call	printdec32
-
-	printc	11, " flags "
-	mov	dl, [eax + ebx + fs_node_flags]
-	call	printbin8
-
-	printc	11, " data "
-	mov	edx, [eax + ebx + fs_node_data]
-	call	printhex8
-
-	test	byte ptr [eax + ebx + fs_node_flags], FS_NODE_FLAG_MTAB
-	jz	3f
-
-	printc	11, " MTAB: "
-	add	edx, [mtab]
-	push	esi
-	mov	esi, [edx + mtab_mountpoint]
-	call	print
-	pop	esi
-3:
-	call	newline
-
-	add	ebx, FS_NODE_SIZE
-	jmp	0b
-
-2:	pop	ebx
-	pop	edx
-
-1:	ret
-
-# array/buf functions with eax + edx
-# fs_/mtab functions with  ebx + edx
-
-
-# out: eax = [fs_root$], base ptr
-# out: edx = 0, index
-fs_getroot$:
-	xor	edx, edx
-	mov	eax, [fs_root$]
-	or	eax, eax
-	jnz	0f
-
-	push	ebx
-	push	ecx
-	push	esi
-
-	mov	ecx, FS_NODE_SIZE
-	mov	eax, FS_TREE_INITIAL_NODECOUNT
-	call	array_new	# in: eax, ecx; out: eax
-	mov	[fs_root$], eax
-
-	LOAD_TXT "/"
-	call	mtab_find_mountpoint	# in: esi; out: ebx+ecx
-	jc	2f
-
-	mov	esi, [ebx + ecx + mtab_mountpoint]
-
-	mov	edx, -1
-	call	fs_newnode	# in: esi; out: eax+edx
-
-	mov	[eax + edx + fs_node_data], ecx	# store mtab rel ptr
-	mov	[eax + edx + fs_node_flags], byte ptr FS_NODE_FLAG_MTAB
-
-1:	pop	esi
-	pop	ecx
-	pop	ebx
-	
-0:	ret
-
-2:	printlnc 12, "root filesystem node not found"
-	stc
-	jmp	1b
-
-
-# in: esi = pointer to string (will be strdup'd)
-# in: edx = parent node
-# out: eax = fs tree base pointer
-# out: edx = fs node index
-# side effect: fs_root$ updated on resize
-fs_newnode:
-	push	eax
-	mov	eax, esi
-	call	strdup
-	mov	esi, eax
-	pop	eax
-
-	push	edx
-
-	push	ecx
-	mov	ecx, FS_NODE_SIZE
-	mov	eax, [fs_root$]
-	call	array_newentry
-	mov	[fs_root$], eax	# edx = 0, so, base ptr works!
-	pop	ecx
-
-	mov	[eax + edx + fs_node_label], esi
-	pop	dword ptr [eax + edx + fs_node_parent]
-
-	.if FS_DEBUG
-		call newline
-		printc 11, "Created new node: "
-		call	printhex8
-		call	printspace
-		printchar '\''
-		call	print
-		printchar '\''
-		call	newline
-	.endif
-	ret
-
-# in: esi = string pointer to node to find
-# in: eax = fs tree base pointer
-# in: edx = fs current node
-# out: edx = fs result node
-# out: CF (1: edx destroyed)
-fs_getentry:
-	push	ebx
-	call	strlen
-	mov	ecx, eax
-
-call newline
-DEBUG "  fs_getentry(path="
-DEBUGS
-DEBUG " slen="
-DEBUG_DWORD ecx
-DEBUG " cur="
-DEBUG_DWORD edx
-DEBUG ")"
-
-	mov	eax, [fs_root$]	# REQUIRE fs_getroot
-	xor	ebx, ebx
-
-	jmp	1f
-	# for now, slow iteration through all to see if match
-0:	
-call newline
-DEBUG "    check n="
-DEBUG_DWORD ebx
-DEBUG "parent="
-push ecx
-mov ecx, [eax+ebx+fs_node_parent]
-DEBUG_DWORD ecx
-pop ecx
-push esi
-mov esi, [eax + ebx + fs_node_label]
-DEBUG "'"
-DEBUGS
-DEBUG "'"
-pop esi
-
-	# check if it is a child node
-	cmp	[eax + ebx + fs_node_parent], edx
-	jnz	2f
-DEBUG "parent match"
-	# check if the label matches
-	push	ecx
-	push	esi
-	push	edi
-	mov	edi, [eax + ebx + fs_node_label]
-	repz	cmpsb
-	pop	edi
-	pop	esi
-	pop	ecx
-	jz	3f
-DEBUG "path mismatch"
-2:	add	ebx, FS_NODE_SIZE
-1:	cmp	ebx, [eax + array_index]
-	jb	0b
-DEBUG "fail"
-call newline
-	stc
-0:	pop	ebx
-	ret
-
-3:	mov	edx, ebx
-DEBUG "match"
-DEBUG_DWORD edx
-call newline
-	clc
-	jmp	0b
-
-# in: ebx = mtab index
-# out: ebx = mtab-compatible index
-fs_getentry_TODO:
-	push	ebx
-	push	ecx
-
-	# TODO: use [mtab] + ebx to load partition type and find
-	# proper handler.
-	#
-	# so far the approach is that this method is called once for
-	# each deeper directory, and thus, another pointer must be
-	# kept that:
-	# - builds the path string relative to the mount point, or:
-	# - holds a handle with meaning for the specific fs implementation,
-	#   such as a FAT cluster number.
-	#
-	# Another approach is to construct a tree (for caching)
-	# with all the directories traversed.
-	#
-	#
-
-0:	pop	ecx
-	pop	ebx
+	mov	byte ptr [edi + fs_dirent_attr], 0x10
+	mov	word ptr [edi + fs_dirent_name], '/'
 	ret
 
 
@@ -815,7 +577,7 @@ fs_dirent_name: .space 255
 fs_dirent_attr:	.byte 0		# RHSVDA78
 fs_dirent_size:	.long 0, 0
 FS_DIRENT_STRUCT_SIZE = .
-.text
+.text32
 
 
 .struct 0			# index bits available:
@@ -824,6 +586,7 @@ fs_handle_mtab_idx:	.long 0 # total 3
 fs_handle_dir:		.long 0 # total 2
 fs_handle_dir_iter:	.long 0 # total 4
 fs_handle_dir_size:	.long 0 # total 2
+fs_handle_buf:		.long 0
 fs_handle_dirent:	.space FS_DIRENT_STRUCT_SIZE
 FS_HANDLE_STRUCT_SIZE = .
 
@@ -839,7 +602,7 @@ FS_HANDLE_STRUCT_SIZE = .
 .data
 # open files
 fs_handles$:	.long 0
-.text
+.text32
 
 # out: eax + edx = fs_handle base + index
 fs_new_handle$:
@@ -998,7 +761,40 @@ fs_nextentry:
 	stc
 	jmp	0b
 
-# lsof
+# in: eax = handle
+# in: edi = buffer
+# in: ecx = bytes to read/max buf size
+fs_handle_read:
+	push	eax
+	call	fs_validate_handle
+	jc	9f
+
+	mov	edi, [eax + edx + fs_handle_buf]
+	or	edi, edi
+	jnz	0f
+	push	eax
+	mov	eax, [eax + edx + fs_handle_dirent +  fs_dirent_size]
+DEBUG "read"
+DEBUG_DWORD eax
+	add	eax, 511
+	shr	eax, 9
+	call	malloc
+	mov	edi, eax
+	pop	eax
+	mov	[eax + edx + fs_handle_buf], edi
+0:
+	mov	ecx, [eax + edx + fs_handle_dirent +  fs_dirent_size]
+	mov	ebx, [eax + edx + fs_handle_dir]
+	FS_HANDLE_CALL_API read, edx	# in: ebx=handle, edi,ecx = buf
+
+0:	pop	eax
+	ret
+9:	printc 4, "fs_handle_read: unknown handle"
+	stc
+	jmp	0b
+
+
+# cmd_lsof
 fs_list_openfiles:
 	# map { print } @fs_handles;
 	mov	ebx, [fs_handles$]
@@ -1103,7 +899,15 @@ fs_close:	# fs_free_handle
 # 
 # in: eax = pointer to path string
 # out: eax = directory handle (pointer to struct), to be freed with fs_close.
+.data
+fs_openfoo: .byte 0
+.text32
+fs_openfile:
+	mov	byte ptr [fs_openfoo], 1
+	jmp	0f
 fs_opendir:
+	mov	byte ptr [fs_openfoo], 2
+0:
 	push	ebp
 	push	edi
 	push	esi
@@ -1118,14 +922,14 @@ fs_opendir:
 	# allocate space to hold the processed path
 	mov	eax, ecx
 	inc	eax
-	call	malloc
+	call	mallocz
 	push	eax	# [ebp]
 	mov	ebp, esp
 
 # in: esi = label
 
 	.if FS_DEBUG
-		printc 10, "opendir "
+		printc 10, "open "
 		call	println
 	.endif
 
@@ -1133,7 +937,13 @@ fs_opendir:
 	mov	ebx, -1		# fs specific directory handle
 
 #########################################
-0:	or	ecx, ecx
+0:	
+
+.if FS_DEBUG > 1
+DEBUG "path loop"
+DEBUG_DWORD ecx
+.endif
+	or	ecx, ecx
 	jz	0f
 
 	mov	edi, esi
@@ -1192,26 +1002,49 @@ fs_opendir:
 	# esi = start of match
 	# edi = end of match/start of rest of string to scan
 	# eax = match length (edi-esi)
+	# edx = current mtab entry
 	# ebx = current directory handle
+DEBUG_REGSTORE
 	call	fs_process_pathent$	# out: edx=mtab idx, ebx=fs dir handle
+DEBUG_REGDIFF
 	jc	2f
 
+	test	byte ptr [proc_pe$ + fs_dirent_attr], 0x10 # directory
+	jnz	3f
+DEBUG "not a dir"
+	# is a file
+	cmp	byte ptr [fs_openfoo], 1
+	# ok, done - ignore trail
+	jmp	0f
+
+3:	# is a dir
+DEBUG "is a dir"
+DEBUG_DWORD ebx
 	.if FS_DEBUG 
 		call	newline
 	.endif
+
 #########
 
 	mov	esi, edi
 	jmp	0b
 
 #########################################
+3:	call	newline
+	printc	12, "not a directory: "
+	push	esi
+	mov	esi, offset proc_pe$ + offset fs_dirent_name
+	call	print
+	pop	esi
+	jmp	4f
+
 
 2:	call	newline
 	printc 12, "directory not found: "
 	mov	esi, [ebp]
 	call	println
 
-	mov	eax, [ebp]
+4:	mov	eax, [ebp]
 	call	mfree
 	stc
 	jmp	1f
@@ -1229,6 +1062,13 @@ fs_opendir:
 	pop	eax
 	mov	[eax + edx + fs_handle_label], esi
 	mov	[eax + edx + fs_handle_dir_iter], dword ptr 0
+
+	mov	esi, offset proc_pe$
+	push	edi
+	lea	edi, [eax + edx + fs_handle_dirent]
+	mov	ecx, FS_DIRENT_STRUCT_SIZE
+	rep	movsb
+	pop	edi
 
 	clc
 1:
@@ -1294,7 +1134,12 @@ fs_process_pathent$:
 	jc	1f
 
 	.if FS_DEBUG 
-		printc 11, "mountpoint"
+		printc 11, "mountpoint "
+		push	esi
+		mov	esi, [mtab]
+		mov	esi, [esi + ecx + mtab_mountpoint]
+		call	print
+		pop	esi
 	.endif
 	mov	ebx, -1	# indicates root of filesystem
 
@@ -1309,13 +1154,45 @@ fs_process_pathent$:
 	mov	ecx, [eax + fs_obj_class]
 	# in: eax = pointer to fs info
 	# in: esi = pointer to directory name
-	call	[ecx + fs_api_opendir]
-	# out: ebx = directory handle if found.
+
+	.if FS_DEBUG > 2
+		push edx
+		DEBUG_DWORD eax
+		DEBUG_DWORD edx
+		DEBUG_DWORD ecx
+		mov edx, [ecx + fs_api_open]
+		DEBUG_DWORD edx
+		pop edx
+	.endif
+
+	.data
+	proc_pe$: .space FS_DIRENT_STRUCT_SIZE
+	.text32
+	push	edi
+	push	eax
+
+	push	ecx
+	push	eax
+	mov	edi, offset proc_pe$
+	mov	ecx, FS_DIRENT_STRUCT_SIZE
+	xor	al, al
+	rep	stosb
+	pop	eax
+	pop	ecx
+	mov	edi, offset proc_pe$
+
+	push	edx
+	call	[ecx + fs_api_open]
+	pop	edx
+
+	pop	eax
+	pop	edi
+	# out: ebx = directory handle if found, edi filled in
 	jc	2f
 ###
 3:	pop	ecx
 	ret
-2:	printc 4, "opendir fail"
+2:	printc 4, "open fail"
 	stc
 	jmp	3b
 

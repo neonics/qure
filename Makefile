@@ -60,34 +60,25 @@ build/kernel.bin: fonts
 
 
 .PHONY: fonts
-fonts: build/font.exe fonts/courier56.s
+fonts:
+	$(call MAKE,fonts)
 
-
-fonts/courier56.s: fonts/courier56.fnt build/font.exe
-	build/font.exe $<
-	
 
 # Utility - Build Assistance
 
 util:	init build/write.exe build/asm.exe build/malloc.exe
 
 build/write.exe: util/write.cpp
-	gcc $< -o $@
-
-
-build/asm.exe: util/asm.y util/asm.l
-	@#flex -o build/asm.lex.c $<
-	@#gcc build/asm.lex.c -o $@
-	@# -d: gen header file -v report state -t debug
-	bison -d -v -t -o build/asm.parser.c util/asm.l
-	flex -DBISON -o build/asm.lex.c util/asm.y
-	gcc -o $@ build/asm.lex.c build/asm.parser.c
+	@echo " C $@"
+	@gcc $< -o $@
 
 build/malloc.exe: util/malloc.cpp
-	g++ -std=c++0x -o $@ $<
+	@echo " C $@"
+	@g++ -std=c++0x -o $@ $<
 
 build/font.exe: util/font.cpp
-	gcc $< -o $@
+	@echo " C $@"
+	@gcc $< -o $@
 
 ##########################################################################
 

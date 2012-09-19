@@ -1,5 +1,4 @@
 .intel_syntax noprefix
-.text # tmp here to mark for vi
 
 IRQ_BASE = 0x20	# base number for PIC hardware interrupts
 
@@ -12,7 +11,7 @@ IRQ_BASE = 0x20	# base number for PIC hardware interrupts
 
 ###########################
 
-.text	# realmode access, keep within 64k
+.data16	# realmode access, keep within 64k
 
 realsegflat:.long 0
 codeoffset: .long 0
@@ -28,8 +27,6 @@ bkp_reg_gs: .word 0
 
 
 ##########################
-.text
-.code16
 
 .macro NMI_OFF
 	# Configuration/RTC (CMOS): AT and PS/2. PC uses 0xA0.
@@ -56,6 +53,8 @@ bkp_reg_gs: .word 0
 	NMI_OFF
 .endm
 
+
+.text16
 
 # in: ax: Flags
 # bit0:	0 = flat mode (flatCS, flatDS for all registers; esp updated)
@@ -132,7 +131,6 @@ rmOK
 
 	mov	eax, offset pmode_entry$
 	mov	cx, SEL_compatCS
-
 	or	bl, bl
 	jnz	0f
 	add	eax, [realsegflat]
@@ -200,7 +198,7 @@ rmOK
 	.byte 0x66, 0xea
 	pm_entry:.long 0
 	.word SEL_flatCS
-.code32
+.text32 # .code32
 pmode_entry$:
 
 	# print Pmode
@@ -302,12 +300,8 @@ OK
 		PRINTc 8 "  Load Task Register"
 	.endif
 
-#print "about to return...."
-#xor	ax ,ax
-#call keyboard
 	mov	ax, SEL_tss
 	ltr	ax
-
 
 	.if DEBUG > 2
 		OK
@@ -328,7 +322,7 @@ OK
 
 
 #############################################################
-
+.text32
 # bp cannot be used as a parameter for the realmode function.
 #
 # usage:
@@ -342,7 +336,6 @@ call_realmode:
 	mov	bp, sp
 	call	[bp + 6]
 	pop	bp
-
 	xor	ax, ax
 	call	reenter_protected_mode_rm
 .code32
@@ -353,8 +346,7 @@ call_realmode:
 
 
 #############################################################
-DEBUG=0
-.code16
+.text16
 reenter_protected_mode_rm:
 	xor	edx, edx
 	pop	dx
@@ -472,7 +464,7 @@ pop ds
 	.byte 0x66, 0xea
 	pm_entry2:.long 0
 	.word SEL_flatCS
-.code32
+.text32 # .code32
 pmode_entry2$:
 
 	# print Pmode
@@ -615,21 +607,12 @@ mov [screen_pos], edi
 
 
 
-
-
-
-
-
-
-
-
-
-
 #######################################################
 
 DEBUG_KERNEL_REALMODE = 0
 # call this from protected mode!
-.code32
+
+.text32
 # This section will work when this method is called from pmode,
 # having a pmode return address on the stack which will be converted to
 # realmode address.
@@ -643,6 +626,7 @@ DEBUG_KERNEL_REALMODE = 0
 # call	real_mode_pm
 # .code16
 # ..next instruction
+.code32
 real_mode_pm:
 	pop	edx
 	GDT_GET_BASE eax, cs
@@ -663,6 +647,7 @@ real_mode_pm:
 # jmp	real_mode_pm
 # .code16
 # 0:
+.code32
 real_mode_pm_unr:
 	mov	bx, SEL_compatDS
 	mov	ds, bx
@@ -679,6 +664,7 @@ real_mode_pm_unr:
 	add	edx, eax
 0:	GDT_GET_BASE eax, SEL_compatCS
 	shr	eax, 4
+
 	push	ax
 	.if DEBUG > 2
 		call printhex8
@@ -709,8 +695,9 @@ real_mode_pm_unr:
 
 # This will return to real-mode, assuming the stack points to a real-mode
 # address, possibly the address from which protected_mode was called.
+.code32
 real_mode_rm:
-
+print "real_mode_rm "
 	INTERRUPTS_OFF
 
 	ljmp	SEL_realmodeCS, offset 0f
@@ -731,7 +718,7 @@ real_mode_rm:
 	# PLACE NO CODE HERE - serialize CPU to reload code segment
 
 	retf
-
+.text16
 rm_entry:
 	mov	ax, 0xb800
 	mov	es, ax

@@ -45,7 +45,7 @@ SHELL_COMMAND_STRUCT_SIZE:
 		.long \addr
 		.long 9b
 		.word 8b - 9b
-	.text
+	.text32
 .endm
 
 ### Shell Command list
@@ -54,18 +54,17 @@ SHELL_COMMANDS:
 SHELL_COMMAND "cls",		cls
 # filesystem
 SHELL_COMMAND "ls",		cmd_ls$
-SHELL_COMMAND "cluster",	cmd_cluster$
 SHELL_COMMAND "cd",		cmd_cd$
 SHELL_COMMAND "pwd",		cmd_pwd$
 SHELL_COMMAND "disks",		cmd_disks_print$
 SHELL_COMMAND "listdrives",	ata_list_drives
-SHELL_COMMAND "fdisk",		cmd_fdisk$
+SHELL_COMMAND "fdisk",		cmd_fdisk
 SHELL_COMMAND "mkfs",		cmd_sfs_format
 SHELL_COMMAND "partinfo",	cmd_partinfo$
 SHELL_COMMAND "mount",		cmd_mount$
 SHELL_COMMAND "umount",		cmd_umount$
-SHELL_COMMAND "fs_tree",	fs_printtree
 SHELL_COMMAND "lsof",		fs_list_openfiles
+SHELL_COMMAND "fat_handles"	cmd_fat_handles
 # memory
 SHELL_COMMAND "mtest",		malloc_test$
 SHELL_COMMAND "mem",		cmd_mem$
@@ -108,14 +107,14 @@ SHELL_COMMAND "obj"		pci_list_obj_counters
 
 SHELL_COMMAND "gdt"		cmd_print_gdt
 SHELL_COMMAND "p"		cmd_ping_gateway
-
 SHELL_COMMAND "gfx"		cmd_gfx
+SHELL_COMMAND "iso"		iso9660_test
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
 ############################################################################
 
-.text	
+.text32	
 .code32
 
 shell:	push	ds
@@ -622,7 +621,7 @@ CMDLINE_HISTORY_SHARE = 1
 cmdline_history: .long 0	# list/array/linked list.
 
 cmdline_history_current: .long 0 # the current array item offset (up/down keys)
-.text
+.text32
 
 # static constructor
 cmdline_history_new:	
@@ -887,8 +886,8 @@ _tmp_init$:
 	8: .asciz "hdb0"
 	9: .long 0, 8b
 	tmp_drv$: .long 1
-	.text
-	.text
+	.text32
+	.text32
 	mov	esi, offset 9b
 	call	cmd_partinfo$
 	ret
@@ -932,7 +931,7 @@ cmd_cd$:
 	# no path given, change to home directory
 	.data
 	9: .asciz "/"
-	.text
+	.text32
 	mov	esi, offset 9b
 0:
 	# new code
@@ -954,7 +953,6 @@ cmd_cd$:
 	pop	esi
 
 	mov	edi, offset cd_cwd$
-
 	call	fs_update_path
 ##############################################################################
 		cmp	byte ptr [esp], 0
@@ -999,7 +997,7 @@ cmd_cd$:
 
 .data 2
 tmp_buf$: .space 2 * 512
-.text
+.text32
 
 cmd_ls$:
 	mov	eax, offset cwd$
@@ -1019,7 +1017,7 @@ cmd_ls$:
 	DIRENT_SIZE_ALIGN = 10
 	.data
 	55: .space DIRENT_SIZE_ALIGN
-	.text
+	.text32
 
 	mov	edx, [esi + fs_dirent_size]
 	mov	edi, offset 55b
@@ -1063,85 +1061,54 @@ cmd_ls$:
 9:	ret
 
 
-
-################################
-cmd_ls_old$:
-	xor	eax, eax
-	jmp	ls$
-
-cmd_cluster$:
-	mov	eax, 2
-	jmp	ls$
-
-
-ls$:	mov	ebx, [fat_root_lba$]
-	or	ebx, ebx
-	jnz	lsdir$
-	call	_tmp_init$
-	mov	ebx, [fat_root_lba$]
-lsdir$:	mov	edi, offset tmp_buf$
-	mov	ecx, 1
-	mov	al, [tmp_drv$]
-	call	ata_read
-	jc	read_error$
-
-	mov	esi, offset tmp_buf$
-0:	
-	cmp	byte ptr [esi], 0
-	jz	0f
-	PRINT	"Name: "
-	mov	ecx, 11
-	call	nprint
-
-	PRINT	" Attr "
-	mov	dl, [esi + FAT_DIR_ATTRIB]
-	call	printhex2
-	.data
-		9: .ascii "RHSVDA78"
-	.text
-	mov	ebx, offset 9b
-	mov	ecx, 8
-1:	mov	al, ' '
-	shr	dl, 1
-	jnc	2f
-	mov	al, [ebx]
-2:	call	printchar
-	inc	ebx
-	loop	1b
-	
-
-	PRINT	" Cluster "
-	mov	dx, [esi + FAT_DIR_CLUSTER]
-	call	printhex4
-
-	PRINT	" Size: "
-	mov	edx, [esi + FAT_DIR_SIZE]
-	call	printdec32
-	call	newline
-
-	add	esi, 32
-	cmp	esi, 512 + offset tmp_buf$	# overflow check
-	jb	0b
-0:
-mov	esi, -1
-mov	edi, esi
-mov	ebx, esi
-mov	edx, esi
-	ret
-
-
-############################
-
-read_error$:
-	PRINTLNc 10, "ATA Read ERROR"
-	stc
-	ret
-
-
-##############################################################################
+########################################################################
 
 cmd_cat$:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	9f
+
+	# make path
+
+	.if 1
+	.data
+	88: .asciz "/b/FDOS/SOURCE/KERNEL/CLEAN.BAT/"
+	.text32
+	.else
+	# works:
+	.data
+	88: .space MAX_PATH_LEN
+	.text32
+	push	esi
+	mov	esi, offset cwd$
+	mov	edi, offset 88b
+	mov	ecx, MAX_PATH_LEN
+	rep	movsb
+	pop	esi
+
+	mov	edi, offset 88b
+	mov	esi, eax
+	call	fs_update_path
+	jc	9f
+	.endif
+
+	print "PATH: "
+	mov	esi, offset 88b
+	call	print
 	call	newline
+
+	mov	eax, offset 88b
+	call	fs_openfile
+	jc	9f
+	# out: eax = file handle
+DEBUG "Call fs_handle_read"
+	call	fs_handle_read
+DEBUG "fs_handle_read DONE"
+	ret
+
+9:	printlnc 12, "usage: cat <filename>"
+	stc
 	ret
 
 #####################################
@@ -1195,7 +1162,7 @@ cmd_set:
 
 	.data
 	shell_variables: .long 0
-	.text
+	.text32
 
 shell_variables_list:
 0:	mov	eax, [shell_variables]
@@ -1340,7 +1307,7 @@ cmd_netdump:
 	.data SECTION_DATA_STRINGS
 	79: .asciz "\str"
 	78: 
-	.text
+	.text32
 	push	esi
 	mov	esi, offset 79b
 	push	ecx
@@ -1382,8 +1349,9 @@ cmd_ping_gateway:
 	STRINGPTR "ping"
 	STRINGPTR "192.168.1.1"
 	STRINGNULL
-	.text
+	.text32
 	mov	eax, offset 0b
 	mov	esi, eax
 	call	cmd_ping
 	ret
+

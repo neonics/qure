@@ -1,4 +1,4 @@
-.text # realmode access, keep within 64k
+.data16 # realmode access, keep within 64k
 .align 4
 # in the syntax below, the second word of '.word 0,0' is always reserved,
 # as the entry is a 32 bit aligned 16 bit value.
@@ -29,9 +29,7 @@ tss_LDTR:	.word 0, 0
 		.word 0 # low word at offset 64 is reserved, hi=IOBP offset
 tss_IOBP:	.word 0 # io bitmask base pointer, 104 + ...
 
-.text
-.code16
-
+.text16
 init_tss_16:
 	mov	[tss_IOBP], word ptr 104
 
@@ -54,7 +52,7 @@ init_tss_16:
 	mov	[tss_DS], dword ptr SEL_compatDS
 	ret
 
-.code32
+.text32
 
 task_switch:
 .if 0

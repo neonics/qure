@@ -131,10 +131,9 @@ PIC_DATA_CMD_CLEAR_SMM	= PIC_OCW3_SMM
 
 PIC_CMD_EOI		= 0x20	# End Of Interrupt
 
-.text	# realmode access, keep within 64k
+.data16 	# realmode access, keep within 64k
 pic_ivt_offset: .word 0
 pic_mask: .word 0
-.text
 
 ##############################################################################
 # MACROS
@@ -403,7 +402,7 @@ pic_mask: .word 0
 ##############################################################################
 # 16 bit CODE
 
-.code16
+.text16
 pic_init16:
 	PIC_INIT
 	ret
@@ -447,7 +446,7 @@ pic_restore_mask16:
 
 ##############################################################################
 # 32 bit CODE
-
+.text32
 .code32
 pic_init32:
 	PIC_INIT

@@ -48,9 +48,15 @@ CHAIN_RETURN_RM_KERNEL = 1
 .macro PRINT_16 m
 	# need to declare realmode strings in .text as kernel .text shifts
 	# data beyond 64kb reach.
+.if 0
 	jmp	98f
 	99:.asciz "\m"
 	98:
+.else
+	.data16
+	99: .asciz "\m"
+	.text16
+.endif
 	push	si
 	mov	si, offset 99b
 	call	print_16
@@ -133,8 +139,7 @@ CHAIN_RETURN_RM_KERNEL = 1
 
 
 #########################################################
-.text
-.code16
+.text16
 
 # in: es = 0xb800
 # in: dl = boot drive
@@ -466,12 +471,13 @@ memory_map_region_type:	.long 0
 memory_map_attributes:	.long 0 	# ACPI compliancy
 memory_map_struct_size: 
 
-.text # keep near beginning due to realmode 64k limit
+.data16
 low_memory_size: .word 0 # in kb
 memory_map:	.space 24 * (10+1)	# 11 lines (qemu: 5, vmware: 10)
 cdrom_spec_packet: .space 0x13
 
 
+.text16
 ################################
 #### Console/Print #############
 ################################
@@ -586,4 +592,6 @@ __scroll_16:
 	ret
 
 
+.text16end
 realmode_kernel_end:
+REALMODE_KERNEL_SIZE = realmode_kernel_end - realmode_kernel_entry

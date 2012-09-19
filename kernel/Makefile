@@ -7,10 +7,11 @@ clean:
 AS = /bin/as -R -n --warn --fatal-warnings
 
 kernel.bin: kernel.o
-	../util/checksymbols $<
-	objcopy -O binary $< $@
+	@../util/checksymbols $<
+	@echo "   OBJ  $@"
+	@objcopy -O binary $< $@
 
-KERNEL_SRC = kernel.s debug.s debugger.s realmode.s print.s \
+KERNEL_SRC = kernel.s macros.s debug.s debugger.s realmode.s print.s \
 	pmode.s pic.s gdt.s idt.s tss.s \
 	mem.s hash.s list.s string.s
 
@@ -25,5 +26,6 @@ GFX_SRC = gfx.s ../fonts/courier56.s
 
 kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s $(FS_SRC) $(NET_SRC) $(GFX_SRC) \
 		token.s shell.s
-	$(AS) -o $@ $<
-	../util/checksymbols $@
+	@echo "   AS   $@"
+	@$(AS) -o $@ $<
+	@../util/checksymbols $@

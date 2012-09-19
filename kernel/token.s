@@ -7,7 +7,7 @@
 .data 2
 	tokens: .space src_len * 8 + 8
 
-.text
+.text32
 # in: esi = src, edi = target
 compile:
 	mov	eax, ds
@@ -163,7 +163,7 @@ cchandler:
 	.long cc_space
 
 
-.text
+.text32
 # in: esi = source, ecx = source len, edi = out token array,
 # out: edi = points to token after last token
 # destroyed: ecx, eax, esi, ebx, dl
@@ -297,7 +297,7 @@ cc_space:
 #	token_types:		.byte a, b, c, d # these two must be
 #	token_handler_indices:	.byte 0, 0, 1, 2 # of equal length
 #	token_handlers:		.long handler0, handler1, handler2
-# .text
+# .text32
 # mov	al, ALPHA
 # mov	edx, offset token_handler_data
 # call	get_token_handler
@@ -404,7 +404,7 @@ get_token_handler:
 		.data
 		9: .ascii "\tok"
 		8: 
-		.text
+		.text32
 		push	esi
 		mov	esi, offset cmdline_tokens + 4
 		mov	ecx, [esi+8]

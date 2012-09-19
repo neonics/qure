@@ -102,7 +102,7 @@
 .byte \base >> 24
 .endm
 
-.text	# real-mode access, keep within 64k
+.data16	# real-mode access, keep within 64k
 .space 4 # DEBUG: align in file for hexdump
 
 GDT: 	.space 8	# null descriptor
@@ -124,13 +124,12 @@ GDT_realmodeFS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 GDT_realmodeGS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 
 GDT_biosCS:	DEFGDT 0xf0000, 0x00ffff, ACCESS_CODE, FLAGS_16 #ffff 0000 00 92 00 00
-.text	# realmode access, keep witin 64k
+
 pm_gdtr:.word . - GDT -1
 	.long GDT
 rm_gdtr:.word 0
 	.long 0
 
-.data
 # Segment selector format:
 # [15:3] descriptor index (0..8191). Offset in descriptor table: & ~7
 # [2]: Local/Global: 1 = LDT, 0 = GDT
@@ -273,8 +272,7 @@ rm_gdtr:.word 0
 	call		newline_16
 .endm
 
-.text
-.code16
+.text16
 
 # Calulate segments and addresses
 init_gdt_16:
@@ -306,7 +304,7 @@ init_gdt_16:
 	GDT_STORE_SEG GDT_compatCS
 
 	# find len
-	mov	eax, (offset kernel_code_end - offset realmode_kernel_entry)>> 12
+	mov	eax, (offset kernel_code_end - offset kernel_code_start)>> 12
 	GDT_STORE_LIMIT GDT_compatCS
 
 	xor	eax, eax

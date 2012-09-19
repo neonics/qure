@@ -17,7 +17,7 @@ ll_v_value: .long 0	# value is tested for nonzero. If 0, it's a reference.
 ll_v_prev: .long 0
 ll_v_next: .long 0
 LL_2D_STRUCT_SIZE = 6*4
-.text
+.text32
 # this struct can be overlayed. Either value will serve, as both the base and
 # size will be nonzero, and thus can serve as a flag to indicate whether
 # or not it is a pointer.
@@ -94,7 +94,7 @@ hash_test:
 	.data
 		numbers$: .long 0
 		hash$: .long 0
-	.text
+	.text32
 	# set up an array of numbers, from 0 to 1023
 	mov	eax, 1024 * 4
 	call	malloc
@@ -110,7 +110,7 @@ hash_test:
 	.data
 		hash_first$: .long -1
 		hash_last$: .long -1
-	.text
+	.text32
 
 	mov	edi, offset hash_first$
 	call	hash_new_node
@@ -149,7 +149,7 @@ array_index: .long 0
 #
 #buf_itemsize: .long 0 # number of bytes per item 
 #buf_growsize: .long 0 # bytes to add on each mrealloc
-.text
+.text32
 # in: eax = initial capacity
 # out: eax = pointer to BUF object.
 buf_new:
@@ -324,7 +324,7 @@ ptr_array_newentry:
 .struct 0
 obj_size: .long 0
 OBJ_STRUCT_SIZE = .
-.text
+.text32
 
 obj_array_newentry:
 	call	array_newentry

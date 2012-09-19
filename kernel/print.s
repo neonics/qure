@@ -216,14 +216,14 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 .macro LOAD_TXT txt, reg = esi
 	.data SECTION_DATA_STRINGS
 		99: .asciz "\txt"
-	.text
+	.text32
 	mov	\reg, offset 99b
 .endm
 
 .macro PUSH_TXT txt
 	.data SECTION_DATA_STRINGS
 		99: .asciz "\s"
-	.text
+	.text32
 	push	dword ptr offset 99b
 .endm
 
@@ -238,13 +238,13 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	99: .asciz "\n"
 	.data
 	.long 99b
-	.text
+	.text32
 .endm
 
 .macro STRINGNULL
 	.data
 	.long 0
-	.text
+	.text32
 .endm
 
 
@@ -401,13 +401,12 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 .ifdef DEFINE
 
 
-.text	# realmode access, keep within 64k
+.data16	# realmode access, keep within 64k
 	screen_color:	.word 0x0f	# is a byte, but word for push/pop
 	screen_pos:	.long 0
 	screen_sel:	.word 0
 	screen_update:	.long default_screen_update
-.text
-.code32
+.text32
 default_screen_update:	# 16 and 32 bit
 	ret
 
@@ -539,7 +538,7 @@ SCREEN_BUFFER = 1
 SCREEN_BUF_SIZE = 160 * 24 * 4	# 4 pages
 screen_buf_offs: .long 0
 screen_buf: .space SCREEN_BUF_SIZE
-.text
+.text32
 .endif
 ##############################
 # this method is only to be called when edi > 160 * 24
@@ -1386,7 +1385,7 @@ print_flags16:
 screen_pos_mark:
 	.data SECTION_DATA_BSS
 	screen_pos_mark$: .long 0
-	.text
+	.text32
 	push	eax
 	mov	eax, [screen_pos]
 	mov	[screen_pos_mark], eax

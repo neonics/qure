@@ -1,7 +1,6 @@
 .intel_syntax noprefix
-.code32
-.text
 
+.text32
 
 cmd_gfx:
 	call	cls	# some scroll bug in realmode causes kernel reboot
@@ -48,18 +47,8 @@ cmd_gfx:
 	mov	[gfx_printchar_ptr], dword ptr offset gfx_printchar_32x50
 	.endif
 
-1:
-mov ecx, 256
-mov al, 0
-0: call printchar
-inc al
-loop 0b
 printchar '!'	# tests the screen update thing
 call	newline
-xor ax, ax
-call keyboard
-cmp	ax, K_ENTER
-jnz	1b
 
 	push	es
 	mov	eax, SEL_flatDS
@@ -93,7 +82,7 @@ gfx_palette_16:
 .long 0x000000, 0xaa0000, 0x00aa00, 0xaa5500, 0x0000aa, 0xaa00aa, 0x00aaaa, 0xaaaaaa
 .long 0x555555, 0xff5555, 0x55ff55, 0xffff55, 0x5555ff, 0xff55ff, 0x55ffff, 0xffffff
 
-.text
+.text32
 
 # event handler: called from PRINT_END macro through [screen_update]
 gfx_txt_screen_update:
@@ -337,7 +326,7 @@ gfx_fadestring_center:
 
 .data
 gfx_printchar_ptr: .long gfx_printchar_8x16
-.text
+.text32
 
 # in: edx = fg color (bg transparent)
 # in: esi = string
@@ -370,7 +359,7 @@ gfx_printchar:
 curfont: .long 0
 fontwidth: .long 0
 fontheight: .long 0
-.text
+.text32
 gfx_printchar_8x16:
 	push	ebx
 	push	eax
@@ -499,8 +488,7 @@ keybuf_clear:
 
 #############################################################################
 # 16 bit code
-.text
-.code16
+.text16
 gfx_textmode:
 	mov	ax, 0x4f02
 	mov	bx, 3 # 80x25 640x400 text mode
@@ -528,10 +516,13 @@ vi_oemProductRevPtr:	.long 0		# VbeFarPtr
 vi_reserved:		.space 222
 vi_oemData:		.space 256
 VBE_INFO_BLOCK_SIZE = .
-.text
-.code16
+
+
+
+.text16
 vesa_video_mode: .word 0
 vesa_list_fb_modes:
+print_16 "realmode!"
 	mov	cs:[vesa_video_mode], word ptr 0
 
 	push	bp
@@ -614,6 +605,11 @@ vesa_list_fb_modes:
 	mov	sp, bp
 	pop	es
 	pop	bp
+print_16 "returning from realmode: "
+pop dx
+push dx
+call printhex_16
+call newline_16
 	ret
 #############################################################################
 .struct 0 # vesa mode info block
@@ -652,8 +648,8 @@ vmi_OffScreenMemSize: .word 0
 .space 206
 .space 256
 VESA_MODE_INFO_BLOCK_LENGTH = .  # 512 for v2, v3
-.text
-.code16
+
+.text16
 # in: cx = mode nr
 vesa_print_mode:
 	push	bp
@@ -752,6 +748,9 @@ vidh: .long 0
 vidbpp: .long 0
 vidb:	.long 0
 gfx_realmode:
+.rept 10
+nop
+.endr
 	println_16 "GFX realmode"
 
 # VID MODES:
@@ -824,8 +823,7 @@ gfx_realmode:
 	ret
 
 
-.code32
-
+.text32
 
 .struct 0
 #CRTCInfoBlock_HorizontalTotal: .word 0
@@ -840,13 +838,7 @@ crtci_pclock:	.long 0 # pixel clock Hz
 crtci_rate:	.word 0 # refresh rate in .01 Hz
 # reserve space rest of modeinfoblock (256 bytes total)
 
-
-
-.text
-
-.intel_syntax noprefix
-.code32
-
+#############################################################################
 .struct 0
 pmib_sig: .long 0
 pmib_entry: .word 0
@@ -860,14 +852,9 @@ pmib_inpm:	.byte 0
 pmib_checksum:	.byte 0
 PMINFOBLOCK_STRUCT_SIZE = .
 
-
-vesa_test:
-	printc 11, "VESA check: "
-
-
-ret
-
+.text32
 vesa_scan_pmid:
+	printc 11, "VESA check: "
 	# scan video bios 0xc000:0000 (first 32k) for PM InfoBlock structure
 	push	es
 	mov	ax, SEL_flatDS
@@ -926,29 +913,25 @@ vesa_scan_pmid:
 	jmp	9f
 
 
-
-	print_16 "okay"
-	call	newline_16
-	print_16 "entry "
+	print "entry "
 	mov	dx, es:[di + pmib_entry]
-	call	printhex_16
-	print_16 "init "
+	call	printhex
+	print "init "
 	mov	dx, es:[di + pmib_pminit]
-	call	printhex_16
+	call	printhex
 	jmp	9f
 
 
-	print_16 "BIOS PMID: "
+	print "BIOS PMID: "
 	mov	dx, di
-	call	printhex_16
+	call	printhex
 	jmp	9f
-1:	print_16 "checksum error"
+1:	print "checksum error"
 
 
 9:	pop	es
 	ret
 
-.code32
 .data
 fonts4k:
 .if 0
@@ -1024,3 +1007,6 @@ fonts4k_end:
 font_courier56:
 #.include "../courier56.s"
 .incbin "../fonts/courier56.bin"
+
+.text32
+.code32

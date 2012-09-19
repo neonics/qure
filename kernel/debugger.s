@@ -1,5 +1,5 @@
 .intel_syntax noprefix
-.text
+.text32
 .code32
 
 .macro BREAKPOINT label
@@ -16,7 +16,7 @@ BREAKPOINT "foo"
 
 .data SECTION_DATA_BSS
 debug_registers$: .space 4 * 32
-.text
+.text32
 
 debug_regstore$:
 	mov	[debug_registers$ + 4 * 0], eax

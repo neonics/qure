@@ -7,9 +7,11 @@ clean:
 AS = /bin/as -R -n --warn --fatal-warnings
 
 boot.bin: bootloader.o
-	../util/checksymbols $<
-	objcopy -O binary $< $@
+	@../util/checksymbols $<
+	@echo "   OBJ $@"
+	@objcopy -O binary $< $@
 
 bootloader.o: bootloader.s sector1.s ../16/print.s
-	$(AS) -o $@ $<
-	../util/checksymbols $@ || (rm $@ && false)
+	@echo "   AS $@"
+	@$(AS) -o $@ $<
+	@../util/checksymbols $@ || (rm $@ && false)

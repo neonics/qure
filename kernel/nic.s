@@ -39,7 +39,7 @@ nics:	.long 0	# ptr_array of device offsets
 # mov edx, [eax]	# assume [eax + array_index] > 0
 # mov eax, [devices]	# now [eax + edx] = nic device pointer
 ############################################################################
-.text
+.text32
 # set up the NIC shortlist
 # out: eax = [nics]
 # out: ebx = [devices]
@@ -543,7 +543,7 @@ nic_zeroconf:
 	STRINGPTR "192.168.1.11"
 	STRINGPTR "up"
 	STRINGNULL
-	.text
+	.text32
 	mov	esi, offset 77b
 	mov	eax, esi
 	call	cmdline_print_args$
@@ -556,7 +556,7 @@ nic_zeroconf:
 	STRINGPTR "gw"
 	STRINGPTR "192.168.1.1"
 	STRINGNULL
-	.text
+	.text32
 	mov	esi, offset 77b
 	mov	eax, esi
 	call	cmdline_print_args$
@@ -571,7 +571,7 @@ nic_zeroconf:
 	STRINGPTR "255.255.255.0"
 	STRINGPTR "eth0"
 	STRINGNULL
-	.text
+	.text32
 	mov	esi, offset 77b
 	mov	eax, esi
 	call	cmdline_print_args$
@@ -582,7 +582,7 @@ nic_zeroconf:
 77:	STRINGPTR "ping"
 	STRINGPTR "192.168.1.1"
 	STRINGNULL
-	.text
+	.text32
 	mov	esi, offset 77b
 	mov	eax, esi
 	call	cmdline_print_args$

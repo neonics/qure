@@ -1,6 +1,5 @@
 .intel_syntax noprefix
-.text
-.code32
+.text32
 # in: eax = pointer to string
 # out: eax = number on CF=0; CF=1: error
 atoi:

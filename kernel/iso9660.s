@@ -1,6 +1,41 @@
+##############################################################################
+# ISO 9660 File System
+#
 .intel_syntax noprefix
-.text
+.data
+fs_iso9660_class:
+.long fs_iso9660_mount
+.long fs_iso9660_umount
+.long fs_iso9660_open
+.long fs_iso9660_close
+.long fs_iso9660_nextentry
+.long fs_iso9660_read
 
+.struct FS_OBJ_STRUCT_SIZE
+iso_buf$:	.long 0
+
+.text32
+fs_iso9660_umount:
+fs_iso9660_open:
+fs_iso9660_close:
+fs_iso9660_nextentry:
+fs_iso9660_read:
+	printlnc 12, "iso9660: not implemented"
+	stc
+	ret
+
+# in: ax = disk/partition
+# in: esi = partition info
+# out: edi = pointer to filesystem structure
+fs_iso9660_mount:
+	DEBUG_WORD ax
+	printc 12, "iso9660_mount: not implemented"
+	stc
+	ret
+
+
+
+###########################################################################
 iso9660_test:
 	
 	mov	esi, offset ata_drive_types
@@ -29,6 +64,7 @@ iso9660_test:
 	.endif
 	# load edx with the ports
 	call	ata_get_ports$
+	DEBUG_DWORD edx
 
 
 ##################################################################
@@ -39,14 +75,14 @@ iso9660_test:
 	call	atapi_read12$
 	jc	iso_err$
 
-	PRINT "Volume descriptor type: "
+	PRINTc	11, "Volume descriptor type: "
 	push	edx
 	mov	dl, [esi]
 	call	printhex2
 	pop	edx
 
 	call	newline
-	PRINT "Standard Identifier: "
+	PRINTc	11, "Standard Identifier: "
 	mov	ecx, 5
 	push	esi
 	inc	esi
@@ -56,6 +92,7 @@ iso9660_test:
 
 	xor	ebx, ebx
 	mov	bx, [esi + 140]	# LSB path table location
+	DEBUG_WORD bx
 	call	atapi_read12$
 	jc	iso_err$
 

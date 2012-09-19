@@ -1,7 +1,7 @@
 # http:#forum.osdev.org/viewtopic.php?t=16990
 
 .intel_syntax noprefix
-.text
+.text32
 
 	.macro FLAT2SO seg, offs
 		push	eax
@@ -56,7 +56,7 @@ RSDP_len:
 RSDP_xsdt_addr:
 .struct 32
 RSDP_ext_checksum:
-.text
+.text32
 
 .macro ACPI_MAKE_SIG a, b, c, d
 	mov	ebx, (\d << 24) + (\c <<16) + (\b <<8) + (\a)
@@ -213,7 +213,7 @@ acpi_check_rsdp$:
 
 	.data
 	acpi_rsdp_sig$: .ascii "RSD PTR "
-	.text
+	.text32
 
 	push	di
 	mov	si, offset acpi_rsdp_sig$
@@ -395,7 +395,7 @@ acpi_enable:
 #
 .data
 msg_no_acpi$: .asciz "No ACPI available"
-.text
+.text32
 no_acpi$:	PRINTLNc 0xf2 "No ACPI available"
 		stc
 		ret
@@ -404,7 +404,7 @@ no_acpi$:	PRINTLNc 0xf2 "No ACPI available"
 acpi_init:	
 	.data
 		acpi_initialized$: .byte 0
-	.text
+	.text32
 
 	cmp	byte ptr [acpi_initialized$], 0
 	jz	0f
@@ -437,7 +437,7 @@ acpi_init:
 	.macro ERR a
 		.data
 		9: .asciz "\a"
-		.text
+		.text32
 		mov	si, offset 9b
 		jmp	err$
 	.endm

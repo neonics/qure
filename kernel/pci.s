@@ -3,8 +3,7 @@
 ##############################################################################
 .intel_syntax noprefix
 
-.text
-.code32
+.text32
 
 IO_PCI_CONFIG_ADDRESS	= 0xcf8
 IO_PCI_CONFIG_DATA	= 0xcfc
@@ -325,7 +324,7 @@ pci_device_class_names:
 .long dc0f$, sc0f$
 .long dc10$, sc10$
 .long dc11$, sc11$
-.text
+.text32
 
 # in: al = eax = pci device class
 # in: dh = prog if
@@ -357,7 +356,7 @@ DEBUG "not found"
 .data
 
 dev_pci_obj_counters: .long 0
-.text
+.text32
 pci_clear_obj_counters:
 	push	eax
 	push	ecx

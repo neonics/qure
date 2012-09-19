@@ -4,6 +4,7 @@
 .code32
 
 ATA_DEBUG = 0
+ATAPI_DEBUG = 1
 
 ATA_MAX_DRIVES = 8	# 4 buses with 2 drives each supported
 
@@ -86,6 +87,9 @@ ATA_PORT_DCR		= 0x206	# (206-8 for TERT/QUAT) device control register
   ATA_DCR_HOB			= 7	# cmd: read High Order Byte of LBA48
 
 
+#########################################################
+# ATA IDENTIFY drive information structure
+#
 .struct 0			#ATAPI: M = mandatory, u=unused, O=optional
 				#                         /---- ATAPI
 ATA_ID_CONFIG:			.word 0 	#0     0  M 2 Fixed
@@ -108,7 +112,7 @@ ATA_ID_BYTES_PER_TRACKu:	.word 0 	#4     8  u 2 unformtd bytes/trk
 ATA_ID_BYTES_PER_SECTORu:	.word 0 	#5     10 u 2 unformtd bytes/sec
 .struct 12
 ATA_ID_SECTORS_PER_TRACK:	.word 0		#6     12 u 2
-ATA_ID_VENDOR_SPEC1:		.word 0,0,0 	#7-9   14	u 6
+ATA_ID_VENDOR_SPEC1:		.word 0,0,0 	#7-9   14 u 6
 .struct 20
 ATA_ID_SERIAL_NO:		.space 20 	#10-19 20 O 10 Fixed
 ATA_ID_BUFFER_TYPE:		.word 0 	#20    40 u 2
@@ -120,8 +124,8 @@ ATA_ID_MODEL_NAME:		.space 40 	#27-46 54 M 40 # ASCII
 ATA_ID_MULTIPLE_SEC_PER_INT:	.word 0 	#47    94 u 2
 ATA_ID_DWIO:			.word 0 	#48    96 u 2 # reserved
 ATA_ID_LBADMA:/*CAPABILITIES*/	.word 0 	#49    98 M 2 
-	# bit 15: reserved for itnerleaved DMA
-	# bit 14: reserved for proxy itnerrupt
+	# bit 15: reserved for interleaved DMA
+	# bit 14: reserved for proxy interrupt
 	# bit 13: overlap operation supported
 	# bit 12: reserved
 	# bit 11: IORDY supported
@@ -142,7 +146,7 @@ ATA_ID_AP_SECTORS_PER_TRACK:	.word 0 	#56    112 u 2 cur Sectors
 ATA_ID_CAPACITY:		.word 0,0 	#57-58 114 u 4 cur capacity
 ATA_ID_SECTORS_PER_INT:		.word 0 	#59    118 u 2 reserved 
 .struct 120
-ATA_ID_LBA_SECTORS:/*MAX_LBA*/	.word 0,0 	#60-61 120 u 4 usr addrsble sect
+ATA_ID_LBA28_SECTORS:/*MAX_LBA*/.long 0 	#60-61 120 u 4 usr addrsble sect
 ATA_ID_SIN_DMA_MODES:		.word 0 	#62    124 M 2
 	# high byte: singleword DMA transfer mode active (variable)
 	# low byte:  singleword DMA transfer modes supported (fixed)
@@ -166,12 +170,21 @@ ATA_ID_MINOR_VERSION:		.word 0		# 74 O fixed (-1 = unsupp)
 ATA_ID_RESERVED6:		.space 127-75	# reserved unused
 .struct 164
 ATA_ID_COMMANDSETS:		.word 0		# 164
+ATA_ID_FLAGS:			.word 0		# 166
+	# flag 1 << 10: LBA48
+.struct 176
+ATA_ID_UDMA:			.word 0
+.struct 186
+ATA_ID_FLAGS2:			.word 0 
+	# 1<<12: 1 = 80-pin cable (only works for master (0) drive)
 .struct 200
 ATA_ID_MAX_LBA_EXT:		.word 0		# 200
 .struct 256
 ATA_ID_VENDOR_SPEC2:		.space 64 	# 256	64
 ATA_ID_RESERVED7:		.word 0 	# 320
 
+
+#####################################################################
 .data
 ata_bus_presence: .byte 0	# bit x: IDEx
 ata_buses:
@@ -179,7 +192,7 @@ ata_buses:
 	.word IO_ATA_SECONDARY
 	.word IO_ATA_TERTIARY
 	.word IO_ATA_QUATERNARY
-ata_bus_dcr_rel:
+ata_bus_dcr_rel:	# the DCR ports, in relative offset to the bus port
 	.word ATA_PORT_DCR
 	.word ATA_PORT_DCR
 	.word ATA_PORT_DCR - 8
@@ -192,12 +205,29 @@ ata_drive_types: .space 8
 	TYPE_ATAPI = 2
 
 .struct 0
-ata_driveinfo_capacity: .long 0, 0
+ata_driveinfo_sectorsize:	.long 0
+ata_driveinfo_max_lba:		.long 0, 0
+ata_driveinfo_lba28_sectors:	.long 0
+ata_driveinfo_capacity:		.long 0, 0	# calculated from lba28*512
+ata_driveinfo_cmd_packet_size:	.byte 0
+# drive geometry:
+ata_driveinfo_c:		.word 0	# cylinders
+ata_driveinfo_h:		.word 0 # heads
+ata_driveinfo_s:		.word 0	# sectors per track
+ata_driveinfo_cap_in_s:		.long 0	# capacity in sectors
+
+# data from first part of ATA_ID, values seem off (values are for all drives):
+# these are the unformatted c/h/s etc..:
+ata_driveinfo_num_cylinders:	.word 0 # 0x6220
+ata_driveinfo_num_:		.word 0 # 0x6f6f (RESERVED1)
+ata_driveinfo_num_heads:	.word 0 # 0x6974
+ata_driveinfo_bpt:		.word 0 # 0x6763
+ata_driveinfo_bps:		.word 0 # 0x5600
 ATA_DRIVEINFO_STRUCT_SIZE = .
 .data SECTION_DATA_BSS
 ata_drives_info: .space ATA_DRIVEINFO_STRUCT_SIZE * 8
 
-.text
+.text32
 .code32
 
 # PREREQUISITE: ata_list_drives
@@ -249,40 +279,56 @@ ata_err_unknown_disk$:
 	stc
 	ret
 
-# in: al = ata drive (bus<<1 + drive)
-# out: eax, edx
-ata_get_capacity:
+# in: al = disk
+# out: eax = drive info struct ptr
+ata_get_drive_info:
 	call	ata_is_disk_known
-	jc	1f
+	jc	9f
 	mov	ah, ATA_DRIVEINFO_STRUCT_SIZE
 	mul	ah
 	movzx	eax, ax
-	mov	edx, [ata_drives_info + eax + ata_driveinfo_capacity + 4]
-	mov	eax, [ata_drives_info + eax + ata_driveinfo_capacity + 0]
+	lea	eax, [ata_drives_info + eax]
+9:	ret
+
+# in: al = ata drive (bus<<1 + drive)
+# out: edx:eax = drive capacity in bytes
+ata_get_capacity:
+	call	ata_get_drive_info
+	jc	9f
+	mov	edx, [eax + ata_driveinfo_capacity + 4]
+	mov	eax, [eax + ata_driveinfo_capacity + 0]
 1:	ret
 
 # in: al = drive
-# out: ecx = heads
-ata_get_heads:
-	push	eax
-	push	edx
+# out: eax = max cylinders
+# out: cx = maxsectors << 16 | max heads
+ata_get_geometry:
+.if 1
+	call	ata_get_drive_info
+	jc	0f
 
-	mov	ecx, 16
+	mov	cx, [eax + ata_driveinfo_s]
+	shl	ecx, 16
+	mov	cx, [eax + ata_driveinfo_h]
+	mov	eax, [eax + ata_driveinfo_c]
 
-	call	ata_get_capacity	# out: edx,eax
+.else
+	mov	ecx, 16 | ( 64 << 16 )
+
+	call	ata_get_capacity	# out: edx:eax
 	jc	0f
 
 	# check if capacity >= 512 mb:
-	LBA_H16_LIM = 1024 * 16 * 63	# fc000
+	LBA_H16_LIM = 1024 * 16 * 63 * 512	# fc000<<9: 0x1f800000
 	cmp	eax, LBA_H16_LIM
 	jb	1f
-
-	mov	ecx, 255
+	mov	cx, 255
 1:	clc
+.endif
 0:
-	pop	edx
-	pop	eax
 	ret
+
+
 
 ata_list_drives:
 
@@ -610,7 +656,7 @@ read$:	call	print
 
 	.data
 		parameters_buffer$: .space 512
-	.text
+	.text32
 	push	dx
 	add	dx, ATA_PORT_DATA
 	push	es
@@ -695,19 +741,26 @@ read$:	call	print
 		PRINTc	7, "Word 0: "
 		mov	dx, [parameters_buffer$ + ATA_ID_CONFIG]
 		call	printhex
+	.endif
 
 	# 15:14: protocol type: 0? = ATA, 10 = atapi, 11 = reserved
 	test	dh, 1 << 7
 	jnz	0f
-	PRINT	" ATA "
+	.if ATA_DEBUG
+		PRINT	" ATA "
+	.endif
+	mov	[edi + ata_driveinfo_sectorsize], dword ptr 512
 	jmp	2f
 0:	test	dh, 1 << 6
 	jnz	0f
-	PRINT	" ATAPI "
-	jmp	2f
-0:	PRINT	" Reserved "
-2:	# TODO: check if these values match the previously detected ones.
+	.if ATA_DEBUG
+		PRINT	" ATAPI "
 	.endif
+	jmp	2f
+0:	.if ATA_DEBUG
+		PRINT	" Reserved "
+	.endif
+2:	# TODO: check if these values match the previously detected ones.
 
 
 	# 12:8: device type
@@ -749,10 +802,11 @@ read$:	call	print
 	.endif
 
 	# 1:0 command packet size: 00=12 bytes, 01=16 bytes, 1X=reserved
+	and	edx, 3
+	shl	dl, 2
+	add	dl, 12
+	mov	[edi + ata_driveinfo_cmd_packet_size], dl
 	.if ATA_DEBUG
-		and	edx, 3
-		shl	dl, 2
-		add	dl, 12
 		PRINT "CMDPacketSize: "
 		call	printdec32
 	.endif
@@ -760,36 +814,91 @@ read$:	call	print
 	
 
 	.if ATA_DEBUG
-		mov	dx, [parameters_buffer$ + 2* 83]
+		mov	dx, [parameters_buffer$ + ATA_ID_FLAGS]
 		test	dx, 1<<10
 		jz	0f
 		PRINTc	7, " LBA48 "
 	0:	
 
-		mov	dx, [parameters_buffer$ + 2* 88]
+		mov	dx, [parameters_buffer$ + ATA_ID_UDMA]
 		PRINTc	7, " UDMA: "
 		call	printhex4
 
 		# if master drive:
-		mov	dx, [parameters_buffer$ + 2* 93]
+		mov	dx, [parameters_buffer$ + ATA_ID_FLAGS2]
 		test	dx, 1<<12
 		jz	0f
 		PRINTc	7, " 80-pin cable "
 	0:
 
 		PRINTc	7, " LBA28 sectors: "
-		mov	edx, [parameters_buffer$ + 2* 60]
-		call	printhex8
-
-		PRINTc	7, " LBA48 sectors: "
-		mov	edx, [parameters_buffer$ + 2* 100 + 4]
-		call	printhex8
-		mov	[edi + ata_driveinfo_capacity + 4], edx
-		mov	edx, [parameters_buffer$ + 2* 100 + 0]
-		mov	[edi + ata_driveinfo_capacity + 0], edx
+		mov	edx, [parameters_buffer$ + ATA_ID_LBA28_SECTORS]
 		call	printhex8
 	.endif
 
+
+	push	eax
+	mov	edx, [parameters_buffer$ + ATA_ID_MAX_LBA_EXT + 4]
+	mov	[edi + ata_driveinfo_max_lba + 4], edx
+
+	.if ATA_DEBUG
+		PRINTc	7, " LBA48 sectors: "
+		call	printhex8
+	.endif
+
+	mov	eax, [parameters_buffer$ + ATA_ID_MAX_LBA_EXT + 0]
+	mov	[edi + ata_driveinfo_max_lba + 0], eax
+
+	# mul with sectorsize: hardcoded 512 (as LBA is defined that way)
+	shl	edx, 8
+	rol	eax, 8
+	mov	dl, al
+	xor	al, al
+	shl	eax, 1
+	rcl	edx, 1
+
+	mov	[edi + ata_driveinfo_capacity + 4], edx
+	mov	[edi + ata_driveinfo_capacity + 0], eax
+
+	.if ATA_DEBUG
+		call	printhex8
+	.endif
+	pop	eax
+
+
+	mov	dx, [parameters_buffer$ + ATA_ID_AP_NUM_CYLINDERS]
+	mov	[edi + ata_driveinfo_c], dx
+	DEBUG "num cyl"
+	call	printhex4
+
+	mov	dx, [parameters_buffer$ + ATA_ID_AP_NUM_HEADS]
+	mov	[edi + ata_driveinfo_h], dx
+	DEBUG "num heads"
+	call	printhex4
+
+	mov	dx, [parameters_buffer$ + ATA_ID_AP_SECTORS_PER_TRACK]
+	mov	[edi + ata_driveinfo_s], dx
+	DEBUG "sectpertrack"
+	call	printhex4
+
+	mov	edx, [parameters_buffer$ + ATA_ID_CAPACITY]
+	mov	[edi + ata_driveinfo_cap_in_s], edx
+	DEBUG "capacity"
+	call	printhex8
+
+	mov	dx, [parameters_buffer$ + ATA_ID_NUM_CYLINDERS]
+	mov	[edi + ata_driveinfo_num_cylinders], dx
+	mov	dx, [parameters_buffer$ + ATA_ID_RESERVED1]
+	mov	[edi + ata_driveinfo_num_], dx
+	mov	dx, [parameters_buffer$ + ATA_ID_NUM_HEADS]
+	mov	[edi + ata_driveinfo_num_heads], dx
+	mov	dx, [parameters_buffer$ + ATA_ID_BYTES_PER_TRACKu]
+	mov	[edi + ata_driveinfo_bpt], dx
+	mov	dx, [parameters_buffer$ + ATA_ID_BYTES_PER_SECTORu]
+	mov	[edi + ata_driveinfo_bps], dx
+
+	mov	edx, [parameters_buffer$ + ATA_ID_LBA28_SECTORS]
+	mov	[edi + ata_driveinfo_lba28_sectors], edx
 	call	newline
 	###
 
@@ -822,7 +931,7 @@ ata_error$:
 ata_print_status$:
 	.data SECTION_DATA_STRINGS
 	9:	.ascii "BSY\0 DRDY\0DF\0  DSC\0 DRQ\0 CORR\0IDX\0 ERR\0\0"
-	.text
+	.text32
 	push	esi
 	mov	esi, offset 9b
 	pushcolor 8
@@ -834,7 +943,7 @@ ata_print_status$:
 ata_print_error$:
 	.data SECTION_DATA_STRINGS
 	9: .ascii "BBK\0 UNC\0 MC\0  IDNF\0MCR\0 ABRT\0T0NF\0AMNF\0"
-	.text
+	.text32
 	push	esi
 	mov	esi, offset 9b
 	pushcolor 4
@@ -856,10 +965,11 @@ ata_print_bits$:
 	jnc	1f
 	push	ax
 	push	esi
+	xor	al, al
+	stosw
 	call	__print
 	pop	esi
 	pop	ax
-	add	edi, 2
 1:	add	esi, 5
 	test	al, al
 	jnz	0b
@@ -1007,10 +1117,12 @@ ata_dbg$:
 	add	dx, ATA_PORT_STATUS
 	in	al, dx
 	call	ata_print_status$
+	test	al, ATA_STATUS_ERR
+	jz	0f
 	add	dx, ATA_PORT_ERROR - ATA_PORT_STATUS
 	in	al, dx
 	call	ata_print_error$
-	pop	dx
+0:	pop	dx
 	PRINTc	9 "]"
 	ret
 
@@ -1290,20 +1402,53 @@ atapi_packet_clear$:
 	pop	edi
 	ret
 
+# in: al = drive nr
+# out: edx:eax = bytes
+# out: CF
+atapi_get_capacity:
+	push	ebx
+	call	ata_is_disk_known
+	jc	9f
+	call	ata_get_ports$
+	jc	9f
+
+	call	atapi_read_capacity$	# out: ebx=lba, eax=blocklen/sectorsize
+	jc	9f
+
+	mov	eax, edx
+	inc	ebx
+	mul	ebx
+	dec	ebx
+	PRINT " Capacity: "
+	call	printhex8
+	mov	edx, eax
+	call	printhex8
+	call	newline
+	pop	eax
+
+9:	pop	ebx
+	ret
+
 # in: edx = io ports
 # out: ebx = last LBA
 # out: eax = block length
 atapi_read_capacity$:
+	push	esi
+	push	ecx
+	push	ebx
+
 	call	atapi_packet_clear$
 	mov	[atapi_packet_opcode], byte ptr ATAPI_OPCODE_READ_CAPACITY
 	mov	esi, offset atapi_packet
 	mov	ecx, 8
 	call	atapi_packet_command
 	jc	1f
-	mov	edx, ecx
-	PRINT "Received "
-	call	printdec32
-	PRINT " bytes: "
+	.if ATAPI_DEBUG
+		PRINT "Received "
+		mov	edx, ecx
+		call	printdec32
+		PRINT " bytes: "
+	.endif
 	lodsd
 	xchg	al, ah
 	ror	eax, 16
@@ -1332,7 +1477,11 @@ atapi_read_capacity$:
 	call	printhex8
 	call	newline
 	pop	eax
-1:	ret
+
+1:	pop	ebx
+	pop	ecx
+	pop	esi
+	ret
 
 atapi_print_packet$:
 
@@ -1360,7 +1509,7 @@ atapi_print_packet$:
 atapi_read12$:
 	call	atapi_packet_clear$
 
-	.if ATA_DEBUG > 1
+	.if ATAPI_DEBUG > 1
 		push	edx
 		mov	edx, ebx
 		PRINT "LBA: "
@@ -1407,7 +1556,7 @@ atapi_packet:
 	# - db opcode
 	# - dd lba
 	# - dd transfer length (or dw)
-.text
+.text32
 
 
 ####### ATAPI Packet Command
@@ -1423,8 +1572,7 @@ atapi_packet_command:
 	stc
 	ret
 0:
-ATA_DEBUG = 2
-	.if ATA_DEBUG > 1
+	.if ATAPI_DEBUG > 1
 		PRINT "Select Drive "
 	.endif
 	call	ata_select_drive$
@@ -1434,7 +1582,7 @@ ATA_DEBUG = 2
 	call	ata_wait_status$
 	jc	ata_timeout$
 
-	.if ATA_DEBUG > 1
+	.if ATAPI_DEBUG > 1
 		call	ata_dbg$
 		call	newline
 
@@ -1447,7 +1595,7 @@ ATA_DEBUG = 2
 	out	dx, al
 	pop	dx
 
-	.if ATA_DEBUG > 1
+	.if ATAPI_DEBUG > 1
 		call	ata_dbg$
 		call	newline
 
@@ -1460,7 +1608,7 @@ ATA_DEBUG = 2
 	out	dx, ax
 	pop	dx
 
-	.if ATA_DEBUG > 1
+	.if ATAPI_DEBUG > 1
 		call	ata_dbg$
 		call	newline
 
@@ -1475,15 +1623,15 @@ ATA_DEBUG = 2
 	in	al, dx	# read status
 	pop	dx
 
-	.if ATA_DEBUG > 1
+	.if ATAPI_DEBUG > 1
 		call	ata_dbg$
 		call	newline
 	.endif
 	
 	# TODO: check IO clear and CoD set
 
-	.macro WAIT_DATAREADY
-		.if ATA_DEBUG > 1
+	.macro WAIT_DATAREADY errlabel
+		.if ATAPI_DEBUG > 1
 			PRINT "Wait ready "
 		.endif
 		mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
@@ -1498,7 +1646,7 @@ ATA_DEBUG = 2
 		add	dx, ATA_PORT_ADDRESS2
 		in	ax, dx
 		mov	dx, ax
-		.if ATA_DEBUG > 1
+		.if ATAPI_DEBUG > 1
 			PRINT "Transfer size: "
 			call	printhex4
 			call	newline
@@ -1506,13 +1654,13 @@ ATA_DEBUG = 2
 		pop	dx
 		cmp	ax, -1
 		stc
-		jz	1f
+		jz	\errlabel
 	.endm
 
-	WAIT_DATAREADY
+	WAIT_DATAREADY 1f
 
-	.if ATA_DEBUG > 1
-	PRINT "Write Packet "
+	.if ATAPI_DEBUG > 1
+		PRINT "Write Packet "
 		push	dx
 		push	esi
 		.rept 12
@@ -1537,27 +1685,27 @@ ATA_DEBUG = 2
 	pop	dx
 
 	.if ATA_DEBUG > 1
-	call	ata_dbg$
+		call	ata_dbg$
 	.endif
 
 	# TODO: check IO set and CoD clear
-	WAIT_DATAREADY
+	WAIT_DATAREADY 1f
 
 	xor	ecx, ecx
 	mov	cx, ax
 
-	.if ATA_DEBUG > 1
-	push	edx
-	mov	edx, ecx
-	PRINT "Reading "
-	call	printdec32
-	PRINT " bytes"
-	pop	edx
+	.if ATAPI_DEBUG > 1
+		push	edx
+		mov	edx, ecx
+		PRINT "Reading "
+		call	printdec32
+		PRINT " bytes"
+		pop	edx
 	.endif
 
 	.data
 		data_buffer$: .long 0
-	.text
+	.text32
 
 	call	malloc
 	jc	1f
@@ -1576,24 +1724,29 @@ ATA_DEBUG = 2
 	mov	edi, [data_buffer$]
 	inc	ecx
 	shr	ecx, 1
+	.if 0
+0:	insw
+	loop	0b
+	.else
 	rep	insw
+	.endif
 	pop	es
 	pop	dx
 	pop	ecx
 	push	dx
 	add	dx, ATA_PORT_STATUS
-	in	al, dx
+	in	al, dx	# DRDY | DSC
 	pop	dx
 	test	al, ATA_STATUS_BSY | ATA_STATUS_DRQ
 
 	# drq 0. If more data then device sets BSY: goto 'wait for data ready'
 	# device sets CoD, IO, DRDY, clears BSY and DRQ.
 
-	.if ATA_DEBUG > 1
+	.if ATAPI_DEBUG > 1
 		PRINTln "Data read."
 	.endif
 
-	mov	esi, offset data_buffer$
+	mov	esi, [data_buffer$]
 	clc
 1:	ret
 
@@ -1625,9 +1778,7 @@ ata_print_capacity:
 	push	eax
 	call	ata_get_capacity	# in: al; out: 64 bit edx:eax
 	jc	0f			# error already printed
-	shr	edx, 1
-	sar	eax, 1
-	call	print_size_kb
+	call	print_size
 0:	pop	eax
 	pop	edx
 	ret
@@ -1652,11 +1803,22 @@ ata_print_size:
 ################################################
 
 cmd_disks_print$:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	0f
+	CMD_ISARG "-v"
+	jnz	9f
+
+0:
+	push	esi
+
 	# print max number of drives:
 	call	ata_get_numdrives
 	mov	edx, eax
 	call	printdec32
 	print	" drive(s): "
+
 
 	# iterate through drives
 	mov	ecx, ATA_MAX_DRIVES
@@ -1667,9 +1829,9 @@ cmd_disks_print$:
 	jz	1f
 
 	.data SECTION_DATA_STRINGS
-	9:	.asciz ", ", "hd", " (", "ATA", "PI", "UNKNOWN", ")"
-	.text
-	mov	esi, offset 9b
+	99:	.asciz ", ", "hd", " (", "ATA", "PI", "UNKNOWN", ")"
+	.text32
+	mov	esi, offset 99b
 	or	dl, dl
 	PRINT_NZ_
 
@@ -1702,5 +1864,103 @@ cmd_disks_print$:
 	loop	0b
 	call	newline
 
-	ret
 
+	pop	esi
+
+######## Check verbose args
+
+	mov	eax, [esi-4]
+	or	eax, eax
+	jz	1f
+	CMD_ISARG "-v"
+	jnz	1f
+
+	call	ata_get_numdrives
+	or	eax, eax
+	jz	1f
+	mov	ecx, eax
+	xor	ah, ah
+0:	mov	al, ah
+	mov	ah, -1
+	call	disk_print_label
+	mov	ah, al
+	print	": "
+
+	push	eax
+	call	ata_get_drive_info
+
+	printc	15, "C/H/S: "
+
+	movzx	edx, word ptr [eax + ata_driveinfo_c]
+	call	printdec32
+	printcharc 15, '/'
+
+	movzx	edx, word ptr [eax + ata_driveinfo_h]
+	call	printdec32
+	printcharc 15, '/'
+
+	movzx	edx, word ptr [eax + ata_driveinfo_s]
+	call	printdec32
+
+	call newline
+
+	printc	15, " cap in s: "
+	mov	edx, [eax + ata_driveinfo_cap_in_s]
+	call	printhex8
+
+
+	printc 15, " cap: "
+	mov	edx, [eax + ata_driveinfo_capacity + 4]
+	#call	printhex8
+	mov	edx, [eax + ata_driveinfo_capacity + 0]
+	#call	printhex8
+	call	printhex8
+
+	printc 15, " lba28sect: "
+	mov	edx, [eax + ata_driveinfo_lba28_sectors]
+	call	printhex8
+
+	printc 15, " maxlba: "
+	mov	edx, [eax + ata_driveinfo_max_lba]
+	call	printhex8
+
+	###############
+
+	.if 0	# these values are off:
+		call	newline
+		printc	15, "     cyl: "
+		movzx	edx, word ptr [edi + ata_driveinfo_num_cylinders]
+		call	printhex4
+
+		printc	15, " ?: "
+		movzx	edx, word ptr [edi + ata_driveinfo_num_]
+		call	printhex4
+
+		printc	15, " heads: "
+		movzx	edx, word ptr [edi + ata_driveinfo_num_heads]
+		call	printhex4
+
+		printc	15, " bytes/track: "
+		movzx	edx, word ptr [edi + ata_driveinfo_bpt]
+		call	printhex4
+
+		printc	15, " bytes/sector: "
+		movzx	edx, word ptr [edi + ata_driveinfo_bps]
+		call	printhex4
+	.endif
+
+	pop	eax
+
+	inc	ah
+	call	newline
+	.if 1
+	dec	ecx
+	jnz	0b
+	.else
+	loop	0b
+	.endif
+
+1:	ret
+
+9:	printlnc 12, "usage: disks [-v]"
+	ret

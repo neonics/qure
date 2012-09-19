@@ -61,7 +61,7 @@ class_pre_constructor: .long 0
 class_match_instance: .long 0
 
 class_methods:
-.text
+.text32
 # in: eax = class pool
 # in: dl = class number
 # out: eax = class info pointer
@@ -114,7 +114,7 @@ dev_class_ata:
 	.long	dev_ata_print
 ###############################
 devices: .long 0
-.text
+.text32
 
 dev_init:
 	mov	eax, [devices]

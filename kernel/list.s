@@ -1,6 +1,6 @@
 .intel_syntax noprefix
 
-.text
+.text32
 .code32
 
 # in: eax = base, ecx = number of entries
