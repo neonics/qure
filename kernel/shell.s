@@ -1105,10 +1105,12 @@ cmd_cat$:
 	jc	9f
 	.endif
 
-	print "PATH: "
+	.if SHELL_DEBUG_FS
+	printc 8, "PATH: "
 	mov	esi, offset 88b
 	call	print
 	call	newline
+	.endif
 
 	mov	eax, offset 88b
 	call	fs_openfile	# out: eax = file handle
