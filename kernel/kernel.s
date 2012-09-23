@@ -8,8 +8,10 @@ SECTION_DATA_STRINGS = 3
 SECTION_DATA_BSS = 4
 
 # Level 0: minimal
-# Level 1, 2: same detail 
+# Level 1: informational (hook ints etc)
+# Level 2: same detail 
 # Level 3: full
+# Level 4: full + key presses
 DEBUG = 0
 
 
@@ -78,7 +80,6 @@ kmain:
 	PRINTLNc 11 "Protected mode initialized."
 	COLOR 7
 
-
 	# Flush keyboard buffer
 0:	mov	ah, KB_PEEK
 	call	keyboard
@@ -88,9 +89,6 @@ kmain:
 	jmp	0b
 0:	# keyboard buffer flushed
 
-
-
-
 .if SHOWOFF
 	mov	[pit_print_timer$], byte ptr 1
 	PRINT	"Press key to stop timer."
@@ -98,7 +96,7 @@ kmain:
 	call	keyboard
 	mov	[pit_print_timer$], byte ptr 0
 .endif
-	call	pit_disable
+	#call	pit_disable
 
 	call	newline
 
@@ -242,8 +240,9 @@ OPEN_SHELL_DEFAULT = 1
 		printc	8, " ss:sp "
 		mov	dx, ss
 		call	printhex4
-		mov	dx, sp
-		call	printhex4
+		printchar ':'
+		mov	edx, esp
+		call	printhex8
 		printc	8, ": "
 		mov	dx, [esp]
 		call	printhex4
@@ -270,11 +269,12 @@ OPEN_SHELL_DEFAULT = 1
 		printc	8, "ss:sp "
 		mov	dx, ss
 		call	printhex4
-		mov	dx, sp
-		call	printhex4
+		printchar ':'
+		mov	edx, esp
+		call	printhex8
 		printc	8, ": "
-		mov	dx, [esp]
-		call	printhex4
+		mov	edx, [esp]
+		call	printhex8
 		call	newline
 	.endif
 
@@ -305,13 +305,17 @@ halt:	call	newline
 0:	hlt
 	jmp	0b
 
-2:	.rept 8
-	call	newline
-	.endr
-	sub	dword ptr [screen_pos], 160 * 8
+	# Allocate some console space for realmode printing, which at current
+	# does not support scolling properly.
+	RESERVE_RM_CONSOLE_LINES = 12
+2:	mov	ecx, RESERVE_RM_CONSOLE_LINES
+22:	call	newline
+	loop	22b
+	sub	dword ptr [screen_pos], 160 * RESERVE_RM_CONSOLE_LINES
 
-
-	jmp	real_mode_rm	# real mode address on stack (from enter_pmode)
+	# if the pm/rm stack is the same, the rm return addr will be
+	# on the stack. Otherwise the rm addr will be on the rm stack.
+	jmp	return_realmode
 
 
 kernel_task:

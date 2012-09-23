@@ -2,6 +2,8 @@
 
 IRQ_BASE = 0x20	# base number for PIC hardware interrupts
 
+DEBUG_PM = 0
+
 ###########################
 
 .include "pic.s"
@@ -14,6 +16,7 @@ IRQ_BASE = 0x20	# base number for PIC hardware interrupts
 .data16	# realmode access, keep within 64k
 
 realsegflat:.long 0
+reloc$: .long 0
 codeoffset: .long 0
 database: .long 0
 kernel_location: .long 0
@@ -24,6 +27,11 @@ bkp_reg_ss: .word 0
 bkp_reg_sp: .word 0
 bkp_reg_fs: .word 0
 bkp_reg_gs: .word 0
+
+
+bkp_pm_mode: .word 0
+bkp_pm_ss: .word 0
+bkp_pm_esp: .long 0
 
 
 ##########################
@@ -74,25 +82,68 @@ bkp_reg_gs: .word 0
 #
 # This method assumes that CS is the base pointer for the code,
 # and will use the area before it as the TSS stack.
-
+#
+# Stack: dword pmode continuation, dword realmode (offs,seg) return address
 protected_mode:
 	mov	[bkp_reg_cs], cs
 	mov	[bkp_reg_ds], ds
 	mov	[bkp_reg_es], es
 	mov	[bkp_reg_ss], ss
 	mov	[bkp_reg_sp], sp
+	add	[bkp_reg_sp], word ptr 4 # ignore the pmode cont arg
 	mov	[bkp_reg_fs], fs
 	mov	[bkp_reg_gs], gs
+	mov	[bkp_pm_mode], ax
 	mov	[kernel_location], edi
 
-	mov	bx, ax	# save arg
+	.if DEBUG_PM > 1
+		mov	dx, cs
+		print_16 "cs "
+		call	printhex_16
 
-rmI "Initialize GDT"
+		mov	dx, ds
+		print_16 "ds "
+		call	printhex_16
+
+		mov	dx, ss
+		print_16 "ss:sp "
+		call	printhex_16
+		mov	dx, sp
+		call	printhex_16
+		print_16 ": "
+		mov	bp, sp
+	0:	mov	dx, ss:[bp]
+		call	printhex_16
+		add	bp, 2
+		jnz	0b
+		call	newline_16
+	.if DEBUG_PM > 3
+	#	xor	ax,ax
+	#	int	0x16
+	.endif
+	.endif
+
+	.if DEBUG_PM
+		rmI "Initialize GDT"
+	.endif
 
 	call	init_gdt_16
 
+	# realsegflat is realmode cs<<4, used for relocation in other parts
+	# of the kernel in case cs base is not aligned with the compiled
+	# code addresses (which starts at offset 0).
+	mov	eax, [realsegflat]
+	mov	[reloc$], eax
+	cmp	[bkp_pm_mode], word ptr 0
+	jz	0f
+	mov	[realsegflat], dword ptr 0
+0:
+
 	mov	[screen_sel], word ptr SEL_vid_txt
-rmOK
+
+	.if DEBUG_PM
+		rmOK
+	.endif
 
 	# enable A20
 
@@ -105,16 +156,16 @@ rmOK
 
 	INTERRUPTS_OFF
 
-rmI "Remapping PIC"
-
-	.if DEBUG > 2
-		call newline_16
+	.if DEBUG_PM
+		rmI "Remapping PIC"
 	.endif
 
 	mov	ax, (( IRQ_BASE + 8 )<<8) | IRQ_BASE	# 0x2820
 	call	pic_init16
 
-rmOK
+	.if DEBUG_PM
+		rmOK
+	.endif
 
 
 	# flush prefetch queue, replace cs.
@@ -125,24 +176,22 @@ rmOK
 
 	# prepare the far jump instruction
 
-	.if DEBUG > 1
+	.if DEBUG_PM > 1
 		rmI "Preparing Entry Point: "
 	.endif
 
 	mov	eax, offset pmode_entry$
 	mov	cx, SEL_compatCS
-	or	bl, bl
+	cmp	[bkp_pm_mode], word ptr 0
 	jnz	0f
-	add	eax, [realsegflat]
+	add	eax, [reloc$]
 	mov	cx, SEL_flatCS
 
-	.if DEBUG > 1
-		rmPC 0x01 "Flat"
-		jmp 1f
-	0:	
-		rmPC 0x03 "Realmode Compatible"
-	1:
-		rmI2 " Address mode"
+	.if DEBUG_PM > 1
+		rmPC	0x01 "Flat"
+		jmp	1f
+	0:	rmPC	0x03 "Realmode Compatible"
+	1:	rmI2	" Address mode"
 		rmOK
 	.else
 0:	
@@ -151,7 +200,7 @@ rmOK
 	mov	[pm_entry + 4], cx # word ptr SEL_flatCS
 	mov	[pm_entry], eax
 
-	.if DEBUG > 2
+	.if DEBUG_PM > 2
 		rmI2 "  - Address: "
 
 		rmCOLOR 0x09
@@ -164,15 +213,20 @@ rmOK
 		rmCOLOR 0x0a
 		mov	edx, [realsegflat]
 		call	printhex8_16
+		rmI2 " reloc: "
+		rmCOLOR 0x0a
+		mov	edx, [reloc$]
+		call	printhex8_16
 		call	newline_16
 	.endif
 
-	.if DEBUG > 0
+	.if DEBUG_PM
 		rmI "Entering "
-		mov	edi, [screen_pos]
 	.endif
 
-	.if 0
+	mov	edi, [screen_pos]
+
+	.if 0	# 0='unreal mode'
 	xor	ax, ax
 	mov	ds, ax
 	mov	es, ax
@@ -198,36 +252,47 @@ rmOK
 	.byte 0x66, 0xea
 	pm_entry:.long 0
 	.word SEL_flatCS
-.text32 # .code32
+.text32
 pmode_entry$:
 
 	# print Pmode
 	mov	ax, SEL_vid_txt
 	mov	es, ax
-	mov	ax, (0x0c<<8)|'P'
-	stosw
-	mov	ax, (0x09<<8)|'m'
-	stosw
-	mov	al, 'o'
-	stosw
-	mov	al, 'd'
-	stosw
-	mov	al, 'e'
-	stosw
 
-	# adjust return address 
+	.if DEBUG_PM
+		mov	ax, (0x0c<<8)|'P'
+		stosw
+		mov	ax, (0x09<<8)|'m'
+		stosw
+		mov	al, 'o'
+		stosw
+		mov	al, 'd'
+		stosw
+		mov	al, 'e'
+		stosw
+	.endif
+
+	# adjust return address
 	xor	edx, edx
 	pop	edx	# real mode return address
 	# this offset is based on the realmode segment we were called with.
 	# If we return in flat CS mode, we'll need to adjust it:
 	# setup
 
-	test	bl, bl
+	cmp	[bkp_pm_mode], word ptr 0
 	jz	0f
 	mov	ax, SEL_compatDS # realmodeDS
 	mov	ds, ax
+	.if 0
 	mov	ax, SEL_compatSS # realmodeSS
 	mov	ss, ax
+	.else
+	# stack is 'clean', so alloc a new one:
+	mov	ss, ax
+	mov	esp, offset kernel_end
+	add	esp, 0x10000
+	and	esp, ~0xf
+	.endif
 	mov	ax, SEL_realmodeES
 	mov	es, ax
 	mov	ax, SEL_realmodeFS
@@ -236,7 +301,7 @@ pmode_entry$:
 	mov	gs, ax
 	jmp	1f
 0:
-	add	edx, [realsegflat]	# flat cs, so adjust return addr
+	add	edx, [reloc$]	# flat cs, so adjust return addr
 	xor	eax, eax
 	mov	ax, ss	# adjust ss:sp
 	shl	eax, 4
@@ -246,7 +311,7 @@ pmode_entry$:
 	mov	es, ax
 	mov	fs, ax
 	mov	gs, ax
-	mov	ax, SEL_compatDS 
+	mov	ax, SEL_compatDS
 	mov	ds, ax
 
 	.if 0
@@ -276,16 +341,18 @@ pmode_entry$:
 
 	push	edx
 
-mov [screen_pos], edi
-OK
+	mov	[screen_pos], edi
 
-		PH8 "  Return address: ", edx
-
-	I "Loading IDT"
+	.if DEBUG_PM
+		OK
+		I "Loading IDT"
+	.endif
 
 	call	init_idt
 
-	OK
+	.if DEBUG_PM
+		OK
+	.endif
 
 	PIC_SET_MASK 0xffff & ~(1<<IRQ_CASCADE)
 
@@ -296,408 +363,51 @@ OK
 
 	# load Task Register
 
-	.if DEBUG > 2
+	.if DEBUG_PM > 2
 		PRINTc 8 "  Load Task Register"
 	.endif
 
 	mov	ax, SEL_tss
 	ltr	ax
 
-	.if DEBUG > 2
+	.if DEBUG_PM > 2
 		OK
 		COLOR 8
-		PH8 "  Return address: ", edx
+		mov	edx, [esp]
+		PH8	"  Return address: ", edx
 		call	newline
 	.endif
 
-
 	# if flat mode is requested, set ds to flat. Data references,
 	# unless relocated to reflect the memory address, wont work.
-	test	bl, bl
+	cmp	[bkp_pm_mode], word ptr 0
 	jnz	0f
 	mov	ax, SEL_flatDS
 	mov	ds, ax
 
-0:	ret	# at this point interrupts are on, standard handlers installed.
-
-
-#############################################################
-.text32
-# bp cannot be used as a parameter for the realmode function.
-#
-# usage:
-# .code32
-# push dword ptr offset realmode_function # unrelocated
-# call call_realmode
-call_realmode:
-	call	real_mode_pm
-.code16
-	push	bp
-	mov	bp, sp
-	call	[bp + 6]
-	pop	bp
-	xor	ax, ax
-	call	reenter_protected_mode_rm
-.code32
-0:	call	pit_disable
-	push	ds
-	pop	es
-	ret	4
-
-
-#############################################################
-.text16
-reenter_protected_mode_rm:
-	xor	edx, edx
-	pop	dx
-	push	edx
-
-# stack: protected mode far return address (dword offs, word sel)
-reenter_protected_mode_pm:
-
-	mov	bx, ax	# save arg
-
-push cs
-pop ds
-
-	.if DEBUG > 1
-		print_16 "Re Entering Protected Mode"
-		push ax
-		xor ax, ax
-		int 0x16
-		pop ax
-	.endif
-
-	INTERRUPTS_OFF
-
-	.if DEBUG > 1
-		rmI "Remapping PIC"
-	.endif
-
-	mov	ax, (( IRQ_BASE + 8 )<<8) | IRQ_BASE	# 0x2820
-	call	pic_init16
-
-	.if DEBUG > 1
-		rmOK
-	.endif
-
-
-	# flush prefetch queue, replace cs.
-	# since the object is not relocated to a specific address,
-	# we need to correct. We don't prefer to use a static value like 7c00.
-	# Either self-modifing code - needs extra jumps to clear prefetch queue
-	# - or use a register.
-
-	# prepare the far jump instruction
-
-	.if DEBUG > 1
-		rmI "Preparing Entry Point: "
-	.endif
-
-	mov	eax, offset pmode_entry2$
-	mov	cx, SEL_compatCS
-
-	or	bl, bl
-	jnz	0f
-	add	eax, [realsegflat]
-	mov	cx, SEL_flatCS
-
-	.if DEBUG > 1
-		rmPC 0x01 "Flat"
-		jmp 1f
-0:	
-		rmPC 0x03 "Realmode Compatible"
-	1:
-		rmI2 " Address mode"
-		rmOK
-	.else
-0:	
-	.endif
-
-	mov	[pm_entry2 + 4], cx # word ptr SEL_flatCS
-	mov	[pm_entry2], eax
-
-	.if DEBUG > 2
-		rmI2 "  - Address: "
-
-		rmCOLOR 0x09
-		mov	dx, cx
-		call	printhex_16
-		mov	edx, eax
-		call	printhex8_16
-
-		rmI2 " flat segment offset: "
-		rmCOLOR 0x0a
-		mov	edx, [realsegflat]
-		call	printhex8_16
-		call	newline_16
-	.endif
-
-	.if DEBUG > 1
-		rmI "Entering "
-	.endif
-	mov	edi, [screen_pos]
-
-	.if 0
-	xor	ax, ax
-	mov	ds, ax
-	mov	es, ax
-	mov	fs, ax
-	mov	gs, ax
-	mov	ss, ax
-	.endif
-
-	# init pmode
-	mov	eax, cr0
-	or	al, 1
-	mov	cr0, eax
-
-	# DO NOT PLACE CODE HERE -
-	#
-	# A jump (near or far) must be done IMMEDIATELY after a mode switch,
-	# to clear out the prefetch queue.
-
-	# unreal mode: load some segment selectors, and switch to realmode
-
-	# switch out the cs register.
-	# DATA32 ljmp	SEL_flatCS, offset pmode_entry$ + RELOCATION
-	.byte 0x66, 0xea
-	pm_entry2:.long 0
-	.word SEL_flatCS
-.text32 # .code32
-pmode_entry2$:
-
-	# print Pmode
-	mov	ax, SEL_vid_txt
-	mov	es, ax
-	.if DEBUG > 1
-		mov	ax, (0x0c<<8)|'P'
-		stosw
-		mov	ax, (0x09<<8)|'m'
-		stosw
-		mov	al, 'o'
-		stosw
-		mov	al, 'd'
-		stosw
-		mov	al, 'e'
-		stosw
-	.endif
-
-	# adjust return address 
-#XXX
-#	xor	edx, edx
-	pop	edx	# unrelocated pmode return address
-	# this offset is based on the realmode segment we were called with.
-	# If we return in flat CS mode, we'll need to adjust it:
-	# setup
-
-	test	bl, bl
-	jz	0f
-	mov	ax, SEL_compatDS # realmodeDS
-	mov	ds, ax
-	mov	ax, SEL_compatSS # realmodeSS
-	mov	ss, ax
-	mov	ax, SEL_realmodeES
-	mov	es, ax
-	mov	ax, SEL_realmodeFS
-	mov	fs, ax
-	mov	ax, SEL_realmodeGS
-	mov	gs, ax
-	jmp	1f
 0:
-	# XXX
-	add	edx, [realsegflat]	# flat cs, so adjust return addr
-	xor	eax, eax
-	mov	ax, ss	# adjust ss:sp
-	shl	eax, 4
-	add	esp, eax
-	mov	ax, SEL_flatDS
-	mov	ss, ax
-	mov	es, ax
-	mov	fs, ax
-	mov	gs, ax
-	mov	ax, SEL_compatDS 
-	mov	ds, ax
-
-1:
-
-	push	edx
-
-mov [screen_pos], edi
-	.if DEBUG > 1
-		OK
-	.endif
-
-	#	PH8 "  Return address: ", edx
-
-	.if DEBUG > 1
-		I "Loading IDT"
-	.endif
-
-	#call	init_idt
-	lidt	[pm_idtr]
-
-	.if DEBUG > 1
-		OK
-	.endif
-
-	PIC_SET_MASK 0xffff & ~(1<<IRQ_CASCADE)
-
-	call	keyboard_hook_isr
-	call	pit_hook_isr
-
-	INTERRUPTS_ON
-
-	# load Task Register
-
-	.if DEBUG > 2
-		PRINTc 8 "  Load Task Register"
-	.endif
-
-	#mov	ax, SEL_tss
-	#ltr	ax
-
-
-	.if DEBUG > 2
-		OK
-		COLOR 8
-		PRINTc 8, "  Return Address(again): "
-		mov	dx, [esp+4]
-		call	printhex4
-		printchar ':'
+	.if DEBUG_PM > 2
+		call	cmd_print_gdt
+		mov	edx, esp
+		call	printhex8
+		call	printspace
 		mov	edx, [esp]
 		call	printhex8
-		call	newline
-	.endif
-
-
-	# if flat mode is requested, set ds to flat. Data references,
-	# unless relocated to reflect the memory address, wont work.
-	test	bl, bl
-	jnz	0f
-	mov	ax, SEL_flatDS
-	mov	ds, ax
-
-0:	
-#print "press a key"
-#xor	ax, ax
-#call	keyboard
-#cmp	ax, K_ENTER
-#jnz	0b
-	.if DEBUG > 3
-		print "stack pre-return: "
-		mov edx, esp
-		call printhex8
-		print " offs "
-		mov	edx, [esp]
-		call	printhex8
-		print " sel "
-		mov	dx, [esp+4]
-		call	printhex4
-		print " base "
-		mov	eax, [esp + 4]
-		GDT_GET_BASE edx, eax
-		call	printhex8
-
-		xor	ax, ax
-		call	keyboard
 	.endif
 
 	ret	# at this point interrupts are on, standard handlers installed.
 
 
 
-#######################################################
 
-DEBUG_KERNEL_REALMODE = 0
-# call this from protected mode!
 
+##############################################################################
 .text32
-# This section will work when this method is called from pmode,
-# having a pmode return address on the stack which will be converted to
-# realmode address.
+# Restores the realmode stack and uses the realmode return address on it.
+# The pmode stack is discarded.
+return_realmode:
+	printc	11, "Returning to real-mode"
 
-
-# stack contains relocated (runtime) protected mode offset of ealmode  code.
-#
-# Example usage:
-#
-# .code32
-# call	real_mode_pm
-# .code16
-# ..next instruction
-.code32
-real_mode_pm:
-	pop	edx
-	GDT_GET_BASE eax, cs
-	add	edx, eax
-	sub	edx, [realsegflat]
-	jmp	0f
-	
-
-
-# stack contains [realsegflat] relative pmode offset for realmode function.
-# (this means 'push offset realmode_function', which doesnt take into account
-# runtime relocation).
-#
-# Example usage:
-#
-# .code32
-# push	dword ptr offset 0f
-# jmp	real_mode_pm
-# .code16
-# 0:
-.code32
-real_mode_pm_unr:
-	mov	bx, SEL_compatDS
-	mov	ds, bx
-
-	.if DEBUG > 2
-		print	"enter_real_mode: esp="
-		mov	edx, esp
-		call	printhex8
-		print	" rm func: "
-	.endif
-
-	pop	edx	# convert stack return address
-	GDT_GET_BASE eax, cs	# add base of current selector to stack
-	add	edx, eax
-0:	GDT_GET_BASE eax, SEL_compatCS
-	shr	eax, 4
-
-	push	ax
-	.if DEBUG > 2
-		call printhex8
-	.endif
-	push	dx
-
-	.if DEBUG > 2
-		print " rm ret: "
-		mov	dx, [esp + 2]
-		call	printhex4
-		printchar ':'
-		mov	dx, [esp]
-		call	printhex4
-		call printspace
-	.endif
-
-	.if DEBUG_KERNEL_REALMODE
-		print	"return: "
-		call	printhex8
-		print " ss:sp "
-		GDT_GET_BASE edx, ss
-		call	printhex4
-		printchar_ ':'
-		mov	edx, esp
-		call	printhex8
-		call	newline
-	.endif
-
-# This will return to real-mode, assuming the stack points to a real-mode
-# address, possibly the address from which protected_mode was called.
-.code32
-real_mode_rm:
-print "real_mode_rm "
 	INTERRUPTS_OFF
 
 	ljmp	SEL_realmodeCS, offset 0f
@@ -707,7 +417,7 @@ print "real_mode_rm "
 	# prepare return address
 	push	[bkp_reg_cs]
 	mov	ax, [codeoffset]
-	add	ax, offset rm_entry
+	add	ax, offset rm_ret_entry$
 	push	ax
 
 	# enter realmode
@@ -719,20 +429,17 @@ print "real_mode_rm "
 
 	retf
 .text16
-rm_entry:
-	mov	ax, 0xb800
-	mov	es, ax
-
-	.if DEBUG > 1
-		rmI "Back in realmode"
-	.endif
+rm_ret_entry$:
 
 	# restore ds, es, ss
 	mov	ds, [bkp_reg_ds]
 	mov	es, [bkp_reg_es]
 	mov	ss, [bkp_reg_ss]
-#	mov	sp, [bkp_reg_sp]
+	movzx	esp, word ptr [bkp_reg_sp]
 
+	.if DEBUG_PM > 1
+		rmI "Back in realmode"
+	.endif
 
 	# restore IDT
 
@@ -746,6 +453,7 @@ rm_entry:
 	PIC_SET_MASK 0xffff & ~( (1<<IRQ_CASCADE) | (1<<IRQ_KEYBOARD) )
 
 	INTERRUPTS_ON
+
 
 	.if DEBUG_KERNEL_REALMODE
 		printc_16 8, " cs:"
@@ -776,16 +484,527 @@ rm_entry:
 		call	printhex2_16
 		inc	bx
 		loop	0b
-		print_16 " - Press a key"
-		xor	ah, ah
-		int	0x16
+#		println_16 " - Press a key"
+#		xor	ah, ah
+#		int	0x16
 	.endif
 
-	.if DEBUG 
+	mov	di, [screen_pos]
+
+	retf
+
+
+
+
+
+
+
+
+
+##############################################################################
+.text32
+# bp cannot be used as a parameter for the realmode function.
+#
+# usage:
+# .code32
+# push dword ptr offset realmode_function # unrelocated
+# call call_realmode
+call_realmode:
+	# save the pm stack for reenter_protected_mode
+	mov	[bkp_pm_ss], ss
+	mov	[bkp_pm_esp], esp
+
+	mov	dx, [esp + 4]
+
+
+	# allocate stackspace for the argument:
+	sub	word ptr [bkp_reg_sp], 4
+
+	movzx	eax, word ptr [bkp_reg_ss]
+	shl	eax, 4
+	movzx	ecx, word ptr [bkp_reg_sp]
+	add	eax, ecx	# eax is realmode stack address (flat).
+	mov	cx, SEL_flatDS
+	push	ds
+	mov	ds, cx
+	mov	[eax], dx
+	pop	ds
+
+	# reserve realmode stack space for the realmode return 0f
+	sub	word ptr [bkp_reg_sp], 4
+
+	.if 0
+		print "PM: calling realmode function @ "
+		call	printhex4
+	.endif
+
+	# using push here, as the 16 bit print macros don't
+	# operate well in a .text32 .code16 section, due to the swapping
+	# out to a data segment for string storage.
+	push	dword ptr offset 0f
+	jmp	real_mode_pm
+.text16
+0:
+	push	bp
+	mov	bp, sp
+	call	[bp + 2]
+	pop	bp
+
+	push	word ptr offset 0f
+	jmp	reenter_protected_mode_rm
+.text32
+0:
+	# restore the realmode stack pointer
+	add	word ptr [bkp_reg_sp], 8
+	push	ds
+	pop	es
+	ret	4
+
+
+#######################################################
+.text32
+# This section will work when this method is called from pmode,
+# having a pmode return address on the stack which will be converted to
+# realmode address.
+
+
+# stack contains relocated (runtime) protected mode offset of realmode code.
+#
+# Example usage:
+#
+# .code32
+# call	real_mode_pm
+# .code16
+# ..next instruction
+.code32
+real_mode_pm:
+	# convert 16 bit offset to pmode offset
+	pop	edx
+	GDT_GET_BASE eax, cs
+	add	edx, eax
+	sub	edx, [realsegflat]
+	GDT_GET_BASE eax, SEL_compatCS
+	sub	edx, eax
+	shr	eax, 4
+	push	ax
+	push	dx	# assert edx >> 16 == 0
+	jmp	0f
+
+# stack contains [realsegflat] relative pmode offset for realmode function.
+# (this means 'push offset realmode_function', which doesnt take into account
+# runtime relocation).
+#
+# Example usage:
+#
+# .code32
+# push	dword ptr offset 0f
+# jmp	real_mode_pm
+# .code16
+# 0:
+.code32
+real_mode_pm_unr:
+	mov	bx, SEL_compatDS
+	mov	ds, bx
+
+	pop	edx	# convert stack return address
+	GDT_GET_BASE eax, cs	# add base of current selector to stack
+	add	edx, eax
+	GDT_GET_BASE eax, SEL_compatCS
+	shr	eax, 4
+
+	push	ax
+	push	dx
+
+0:
+	# compat mode - realmode/pmode stacks differ. real_mode_rm will use the address on the
+	# realmode stack, so we need to store it there.
+
+	pop	edx
+
+	movzx	eax, word ptr [bkp_reg_ss]
+	shl	eax, 4
+	movzx	ecx, word ptr [bkp_reg_sp]
+	add	eax, ecx	# eax is realmode stack address (flat).
+	mov	cx, SEL_flatDS
+	push	ds
+	mov	ds, cx
+	mov	[eax], edx
+	pop	ds
+
+0:
+
+	.if DEBUG_PM > 2
+		print " rm ret: "
+		ror	edx, 16
+		call	printhex4
+		ror	edx, 16
+		printchar ':'
+		call	printhex4
+		call printspace
+	.endif
+
+	.if DEBUG_KERNEL_REALMODE
+		print " ss:sp "
+		GDT_GET_BASE edx, ss
+		call	printhex8
+		printchar_ ':'
+		mov	edx, esp
+		call	printhex8
+		call	newline
+	.endif
+
+# This will return to real-mode, assuming the stack points to a real-mode
+# address, possibly the address from which protected_mode was called.
+# UPDATE: it will restore the realmode stack (as the pmode stack is different with ax=1),
+# and use the realmode return address from the old realmode stack. The pmode stack is discarded.
+.code32
+real_mode_rm:
+
+	INTERRUPTS_OFF
+
+	ljmp	SEL_realmodeCS, offset 0f
+.code16
+0:	# pmode 16 bit realmode-compatible code selector
+
+
+	# prepare return address
+	push	[bkp_reg_cs]
+	mov	ax, [codeoffset]
+	add	ax, offset rm_entry
+	push	ax
+
+	# enter realmode
+	mov	eax, cr0
+	and	al, 0xfe
+	mov	cr0, eax
+
+	# PLACE NO CODE HERE - serialize CPU to reload code segment
+
+	retf
+.text16
+rm_entry:
+	mov	ax, 0xb800
+	mov	es, ax
+
+	.if DEBUG_PM > 1
+		rmI "Back in realmode!"
+	.endif
+
+	# restore ds, es, ss
+	mov	ds, [bkp_reg_ds]
+	mov	es, [bkp_reg_es]
+	mov	ss, [bkp_reg_ss]
+	movzx	esp, word ptr [bkp_reg_sp]
+
+	# restore IDT
+
+	lidt	rm_idtr
+
+	# remap PIC
+
+	mov	ax, 0x7008
+	call	pic_init16
+
+	PIC_SET_MASK 0xffff & ~( (1<<IRQ_CASCADE) | (1<<IRQ_KEYBOARD) )
+
+	INTERRUPTS_ON
+
+	.if DEBUG_KERNEL_REALMODE
+		printc_16 8, " cs:"
+		mov	dx, cs
+		call	printhex_16
+		printc_16 8, "ds:"
+		mov	dx, ds
+		call	printhex_16
+		printc_16 8, "ss:sp: "
+		mov	dx, ss
+		call	printhex_16
+		mov	dx, sp
+		call	printhex_16
+		print_16 "("
+		mov dx, [bkp_reg_sp]
+		call printhex_16
+		print_16 ")"
+
+		printc_16 8, "ret cs:ip: "
+		mov	bp, sp
+		mov	dx, [bp + 2]
+		mov	fs, dx
+		call	printhex_16
+		mov	dx, [bp]
+		call	printhex_16
+		mov	bx, dx
+		call	newline_16
+
+		printc_16 8, "Target Code: "
+		mov	cx, 8
+	0:	mov	dl, fs:[bx]
+		call	printhex2_16
+		inc	bx
+		loop	0b
+#		println_16 " - Press a key"
+#		xor	ah, ah
+#		int	0x16
+	.endif
+
+	.if DEBUG_PM
 		call	newline_16
 	.endif
 
 	mov	di, [screen_pos]
 
 	retf
+
+
+
+#############################################################
+.text16
+# stack contains 16 bit realmode address of protected mode continuation code.
+reenter_protected_mode_rm:
+	push	cs
+	pop	ds
+
+	xor	edx, edx
+	pop	dx
+	# assuming realmode cs is pmode cs sel base, edx is now unrelocated
+	# pmode address, which is what code below expects.
+	# proper code would:
+	#	xor	eax, eax
+	#	mov	ax, cs
+	#	shl	eax, 4
+	#	add	edx, eax	# edx is flat linear address
+	#	GDT_GET_BASE eax, SEL_...
+	#	sub	edx, eax
+	push	edx
+
+
+	.if DEBUG_PM > 2
+		printc_16 11, "Re Entering Protected Mode"
+#		xor	ax, ax
+#		int	0x16
+	.endif
+
+	INTERRUPTS_OFF
+
+	.if DEBUG_PM > 1
+		rmI "Remapping PIC"
+	.endif
+
+	mov	ax, (( IRQ_BASE + 8 )<<8) | IRQ_BASE	# 0x2820
+	call	pic_init16
+
+	.if DEBUG_PM > 1
+		rmOK
+	.endif
+
+
+	# flush prefetch queue, replace cs.
+	# since the object is not relocated to a specific address,
+	# we need to correct. We don't prefer to use a static value like 7c00.
+	# Either self-modifing code - needs extra jumps to clear prefetch queue
+	# - or use a register.
+
+	# prepare the far jump instruction
+
+	.if DEBUG_PM > 1
+		rmI "Preparing Entry Point: "
+	.endif
+
+	mov	eax, offset pmode_entry2$
+	mov	cx, SEL_compatCS
+
+	cmp	[bkp_pm_mode], word ptr 0
+	jnz	0f
+	add	eax, [reloc$]
+	mov	cx, SEL_flatCS
+
+	.if DEBUG_PM > 1
+		rmPC	0x01 "Flat"
+		jmp	1f
+	0:	rmPC	0x03 "Realmode Compatible"
+	1:	rmI2	" Address mode"
+		rmOK
+	.else
+0:
+	.endif
+
+	mov	[pm_entry2 + 4], cx # word ptr SEL_flatCS
+	mov	[pm_entry2], eax
+
+	.if DEBUG_PM > 2
+		rmI2 "  - Address: "
+
+		rmCOLOR 0x09
+		mov	dx, cx
+		call	printhex_16
+		mov	edx, eax
+		call	printhex8_16
+
+		rmI2 " flat segment offset: "
+		rmCOLOR 0x0a
+		mov	edx, [realsegflat]
+		call	printhex8_16
+		call	newline_16
+	.endif
+
+	.if DEBUG_PM > 1
+		rmI "Entering "
+	.endif
+	mov	edi, [screen_pos]
+
+	.if 0
+	xor	ax, ax
+	mov	ds, ax
+	mov	es, ax
+	mov	fs, ax
+	mov	gs, ax
+	mov	ss, ax
+	.endif
+
+	# init pmode
+	mov	eax, cr0
+	or	al, 1
+	mov	cr0, eax
+
+	# DO NOT PLACE CODE HERE -
+	#
+	# A jump (near or far) must be done IMMEDIATELY after a mode switch,
+	# to clear out the prefetch queue.
+
+	# unreal mode: load some segment selectors, and switch to realmode
+
+	# switch out the cs register.
+	# DATA32 ljmp	SEL_flatCS, offset pmode_entry$ + RELOCATION
+	.byte 0x66, 0xea
+	pm_entry2:.long 0
+	.word SEL_flatCS
+.text32
+pmode_entry2$:
+
+	# print Pmode
+	mov	ax, SEL_vid_txt
+	mov	es, ax
+	.if DEBUG_PM > 1
+		mov	ax, (0x0c<<8)|'P'
+		stosw
+		mov	ax, (0x09<<8)|'m'
+		stosw
+		mov	al, 'o'
+		stosw
+		mov	al, 'd'
+		stosw
+		mov	al, 'e'
+		stosw
+	.endif
+
+	# adjust return address
+	pop	edx	# unrelocated pmode return address
+
+	cmp	[bkp_pm_mode], word ptr 0
+	jz	0f
+	mov	ax, SEL_compatDS # realmodeDS
+	mov	ds, ax
+	.if 0
+	mov	ax, SEL_compatSS # realmodeSS
+	mov	ss, ax
+	.else
+	mov	ss, [bkp_pm_ss]
+	mov	esp, [bkp_pm_esp]
+	.endif
+	mov	ax, SEL_realmodeES
+	mov	es, ax
+	mov	ax, SEL_realmodeFS
+	mov	fs, ax
+	mov	ax, SEL_realmodeGS
+	mov	gs, ax
+	jmp	1f
+0:
+	# XXX
+	add	edx, [reloc$]	# flat cs, so adjust return addr
+	xor	eax, eax
+	mov	ax, ss	# adjust ss:sp
+	shl	eax, 4
+	add	esp, eax
+	mov	ax, SEL_flatDS
+	mov	ss, ax
+	mov	es, ax
+	mov	fs, ax
+	mov	gs, ax
+	mov	ax, SEL_compatDS 
+	mov	ds, ax
+
+1:
+
+	push	edx
+
+	mov [screen_pos], edi
+
+	.if DEBUG_PM > 1
+		OK
+		I "Loading IDT"
+	.endif
+
+	#call	init_idt
+	lidt	[pm_idtr]
+
+	.if DEBUG_PM > 1
+		OK
+	.endif
+
+	PIC_SET_MASK 0xffff & ~(1<<IRQ_CASCADE)
+
+	call	keyboard_hook_isr
+	call	pit_hook_isr
+
+	INTERRUPTS_ON
+
+	# load Task Register
+
+	.if DEBUG_PM > 2
+		PRINTc 8 "  Load Task Register"
+	.endif
+
+	#mov	ax, SEL_tss
+	#ltr	ax
+
+
+	.if DEBUG_PM > 2
+		OK
+		PRINTc 8, "  Return Address(again): "
+		mov	edx, [esp]
+		call	printhex8
+		call	newline
+	.endif
+
+
+	# if flat mode is requested, set ds to flat. Data references,
+	# unless relocated to reflect the memory address, wont work.
+	cmp	[bkp_pm_mode], word ptr 0
+	jnz	0f
+	mov	ax, SEL_flatDS
+	mov	ds, ax
+
+0:
+
+	.if DEBUG_PM > 3
+		call	cmd_print_gdt
+		print "stack pre-return: "
+		mov	edx, esp
+		call	printhex8
+		print " offs "
+		mov	edx, [esp]
+		call	printhex8
+#		print " sel "
+#		mov	dx, [esp+4]
+#		call	printhex4
+#		print " base "
+#		mov	eax, [esp + 4]
+#		GDT_GET_BASE edx, eax
+#		call	printhex8
+
+		xor	ax, ax
+		call	keyboard
+	.endif
+
+	ret	# at this point interrupts are on, standard handlers installed.
 

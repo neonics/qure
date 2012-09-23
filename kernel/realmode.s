@@ -55,7 +55,7 @@ CHAIN_RETURN_RM_KERNEL = 1
 .else
 	.data16
 	99: .asciz "\m"
-	.text16
+	.previous
 .endif
 	push	si
 	mov	si, offset 99b
@@ -433,7 +433,7 @@ realmode_kernel_entry:
 
 	# make it return elsewhere
 	push	dword ptr offset kmain
-	mov	ax, 0
+	mov	ax, 1
 	jmp	protected_mode
 	# when pmode returns it will return to the caller of the current scope
 

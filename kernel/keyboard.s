@@ -6,6 +6,8 @@
 #  http://osdever.net/documents/kbd.php?the_id=14 [RBIL PORTS.A]
 .intel_syntax noprefix
 
+DEBUG_KB = 0
+
 # Keyboard registers:
 # * one byte input buffer	: R 0x60
 # * one byte output buffer	: W 0x60
@@ -384,7 +386,7 @@ isr_keyboard:
 	.text32
 
 	mov	dx, ax
-.if DEBUG > 3
+.if DEBUG_KB > 3
 	push	ax
 	mov	ah, 0x40
 	call	printhex
@@ -419,7 +421,7 @@ isr_keyboard:
 	shl	ax, 8 # preserve scancode
 	mov	al, [keymap + edx]
 
-.if DEBUG > 3
+.if DEBUG_KB > 3
 	#### debug print
 	push	ax
 	mov	ah, 0x3f
@@ -431,7 +433,7 @@ isr_keyboard:
 
 3:	#################
 	call	buf_putw
-.if DEBUG > 3
+.if DEBUG_KB > 3
 	#### debug print
 	mov	dx, ax
 	push	ax
@@ -513,7 +515,7 @@ keyboard_hook_isr:
 ###############################################################
 # Initialize Keyboard
 keyboard_init:
-	.if DEBUG
+	.if DEBUG_KB
 		I	"Keyboard "
 #################################################
 
@@ -524,7 +526,7 @@ keyboard_init:
 	KB_EXPECT ACK 9f
 	KB_EXPECT PU 9f
 
-	.if DEBUG
+	.if DEBUG_KB
 		printc	2, "ok "
 
 #################################################
@@ -548,7 +550,7 @@ keyboard_init:
 	cmp	al, dl
 	jnz	9f
 
-	.if DEBUG
+	.if DEBUG_KB
 		printc	2, "ok "
 
 #################################################
@@ -559,7 +561,7 @@ keyboard_init:
 	KB_CMD	ECHO
 	KB_EXPECT ECHO, 9f
 
-	.if DEBUG
+	.if DEBUG_KB
 		printc	2, "ok "
 
 #################################################
@@ -576,7 +578,7 @@ keyboard_init:
 	KB_WRITE 0	# fastest
 	KB_EXPECT ACK, 9f
 
-	.if DEBUG
+	.if DEBUG_KB
 		printc	2, "ok "
 
 #################################################
@@ -598,7 +600,7 @@ keyboard_init:
 	cmp	al, dl
 	jnz	9f
 
-	.if DEBUG
+	.if DEBUG_KB
 		printc	2, "ok "
 
 		OK

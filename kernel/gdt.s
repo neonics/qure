@@ -304,7 +304,8 @@ init_gdt_16:
 	GDT_STORE_SEG GDT_compatCS
 
 	# find len
-	mov	eax, (offset kernel_code_end - offset kernel_code_start)>> 12
+	mov	eax, (offset kernel_code_end - offset kernel_code_start+4095)>> 12
+	mov eax, 0xffff
 	GDT_STORE_LIMIT GDT_compatCS
 
 	xor	eax, eax

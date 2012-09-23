@@ -170,14 +170,14 @@ jmp_table_target:
 	.data SECTION_DATA_BSS
 		int_count: .rept 256; .long 0; .endr
 	.text32
-	push	ebp
+	push	ebp	# [ebp -  4]
 	mov	ebp, esp
 	add	ebp, 4	# skip ebp itself
-	push	eax
-	push	ecx
-	push	ds	# [ebp - 14]
-	push	es	# [ebp - 16]
-	push	edi
+	push	eax	# [ebp -  8]
+	push	ecx	# [ebp - 12]
+	push	ds	# [ebp - 16]
+	push	es	# [ebp - 20]
+	push	edi	
 	push	esi
 	push	edx
 	push	ebp	# ebp will be modifed, use for reference of stack regs
@@ -186,7 +186,6 @@ jmp_table_target:
 	mov	ds, ax
 
 	PUSHCOLOR 8
-
 	PRINT "(ISR "
 	movzx	edx, word ptr [ebp]	# interrupt number from jumptable
 	call	printhex2		# assume maxint = 255
@@ -301,6 +300,7 @@ jmp_table_target:
 	# check if edx within limit:
 	push	ebx
 	GDT_GET_LIMIT ebx, eax
+	shl	ebx, 12
 	cmp	edx, ebx
 	pop	ebx
 	jb	1f
@@ -344,35 +344,69 @@ ics$:	COLOR 11
 
 
 	COLOR 8
-	PRINT	")"
+	PRINTCHAR ')'
 .if 1
 	#############################
-	push	ebp
-	mov	ebp, [esp + 4]
 	call	newline
+
+	push	ebp
+	mov	ebp, [esp + 4 + 2]	# push ebp + pushcolor
 	printc_ 7, "cs="
-	mov	edx, [ebp + 14]
+	mov	edx, [ebp + 10]
 	call	printhex4
 	printc_ 7, " eip="
-	mov	edx, [ebp + 10]
+	mov	edx, [ebp + 6]
 	call	printhex8
 
 	printc_ 7, " ds="
-	mov	edx, [ebp - 14]
+	mov	edx, [ebp - 16]
 	call	printhex4
 	printc_ 7, " es="
-	mov	edx, [ebp - 16]
+	mov	edx, [ebp - 20]
 	call	printhex4
 	pop	ebp
 
-	printc 11, "STACK: "
-	printc 10, "esp="
-	mov	edx, esp
+	printc 11, " STACK: "
+	mov	dx, ss
+	call	printhex4
+	printcharc 10 ':'
+	mov	edx, ebp
 	call	printhex8
 	call	newline
 	push	ebp
 	push	ecx
-	mov	ecx, 3 # 16
+
+	mov	edx, ebp
+	color	12
+	call	printhex8
+	printc	8, ": "
+	mov	edx, [ebp]
+	color	7
+	call	printhex8
+	printlnc 9, " eip"
+	add	ebp, 4
+
+	mov	edx, ebp
+	color	12
+	call	printhex8
+	printc	8, ": "
+	mov	edx, [ebp]
+	color	7
+	call	printhex8
+	printlnc 9, " cs"
+	add	ebp, 4
+
+	mov	edx, ebp
+	color	12
+	call	printhex8
+	printc	8, ": "
+	mov	edx, [ebp]
+	color	7
+	call	printhex8
+	printlnc 9, " flags"
+	add	ebp, 4
+
+	mov	ecx, 5 # 16
 0:	mov	edx, ebp
 	color	12
 	call	printhex8
@@ -389,7 +423,6 @@ ics$:	COLOR 11
 .endif
 	cmp	cx, 0x20 #PF
 	jb	halt
-
 
 ### A 'just-in-case' handler for PIC IRQs, hardcoded to 0x20 offset
 	movzx	dx, byte ptr [pic_ivt_offset]
@@ -443,7 +476,7 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	add	eax, JMP_ENTRY_LEN
 	loop	0b
 
-	mov	eax, [realsegflat]
+	mov	eax, [reloc$]#[realsegflat]
 	add	eax, offset IDT
 	mov	[pm_idtr + 2], eax
 	lidt	[pm_idtr]

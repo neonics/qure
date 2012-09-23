@@ -65,9 +65,11 @@ DEBUG_COLOR2 = 0x87
 DEBUG_COLOR3 = 0x8f
 
 .macro DEBUG str
+	.ifnes "\str", ""
 	pushf
 	printc DEBUG_COLOR3, "\str "
 	popf
+	.endif
 .endm
 
 .macro DEBUGc c, str

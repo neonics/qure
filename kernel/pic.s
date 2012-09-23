@@ -1,9 +1,10 @@
 ###############################################################################
 # PIC - Programmable Interrupt Controller
-
-.intel_syntax noprefix
 # See DOC/8259A.pdf
 # See DOC/Interrupt.txt
+.intel_syntax noprefix
+
+DEBUG_PIC=0
 #
 # PIC1: ports 0x20, 0x21 : command, data
 # PIC1: ports 0xA0, 0xA1 : command, data
@@ -144,7 +145,7 @@ pic_mask: .word 0
 	in	al, \picport + 1
 	mov	ah, al
 
-		.if DEBUG > 2
+		.if DEBUG_PIC
 		push	ax
 		push	dx
 		mov	ah, 0xf0
@@ -404,6 +405,9 @@ pic_mask: .word 0
 
 .text16
 pic_init16:
+	.if DEBUG_PIC
+		call	newline_16
+	.endif
 	PIC_INIT
 	ret
 
@@ -447,8 +451,10 @@ pic_restore_mask16:
 ##############################################################################
 # 32 bit CODE
 .text32
-.code32
 pic_init32:
+	.if DEBUG_PIC
+		call	newline
+	.endif
 	PIC_INIT
 	ret
 

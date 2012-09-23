@@ -109,6 +109,8 @@ SHELL_COMMAND "gdt"		cmd_print_gdt
 SHELL_COMMAND "p"		cmd_ping_gateway
 SHELL_COMMAND "gfx"		cmd_gfx
 SHELL_COMMAND "iso"		iso9660_test
+
+SHELL_COMMAND "gpf"		cmd_gpf
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -1009,7 +1011,16 @@ cmd_ls$:
 	call	fs_opendir	# out: eax
 	jc	9f
 
-	printlnc 11, "Directory Listing:"
+	printc 11, "Directory Listing for "
+	push	esi
+	mov	esi, offset cwd$
+	pushcolor 13
+	call	print
+	popcolor
+	pop	esi
+	printcharc 11, ':'
+	call	newline
+
 0:	call	fs_nextentry	# in: eax; out: esi
 	jc	0f
 	push	eax
@@ -1035,8 +1046,10 @@ cmd_ls$:
 	call	printspace
 
 	# print attr
+	pushcolor 8
 	mov	dl, [esi + fs_dirent_attr]
 	call	printhex2
+	popcolor 8
 	call	printspace
 	LOAD_TXT "RHSVDA78", ebx
 	mov	ecx, 8
@@ -1060,7 +1073,6 @@ cmd_ls$:
 0:	call	fs_close	# in: eax
 9:	ret
 
-
 ########################################################################
 
 cmd_cat$:
@@ -1071,7 +1083,7 @@ cmd_cat$:
 
 	# make path
 
-	.if 1
+	.if 0
 	.data
 	88: .asciz "/b/FDOS/SOURCE/KERNEL/CLEAN.BAT/"
 	.text32
@@ -1099,12 +1111,12 @@ cmd_cat$:
 	call	newline
 
 	mov	eax, offset 88b
-	call	fs_openfile
+	call	fs_openfile	# out: eax = file handle
 	jc	9f
-	# out: eax = file handle
-DEBUG "Call fs_handle_read"
+	push	eax
 	call	fs_handle_read
-DEBUG "fs_handle_read DONE"
+	pop	eax
+	call	fs_close
 	ret
 
 9:	printlnc 12, "usage: cat <filename>"
@@ -1353,5 +1365,10 @@ cmd_ping_gateway:
 	mov	eax, offset 0b
 	mov	esi, eax
 	call	cmd_ping
+	ret
+
+cmd_gpf:
+	printlnc 0xcf, "Generating GPF"
+	mov	eax, [0xffffffff]
 	ret
 
