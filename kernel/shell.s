@@ -1006,22 +1006,34 @@ tmp_buf$: .space 2 * 512
 .text32
 
 cmd_ls$:
-	mov	eax, offset cwd$
+	lodsd
+	lodsd
+
+	mov	esi, offset cwd$
+	mov	edi, offset cd_cwd$
+	mov	ecx, MAX_PATH_LEN
+	rep	movsb
+
+	or	eax, eax
+	jz	0f
+	mov	esi, eax
+	mov	edi, offset cd_cwd$
+	call	fs_update_path
+0:
+	mov	eax, offset cd_cwd$
+	mov	esi, eax
+
 	.if SHELL_DEBUG_FS
 		printc	11, "ls "
-		mov	esi, eax
 		call	println
 	.endif
 	call	fs_opendir	# out: eax
 	jc	9f
 
 	printc 11, "Directory Listing for "
-	push	esi
-	mov	esi, offset cwd$
 	pushcolor 13
 	call	print
 	popcolor
-	pop	esi
 	printcharc 11, ':'
 	call	newline
 
