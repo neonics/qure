@@ -378,7 +378,7 @@ ata_list_drives:
 3:	push	cx
 	push	ax
 	call	ata_list_drive
-	.if ATA_DEBUG > 1
+	.if ATA_DEBUG > 3
 		call	more
 	.endif
 	pop	ax
@@ -675,7 +675,7 @@ read$:	call	print
 	movzx	ebx, bl
 	mov	[ata_drive_types + ebx], al
 
-	.if ATA_DEBUG > 1
+	.if ATA_DEBUG > 2
 		PRINTLNc 14, "Raw Data: "
 		push	esi
 		mov	esi, offset parameters_buffer$
@@ -868,23 +868,31 @@ read$:	call	print
 
 	mov	dx, [parameters_buffer$ + ATA_ID_AP_NUM_CYLINDERS]
 	mov	[edi + ata_driveinfo_c], dx
-	DEBUG "num cyl"
-	call	printhex4
+	.if ATA_DEBUG
+		DEBUG "num cyl"
+		call	printhex4
+	.endif
 
 	mov	dx, [parameters_buffer$ + ATA_ID_AP_NUM_HEADS]
 	mov	[edi + ata_driveinfo_h], dx
-	DEBUG "num heads"
-	call	printhex4
+	.if ATA_DEBUG
+		DEBUG "num heads"
+		call	printhex4
+	.endif
 
 	mov	dx, [parameters_buffer$ + ATA_ID_AP_SECTORS_PER_TRACK]
 	mov	[edi + ata_driveinfo_s], dx
-	DEBUG "sectpertrack"
-	call	printhex4
+	.if ATA_DEBUG
+		DEBUG "sectpertrack"
+		call	printhex4
+	.endif
 
 	mov	edx, [parameters_buffer$ + ATA_ID_CAPACITY]
 	mov	[edi + ata_driveinfo_cap_in_s], edx
-	DEBUG "capacity"
-	call	printhex8
+	.if ATA_DEBUG
+		DEBUG "capacity"
+		call	printhex8
+	.endif
 
 	mov	dx, [parameters_buffer$ + ATA_ID_NUM_CYLINDERS]
 	mov	[edi + ata_driveinfo_num_cylinders], dx
@@ -929,14 +937,21 @@ ata_error$:
 
 # in: al = status register byte
 ata_print_status$:
+	push	dx
+	mov	dl, al
+	pushcolor 8
+	call	printhex2
+	popcolor
+	pop	dx
+ata_print_status1$:
 	.data SECTION_DATA_STRINGS
 	9:	.ascii "BSY\0 DRDY\0DF\0  DSC\0 DRQ\0 CORR\0IDX\0 ERR\0\0"
 	.text32
 	push	esi
 	mov	esi, offset 9b
-	pushcolor 8
+#	pushcolor 8
 	call	ata_print_bits$
-	popcolor
+#	popcolor
 	pop	esi
 	ret
 
@@ -944,6 +959,13 @@ ata_print_error$:
 	.data SECTION_DATA_STRINGS
 	9: .ascii "BBK\0 UNC\0 MC\0  IDNF\0MCR\0 ABRT\0T0NF\0AMNF\0"
 	.text32
+	push	dx
+	pushcolor 8
+	mov	dl, al
+	call	printhex2
+	popcolor
+	pop	dx
+
 	push	esi
 	mov	esi, offset 9b
 	pushcolor 4
@@ -954,12 +976,6 @@ ata_print_error$:
 
 
 ata_print_bits$:
-	push	ax
-	push	dx
-	mov	dl, al
-	call	printhex2
-	pop	dx
-	pop	ax
 	PRINT_START 
 0:	shl	al, 1
 	jnc	1f
@@ -983,42 +999,59 @@ ata_wait_status$:
 	push	bx
 	mov	bx, ax
 
-	.if ATA_DEBUG > 2
-	push	dx
-	PRINTc	5 "[Wait1:"
-	mov	al, bl
-	call	ata_print_status$
-	PRINTc	5 " Wait0:"
+	.if ATA_DEBUG > 1
+	PRINTc	5 "[Wait"
+	pushcolor 0x0c
+	or	bh, bh
+	jz	0f
 	mov	al, bh
-	call	ata_print_status$
+	call	ata_print_status1$
+	call	printspace
+0:	mov	al, bl
+	color	0x0a
+	call	ata_print_status1$
+	popcolor
 	PRINTc	5, "]"
-	pop	dx
 	.endif
 
 	# by default error bits should be 0
-	or	bh, ATA_STATUS_ERR | ATA_STATUS_CORR
+	or	bh, ATA_STATUS_CORR #| ATA_STATUS_ERR 
 
 	# TODO: when BSY, other bits are meaningless
 	push	ecx
 	push	dx
 	add	dx, ATA_PORT_STATUS
-	mov	ecx, 5 # 0x1000
+	mov	ecx, 0x1000
 
 0:	in	al, dx
+	test	al, ATA_STATUS_ERR
+	jnz	1f
 	mov	ah, bh
 	and	ah, al	# test for bits to be 0
 	jnz	2f
-	and	al, bl
-	cmp	al, bl	# test for bits to be 1
+	mov	ah, al
+	and	ah, bl
+	cmp	ah, bl	# test for bits to be 1
 	jz	0f
 2:	loop	0b
 
-1:	call	ata_print_status$
+	.if ATA_DEBUG
+		PRINTC 0xfb, "WAIT TIMEOUT"
+	.endif
+
+1:	
+	.if ATA_DEBUG
+	call	ata_print_status$
+	.endif
 	test	al, ATA_STATUS_ERR
 	jz	1f
 	add	dx, ATA_PORT_ERROR - ATA_PORT_STATUS
+	mov	ah, al
 	in	al, dx
+	printc 4, "ATA error: "
 	call	ata_print_error$
+	call	printspace
+	xchg	al, ah
 1:	stc
 0:	pop	dx
 	pop	ecx
@@ -1050,15 +1083,17 @@ ata_wait_DRQ0$:
 
 # in: al = drive number
 # in: edx = HI = DCR, LO (dx) = base port
-# out: nothing.
+# out: CF
 ata_select_drive$:
+	# ATA 2 protocol spec, section 8.3, PIO data in commands:
+	# a) host reads status until BSY=0
 	push	ax
 	mov	ax, ATA_STATUS_BSY << 8
 	call	ata_wait_status$
 	pop	ax
 	jc	1f
 
-	push	edx
+	# b) host writes device/head register with DEV bit value
 	add	dx, ATA_PORT_DRIVE_SELECT
 	and	al, 1	# mask out bus (if al=bus|drive)
 	shl	al, 4
@@ -1068,16 +1103,32 @@ ata_select_drive$:
 	or	al, 0xA0 	# (B0 for slave)
 	#or	al, 0xef	#  all bits 1, bit 4=0 drive 0, 1=drive 1
 	out	dx, al
+	sub	dx, ATA_PORT_DRIVE_SELECT
+
+	# c) host reads status until BSY=0 and DRDY=1
+	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRDY
+	call	ata_wait_status$
+	jc	1f
 	
-	add	dx, ATA_PORT_STATUS - ATA_PORT_DRIVE_SELECT
-	in	al, dx
-	.if ATA_DEBUG > 1
-		call	ata_print_status$
-	.endif
+#	add	dx, ATA_PORT_STATUS - ATA_PORT_DRIVE_SELECT
+#	in	al, dx
+#	sub	dx, ATA_PORT_STATUS
+#	.if ATA_DEBUG > 1
+#		call	ata_print_status$
+#	.endif
+
+	# other addendum: if al=0 then the drive is nonexistent
 	or	al, al
-	pop	edx
+	jnz	1f
+	stc
+
 1:	.if ATA_DEBUG > 1
 		pushf
+		jnc	0f
+		printc 4, "err"
+		DEBUG_BYTE al
+	0:
+		DEBUG "ata_select_drive:"
 		call	ata_dbg$
 		popf
 	.endif
@@ -1146,9 +1197,9 @@ ata_read:
 	add	al, ATA_COMMAND_PIO_READ
 	add	dx, ATA_PORT_COMMAND
 	out	dx, al
-
 	sub	dx, ATA_PORT_COMMAND
-	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
+
+	mov	ax, ((ATA_STATUS_ERR | ATA_STATUS_BSY) << 8) | ATA_STATUS_DRQ
 	call	ata_wait_status$
 	jc	1f
 
@@ -1175,6 +1226,8 @@ ata_read:
 
 	.if ATA_DEBUG > 1
 		call	ata_print_status$
+		DEBUG "ata_read done"
+		call newline
 	.endif
 
 	loop	0b
@@ -1237,22 +1290,22 @@ ata_write:
 #0:	outsw
 #	loop	0b
 
-	add	dx, ATA_PORT_STATUS
 	.if 0
 	mov	ax, (ATA_STATUS_BSY <<8) | ATA_STATUS_DRQ
 	call	ata_wait_status$
 	jc	ata_timeout$
 	.else
+	add	dx, ATA_PORT_STATUS
 	in	al, dx
 	in	al, dx
 	in	al, dx
 	in	al, dx
 	in	al, dx
+	sub	dx, ATA_PORT_STATUS
 	test	al, ATA_STATUS_BSY
 	jnz	ata_timeout$
 	.endif
 
-	sub	dx, ATA_PORT_STATUS
 	loop	0b
 	clc
 
@@ -1271,6 +1324,10 @@ ata_write:
 # destroys: eax ecx
 ata_rw_init$:
 	call	ata_get_ports$
+	jc	ata_err_unknown_disk$
+	push	ax
+	call	ata_select_drive$
+	pop	ax
 	jc	ata_err_unknown_disk$
 
 	# preserve drive info as al gets used in port io

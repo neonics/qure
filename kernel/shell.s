@@ -111,6 +111,7 @@ SHELL_COMMAND "gfx"		cmd_gfx
 SHELL_COMMAND "iso"		iso9660_test
 
 SHELL_COMMAND "gpf"		cmd_gpf
+SHELL_COMMAND "colors"		cmd_colors
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -121,6 +122,9 @@ SHELL_COMMAND "gpf"		cmd_gpf
 
 shell:	push	ds
 	pop	es
+
+	COLOR	7
+
 	PRINTLNc 10, "Press ^D or type 'quit' to exit shell"
 	call	cmdline_history_new
 
@@ -1374,3 +1378,20 @@ cmd_gpf:
 	mov	eax, [0xffffffff]
 	ret
 
+cmd_colors:
+	xor	al, al
+0:	COLOR	al
+	mov	dl, al
+	call	printhex2
+	inc	al
+	jz	0f
+	test	al, 0xf
+	jnz	0b
+	call	newline
+	jmp	0b
+
+0:
+
+	call	newline
+	color	7
+	ret

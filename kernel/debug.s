@@ -60,9 +60,9 @@
 .endm
 
 
-DEBUG_COLOR1 = 0x80
-DEBUG_COLOR2 = 0x87
-DEBUG_COLOR3 = 0x8f
+DEBUG_COLOR1 = 0x1a
+DEBUG_COLOR2 = 0x17
+DEBUG_COLOR3 = 0x1f
 
 .macro DEBUG str
 	.ifnes "\str", ""

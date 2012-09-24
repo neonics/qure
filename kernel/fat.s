@@ -167,7 +167,6 @@ fs_fat16b_umount:
 # in: esi = partition info
 # out: edi = pointer to filesystem structure
 fs_fat16b_mount:
-DEBUG_WORD ax
 	# check if system supported: scan for partition types
 	push	edi
 	push	ecx
@@ -191,7 +190,6 @@ DEBUG_WORD ax
 	mov	edi, eax
 	pop	eax
 	mov	[edi + fs_obj_disk], ax
-DEBUG_WORD ax
 	add	edi, FAT_STRUCT_SIZE
 	# load sector
 	push	eax
@@ -210,13 +208,10 @@ DEBUG_WORD ax
 	call	fs_fat16b_verify_vbr
 	jc	1f
 
-DEBUG_WORD ax
-DEBUG "calc"
 	mov	esi, edi
 	sub	edi, FAT_STRUCT_SIZE
 	call	fs_fat16_calculate
 
-DEBUG_WORD ax
 	mov	[edi + fs_obj_class], dword ptr offset fs_fat16_class
 
 	# allocate a cluster buffer
@@ -239,14 +234,12 @@ DEBUG_WORD ax
 	mov	[edi + fat_rootdir_buf$], eax
 	pop	edx
 	pop	eax
-DEBUG "load root"
-DEBUG_WORD ax
+
 	push	eax
 	mov	eax, edi
 	call	fat16_load_root_directory
 	pop	eax
 	jc	1f
-DEBUG "root loaded"
 
 ###	# allocate the fat buffer
 	push	ecx
