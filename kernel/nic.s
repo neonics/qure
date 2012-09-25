@@ -10,14 +10,22 @@ IFCONFIG_OLDSKOOL = 0
 NIC_DEBUG = 0
 ############################################################################
 .struct DEV_PCI_STRUCT_SIZE
-nic_status:	.byte 0
+.align 4
+nic_status:	.word 0
 	NIC_STATUS_UP = 1
-nic_name:	.space 8
+nic_name:	.long 0
 nic_mac:	.space 6
 nic_mcast:	.space 8
-.align 4
-nic_rx_buf:	.long 0
 nic_ip:		.long 0
+nic_buf:	.long 0	# mallocced address
+nic_rx_buf:	.long 0
+nic_tx_buf:	.long 0
+nic_rx_desc:	.long 0
+nic_rx_desc_h:	.long 0
+nic_rx_desc_t:	.long 0
+nic_tx_desc:	.long 0
+nic_tx_desc_h:	.long 0
+nic_tx_desc_t:	.long 0
 .if IFCONFIG_OLDSKOOL
 nic_netmask:	.long 0
 nic_network:	.long 0
@@ -220,8 +228,9 @@ nic_list_short:
 
 nic_constructor:
 
-	mov	[ebx + nic_name + 0], dword ptr ( 'u' | 'n'<<8|'k'<<16|'n'<<24)
-	mov	[ebx + nic_name + 4], dword ptr ( 'o' | 'w'<<8|'n'<<16)
+	LOAD_TXT "unknown", (dword ptr [ebx + nic_name])
+#	mov	[ebx + nic_name + 0], dword ptr ( 'u' | 'n'<<8|'k'<<16|'n'<<24)
+#	mov	[ebx + nic_name + 4], dword ptr ( 'o' | 'w'<<8|'n'<<16)
 
 	# fill in all method pointers
 
@@ -232,40 +241,113 @@ nic_constructor:
 
 	# check for supported drivers
 
-	# RTL8139
-	cmp	[ebx + dev_pci_vendor], dword ptr 0x10ec | ( 0x8139 << 16 )
-	jnz	0f
-
-	# good enough.
-	push	edx
-	mov	dx, [ebx + dev_io]
-	or	dx, dx
-	jz	1f
-	call	rtl8139_init
-	jc	1f
-	# ...
-1:	pop	edx
-	jmp	9f
-
-0:	cmp	[ebx + dev_pci_vendor], dword ptr 0x8086 | ( 0x100e << 16 )
-	jnz	0f
-	call	i8254_init
-	jmp	9f
-
-0:	# unknown nic
-	jmp	9f
-
-9:	# relocate the methods
-	push	ecx
+	push	esi
 	push	eax
+
+	# see pci.s DECLARE_PCI_DRIVER macro, and kernel.s top and bottom
+	mov	esi, offset data_pci_nic
+	jmp	1f
+0:	lodsd	# vendor | (device <<16)
+	cmp	eax, [ebx + dev_pci_vendor]
+	jz	0f
+	lodsd	# driver init
+	lodsd	# short name
+	lodsd	# long name
+1:	cmp	esi, offset data_pci_nic_end
+	jb	0b
+
+	.if NIC_DEBUG
+		push	edx
+		printc 12, "No driver for vendor "
+		mov	edx, [ebx + dev_pci_vendor]
+		call	printhex4
+		printc 12, " device "
+		shr	edx, 16
+		call	printhex4
+		call	newline
+		pop	edx
+	.endif
+8:	stc
+
+9:	pop	eax
+	pop	esi
+	ret
+
+	# Found driver
+0:	lodsd	# init method
+	or	eax, eax	# sanity check
+	jz	8b
+	add	eax, [realsegflat]
+	push	esi
+	call	eax
+	pop	esi
+	jc	9b
+
+	lodsd	# short name
+	mov	[ebx + nic_name], eax
+
+	# relocate methods
+	push	ecx
 	mov	eax, [realsegflat]
 	mov	ecx, NIC_API_SIZE / 4
 0:	add	[ebx + nic_api + ecx * 4 - 4], eax
 	loop	0b
-	pop	eax
 	pop	ecx
-	ret
+	clc
+	jmp	9b
 
+###########################################
+############################################
+# protected methods (to be called by subclasses)
+
+# in: ebx = nic
+# in: eax = descriptor size
+# in: ecx = rx descriptors
+# in: edx = tx descriptors
+NIC_ALLOC_BUF_OPTIMIZE = 0
+
+.macro NIC_ALLOC_BUFFERS nrx, ntx, descSize, packetSize, errLabel
+	_NIC_BUF_SLACK = 2 * \descSize
+
+	mov	eax, (\nrx + \ntx) * (\descSize + \packetSize) + _NIC_BUF_SLACK
+	call	malloc
+	jc	\errLabel
+	mov	[ebx + nic_buf], eax
+	.if NIC_ALLOC_BUF_OPTIMIZE
+	mov	edi, eax
+	lea	esi, [eax + (\nrx * \ntx) * \descSize + _NIC_BUF_SLACK]
+	.else
+	add	eax, \nrx * \descSize
+	mov	[ebx + nic_tx_desc], eax
+	add	eax, (\nrx + \ntx) * \descSize
+	mov	[ebx + nic_rx_buf], eax
+	add	eax, \nrx * \packetSize
+	mov	[ebx + nic_tx_buf], eax
+	.endif
+	_NIC_BUF_nrx = \nrx
+	_NIC_BUF_ntx = \ntx
+	_NIC_BUF_descSize = \descSize
+	_NIC_BUF_pSize = \packetSize
+	_NIC_BUF_err = \errLabel
+.endm
+
+.macro NIC_DESC_LOOP rxtx
+	mov	ecx, _NIC_BUF_n\rxtx\()
+	.if NIC_ALLOC_BUF_OPTIMIZE
+	mov	[ebx + nic_\rxtx\()_buf], esi
+	mov	[ebx + nic_\rxtx\()_desc], edi
+	.else
+	mov	esi, [ebx + nic_\rxtx\()_buf]
+	mov	edi, [ebx + nic_\rxtx\()_desc]
+	.endif
+88:
+.endm
+
+.macro NIC_DESC_ENDL
+	add	esi, _NIC_BUF_pSize
+	add	edi, _NIC_BUF_descSize
+	loop	88b
+.endm
 
 #####################
 # default methods
@@ -293,7 +375,7 @@ nic_unknown_ifdown:
 0:	pushcolor 12
 	print	"nic_"
 	push	esi
-	lea	esi, [ebx + nic_name]
+	mov	esi, [ebx + nic_name]
 	color	7
 	call	print
 	pop	esi
@@ -301,8 +383,8 @@ nic_unknown_ifdown:
 	printchar '_'
 	call	print
 	printlnc 4, ": not implemented"
-	pop	esi
 	popcolor
+	pop	esi
 	stc
 	ret
 
@@ -319,7 +401,7 @@ cmd_nic_list:
 0:	call	dev_print
 	call	printspace
 
-	lea	esi, [ebx + nic_name]
+	mov	esi, [ebx + nic_name]
 	call	print
 
 	print	" MAC "
@@ -359,6 +441,40 @@ cmd_nic_list:
 ############################################################################
 # Commandline Interface
 
+cmd_list_nic_drivers:
+	mov	esi, offset data_pci_nic # see pci.s DECLARE_PCI_DRIVER
+	jmp	1f
+0:	printc	11, "vendor "
+	lodsw
+	mov	dx, ax
+	call	printhex4
+	printc	11, " device "
+	lodsw
+	mov	dx, ax
+	call	printhex4
+	call	printspace
+	lodsd	# driver init
+
+	lodsd	# short name
+	push	esi
+	pushcolor 14
+	mov	esi, eax
+	call	print
+	call	printspace
+	popcolor
+	pop	esi
+
+	lodsd	# long name
+	pushcolor 15
+	push	esi
+	mov	esi, eax
+	call	println
+	pop	esi
+	popcolor
+1:	cmp	esi, offset data_pci_nic_end
+	jb	0b
+	ret
+
 cmd_ifup:
 	xor	eax, eax
 	call	nic_getobject
@@ -382,13 +498,13 @@ cmd_ifconfig:
 	call	nic_parse	# out: ebx
 	jc	9f
 
-
 	push	esi
-	lea	esi, [ebx + nic_name]
+	mov	esi, [ebx + nic_name]
+	pushcolor 9
 	call	print
 	call	printspace
+	popcolor
 	pop	esi
-
 	# check for options
 	.if IFCONFIG_OLDSKOOL
 		xor	edi, edi
@@ -460,6 +576,7 @@ cmd_ifconfig:
 	jc	9f
 	printc 11, "ip "
 	call	net_print_ip
+	call	newline
 	mov	[ebx + nic_ip], eax
 
 	.if IFCONFIG_OLDSKOOL
@@ -471,7 +588,6 @@ cmd_ifconfig:
 	jmp	0b
 
 0:	# print nic status
-	call	newline
 	call	[ebx + nic_api_print_status]
 
 	.if IFCONFIG_OLDSKOOL
@@ -480,9 +596,10 @@ cmd_ifconfig:
 		mov	edx, [ebx + nic_netmask]
 		call	route_add	# in: ebx
 	.endif
-	clc
 
+	clc
 	ret
+
 9:	printlnc 12, "usage: ifconfig <device> <ip>"
 	stc
 	ret

@@ -326,6 +326,19 @@ pci_device_class_names:
 .long dc11$, sc11$
 .text32
 
+# Size: 20 bytes
+.macro DECLARE_PCI_DRIVER kind, vendor, device, init, shortname, longname
+	.data SECTION_DATA_PCI_\kind
+	.word \vendor, \device
+	.long \init
+	.data SECTION_DATA_STRINGS
+	99:	.asciz "\shortname"
+	98:	.asciz "\longname"
+	.data SECTION_DATA_PCI_\kind
+	.long 99b
+	.long 98b
+.endm
+
 # in: al = eax = pci device class
 # in: dh = prog if
 # in: dl = subclass

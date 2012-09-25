@@ -322,6 +322,8 @@ nic_i8254_tx_buf:	.long 0
 nic_i8254_rd_tail:	.long 0	# 
 nic_i8254_td_tail:	.long 0	# 
 NIC_I8254_STRUCT_SIZE = .	# see dev.s/dev_pci_pre_constructor
+
+DECLARE_PCI_DRIVER NIC, 0x8086, 0x100e, i8254_init, "i8254x", "Intel 8254x PCI/PCI-X"
 ############################################################################
 
 
@@ -329,11 +331,7 @@ NIC_I8254_STRUCT_SIZE = .	# see dev.s/dev_pci_pre_constructor
 # in: ebx = pci nic object
 i8254_init:
 
-	LOAD_TXT "i8254"
-	lea	edi, [ebx + nic_name]
-	movsd
-	movsw
-
+	LOAD_TXT "i8254", (dword ptr [ebx + nic_name])
 
 	mov	dword ptr [ebx + nic_api_send], offset i8254_send
 	mov	dword ptr [ebx + nic_api_print_status], offset i8254_print_status

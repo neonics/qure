@@ -1,11 +1,21 @@
 .intel_syntax noprefix
 
+# .data layout
+SECTION_DATA		= 0
+SECTION_DATA_CONCAT	= 1
+SECTION_DATA_STRINGS	= 2
+SECTION_DATA_PCI_NIC	= 3
+SECTION_DATA_BSS	= 10
+
+# .text layout
+SECTION_CODE_TEXT16	= 0
+SECTION_CODE_DATA16	= 1	# keep within 64k
+SECTION_CODE_TEXT16_END	= 2
+SECTION_CODE_TEXT32	= 3
+
 .include "macros.s"
 
 SHOWOFF = 0
-
-SECTION_DATA_STRINGS = 3
-SECTION_DATA_BSS = 4
 
 # Level 0: minimal
 # Level 1: informational (hook ints etc)
@@ -27,6 +37,12 @@ kernel_code_start:
 data_0_start:
 .data SECTION_DATA_STRINGS
 data_str_start:
+.data SECTION_DATA_PCI_NIC
+data_pci_nic:
+# .word vendorId, deviceId
+# .long driver_constructor
+# .long name
+# .long 0	# alignment - total size: 16 bytes
 .data SECTION_DATA_BSS
 data_bss_start:
 .text32
@@ -328,6 +344,8 @@ kernel_code_end:
 data_0_end:
 .data SECTION_DATA_STRINGS
 data_str_end: .byte 0
+.data SECTION_DATA_PCI_NIC
+data_pci_nic_end:
 .data SECTION_DATA_BSS - 1
 kernel_signature:.long 0x1337c0de
 .data SECTION_DATA_BSS

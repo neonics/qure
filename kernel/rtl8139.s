@@ -169,8 +169,11 @@ RTL8139_CONFIG5	= 0xd8
 .struct NIC_STRUCT_SIZE
 nic_rtl8139_desc_idx: .word 0
 NIC_RTL8139_STRUCT_SIZE = .
+
+DECLARE_PCI_DRIVER NIC, 0x10ec, 0x8139, rtl8139_init, "rtl8139", "Realtek 8139"
 ############################################################################
 .text32
+DRIVER_NIC_RTL8139_BEGIN = .
 
 
 # in: dx = base port
@@ -178,6 +181,7 @@ NIC_RTL8139_STRUCT_SIZE = .
 rtl8139_init:
 	push	ebp
 	push	edx
+	push	dword ptr [ebx + dev_io]
 	mov	ebp, esp
 
 	# power on device
@@ -197,7 +201,7 @@ rtl8139_init:
 	test	al, CMD_RST
 	jz	0f
 	loop	0b
-	printlnc 4, "rtl8138: reset failed"
+	printlnc 4, "rtl8139: reset failed"
 	stc
 	jmp	9f
 0:
@@ -251,12 +255,7 @@ rtl8139_init:
 	mov	[ebx + nic_rx_buf], ecx
 
 	# register a name
-	LOAD_TXT "rtl8139"
-	lea	edi, [ebx + nic_name]
-	mov	eax, esi
-	call	strlen
-	mov	ecx, eax
-	rep	movsb
+	LOAD_TXT "rtl8139", (dword ptr [ebx + nic_name]);
 
 	# fill in the methods
 	mov	dword ptr [ebx + nic_api_send], offset rtl8139_send
@@ -319,6 +318,7 @@ rtl8139_init:
 
 	clc
 9:	pop	edx
+	pop	edx
 	pop	ebp
 	ret
 
@@ -825,3 +825,5 @@ rtl8139_print_TSD:
 .endif
 	ret
 
+DRIVER_NIC_RTL8139_END = .
+DRIVER_NIC_RTL8139_SIZE = DRIVER_NIC_RTL8139_END - DRIVER_NIC_RTL8139_BEGIN

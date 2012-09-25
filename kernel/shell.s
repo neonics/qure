@@ -8,7 +8,7 @@ MAX_CMDLINE_LEN = 1024
 
 .data
 insertmode: .byte 1
-.data 2
+.data SECTION_DATA_BSS
 cursorpos: .long 0
 
 cmdlinelen: .long 0
@@ -87,6 +87,7 @@ SHELL_COMMAND "ints",		cmd_int_count
 # network
 # nonstandard
 SHELL_COMMAND "nics", 		cmd_nic_list
+SHELL_COMMAND "nicdrivers",	cmd_list_nic_drivers
 SHELL_COMMAND "netdump"		cmd_netdump
 SHELL_COMMAND "zconf"		nic_zeroconf
 # standard
@@ -122,8 +123,6 @@ SHELL_COMMAND "colors"		cmd_colors
 
 shell:	push	ds
 	pop	es
-
-	COLOR	7
 
 	PRINTLNc 10, "Press ^D or type 'quit' to exit shell"
 	call	cmdline_history_new
@@ -1001,7 +1000,7 @@ cmd_cd$:
 ###############################################################################
 ###############################################################################
 
-.data 2
+.data SECTION_DATA_BSS
 tmp_buf$: .space 2 * 512
 .text32
 

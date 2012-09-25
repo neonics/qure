@@ -4,7 +4,7 @@
 	src: .ascii "string 123 ;"
 		.byte '\n'
 	src_len = . - src
-.data 2
+.data SECTION_DATA_BSS
 	tokens: .space src_len * 8 + 8
 
 .text32

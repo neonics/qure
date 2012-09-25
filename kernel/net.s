@@ -69,7 +69,7 @@ PROTO_STRUCT_SIZE = .
 .macro DECL_PROTO_STRUCT name, handler1, handler2, flag
 	.data SECTION_DATA_STRINGS # was 2
 	99: .asciz "\name"
-	.data 1
+	.data SECTION_DATA_CONCAT
 	.long 99b
 	.long \handler1
 	.long \handler2
@@ -79,7 +79,7 @@ PROTO_STRUCT_SIZE = .
 .macro DECL_PROTO_STRUCT_START name
 	.data
 	\name\()_proto$:
-	.data 1
+	.data SECTION_DATA_CONCAT
 	\name\()_proto_struct$:
 .endm
 
@@ -96,7 +96,7 @@ PROTO_STRUCT_SIZE = .
 .endm
 
 .macro DECL_PROTO_STRUCT_END name, const, codesize
-	.data 1
+	.data SECTION_DATA_CONCAT
 	\const\()_PROTO_LIST_SIZE = ( . - \name\()_proto_struct$ ) / PROTO_STRUCT_SIZE
 	.text32
 .endm
