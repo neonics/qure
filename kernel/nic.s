@@ -227,7 +227,6 @@ nic_list_short:
 # NIC Base Class API
 
 nic_constructor:
-
 	LOAD_TXT "unknown", (dword ptr [ebx + nic_name])
 #	mov	[ebx + nic_name + 0], dword ptr ( 'u' | 'n'<<8|'k'<<16|'n'<<24)
 #	mov	[ebx + nic_name + 4], dword ptr ( 'o' | 'w'<<8|'n'<<16)
@@ -306,17 +305,22 @@ nic_constructor:
 # in: edx = tx descriptors
 NIC_ALLOC_BUF_OPTIMIZE = 0
 
-.macro NIC_ALLOC_BUFFERS nrx, ntx, descSize, packetSize, errLabel
-	_NIC_BUF_SLACK = 2 * \descSize
+.macro NIC_ALLOC_BUFFERS nrx, ntx, descSize, packetSize, errLabel, align=0
+	_NIC_BUF_SLACK = 2 * \descSize + \align
 
 	mov	eax, (\nrx + \ntx) * (\descSize + \packetSize) + _NIC_BUF_SLACK
 	call	malloc
 	jc	\errLabel
 	mov	[ebx + nic_buf], eax
+	.if \align != 0
+	add	eax, \align -1
+	and	eax, ~(\align -1)
+	.endif
 	.if NIC_ALLOC_BUF_OPTIMIZE
 	mov	edi, eax
 	lea	esi, [eax + (\nrx * \ntx) * \descSize + _NIC_BUF_SLACK]
 	.else
+	mov	[ebx + nic_rx_desc], eax
 	add	eax, \nrx * \descSize
 	mov	[ebx + nic_tx_desc], eax
 	add	eax, (\nrx + \ntx) * \descSize

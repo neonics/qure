@@ -122,7 +122,7 @@ dev_init:
 	jnz	1f
 dev_init$:
 	push	ecx
-	mov	eax, 16	# inital entries
+	mov	eax, 100 # 16	# inital entries
 	mov	ecx, DEV_PCI_STRUCT_SIZE	# largest struct
 	call	array_new
 	mov	[devices], eax

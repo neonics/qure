@@ -89,3 +89,14 @@ pit_isr:
 	pop	es
 	iret
 
+########## for now here:
+
+# in: eax = nr of microseconds to delay
+udelay:
+	push	ecx
+	mov	ecx, eax
+	# reading from an IO port equals 1 microsecond delay
+0:	in	al, 0x80	# DMA page register, safe to read.
+	loop	0b
+	pop	ecx
+	ret

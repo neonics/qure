@@ -260,7 +260,10 @@ array_free:
 # out: eax = base pointer (might be updated due to realloc)
 array_newentry:
 	mov	edx, [eax + buf_index]
+	push	edx
+	add	edx, ecx
 	cmp	edx, [eax + buf_capacity]
+	pop	edx
 	jb	0f
 
 	add	edx, ecx # MTAB_ENTRY_SIZE

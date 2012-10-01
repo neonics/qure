@@ -79,6 +79,7 @@ DEFINE = 1
 .include "nic.s"
 .include "rtl8139.s"
 .include "i8254.s"
+.include "am79c971.s"
 .include "net.s"
 
 .include "gfx.s"

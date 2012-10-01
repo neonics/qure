@@ -44,15 +44,16 @@ CPU_FLAG_I_BITS = 9
 	.endm
 
 #############################################################################
-PROTO_PRINT_ETHERNET = 2	# 0 = never, 1 = only if nested print, 2=always
+PROTO_PRINT_ETHERNET = 0	# 0 = never, 1 = only if nested print, 2=always
 PROTO_PRINT_LLC = 0
 PROTO_PRINT_IPv4 = 1
 PROTO_PRINT_ARP = 1
 PROTO_PRINT_IPv6 = 0
 
 
-COLOR_PROTO = 0x8f
-COLOR_PROTO_LOC = 0x80
+COLOR_PROTO_DATA = 0x07
+COLOR_PROTO = 0x0f
+COLOR_PROTO_LOC = 0x09
 
 ####################################################
 # Protocol handler declarations
@@ -282,6 +283,7 @@ net_eth_header_put:
 # in: esi = ethernet frame (len 6+6+2 = 14)
 # out: esi + 14
 net_eth_print:
+	pushcolor COLOR_PROTO_DATA
 	printc	COLOR_PROTO, "Ethernet "
 
 	printc	COLOR_PROTO_LOC, "DST "
@@ -303,6 +305,7 @@ net_eth_print:
 	call	printhex4
 
 	call	printspace
+	popcolor
 	ret
 
 
@@ -1125,7 +1128,9 @@ net_ipv4_print:
 mov	eax, [esi + ipv4_dst]
 cmp	eax, [ebx + nic_ip]
 jnz	1f
+.if NET_DEBUG
 PRINTc 11, "IP MATCH"
+.endif	# might move this after 1: as to skip handling packet
 1:
 	# call nested protocol handler
 	#add	esi, edx
@@ -1703,7 +1708,7 @@ net_ipv6_handle:
 # in: ecx = packet size
 net_print_protocol:
 	push	edi
-	pushcolor 0x1b
+	PUSHCOLOR COLOR_PROTO_DATA
 
 	mov	ax, [esi + eth_type]
 	call	net_eth_protocol_get_handler$
@@ -1736,7 +1741,7 @@ net_print_protocol:
 	mov	edi, [eth_proto_struct$ + proto_struct_print_handler + edi]
 	add	edi, [realsegflat]
 
-	COLOR	0x87
+#	COLOR	0x87
 
 	push	esi
 	call	printspace
@@ -2402,7 +2407,6 @@ net_tcp_handle_psh:
 	mov	edi, [tcp_connections]
 	add	edi, eax
 	mov	edi, [edi + tcp_conn_handler]
-DEBUG_DWORD edi
 	add	edi, [realsegflat]
 	pushad
 	call	edi
@@ -3850,6 +3854,7 @@ cmd_ping:
 2:	mov	eax, [eax + edx + 1]
 	call	net_print_ip
 	call	newline
+	mov	eax, [icmp_requests]
 	dec	byte ptr [eax + edx + 0] # not really needed
 ########
 6:	ret
