@@ -532,7 +532,7 @@ newline:
 
 
 ##### SCROLLBACK BUFFER ######
-SCREEN_BUFFER = 1
+SCREEN_BUFFER = 0
 .if SCREEN_BUFFER
 .data SECTION_DATA_BSS
 SCREEN_BUF_SIZE = 160 * 24 * 4	# 4 pages
@@ -606,9 +606,9 @@ __scroll:
 	xor	edi, edi
 	sub	ecx, esi
 	push	ecx
-	rep	movsw
+	shr	ecx, 1
+	rep	movsd
 	pop	edi
-
 
 	pop	ds
 .if 0 # SCREEN_BUFFER
@@ -958,177 +958,90 @@ sprint_fixedpoint_32_32:
 ##############################################################################
 # Byte-Size (kb, Mb, Gb etc)
 
-print_size:
-	push	eax
-	push	edx
+# in: edx:eax = 64 bit byte-size
+# out: esi = size string (Xb, Pb, Tb, Gb, Mb, Kb, b)
+# out: edx:eax = 32.32 fixed point
+# destroys: cl
+calc_size:
+	# approach:
+	# have edx be the main component (b, Kb, Mb, Gb, Tb, Pb, Exa, Zetta, Yotta)
+	# have eax be the fixed point
 
+	LOAD_TXT "Xb\0Pb\0Tb\0Gb\0Mb\0Kb\0b"
+	mov	cl, 28	# Exabytes
+	cmp	edx, 1 << (60-32)
+	jae	8f
+
+	add	esi, 3	# Petabytes
+	mov	cl, 18
+	cmp	edx, 1 << (50-32)
+	jae	8f
+
+	add	esi, 3	# Terabytes
+	mov	cl, 8
+	cmp	edx, 1 << (40-32)
+	jae	8f
+
+	add	esi, 3	# Gigabytes
+	mov	cl, 2	# 30, -2: switch to shift right
 	or	edx, edx
-	jnz	1f
-	cmp	eax, 1024
-	jae	1f
+	jnz	9f
+	cmp	eax, 1 << 30	# 1 Gb
+	jae	9f		# 3.99 Gb max
 
+	add	esi, 3	# Mb
+	mov	cl, 12
+	cmp	eax, 1 << 20	# 1 Mb
+	jae	9f
+
+	add	esi, 3	# Kb
+	mov	cl, 22
+	cmp	eax, 1 << 10	# 1 Kb
+	jae	9f
+
+	add	esi, 3	# b
 	mov	edx, eax
-	call	printdec32
-	mov	al, 'b'
-	call	printchar
-	jmp	2f
-
-1:	
-	mov	al, dl
-	shr	edx, 8
-	ror	eax, 8
-
-	shr	edx, 1
-	sar	eax, 1
-	shr	edx, 1
-	sar	eax, 1
-
-	call	print_size_kb
-
-2:	pop	edx
-	pop	eax
+	xor	edx, edx
 	ret
 
-# in: edx:eax = size in kilobytes to print
-# destroys: edx, eax
-print_size_kb:
+8:	shrd	eax, edx, cl
+	shr	edx, cl
+	ret
+
+9:	shld	edx, eax, cl
+	shl	eax, cl
+	ret
+
+# in: edx:eax = size in bytes
+print_size:
 	push	eax
+	push	ecx
 	push	edx
 	push	esi
-
-	# check 1Mb limit:
-	or	edx, edx
-	jnz	1f	# nope
-	cmp	eax, 1024	# check 1Mb
-	jae	2f
-	# print it in kb
-	xchg	edx, eax
-	LOAD_TXT "kb"
-	jmp	3f
-2:	cmp	eax, 1024*1024	# check 1Gb
-	jae	2f
-	LOAD_TXT "Mb"
-	mov	edx, eax
-	shr	edx, 10
-	shl	eax, 10
-	jmp	3f
-2:	cmp	eax, 1024*1024*1024	# 30 bits, check 1Tb
-	jae	2f
-	LOAD_TXT "Gb"
-	mov	edx, eax
-	shr	edx, 20
-	shl	eax, 20
-	jmp	3f
-2:	LOAD_TXT "Tb"
-	shl	eax, 1
-	sal	edx, 1
-	shl	eax, 1
-	sal	edx, 1
-	jmp	3f
-
-##### edx != 0
-1:	cmp	edx, 1024 / 4	# check Pb
-	jb	2b
-	LOAD_TXT "Pb"
-	shr	edx, 1
-	sar	eax, 1
-	shr	edx, 1
-	sar	edx, 1
-
-3:	call	print_fixedpoint_32_32
+	call	calc_size
+	call	print_fixedpoint_32_32
 	call	print
 	pop	esi
 	pop	edx
+	pop	ecx
 	pop	eax
 	ret
 
-##########
-
+# in: edx:eax = size in bytes
 # in: edi = buf ptr
 sprint_size:
 	push	eax
-	push	edx
-
-
-	or	edx, edx
-	jnz	1f
-	cmp	eax, 1024
-	jae	1f
-
-	mov	edx, eax
-	call	sprintdec32
-	sprintchar 'b'
-	jmp	2f
-
-1:	
-	shr	edx, 1
-	sar	eax, 1
-	shr	edx, 1
-	sar	eax, 1
-	mov	al, dl
-	shr	edx, 8
-	ror	eax, 8
-
-	call	sprint_size_kb
-
-2:	pop	edx
-	pop	eax
-	ret
-
-# in: edi = buf ptr
-# in: edx:eax = size in kilobytes to print
-# destroys: edx, eax
-sprint_size_kb:
-	push	eax
+	push	ecx
 	push	edx
 	push	esi
-
-	# check 1Mb limit:
-	or	edx, edx
-	jnz	1f	# nope
-	cmp	eax, 1024	# check 1Mb
-	jae	2f
-	# print it in kb
-	xchg	edx, eax
-	LOAD_TXT "kb"
-	jmp	3f
-2:	cmp	eax, 1024*1024	# check 1Gb
-	jae	2f
-	LOAD_TXT "Mb"
-	mov	edx, eax
-	shr	edx, 10
-	shl	eax, 10
-	jmp	3f
-2:	cmp	eax, 1024*1024*1024	# 30 bits, check 1Tb
-	jae	2f
-	LOAD_TXT "Gb"
-	mov	edx, eax
-	shr	edx, 20
-	shl	eax, 20
-	jmp	3f
-2:	LOAD_TXT "Tb"
-	shl	eax, 1
-	sal	edx, 1
-	shl	eax, 1
-	sal	edx, 1
-	jmp	3f
-
-##### edx != 0
-1:	cmp	edx, 1024 / 4	# check Pb
-	jb	2b
-	LOAD_TXT "Pb"
-	shr	edx, 1
-	sar	eax, 1
-	shr	edx, 1
-	sar	edx, 1
-
-3:	call	sprint_fixedpoint_32_32
+	call	calc_size
+	call	sprint_fixedpoint_32_32
 	call	sprint
 	pop	esi
 	pop	edx
+	pop	ecx
 	pop	eax
 	ret
-
 
 
 ############################ PRINT FORMATTED STRING ###########
@@ -1348,6 +1261,7 @@ printf:
 # in: al = flags
 # in: esi = pointer to 8 packed asciz strings
 print_flags8:
+	push	eax
 	push	ebx
 	push	ecx
 	mov	bl, al
@@ -1361,11 +1275,13 @@ print_flags8:
 2:	loop	0b
 	pop	ecx
 	pop	ebx
+	pop	eax
 	ret
 
 # in: ax = flags
 # in: esi = pointer to 16 packed asciz strings
 print_flags16:
+	push	eax
 	push	ebx
 	push	ecx
 	mov	ecx, 16
@@ -1379,6 +1295,7 @@ print_flags16:
 2:	loop	0b
 	pop	ecx
 	pop	ebx
+	pop	eax
 	ret
 
 
@@ -1404,9 +1321,6 @@ print_spaces:
 	jle	9f
 	shr	eax, 1
 	sub	ecx, eax
-#pushf
-#DEBUG_DWORD ecx
-#popf
 	jle	9f
 0:	call	printspace
 	loop	0b

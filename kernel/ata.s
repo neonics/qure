@@ -281,6 +281,7 @@ ata_err_unknown_disk$:
 
 # in: al = disk
 # out: eax = drive info struct ptr
+# out: CF
 ata_get_drive_info:
 	call	ata_is_disk_known
 	jc	9f
@@ -288,16 +289,17 @@ ata_get_drive_info:
 	mul	ah
 	movzx	eax, ax
 	lea	eax, [ata_drives_info + eax]
+	clc
 9:	ret
 
 # in: al = ata drive (bus<<1 + drive)
 # out: edx:eax = drive capacity in bytes
 ata_get_capacity:
 	call	ata_get_drive_info
-	jc	9f
+	jc	ata_err_unknown_disk$
 	mov	edx, [eax + ata_driveinfo_capacity + 4]
 	mov	eax, [eax + ata_driveinfo_capacity + 0]
-1:	ret
+	ret
 
 # in: al = drive
 # out: eax = max cylinders
@@ -850,12 +852,8 @@ read$:	call	print
 	mov	[edi + ata_driveinfo_max_lba + 0], eax
 
 	# mul with sectorsize: hardcoded 512 (as LBA is defined that way)
-	shl	edx, 8
-	rol	eax, 8
-	mov	dl, al
-	xor	al, al
-	shl	eax, 1
-	rcl	edx, 1
+	shld	edx, eax, 9
+	shl	eax, 9
 
 	mov	[edi + ata_driveinfo_capacity + 4], edx
 	mov	[edi + ata_driveinfo_capacity + 0], eax
@@ -1842,16 +1840,15 @@ ata_print_capacity:
 
 
 # prints the size as given in sectors (512 bytes)
-# in: edx:eax
+# in: edx:eax = size in sectors of 512 bytes
 ata_print_size:
-	# the size is in 512 byte blocks: shift to kilobytes
 	push	edx
 	push	eax
 
-	shr	edx, 1
-	sar	eax, 1
+	shld	edx, eax, 9
+	shl	eax, 9
 
-	call	print_size_kb
+	call	print_size
 
 	pop	eax
 	pop	edx

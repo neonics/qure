@@ -246,3 +246,15 @@ v realmode 'data' is slowly being pushed outside of the 64k range.
 
   DONE: option 2.
 
+
+Optimize static string storage:
+
+	the LOAD_TXT and similar macros define strings in the string
+	section.
+	Add a tool that rewrites the object file, removing duplicate
+	strings, and using offsets into strings and such
+	(.e. a="eax", b="ax" => a = "eax", b = a + 1)
+	and using the string tables, to update references in code and data.
+
+fdisk: ata_(get|print)_capacity reports 0 in VMWare
+
