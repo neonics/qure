@@ -2382,6 +2382,38 @@ malloc_optimized:
 # Commandline utility
 
 cmd_mem$:
+	push	ebp
+	push	dword ptr 0	# allocate a flag to mark the options
+	mov	ebp, esp
+
+######## parse options
+	add	esi, 4	# skip cmd name
+	jmp	2f
+0:	mov	eax, [eax]
+	and	eax, 0x00ffffff
+	cmp	eax, '-' | ('h'<<8)
+	jnz	1f
+	or	dword ptr [ebp], 1	# print handles
+	jmp	2f
+1:	cmp	eax, '-' | ('k'<<8)
+	jnz	1f
+	or	dword ptr [ebp], 2	# print kernel sizes
+	jmp	2f
+1:	cmp	eax, '-' | ('a'<<8)
+	jnz	1f
+	or	dword ptr [ebp], 4	# print addresses
+	jmp	2f
+	# experimental options:
+1:	cmp	eax, '-' | ('g'<<8)
+	jnz	1f
+	or	dword ptr [ebp], 8	# print graph
+	jmp	2f
+	###
+1:	jmp	9f
+2:	call	getopt
+	jnc	0b
+
+######## print heap (default)
 	printc 15, "Heap: "
 	mov	eax, [mem_heap_size]
 	xor	edx, edx
@@ -2397,26 +2429,31 @@ cmd_mem$:
 	neg	eax
 	call	print_size
 
+	mov	ecx, ds
+	mov	edx, [mem_heap_start]
+	mov	eax, [mem_heap_size]
+	add	eax, edx
+	call	cmd_mem_print_addr_range$
 	call	newline
-
-0:	add	esi, 4
-	call	getopt
-	jc	0f
-	mov	eax, [eax]
-	and	eax, 0x00ffffff
-	cmp	eax, '-' | ('h'<<8)
-	jz	1f
-	cmp	eax, '-' | ('g'<<8)
-	jz	2f
-	cmp	eax, '-' | ('k'<<8)
-	jnz	9f
 	
+######## print kernel sizes
+1:	test	dword ptr [ebp], 2
+	jz	1f
+
 	printc 15, "Kernel: "
+	xor	edx, edx
 	mov	eax, kernel_end - kernel_code_start # realmode_kernel_entry
 	call	print_size
+
+	mov	edx, offset realmode_kernel_entry
+	mov	eax, [kernel_stack_top]
+	mov	ecx, cs
+	call	cmd_mem_print_addr_range$
 	call	newline
+
 	printc 15, " Code: "
 	mov	eax, kernel_code_end - kernel_code_start # realmode_kernel_entry 
+	xor	edx, edx
 	call	print_size
 	printc 15, " (realmode: "
 	mov	eax, realmode_kernel_end - realmode_kernel_entry
@@ -2424,8 +2461,16 @@ cmd_mem$:
 	printc 15, " pmode: "
 	mov	eax, kernel_code_end - kernel_start # realmode_kernel_end
 	call	print_size
-	printlnc 15, ")"
+	printc 15, ")"
+
+	mov	ecx, cs
+	mov	edx, offset realmode_kernel_entry
+	mov	eax, offset kernel_code_end
+	call	cmd_mem_print_addr_range$
+	call	newline
+
 	printc 15, " Data: "
+	xor	edx, edx
 	mov	eax, kernel_end - data_0_start
 	call	print_size
 	printc 15, " (0: "
@@ -2437,27 +2482,76 @@ cmd_mem$:
 	printc 15, " bss: "
 	mov	eax, data_bss_end - data_bss_start
 	call	print_size
-	printc 15, " 99: "
 	mov	eax, kernel_end - data_bss_end
+	or	eax, eax
+	jz	2f
+	printc 12, " 99: "
 	call	print_size
-	printlnc 15, ")"
+2:	printlnc 15, ")"
 
-	jmp	0b
+	printc 15, " Stack: "
+	mov	eax, [kernel_stack_top]
+	sub	eax, offset kernel_end
+	call	print_size
 
-1:	push	esi
+	mov	ecx, ss
+	mov	edx, offset kernel_end
+	mov	eax, [kernel_stack_top]
+	call	cmd_mem_print_addr_range$
+	call	newline
+
+######## print handles
+1:	test	dword ptr [ebp], 1
+	jz	1f
 	call	print_handles$
-	pop	esi
-	jmp	0b
 
-2:	# 'graph': block diagram
+######## print graph
+1:	test	dword ptr [ebp], 8
+	jz	1f
+	call	cmd_mem_print_graph$
+
+1:	add	esp, 4
+	pop	ebp
+	ret
+
+9:	printlnc 12, "usage: mem [-hk]"
+	printlnc 12, "  -k   print kernel sizes"
+	printlnc 12, "  -a   print physical addresses"
+	printlnc 12, "  -h   print handles"
+	jmp	1b
+
+
+# in: edx = start
+# in: eax = end
+# in: ecx = selector
+# in: [ebp]:2 = whether to print or not
+cmd_mem_print_addr_range$:
+	test	dword ptr [ebp], 4
+	jnz	1f
+	ret
+1:	GDT_GET_BASE ebx, ecx
+	pushcolor 8
+	print	" ["
+	add	edx, ebx
+	call	printhex8
+	print	".."
+	mov	edx, eax
+	add	edx, ebx
+	call	printhex8
+	printchar ']'
+	popcolor
+	ret
+
+cmd_mem_print_graph$:
+	# 'graph': block diagram
 	# iterate through handles, printing blocks
 	push	esi
 	push	eax
 	mov	esi, [mem_handles]
 	mov	ecx, [mem_numhandles]
 	xor	edx, edx
-3:	
-	.if 1
+
+3:	.if 1
 	PRINT_START
 	mov	ah, [esi + edx + handle_flags]
 	and	ah, 0b1
@@ -2479,11 +2573,4 @@ cmd_mem$:
 	pop	eax
 	pop	esi
 	call	newline
-0:	
 	ret
-
-9:	printlnc 4, "usage: mem [-hk]"
-	printlnc 4, "  -k   print kernel sizes"
-	printlnc 4, "  -h   print handles"
-	ret
-

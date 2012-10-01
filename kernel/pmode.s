@@ -20,6 +20,7 @@ reloc$: .long 0
 codeoffset: .long 0
 database: .long 0
 kernel_location: .long 0
+kernel_stack_top: .long 0
 bkp_reg_cs: .word 0
 bkp_reg_ds: .word 0
 bkp_reg_es: .word 0
@@ -290,8 +291,9 @@ pmode_entry$:
 	# stack is 'clean', so alloc a new one:
 	mov	ss, ax
 	mov	esp, offset kernel_end
-	add	esp, 0x10000
-	and	esp, ~0xf
+	add	esp, 0xffff	
+	and	esp, ~0xffff	# for easier debugging
+	mov	[kernel_stack_top], esp
 	.endif
 	mov	ax, SEL_realmodeES
 	mov	es, ax
