@@ -342,6 +342,7 @@ key_escape$:
 ## Screen buffer key handlers
 
 key_pgup:
+.if SCREEN_BUFFER
 	# test the buffer using more
 	mov	ecx, 24
 0:	call	newline
@@ -360,7 +361,7 @@ DEBUG_DWORD ecx
 	call	more
 	dec	edx
 	jnz	0b
-
+.endif
 	jmp	start1$
 key_pgdown:
 	jmp	start1$
@@ -747,12 +748,15 @@ cmdline_history_print:
 # out: eax = pointer to cur
 getopt:
 	mov	eax, [esi]
+	or	eax, eax
+	jz	1f
 	cmp	byte ptr [eax], '-'
-	stc
-	jnz	0f
+	jnz	1f
 	add	esi, 4
 	clc
 0:	ret
+1:	stc
+	ret
 
 
 #############################################################################
@@ -818,15 +822,6 @@ cmd_human_readable_size$:
 
 	call	print_fixedpoint_32_32
 
-
-	.if 0
-	call	atoi
-	mov	edx, eax
-	call	printdec32
-	print ": "
-	xor	edx, edx
-	call	print_size_kb
-	.endif
 	call	newline
 0:	ret
 1:	printlnc 4, "syntax error"
@@ -1385,8 +1380,25 @@ cmd_ping_gateway:
 	ret
 
 cmd_gpf:
-	printlnc 0xcf, "Generating GPF"
-	mov	eax, [0xffffffff]
+	printc 0xcf, "Generating GPF"
+	mov edx, esp
+	call printhex8
+	call newline
+#	int	0x0d
+	#mov	eax, [0xffffffff]
+#	mov	ds, eax	# just in case...
+
+#	pushad
+	mov	eax, -1
+	mov	ebx, 0xbbbbbbbb
+	mov	ecx, 0xcccccccc
+	mov	edx, 0xdddddddd
+	mov	esi, 0x0e510e51
+	mov	edi, 0x0ed10ed1
+	mov	ebp, 0x0eb90eb9
+#	mov	ds, eax
+	int	0x0d
+#	popad
 	ret
 
 cmd_colors:

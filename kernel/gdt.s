@@ -201,6 +201,46 @@ rm_gdtr:.word 0
 	.endif
 .endm
 
+.macro REG_IS_SEGMENT flag, sel
+	\flag=0
+	.ifc cs,\sel
+		\flag=1
+	.endif
+	.ifc ds,\sel
+		\flag=1
+	.endif
+	.ifc es,\sel
+		\flag=1
+	.endif
+	.ifc ss,\sel
+		\flag=1
+	.endif
+	.ifc fs,\sel
+		\flag=1
+	.endif
+	.ifc gs,\sel
+		\flag=1
+	.endif
+.endm
+
+
+# assigns to var a register that is not r1 or r2, from eax, ebx, ecx.
+.macro REG_GET_FREE var, r1, r2
+	.if eax==\r1
+		.if ebx==\r2
+			\var = ecx
+		.else
+			\var = ebx
+		.endif
+	.elseif eax==\r2
+		.if ebx==\r1
+			\var = ecx
+		.else
+			\var = ebx
+		.endif
+	.endif
+.endm
+
 .macro GDT_STORE_SEG seg
 	mov	[\seg + 2], ax
 	shr	eax, 16
@@ -235,6 +275,48 @@ rm_gdtr:.word 0
 
 
 .macro GDT_GET_LIMIT target, sel
+	.if 0
+		# The lsl instruction does not work for segment registers
+		REG_IS_SEGMENT _TMP_SEL_X, \sel
+		.if _TMP_SEL_X
+			REG_GET_FREE _TMP_REG, \target, \sel
+
+			push	_TMP_REG
+			mov	_TMP_REG, \sel
+			lsl	\target, _TMP_REG
+			pop	_TMP_REG
+		.else
+			lsl	\target, \sel
+		.endif
+	.else
+		GDT_READ_LIMIT_b \target, \sel
+	.endif
+.endm
+
+
+# Reads the segment limit from the GDT, adjusted to byte granularity
+.macro GDT_READ_LIMIT_b target, sel
+	push	esi
+	mov	esi, \sel
+	_R32 = \target
+	R16 \target
+	R8H \target
+	R8L \target
+	xor	_R8H, _R8H
+	mov	_R8L, [GDT + esi + 6]
+	and	_R8L, 0xf
+	shl	_R32, 16
+	mov	_R16, [GDT + esi + 0]
+	test	[GDT + esi + 6], byte ptr FL_GR4kb << 4
+	pop	esi
+	jz	99f
+	shl	\target, 12
+	or	\target, 0xfff
+99:
+.endm
+
+# Reads the segment limit as stored in the GDT in its original granularity.
+.macro GDT_READ_LIMIT target, sel
 	push	esi
 	mov	esi, \sel
 	_R32 = \target
