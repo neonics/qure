@@ -46,6 +46,19 @@ IO_PCI_CONFIG_DATA	= 0xcfc
 #PCI_COMMAND_MEMORY_READ_LINE		= 0b1110
 #PCI_COMMAND_MEMORY_WRITE_AND_INVALIDATE= 0b1111
 
+# 256 byte Configuration Space Register numbers:
+PCI_CFG_DEVICE_VENDOR_ID = 0	# hi word = device id, lo word = vendor id
+PCI_CFG_STATUS_COMMAND	= 4
+PCI_CFG_CLASS_PROG_REV	= 8	# db class code, subclass, prog if, rev id
+PCI_CFG_BIST_HTYPE_LTIMER_CACHE = 0x0c
+PCI_CFG_BAR0	= 0x10
+PCI_CFG_BAR1	= 0x14
+PCI_CFG_BAR2	= 0x18
+PCI_CFG_BAR3	= 0x1c
+PCI_CFG_BAR4	= 0x20
+PCI_CFG_BAR5	= 0x24
+PCI_CFG_CARDBUS_CIS_PTR	= 0x28
+
 # 11 bits word
 PCI_CMD_IO_SPACE		= 0b00000000001	# 1=can respond, 0=disable resp
 PCI_CMD_MEM_SPACE		= 0b00000000010	# 1=can respond, 0=disable resp

@@ -83,6 +83,7 @@ DEFINE = 1
 .include "net.s"
 
 .include "gfx.s"
+.include "hwdebug.s"
 ###################################
 
 .text32

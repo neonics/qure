@@ -113,6 +113,8 @@ SHELL_COMMAND "iso"		iso9660_test
 
 SHELL_COMMAND "gpf"		cmd_gpf
 SHELL_COMMAND "colors"		cmd_colors
+
+SHELL_COMMAND "debug"		cmd_debug
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -1418,3 +1420,49 @@ cmd_colors:
 	call	newline
 	color	7
 	ret
+
+
+
+.data
+.align 4
+debugtrap: .long 0
+.text32
+cmd_debug:
+	println "debugging test"
+
+	mov eax, offset debugtrap
+#	DEBUG_DWORD eax
+
+#	mov	edx, dr7
+#	DEBUG_DWORD edx
+#	and	edx, 0x400	# the only predefined 1 flag..
+#	mov	ebx, 0xffff27ff # the mask to preserve all bits (and reset resv)
+#	DEBUG_DWORD ebx
+
+	call	breakpoint_enable_memwrite_dword
+
+.if 0
+	GDT_GET_BASE ebx, ds
+	add	eax, ebx
+	mov	dr0, eax
+
+	mov	eax, dr7
+	and	eax, 0x400	# reset all to 0, keep the 1 flag..
+	or	eax, 3	# enable dr0 global and local
+	or	eax, (0b11 << 2 | 0b01) << 16	# 4 byte | write only
+	mov	dr7, eax
+.endif
+	call	newline
+	DEBUG_DWORD dr0
+	DEBUG_DWORD dr1
+	DEBUG_DWORD dr2
+	DEBUG_DWORD dr3
+	DEBUG_DWORD dr7
+	call	newline
+
+	print "triggering"
+	mov	[debugtrap], dword ptr 1
+	println "trigger done."
+
+	ret
+

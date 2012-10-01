@@ -258,3 +258,10 @@ Optimize static string storage:
 
 fdisk: ata_(get|print)_capacity reports 0 in VMWare
 
+
+ata: sometimes DRQ timeout in VMWare.
+  When this happens, gfx mode no longer works.
+  Suspect filesystem handle freeing.
+
+hash: pci device array reallocation does not work properly; part of a nic structure
+  is not copied.
