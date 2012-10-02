@@ -990,36 +990,40 @@ ata_print_bits$:
 	PRINT_END
 	ret
 
+
+ATA_WAIT_STATUS_COUNT = 0x00010000
 # in: edx = [DCR, base]
 # in: ah = status bits to be 0
 # in: al = status bits to be 1
 ata_wait_status$:
 	push	bx
+	push	ecx
+	push	edx
 	mov	bx, ax
 
+	add	dx, ATA_PORT_STATUS
+
 	.if ATA_DEBUG > 1
-	PRINTc	5 "[Wait"
-	pushcolor 0x0c
-	or	bh, bh
-	jz	0f
-	mov	al, bh
-	call	ata_print_status1$
-	call	printspace
-0:	mov	al, bl
-	color	0x0a
-	call	ata_print_status1$
-	popcolor
-	PRINTc	5, "]"
+		PRINTc	5 "[Wait"
+		pushcolor 0x0c
+		or	bh, bh
+		jz	0f
+		mov	al, bh
+		call	ata_print_status1$
+		call	printspace
+	0:	mov	al, bl
+		color	0x0a
+		call	ata_print_status1$
+		popcolor
+		PRINTc	5, "]"
 	.endif
 
 	# by default error bits should be 0
 	or	bh, ATA_STATUS_CORR #| ATA_STATUS_ERR 
 
 	# TODO: when BSY, other bits are meaningless
-	push	ecx
-	push	dx
-	add	dx, ATA_PORT_STATUS
-	mov	ecx, 0x1000
+	# Also, BSY only valid after 400ns
+	mov	ecx, ATA_WAIT_STATUS_COUNT
 
 0:	in	al, dx
 	test	al, ATA_STATUS_ERR
@@ -1039,10 +1043,12 @@ ata_wait_status$:
 
 1:	
 	.if ATA_DEBUG
-	call	ata_print_status$
+		call	ata_print_status$
 	.endif
+
 	test	al, ATA_STATUS_ERR
-	jz	1f
+	jz	0f
+	call	ata_print_status$
 	add	dx, ATA_PORT_ERROR - ATA_PORT_STATUS
 	mov	ah, al
 	in	al, dx
@@ -1051,7 +1057,17 @@ ata_wait_status$:
 	call	printspace
 	xchg	al, ah
 1:	stc
-0:	pop	dx
+0:
+	.if ATA_DEBUG > 1
+		pushf
+		DEBUG "ata_wait_status"
+		neg ecx
+		add ecx, ATA_WAIT_STATUS_COUNT
+		DEBUG_DWORD ecx
+		popf
+	.endif
+
+	pop	edx
 	pop	ecx
 	pop	bx
 	ret
@@ -1197,30 +1213,22 @@ ata_read:
 	out	dx, al
 	sub	dx, ATA_PORT_COMMAND
 
-	mov	ax, ((ATA_STATUS_ERR | ATA_STATUS_BSY) << 8) | ATA_STATUS_DRQ
-	call	ata_wait_status$
-	jc	1f
-
 	.if ATA_DEBUG > 1
 		call	ata_print_status$
 		PRINTLN " reading..."
 	.endif
 
-# read.. (ATA_PORT_DATA = 0 so..)
-0:	test	al, ATA_STATUS_DRQ
-	jz	1f
+0:	mov	ax, ((ATA_STATUS_ERR | ATA_STATUS_BSY) << 8) | ATA_STATUS_DRQ
+	call	ata_wait_status$
+	jc	1f
+
+	# read.. (ATA_PORT_DATA = 0 so..)
 	push	ecx
 	mov	ecx, 256
 	rep	insw
 	pop	ecx
 
-	add	dx, ATA_PORT_STATUS
-	in	al, dx
-	in	al, dx
-	in	al, dx
-	in	al, dx
-	in	al, dx
-	sub	dx, ATA_PORT_STATUS
+	loop	0b
 
 	.if ATA_DEBUG > 1
 		call	ata_print_status$
@@ -1228,7 +1236,6 @@ ata_read:
 		call newline
 	.endif
 
-	loop	0b
 	clc
 2:	pop	edi
 	pop	edx
@@ -1237,7 +1244,8 @@ ata_read:
 	pop	eax
 	ret
 
-1:	PRINTLNc 4, "ata_read: DRQ timeout"
+1:	call	ata_print_status$
+	PRINTLNc 4, "ata_read: DRQ timeout"
 	stc
 	jmp	2b
 
@@ -1260,49 +1268,25 @@ ata_write:
 	add	al, ATA_COMMAND_PIO_WRITE
 	add	dx, ATA_PORT_COMMAND
 	out	dx, al
-
 	sub	dx, ATA_PORT_COMMAND
-	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
-	call	ata_wait_status$
-	jc	1f
-
-	.if ATA_DEBUG > 1
-		call	ata_print_status$
-		PRINTLN " writing..."
-	.endif
-
-# write.. (ATA_PORT_DATA = 0 so..)
-0:	test	al, ATA_STATUS_DRQ
-	jz	1f
 
 	.if ATA_DEBUG > 1
 		PRINTc 10, " Write sector "
 		call	printhex8
 	.endif
 
+0:	mov	ax, ((ATA_STATUS_ERR | ATA_STATUS_BSY) << 8) | ATA_STATUS_DRQ
+	call	ata_wait_status$
+	jc	1f
+
+	# write.. (ATA_PORT_DATA = 0 so..)
 	push	ecx
 	mov	ecx, 256
 	rep	outsw
 	pop	ecx
-# osdev advises to not use rep outsw but:
-#0:	outsw
-#	loop	0b
-
-	.if 0
-	mov	ax, (ATA_STATUS_BSY <<8) | ATA_STATUS_DRQ
-	call	ata_wait_status$
-	jc	ata_timeout$
-	.else
-	add	dx, ATA_PORT_STATUS
-	in	al, dx
-	in	al, dx
-	in	al, dx
-	in	al, dx
-	in	al, dx
-	sub	dx, ATA_PORT_STATUS
-	test	al, ATA_STATUS_BSY
-	jnz	ata_timeout$
-	.endif
+	# osdev advises to not use rep outsw but:
+	#0:	outsw
+	#	loop	0b
 
 	loop	0b
 	clc
@@ -1364,7 +1348,7 @@ r28$:	#PRINT " LBA28 "
 	inc	dx
 	mov	al, ah
 	and	al, 1
-	shl	al, 4
+	shl	al, 4	# ATA_DRIVE_SELECT_DEV
 	or	al, bh	# the test above should have made sure bh <= 0xf
 	or	al, ATA_DRIVE_SELECT_LBA
 	out	dx, al
@@ -1434,7 +1418,7 @@ r48$:	#PRINT " LBA48"
 	inc	dx
 	mov	al, ah
 	and	al, 1
-	shl	al, 4
+	shl	al, 4	# ATA_DRIVE_SELECT_DEV
 	or	al, ATA_DRIVE_SELECT_LBA
 	out	dx, al
 
