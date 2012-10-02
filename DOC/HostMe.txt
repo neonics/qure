@@ -1,0 +1,93 @@
+
+
+HostMe 'button' on websites:
+
+
+Redirect to special url on website.
+The website is hosted in a virtual machine.
+The page contains an installer for the virtual machine 
+and the os - barebones.
+
+The website offers the iso (through torrent).
+
+Either a programmable wrapper around the vm or a network protocol
+provides access from the browser to the guest os.
+
+The OS dynamically generates the iso to download. It contains the core
+system itself, aswell as the website reference.
+
+On bootup, the guest os automatically connects to the VPN connecting
+all guest os-es. It receives a unique number in the network (VPN IP address).
+
+It maintains a list of 'HostMe' websites, one entry provided from the
+button pushed on the website.
+
+The virtual machine os runs as a service, with an icon in the taskbar.
+The main screen of the OS serves as the userinterface, with fullscreen
+mode capability.
+
+When someone clicks a HostMe button and has the os preinstalled,
+a browser extension notifies the service.
+
+
+Required software:
+
+- Installer
+  - automatic virtual machine creation
+  	- automatic TAP device creation
+	- automatic bridging
+	or
+	- openvpn installation
+
+
+VirtualBox:
+- run their installer
+- use their commandline interfaces to set up a virtual machine and TAP device
+
+
+Open Virtualization Format - OVF...
+
+
+http://www.dmtf.org/sites/default/files/standards/documents/DSP-IS0102_1.0.0.pdf
+Reading that - very corporate, with billing and such.
+
+So, doing away with all that - a free foundation.
+
+They mention in their salespitch the benefits of cloud management standards:
+  - quicker 'time to value', whatever that means
+  - shorter deployment cycles
+
+  	Disagree.
+	In a distributed cloud environment, any item inserted in the cloud
+	is automatically distributable throughout the cloud.
+	As such, each program that is able to communicate only with itself
+	is thus its own standard.
+
+	Deployment cycles, which occur after product finalization,
+	are always the same and thus not shorter.
+
+  - lower risk and costs
+  	nonsense.
+
+  - vendor choice
+  	as if having no cloud management standards would prevent that.
+
+  - foundation for innovation
+  	innovation is not done by setting standards, as they are meant
+	to limit deviation from the norm, which is the opposite of innovation.
+
+
+The foundation for their standards are based on a separation between
+consumer and cloud service provider. In the open and free world,
+there is no separation.
+
+An attempt has been made to offload functionality to the browsers,
+and so the next step would be to have a virtual machine within a browser,
+not one that offers only script interpretation but one that can host
+an operating system.
+
+At current qemu and QuRe load about as fast as flash, and with a VMX service
+that needs to be started once this load is negligible. The OS is small
+enough to be downloaded from the website as it is about 60kb, leaving
+plenty of room for custom applications.
+

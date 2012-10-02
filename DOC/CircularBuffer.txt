@@ -1,0 +1,315 @@
+The circular buffer is employed in asynchronous communication,
+such as that which occurs by the gap-bridging network device.
+
+The system bus is used to transfer information between the memory
+and the peripheral devices. These devices operate autonomously
+from the computational unit.
+
+Seen from the motherboard perspective, all chips represent independent
+threads of execution, including the CPU.
+
+The CPU mimicks within itself multiple threads of execution using
+Symmetric Multiprocessing, Multi-Cores, Hyperthreading and such at
+a hardware level. Other simultanous thread execution is done using 
+hardware assisted software task switching. 
+
+Task Switching
+
+From the CPU's perspective, there is only one task running at any time,
+comprising of the entire memory and the instructions stored therein.
+The division into processes, tasks and the like is purely organisational.
+
+When all processes are seen to be sharing the same execution thread,
+without task switching this would be accomplished by each program executing
+a context switch (far call) to the next scheduled program in the appropriate
+places.
+
+Task Scheduling
+
+The task switches are executed by the programs by calling functions that
+are beyond a certain border - the operating system boundary. These
+functions are called system calls, and may result in delayed execution
+of the calling thread - the program context that issued the system call.
+
+Since the operating system's task is to provide an interface to all the
+hardware peripherals on the motherboard, it breaches a time boundary
+by being an asynchronous bridge, connecting physically independent threads
+of execution.
+
+Network Interface
+
+A network device is a holograpic reflection of the entire computer,
+with a specialized function. It has its own cpu and memory.
+The Motherboard connects the device through a bus to a direct memory
+access controller, which job it is to transfer data between devices,
+where one of these devices is typically the main memory.
+
+When the operating system receives focus and control, either when
+the CPU receives a signal on a few of its pins triggering an interrupt
+service routine that is typically part of the OS, or when a context
+switch is initiated by software, either using the same interrupt
+mechanism, or by transferring control using a far jump or far call,
+it will suspend execution of a particular area of memory - the calling
+process - and run its services.
+
+One such service is IO - communication with other devices.
+Since this crosses the time boundary, to the calling process,
+communicating with a device will take time, due to the linear bus transfers
+between the devices. As such, returning control to the program would
+only work when the calling program does not assume the communication
+has completed. The operating system then shall supply a flag indicating
+blocking and non-blocking IO operations.
+
+When blocking io is employed, the calling processes is marked as a suspended
+thread of execution, waiting for completion of an asynchronous communication
+before it can continue.
+
+When non-blocking io is employed, the calling process is added to the list
+of schedulable processes.
+
+The first function the operating system then employs in terms of scheduling
+is to check which blocking io calls have completed, and if there are any,
+transfer control to the appropriate calling process.
+
+For any non-blocking io call, typically a process fork is created,
+where the second thread of execution is a callback function. As such,
+the blocking nature of asynchronous IO can be seen to have introduced
+a nonblocking automatic thread scheduling.
+
+For each IO call, blocking or not, the calling thread is split.
+For blocking IO, the second thread is completed immediately ( a 'nop' thread).
+For nonblocking IO, the second thread can be seen from two perspectives.
+First, the second thread can be the callback method which is somewhere
+other than the first instructoin after the system call. In this case,
+the first thread remains a schedulable thread.
+Second, the second thread can be seen to be the continuation of execution
+right after the call, and thus, the callback address is known and
+given control through a ret instruction.
+
+Programs that do not do IO typically have no effect when their
+memory access is limited to themselves. If they do not communicate
+with local or remote storage (where even a read access is considered
+a 'sign of life' and can be seen as communication from the program),
+if they do output video or audio or other communications,
+then they do not serve a purpose. A program that would respond to
+keystrokes, yet have no other communication - no output, would
+also serve no purpose. If there is one keystroke combination for
+a program that causes it to transfer control to another program,
+it would exhibit a response.
+
+Thus, a program with no output serves no purpose.
+Output is considered a change beyond the program.
+This can be screen updates, audio output, network communication,
+and local storage updates. Memory updates may or may not be relevant,
+due to their being erased on reboot, and also irrelevant if the memory
+they modify is not accessed by other programs.
+
+The operating system then provides a facade to detect program output.
+
+Timer
+
+The Timer Interrupt would not be required for the operating system to resume
+control under the following conditions:
+1) programs do not get stuck in an endless loop in which they do not
+access the operating system.
+2) programs exceed the minimum response time for user input.
+
+Ad 1. The watchdog function.
+
+An operating system might entrust the scheduling being initiated by
+the programs themselves whenever they access the operating system
+voluntarily. The timer interrupt, when given exclusively to the operating
+system, would ensure it would be able to check which program is running.
+
+Detecting nonresponsive programs would then be accomplished by seeing
+how long the current program has been running without transferring control
+to another program (including the operating system).
+
+When the operating system then is seen as one of the many programs,
+one that offers the task switching functionality allowing a population
+of software to co-exist in the runtime environment,
+the watchdog then would be able to determine the willingness of programs
+to share resources by relating the ratio of giving up control.
+
+Since there is no rule as to how many instructions each program should
+execute before it relinguishes control in order to have the optimum
+balance, as this is a dynamic attribute, a scheduling service would
+then need to take into account the desired responsiveness of the system.
+
+The keyboard, screen and audio pheripherals are given the highest priority.
+Their rates of use are known. The keyboard frequency is at most about
+10 Hz on average. The video frequency is about 30 to 60 Hz.
+The audio frequency is 44Khz.
+
+Since the audio switching frequency is 1000 times as high as the others,
+specialized hardware takes care of serializing buffers several times per
+second. This frequency would have to be as high as the time between two 
+keystrokes.
+
+The video frequency is actually about a million times higher than 30 Hz,
+and this is accomplished by the high resolution of output on each cycle,
+called frames.
+
+
+Since the watchdog itself does the checking whether programs behave,
+the operating system api no longer has to call the scheduling function
+for system calls, and can offer nonblocking io by continuing
+the program stream that is executing IO operations. These operations
+may be queued and simultaneously executed by DMA.
+
+Thus the operating system offers buffer functionality for non-blocking
+IO in order to be able to give more 'time' to programs that use
+io, by preferring the calling process.
+
+
+A program doing some file io and then terminating would befit from this
+as it's execution space can be cleaned up when all its output is buffered,
+pending storage.
+
+Thus, write operations do not cause thread switching, unless the buffers
+are full.
+
+
+
+
+The Circular Buffer, ctd
+
+linear.path( begin, end ):
+	size = end - begin;
+
+	inc(): begin ++% size;
+
+cb( path ):
+	size = path( begin, end );
+
+cb.head.inc():
+	path( head, tail ).next();
+
+cb.process()
+	while (distance() > 1)
+		tail ++% size;
+	
+cb.distance():
+	(tail - head) % size;
+
+
+ [begin .........................|........................end]
+
+
+2 headed machine:
+
+the IP, and a delta. The IP is the head, IP+delta is the tail (where delta
+is typically negative).
+
+
+The cpu might use scheduling like this.
+
+The instruction decoder continues to decode instrucions while deffering
+their execution. Any instruction taking more than one clock cycle
+to execute (besides parsing), such as io port access (including memory),
+which goes beyond the time barrier of asynchronous io,
+will result in the cpu continuing to decode until its execution buffers
+are full, in which case the cpu waits for io access to complete,
+and a signal on one of its pins to indicate the next cycle.
+
+Thus the cpu itself exhibits the operating system, using multiple
+threads of execution, on specialized hardware - decoding instructions,
+executing instructions.
+
+Some decoded instructions might already be executable, when the 
+execution pipeline is emptying due to an instruction taking multiple
+clock cycles to complete - such as IO access.
+
+Certain instructions, such as the exchange instruction, both initiate
+and receive the result of an io operatoin.
+
+As such they can be split into two instructions, and other instructions
+inserted in the pipeline.
+
+xchg	eax, [mem]
+==>
+read	tmp0, [mem]
+write	[mem], eax
+write	eax, tmp0
+==>
+
+read [mem, i]:
+	out	maddr, mem | READ_BIT
+	in	tmp.i, mdata
+
+		link	maddr, mem   [OP_ZERO, OP_OR, OP_ONE]
+		link	mdata, tmp.i [OP_ONE, OP_OR, OP_ZERO]
+
+write [mem, i]:
+	out	maddr, mem | WRITE_BIT
+	out	mdata, tmp.i
+
+		link	maddr, mem	[OP_ZERO, OP_OR, OP_ONE]
+		link	mdata, tmp.i	[OP_NOT, OP_XOR, OP_NOT]
+
+write [reg, i]
+	link	eax, tmp.i, OP_ZERO, OP_OR
+
+==>
+push	eax
+read	mem
+swap
+store	mem
+
+	XOR	NOT	XOR	NOT
+0 0	0	1	0	1
+0 1	1	1	1	0
+1 0	1	0	1	1
+1 1	0	0	0	0
+
+ab	swap	b	a	xor	!ab
+00	00	0	0	0	1
+01	10	1	0	1	1
+10	01	0	1	1	0
+11	11	1	1	0	0
+
+
+	central op
+A	   XOR		B
+0	    0		0
+0	    1		1
+1	    1		0
+1	    0		1
+
+
+A	A XOR B		b = A XOR (A XOR B)
+0	0		0
+0	1		1
+1	1		0
+1	0		1
+
+
+B	A XOR B		A = B XOR ( A XOR B )
+0	0		0		
+1	1		0
+0	1		1
+1	0		1
+
+
+swap( a, b ):
+  [parallel]
+	link,0	a, b, xor	# l0 = a xor b
+	link,1	a, l0, xor
+	link,2	b, l0, xor
+  [serial]
+	clock	# fixates values in l0, l1, l2
+  [parallel]
+	link	a, l1
+	link	b, l2
+  [serial]
+	clock
+
+
+
+0000
+0001
+0010
+0011
+0100
+1000
+1100

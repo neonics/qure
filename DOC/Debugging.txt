@@ -1,0 +1,98 @@
+The current procedure followed for debugging is:
+
+
+  Altering DEBUG flags in the source files. They generally have values
+  from 0 to 4, where 4 often includes calls to 'more', which allows to
+  inspect the output before it scrolls off the screen.
+
+
+Finding code locations:
+
+    * Exceptions:
+
+    These provide cs:eip and stack information.
+    The eip location is printed as both the segment relative (runtime)
+    offset) or as the physical address depending on whether pmode was
+    entered using a flat code segment.
+
+    * QEMu logging:
+
+    control-alt-2, type 'log in_asm', control-alt-1, wait for the error
+    condition. Shift back to control-alt-2 and run 'quit', to make sure
+    the logfile is flushed to disk.
+
+    The addresses here are the physical addresses (cs.base + eip).
+
+The memory code offset can be found by several means:
+
+  The kernel load address is the base of cs and can be
+  found with the shell command 'gdt', or with 'mem -k -a'.
+  It is also printed during kernel boot. However this information
+  scrolls out of place, so recompiling with DEBUG set to a higher
+  level, enabling keystrokes (see kernel.s), or DEBUG_KERNEL_REALMODE
+  (see realmode.s), allows to note the address.
+
+  The load offset depends on the bootloader size aswell as entries
+  in the RAMDISK before the kernel image. At current, the kernel
+  is the first image, and the bootloader is stable. It does find
+  a higher segment aligned to 16kb or so, so that small bootloader
+  changes won't change the address.
+
+  At current this address is 0x0011200.
+
+
+Disassembly
+
+  the alias 'dk' (and 'dk16' for realmode code) provide a disassembly
+  of the object file which is based on address 0.
+
+  Translating the runtime (physical) address to the image address is
+  done by subtracting the kernel load address, such as:
+
+    perl -e 'printf "%x\n", ADDRESS - 0x11200'
+
+  followed by running 'dk' and searching for the address label.
+  The opcodes printed in an exception serve to doublecheck.
+
+  In the disassembly symbols appear, so scrolling up to find the nearest 
+  label allows to find the proper source.
+
+  The macro 'w' serves to quickly find labels in the kernel source
+  to locate the proper file.
+
+  At current the kernel is not relocated to high memory which would allow
+  for a load address aligned on a boundary greater than the size of the kernel.
+
+Adding debug statements
+
+  Several macros (DEBUG, DEBUG_DWORD, DEBUG_REGSTORE/REGDIFF, BREAKPOINT)
+  are defined which do not generally alter EFLAGS or other registers.
+
+  Since restarting the OS is done within seconds, typing 'DEBUG_DWORD eax'
+  in the source file, followed by a save and a history-execution of
+  make && qemu, allow for equally fast debugging as can be done with
+  an IDE.
+
+
+Adding shell commands
+
+  Shell commands can be added by simply adding a 'SHELL_COMMAND "foo", cmd_foo'
+  to the list in shell.s and implementing the method:  cmd_foo: ret
+
+
+Detecting memory writes
+
+  At current a shell command must be written with the following invocation:
+
+  mov eax, data_address
+  call breakpoint_enable_memwrite_dword
+
+  The data address is typically obtained by adding DEBUG_DWORD [something]
+  in the code where this address is set up.
+  
+  Typically these kinds of breakpoints are only necessary when there is no
+  indication of where the memory is written.
+
+
+
+

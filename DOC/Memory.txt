@@ -1,0 +1,33 @@
+In 32 bit mode, the GDT allows for 1kb or 4kb granularity.
+It allows for 20 bit segment limits, 256Mb * granularity = 256Gb or 1Tb.
+It allows for 32 bit segment base, 4Gb times granularity = 4Tb or 16Tb.
+
+Offset registers in 32 bit mode can only access 4Gb at a time.
+There are at most 8k selectors to be able to be in use at one time,
+which gives a range of 16Tb also. These selectors could ofcourse
+be modified dynamically to give greater range, however the GDT does not
+allow for more than 16Tb of memory to be mapped.
+
+Thus, a segment selector can be created that has a limit of 1Tb,
+yet only 4Gb can be accessed. TODO: check if GDT is the same format
+in 64 bit mode (as the hardware currently (2012) has limits for the memory bus
+in the range of 32Gb).
+There is a flag or control somewhere enabling address extensions that
+allows to access more than 4Gb. Paging also offers this.
+
+To access more than 4Gb of memory in 32 bit mode, multiple selectors need
+to be created, for otherwise 'long mode' instructions, that is,
+memory access instructions using a 64 bit register in 32 bit mode, need
+to be used everywhere, as the memory allocation is dynamic and 32 bit software
+generally does not need to know where the memory is located 'physically'.
+
+Generally also, software is not compiled to use multiple segment selectors
+within one program. Even paging is limited to an effective use of 4Gb
+due to the size of the address registers.
+
+As such, 32 bit programs have a 32 bit memory limitation per selector,
+and generally, since memory is shared across modules by passing along
+pointers, both local and 'remote' or parameterized data must reside
+within the same segment selector.
+
+

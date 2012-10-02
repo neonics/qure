@@ -1,0 +1,810 @@
+.intel_syntax noprefix
+.include "list.s"
+.data
+mem_heap_start:	.long 0, 0
+mem_heap_size:	.long 0, 0
+mem_heap_alloc_start: .long 0
+
+mem_sel_base: .long 0
+mem_sel_limit: .long 0
+.text
+.code32
+
+# Algorithms and data structure.
+#
+# 1) Allocating a new handle. Ideally, an array that is completely
+# filled from the start to some capacity. The size of the array is the
+# index of the next free handle.
+# Slower approach is to have free/nonfree handles scattered, requiring
+# a linear search.
+#  a) optimization for the latter: have a linked list referencing free nodes.
+#
+# 2) releasing memory. The goal is to merge handles that reference a contiguous
+# free block.
+#
+# 3) finding free memory.
+#   requirement 1: find smallest free section of memory that'll fit
+#   within a specified limit of wasted bytes (say 32 bytes). When this 
+#   limit is not reached, i.e. 64 btes would be wasted, find a larger block,
+#   perhaps the largest, and remove the data from there. This'll keep
+#   memory waste to a minimum.
+#
+#  memory waste: this is the handles with free memory that is too small
+#  to be used by program memory allocations. 
+#  
+# When allocating directly from the heap (the perspective here is from
+# the kernel malloc code, which considers the heap to be all available memory),
+# there are no wasted bytes. Thus, the algorithms are only needed in order
+# to make the most effective use of reclaimed memory.
+#
+# Using indirect pointers allows for data moving. Programs can call
+# realloc with the same size to indicate the memory may be moved in order
+# to remove a gap (of used memory) in free memory, thus making free
+# memory contiguous.
+#
+# If there were a way to know how long memory would be used, memory
+# could be allocated from either end of the heap, to group frequently free'd
+# sections together, increasing the potential for them to sit next to free
+# sections.
+#
+# The memory reserved can be greater than the memory requested. This will
+# ensure that the sections will remain big enough to be useful to other
+# programs requiring bigger buffers and reduces memory scattering.
+# This is however wasteful. Thus, a portion of memory could be allowed
+# to be fragmented below a certain limit.
+#
+# An algoritm could take measurements of a programs memory allocation behaviour
+# and store this for the next execution, or even to adapt it at runtime.
+# For instance, when the default policy is to always return 512 byte sections,
+# and after a while a program is known to allocate a lot of smaller (say 32
+# byte) segments and not free them, the policy can be adjusted.
+# When the program would release them, the policy could remain the same.
+#
+# Thus, a graph could be constructed relating the frequency of allocations
+# with the size of the allocation, aswell as the ratio of releasing memory
+# to allocating it. Othe rpatterns could be discovered too. A program
+# for instance that would allocate 1kb, then 32 bytes, then 1kb, then 33 bytes,
+# then 1b, then 34 bytes etc, would when the 1kb sections are not freed,
+# but the 30- byte range sections would, lead to a lot of memory waste.
+#
+# So, only in certain conditions would there be memory waste. Perhaps
+# for now it is best to keep it simple. Just allocating exactly
+# the data that is needed from the heap, storing it in handles.
+# Marking the handles as free, and search for the smallest handle.
+# Keeping a linked list of contiguous sections:
+#  keeping 2 lists of sections: 1) the allocated memory in address order,
+#   2) the free memory in size order.
+# When freeing handles, the contigousness of the handles themselves can
+# be use dif only 1 linked list is used, otherwise the base address
+# and the sizes are to be checked.
+#
+
+
+MEM_DEBUG = 1
+
+ALLOC_HANDLES = 1024
+
+
+.struct 0
+handle_base: .long 0	# 4
+handle_size: .long 0	# 8
+handle_isfree: .byte 0	# 9
+handle_next: .long 0
+HANDLE_STRUCT_SIZE = 16
+HANDLE_STRUCT_BITS = 4
+.data
+mem_handles: .long 0
+mem_numhandles: .long 0
+mem_maxhandles: .long 0
+mem_handles_handle: .long 0
+
+
+
+memlist_maxindex: .long 0	# size of arrays
+
+memlist_base: .long 0	# handle.base []
+memlist_size: .long 0	# handle.size []
+memlist_next: .long 0	# next index
+memlist_prev: .long 0	# prev index
+memlist_isfree: .long 0
+
+memlist_allocated_begin: .long 0
+memlist_allocated_end:	.long 0
+
+memlist_free_begin: .long 0
+memlist_free_end: .long 0
+
+# In memory: ( N = memlist_maxindex; imagine memlist_ prefix: )
+# base[N] size[N] this[N] next[N] prev[N] 
+#
+# So:
+# handle[i].base = memlist_base[i],
+# handle[i].next = memlist_next[i].
+#
+# memlist_(allocated|free)_(begin|end) are indices to the memlist.
+# Two linked listed are maintained, intertwining in one memory area.
+
+.text
+
+# in: eax = size
+memlist_alloc:
+	mov	ecx, ALLOC_HANDLES * 16
+	mov	eax, ecx
+	call	malloc
+	mov	[memlist_base], eax
+	add	eax, ecx
+	mov	[memlist_size], eax
+	add	eax, ecx
+	mov	[memlist_next], eax
+	add	eax, ecx
+	mov	[memlist_prev], eax
+	shr	ecx, 4
+	mov	[memlist_maxindex], ecx
+	ret
+
+memlist_findfree:
+	mov	ebx, [memlist_free_begin]
+	mov	ecx, [memlist_size]
+	mov	edx, [memlist_next]
+
+0:	cmp	eax, [ecx + ebx * 4]
+	jbe	0f
+	mov	ebx, [edx + ebx * 4]
+	or	ebx, ebx
+	jns	0b
+
+0:	# found!
+	ret
+
+memlist_free:
+	mov	edi, [memlist_base]
+	mov	ecx, [memlist_maxindex]
+	repne	scasd
+	jnz	0f
+	sub	edi, [memlist_base]
+	push	edi
+	shr	edi, 4
+	add	edi, [memlist_isfree]
+	cmp	[edi], byte ptr 0
+	jz	0f
+	mov	[edi], byte ptr 1
+	pop	edi
+
+	# insert into list
+	# find first larger mem
+	call	memlist_findfree
+	mov	edx, [memlist_next]
+	# freed.next = larger mem
+	mov	[edx + edi * 4], ebx	
+
+	mov	edx, [memlist_prev]
+	# freed.prev = larger mem.prev
+	mov	eax, [edx + ebx * 4]
+	mov	[edx + edi * 4], eax	
+	# larger mem.prev = freed
+	mov	[edx + ebx * 4], edi
+
+0: # not found
+	ret
+
+# keep the handles (base, size, isfree) together.
+# add a linked list for speed.
+# list 1: allocated handles.
+# list 2: free memory handles.
+# list 3: free handles (with no memory - results from freeing handles pointing
+#		to consecutive memory which is joined)
+# list 4: contiguous memory - the base pointers.
+#
+# Having list 4, the handle.base pointers, the size is not needed as it can be
+# calculated. Having a list 5 with the sizes (the handle.size) allows cmpsd.
+#
+# The other lists can be compacted into 1 list. If an element has size 0,
+# it is a free handle, and its next/prev will point to free handles.
+# 
+# Besides a linked list, a simple array can be used, containing the indexes.
+# 
+# So, we have:
+# handle[i].{base, size}
+# allocated_handle_index[i] -> i
+# free_handle_index[i] -> i 
+# still, gaps can occur, so 2 linked lists. Make the i be 'next'.
+# 
+# linked list may be faster due to gaps being skipped and no memory
+# needing to be moved.
+#
+
+struct_free:
+	mov	ebx, [mem_handles]
+	mov	ecx, [mem_numhandles]
+0:	cmp	eax, [ebx + handle_base]
+	jz	0f
+	add	ebx, HANDLE_STRUCT_SIZE
+	loop	0b
+	# not found
+0:	# found
+	mov	[ebx + handle_isfree], byte ptr 0
+	ret
+
+struct_alloc:
+	mov	ecx, ALLOC_HANDLES * 16
+	mov	eax, ecx
+	call	malloc
+	mov	[mem_handles], eax
+	shr	ecx, 4
+	mov	[mem_maxhandles], ecx
+	ret
+
+
+struct_findfree:
+	mov	ebx, [memlist_free_begin]
+	mov	ecx, [mem_handles]
+	mov	edx, ecx
+0:	shl	ebx, 4
+	cmp	eax, [ecx + handle_size + ebx ]
+	jbe	0f
+	mov	ebx, [edx + handle_next + ebx ]
+	or	ebx, ebx
+	jns	0b
+
+0:	ret
+	
+
+
+
+
+# iterate through bios memory map, finding the largest block; for a machine
+# with less than 2Gb ram this'll be the block from 1Mb to almost the end
+# of physical memory generally. The first Mb is skipped, reserved for real-mode
+# kernel and legacy 16 bits apps and such.
+#
+# TODO: selectors. Since the memory offsets are flat, segment selector base
+# needs to be checked. Assumed is that the ds = es and that this'll be the
+# base..
+mem_init:
+
+
+	PRINT " Start           | Size             | Type"
+
+	# ecx:ebx = size, edi=index (for max cmp)
+	xor	ebx, ebx	
+	xor	ecx, ecx
+	xor	edi, edi
+	
+	mov	esi, offset memory_map
+0:	call	newline
+	cmp	dword ptr [esi + 20 ], 0 # memory_map_attributes], 0
+	jz	0f
+	
+	mov	edx, [esi + 4 ] #memory_map_base + 4 ]
+	call	printhex8
+	mov	edx, [esi + 0 ] #memory_map_base + 0 ]
+	call	printhex8
+	PRINT	" | "
+
+	mov	edx, [esi + 12 ] #memory_map_length + 4 ]
+	mov	eax, edx
+	call	printhex8
+	mov	edx, [esi + 8 ] # memory_map_length + 0 ]
+	call	printhex8
+	PRINT	" | "
+
+	push	edx
+	mov	edx, [esi + 16 ] # memory_map_region_type ]
+	call	printhex8
+	cmp	edx, 1
+	pop	edx
+	jnz	1f
+
+	cmp	ecx, edx
+	ja	1f
+	cmp	eax, ebx
+	ja	1f
+	mov	edi, esi
+	mov	ecx, edx
+	mov	ebx, eax
+1:
+
+	add	esi, 24 # memory_map_struct_size
+	jmp	0b
+0:
+
+
+	print "Max: address: "
+	mov	edx, [edi+4]
+	call	printhex8
+	mov	edx, [edi+0]
+	call	printhex8
+	print " size: "
+	mov	edx, [edi+12]
+	call	printhex8
+	mov	edx, [edi+8]
+	call	printhex8
+	call	println
+
+	mov	esi, edi
+	mov	edi, offset mem_heap_start
+	movsd
+	movsd
+	movsd
+	movsd
+
+
+	# > 4Gb check
+
+	cmp	dword ptr [mem_heap_start + 4], 0
+	jz	0f
+	printlnc 4, "ERROR - Memory offset beyond 4Gb limit"
+	jmp	halt
+0:	cmp	dword ptr [mem_heap_size + 4], 0
+	jz	0f
+	printlnc 4, "WARNING - Truncating available memory to 4Gb"
+	mov	edi, offset mem_heap_size
+	mov	eax, -1
+	stosd
+	inc	eax
+	stosd
+
+0:	
+	# Adjust base relative to selectors
+
+	# Get the data selector information
+
+	mov	eax, ds
+
+	mov	edx, eax
+	print "Data Selector "
+	call	printhex4
+
+	print " base "
+	xor	edx, edx
+	mov	dl, [GDT + eax + 7]
+	shl	edx, 16
+	mov	dx, [GDT + eax + 2]
+	mov	[mem_sel_base], edx
+	call	printhex8
+
+	print " segment limit: "
+	lsl	edx, eax
+	mov	[mem_sel_limit], edx
+	call	printhex8
+	printchar ' '
+	call	printdec32
+	printchar ' '
+	shr	edx, 20
+	call	printdec32
+	println "Mb"
+
+
+	# Adjust the heap start
+
+	print "Adjusting heap: base "
+	mov	edx, [mem_heap_start]
+	call	printhex8
+	mov	edx, [mem_heap_size]
+	print " size "
+	call	printhex8
+
+
+	print " to: base "
+
+	mov	edx, [mem_sel_base]
+	sub	[mem_heap_start], edx # TODO check if base is byte gran
+	mov	edx, [mem_heap_start]
+	call	printhex8
+
+	sub	[mem_heap_size], edx
+	mov	[mem_heap_alloc_start], edx
+
+	mov	edx, [mem_heap_size]
+	print " size "
+	call	printhex8
+	print " ("
+	shr	edx, 20
+	call	printdec32
+	println "Mb)"
+
+
+	call	mem_test$
+	ret
+
+###########################################
+
+mem_test$:
+
+	mov	eax, 0x10000
+	call	malloc
+	mov	edx, eax
+	mov	edi, eax
+	call	printhex8
+	printchar ' '
+
+	.rept 10
+	mov	eax, 32
+	call	malloc
+	stosd
+	mov	edx, eax
+	call	printhex8
+	printchar ' '
+	.endr
+	call	newline
+
+	sub	edi, 4 * 4
+	mov	esi, edi
+	.rept 3
+	lodsd
+	call	mfree
+	.endr
+
+	# now we have 8 handles allocated,
+	# 3 free (3x32= 96 bytes)
+	# then 1 allocated.
+
+	# Now allocate again to see if mem is reused.
+	# We'll allocate 64 bytes.
+
+	mov	eax, 32
+	call	malloc
+
+	inc	eax
+	call	mfree
+
+	call	print_handles$
+
+	ret
+
+
+print_handles$:
+
+######### print handles..
+
+	print "numhandles: "
+	mov	edx, [mem_numhandles]
+	mov	ecx, edx
+	call	printdec32
+	call	newline
+
+	or	ecx, ecx
+	jz	1f
+#	jecxz	1f
+
+	mov	ebx, [mem_handles]
+0:	mov	edx, [mem_numhandles]
+	sub	edx, ecx
+
+	.macro PRINTEBX
+	push	edx
+	PRINT " ebx="
+	mov	edx, ebx
+	call	printhex8
+	pop	edx
+	.endm
+
+	print "Handle " 
+	call	printdec32
+	printchar ' '
+	mov	edx, ebx
+	call	printhex8
+	print " base "
+	mov	edx, [ebx + handle_base]
+	call	printhex8
+	print " size "
+	mov	edx, [ebx + handle_size]
+	call	printhex8
+	print " free "
+	movzx	edx, byte ptr [ebx + handle_isfree]
+	call	printdec32
+	call	newline
+
+	add	ebx, HANDLE_STRUCT_SIZE
+
+	loop	0b
+1:
+	ret
+
+
+	# Now, we allocate some of the data for bookkeeping.
+get_handle$:
+	mov	ebx, [mem_numhandles]
+	cmp	ebx, [mem_maxhandles]
+	jb	0f
+	call	alloc_handles$
+0:	mov	ebx, [mem_numhandles]
+	shl	ebx, HANDLE_STRUCT_BITS
+	add	ebx, [mem_handles]
+	mov	[ebx + handle_isfree], byte ptr 0
+	inc	dword ptr [mem_numhandles]
+	ret
+
+
+# in: eax = size
+# out: ebx = handle that can accommodate it
+# out: ZF on none found
+find_handle$:
+	push	ecx
+	mov	ecx, [mem_numhandles]
+
+	jecxz	1f
+	mov	ebx, [mem_handles]
+0:	cmp	[ebx + handle_isfree], byte ptr 0
+	jz	2f
+	cmp	[ebx + handle_size], eax
+	jae	3f
+2:	add	ebx, HANDLE_STRUCT_SIZE
+	loop	0b
+
+	# when storing in non-record form - each field in its own array -,
+	# a repne scasb will more quickly find a free handle.
+
+1:	or	ecx, ecx
+	pop	ecx
+	ret
+
+3:	mov	[ebx + handle_isfree], byte ptr 0
+	jmp	1b
+
+
+
+
+alloc_handles$:
+	push	eax
+	push	ebx
+
+	mov	eax, ALLOC_HANDLES 
+	add	eax, [mem_maxhandles]
+	shl	eax, HANDLE_STRUCT_BITS
+	push	eax	# save size for later
+	call	malloc_internal$
+
+	# bootstrap realloc
+	cmp	dword ptr [mem_handles], 0
+	jz	1f
+
+	push	esi
+	push	edi
+	push	ecx
+	mov	esi, [mem_handles]
+	mov	edi, eax
+	mov	ecx, [mem_maxhandles]
+	shl	ecx, HANDLE_STRUCT_BITS
+	rep	movsd
+	pop	ecx
+	pop	edi
+	pop	esi
+
+	# mark the reserved handles_handle as free
+	push	ebx
+	mov	ebx, [mem_handles_handle]
+	mov	[ebx + handle_isfree], byte ptr 1
+	pop	ebx
+
+1:	mov	[mem_handles], eax
+	add	[mem_maxhandles], dword ptr ALLOC_HANDLES
+
+	# reserve a handle
+	call	get_handle$	# potential recursion
+	mov	[mem_handles_handle], ebx
+	pop	dword ptr [ebx + handle_size]
+	mov	[ebx + handle_base], eax
+	mov	[ebx + handle_isfree], byte ptr 0
+
+	pop	ebx
+	pop	eax
+	ret
+
+
+#######################################################################
+
+malloc_internal$:
+	push	dword ptr [mem_heap_alloc_start]
+	add	[mem_heap_alloc_start], eax
+	pop	eax
+	ret
+
+
+#########################################################
+# in: eax = size
+# out: eax = base pointer
+malloc:
+#call mem_debug
+	push	ebx
+
+	call	find_handle$
+	jz	2f
+		.if MEM_DEBUG
+		pushcolor 13
+		print " ReUse "
+		push	edx
+		mov	edx, ebx
+		call printhex8
+		pop edx
+		popcolor
+		.endif
+	jmp	1f
+2:
+
+	call	get_handle$
+		.if MEM_DEBUG
+		pushcolor 13
+		print " new "
+		push	edx
+		mov	edx, ebx
+		call	printhex8
+		printchar ' '
+		pop	edx
+		popcolor 
+		.endif
+1:	mov	[ebx + handle_size], eax
+	call	malloc_internal$
+	mov	[ebx + handle_base], eax
+	pop	ebx
+	ret
+
+mfree:
+	push	ecx
+	push	ebx
+	mov	ecx, [mem_numhandles]
+	jecxz	1f
+	mov	ebx, [mem_handles]
+0:	cmp	eax, [ebx + handle_base]
+	jz	0f
+	add	ebx, HANDLE_STRUCT_SIZE
+	loop	0b
+	jmp	1f
+
+0:	mov	[ebx + handle_isfree], byte ptr 1
+
+##################
+	# This will only work if the handles reference contiguous
+	# memory. This will require, when splitting free sections,
+	# to insert them, and thus to copy  all.
+	# A faster approach is to have an index array. The handles
+	# themselves can be ordered contiguously - always the last
+	# handle being the first free one (unused). The array will then
+	# only reflect the flat memory space ordering as contiguous.
+
+	# merge with next and prev if they are free too
+	cmp	[ebx + handle_isfree - HANDLE_STRUCT_SIZE], byte ptr 1
+	jne	0f
+	# merge with prev
+0:	cmp	[ebx + handle_isfree + HANDLE_STRUCT_SIZE], byte ptr 1
+	jne	2f
+	# merge with next
+	jmp	2f
+##################
+
+1:	pushcolor 4
+	print	"free called for unknown pointer "
+	push	edx
+	mov	edx, eax
+	call	printhex8
+	print " called from "
+	mov	edx, [esp + 3*4 + 2]
+	call	printhex8
+	call	newline
+	pop	edx
+	popcolor
+
+2:	pop	ebx
+	pop	ecx
+	ret
+
+mem_debug:
+	.if MEM_DEBUG
+	push	ebx
+	push	ecx
+	push	edx
+	print "[malloc "
+	mov	edx, eax
+	call	printhex8
+	print " heap "
+	mov	edx, [mem_heap_start]
+	mov	ecx, edx
+	call	printhex8
+	printchar '-'
+	mov	ebx, [mem_heap_size]
+	add	edx, ebx
+	call	printhex8
+	print " size "
+	mov	edx, ebx
+	call	printhex8
+	print " start "
+	mov	edx, [mem_heap_alloc_start]
+	call	printhex8
+	print " allocated "
+	sub	edx, ecx
+	call	printhex8
+	print " free "
+	sub	ebx, edx
+	mov	edx, ebx
+	call	printhex8
+	println "]"
+	pop	edx
+	pop	ecx
+	pop	ebx
+	.endif
+	ret
+
+
+malloc_optimized:
+	
+# Idea: have a 2-bit segmented index. 
+	# eax = size to allocate
+	bsr	ecx, eax
+	mov	ebx, 1
+	shl	ebx, cl
+	dec	ebx
+	test	eax, ebx
+	jz	0f	# jump if aligned perfectly (power of 2)
+	
+	and	eax, ebx	# mask off the highest bit of the size
+	bsr	ecx, eax	
+	# cl = highest order bit
+	# ch = second order bit.
+	# When allocating lets say 1025 bytes,
+	# wanting the segment sizes to be power-two, this would result
+	# in allocating 2048 bytes, wasting 1023 bytes.
+	# The most waste with a 2 bit index will occur in case of
+	# allocating 1.5 times a power-of-two plus one, for
+	# instance: 1024 + 512 + 1, would waste 511 bytes, 25% instead of
+	# almost 50%. Memory waste can be further reduced by adding more
+	# bits - until it is exact. 
+
+	# another approach would be to find the next higher size of an
+	# integer amount of a smaller section of bytes.
+	# For instance, 1025 would fit in:
+	# 1 * 2048
+	# 2 * 1024	waste 1023
+	# 3 * 512	waste 511
+	# 5 * 256	waste 255
+	# 9 * 128	waste 127
+	# 17 * 64	waste 63
+	# 33 * 32	waste 31
+
+0:
+
+
+#	call	get_pid
+#	mov	eax, [esi+pi_heap]
+
+	
+	
+	ret
+
+# Faster approach would be a balanced binary tree. The scope would
+# be the memory range that is currently allocated for the allocated list,
+# and the sizes for the free memory blocks to be reused.
+#
+# There are 32 bits of address space. We'll use a few arrays of 32 entries
+# to have a bit tree:
+.data
+size_btree: .space 32 * 4
+# 0: 1-byte storage	0
+# 1: 2			0
+# 2: 3-4		2	
+# 3: 5-8		4
+# 4: 9-16		8
+# 10: 512-1024 		512
+# 31: 4Gb storage
+#
+# 32x32 matrix. With bit 31 set, size may be between 2Gb and 4Gb.
+# So, 31 more bits. If the second bit set is 20, then matrix[31][20].
+.text
+btree_findfree:
+	bsr	ecx, eax	# find highest bit
+	mov	ebx, ecx	# ebx is now the highest bit (0..31).
+
+	# mask out highest bit
+	mov	edx, 1
+	shl	edx, cl
+	dec	edx
+	and	eax, edx
+	# if lower bits are all 0, it matches the bound
+
+	# find next highest bit
+	bsr	ecx, eax
+	mov	esi, ecx
+
+	
+
+	ret
+

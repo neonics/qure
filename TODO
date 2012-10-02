@@ -4,8 +4,8 @@ v Check Eltorito bootsector specification for CDROM.
   DONE: see DOC/Bootsector.txt
 
 
-v include acpi.s breaks as
-  Filed bug report.
+v include acpi.s breaks as [acpi code not committed]
+  Filed bug report. 
 
 
 v: bootloader writing. Currently destroys the target disk's previous
@@ -27,15 +27,25 @@ TODO: Task Switching (TSS) (depends PMode)
   partly done - one TSS switch already works. Need to check whether
   a context switch really occurs to make sure.
 
-TODO: construct memory map (ebda, bios rom etc).
+v construct memory map (ebda, bios rom etc).
+  using realmode kernel int 0x12 and int 0x15 to pass map to pmode.
+  malloc makes use of the largest block.
 
 TODO: implement Paging
+  since it cannot be turned off and it seems like a nightmare it is postponed.
 
 TODO: test acpi_poweroff
 
-TODO: Shell
+v: Shell
+  extremely small shell with history, environment variables, and a built-in
+  command list. Shell is run from kernel, can be exited to return to
+  stage 2 bootloader, which offers shutdown and reboot.
 
 TODO: filesystem
+   implemented fdisk.
+   implemented FAT16 read access.
+   started on 'sfs', custom filesystem. Something akin to git seems worth
+   considering.
 
 v: clean up bootloader, separate from kernel. Decisions:
 	- whether sector1 is the kernel, or whether it is additional
@@ -81,6 +91,8 @@ v: clean up bootloader, separate from kernel. Decisions:
 	  functionality in protected mode: interrupts, irq (keyboard),
 	  and storage device handlers.
 
+	* realmode switching implemented to call VESA graphics bios.
+
 
 TODO: load modules/objects/programs
 
@@ -93,8 +105,12 @@ TODO: create assembler
 TODO: create high level programming language compiler
 
 TODO: VM98 Mode (depends TSS)
+  postponed, due to realmode switching availability.
 
-TODO: APIC (Local, IO)
+v: IO APIC
+
+TODO: Local APIC (xAPIC)
+  postponed until SMP.
 
 TODO: ELF Loader, KFS
 	Compile (g++ test.c && objcopy -O elf32-i386 test.o test.o)
@@ -186,41 +202,46 @@ Shell: argument escaping
 	Use the parsed tokens, write a little grammar for them:
 	see process_tokens in shell.s and trash/cd_apply.s
 
+	trashed for now. Tokenizer on character classes is used, along
+	with a token merger.
 
-FileSystem: cd, ls
+v FileSystem: cd, ls
 
-	ls: opendir, readent (in custom structure).
+	implemented fs_opendir/fs_nextentry/fs_openfile/fs_handle_read;
+	cd, ls, cat.
 
-	ls uses fs_opendir which uses the internal filesystem tree
-	to access mounted volumes.
-	
+	volumes can be mounted in any (nonexistent or existent) directory
+	and take precedence, potentially shadowing a filesystem mounted
+	in a parent directory.
+
 	Each filesystem type has its own implementation (bits and
 	pointers stored in the mtab).
 	
-	First attempt: simply only the ability to 
+	v First attempt: simply only the ability to 
 		mount hdb0 /a
 		cd /a
 		ls
-	next attempt:
+	v next attempt:
 		mount hdb0 /a
 		ls /a
-	When this is unified, the next attempt is:
+	v When this is unified, the next attempt is:
 		ls /a/directory
 
-	This will require some cleanup of:
-		ata.s, partition.s, fs.s, fat.s, shell.s and hash.s.
 
-
-Mounting filesystems:
+v mtab / mount: Mounting filesystems:
 	(mounting partitions already works, recording wise).
 
-	Filesystems may be mounted on top of anything, so opendir
-	should check for the longest match in mtab in order to find
-	the proper filesystem handing code;
-	for permissions and such, a top down approach should be applied.
+	v Filesystems may be mounted on top of anything, so opendir
+	  should check for the longest match in mtab in order to find
+	  the proper filesystem handing code;
+	  for permissions and such, a top down approach should be applied.
 
-	The opendir implementation then first checks mtab, and
-	if there is no match it delegates to the current filesystem handler.
+	v The opendir implementation checks mtab for each directory in the
+	  given absolute path.
+	  if there is no match it delegates to the current filesystem handler.
+	  An interface to hold directory information in a generic format is
+	  filled by filesystems. Generic handles are used to keep track
+	  of the pointers and allocated buffers.
 
 	The root handler then is the 'memory filesystem', containing
 	the virtual root and the mount points,
@@ -232,7 +253,7 @@ Mounting filesystems:
 
 	
 - i8254 does not immediately send packets, only when there are a number of
-  them.
+  them. Possibly due to descriptor ring flags not being cleared properly.
 
 v realmode 'data' is slowly being pushed outside of the 64k range.
   option 1) Consider separating the realmode/pmode code, as the binary formats
@@ -246,22 +267,58 @@ v realmode 'data' is slowly being pushed outside of the 64k range.
 
   DONE: option 2.
 
+  Kernel image layout:
 
-Optimize static string storage:
+  .text
+  - realmode code (.text16 macro)
+  - realmode data (.data16 macro)
+  - protected mode code (.text32 macro)
+  .data
+  - protected mode data
+    - general data
+    - pointer arrays
+    - strings
+    - driver metadata (pci id's, initialisation code)
+    - bss [uninitialized data]. (.bss not supported).
+
+
+IMPROVEMENT: Optimize static string storage:
 
 	the LOAD_TXT and similar macros define strings in the string
 	section.
 	Add a tool that rewrites the object file, removing duplicate
 	strings, and using offsets into strings and such
 	(.e. a="eax", b="ax" => a = "eax", b = a + 1)
-	and using the string tables, to update references in code and data.
+	and using the elf/coff string tables to update references
+	in code and data.
 
-fdisk: ata_(get|print)_capacity reports 0 in VMWare
+BUG: fdisk: ata_(get|print)_capacity reports 0 in VMWare
 
-
-ata: sometimes DRQ timeout in VMWare.
+BUG: ata: sometimes DRQ timeout in VMWare.
   When this happens, gfx mode no longer works.
   Suspect filesystem handle freeing.
+  ata reports ERR and ABRT occasionally - need to find out how to reset.
 
-hash: pci device array reallocation does not work properly; part of a nic structure
-  is not copied.
+TODO: implement IDE DMA.
+
+BUG: hash: pci device array reallocation does not work properly;
+  part of a nic structure is not copied. Found out due to a buffer pointer
+  being zero causing GPF. As a side effect hardware breakpoints are implemented
+  which revealed the culprit on memory write.
+
+
+TODO: offload screen writing in interrupts
+
+  pinging < 1ms, even when print on packet within isr.
+
+  However, time becomes about 12 ms when the screen needs to be scrolled with
+  SCREEN_BUFFER enabled, and half that without screen buffer.
+  Using movsd instead of movsd reduces it from 6 to 3. The first ping is 
+  then 1 ms.
+
+  Wwen doing a similar movsw without referencing video memory the ping
+  times become < 1ms again.
+
+  Thus i suspect that on memory access vmware steps in and does a screen update.
+
+  See DOC/TaskSwitching.txt

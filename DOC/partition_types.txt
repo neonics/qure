@@ -1,0 +1,46 @@
+# Partition types:
+# 0x00	Empty
+# 0x01	FAT12 max 32Mb
+# 0x02	Xenix root
+# 0x03	Xenix usr
+# 0x04	FAT16 max 64k sectors (32Mb)
+# 0x05	Extended partition (CHS)
+# 0x06	FAT16b min 64k sectors first 8Gb or within 0x0f logical
+#	FAT16 / FAT12 beyond first 32Mb
+# 0x07	IFS / HPFS / NTFS / exFAT / QNX
+# 0x08	FAT12/FAT16 logical sectored; OS/2 / AIX / QNY
+# 0x09	AIX / QNZ / Coherent
+# 0x0a	OS/2 / Coherent swap / UniSYS
+# 0x0b	FAT32 CHS
+# 0x0c	FAT32X LBA
+# 0x0d	?
+# 0x0e	FAT16X LBA
+# 0x0f	Extended partition LBA
+# 0x10	?
+# 0x11	FAT12/FAT16 logical sectored / Hidden FAT12 (0x01)
+#
+# 0x41	DR DOS Linux
+# 0x42	DR DOS Linux swap
+# 0x43	DR DOS Linux native
+#
+# 0x81	MINIX (0x41)
+# 0x82	Linux swap (0x42)
+# 0x83	Linux (0x43)
+# 0x84	MS Hibernation
+# 0x85	Linux extended
+# 0x86	MS Legacy FAT16
+# 0x87	MS Legacy NTFS
+# 0x88	Linux plaintext
+#
+# 0x8b	MS Legacy FT FAT32
+# 0x8c	MS Legacy FT FAT32 LBA
+# 0x8d	FreeDOS hidden FAT12 (0x01)
+# 0x8e	Linux LVM
+# 0x90	Freedos Hidden FAT16 (0x04)
+# 0x91	Freedos Hidden extended CHS (0x05)
+# 0x92	Freedos Hidden FAT16B (0x06)
+# 
+# 0x97	Hidden FAT32 (0x0b)
+# 0x97	Hidden FAT32 (0x0b)
+#
+

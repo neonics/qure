@@ -1,0 +1,87 @@
+2012-09-30
+
+VMWare has hardware virtualisation support.
+Implemented NIC AM79C as it is the default in VMware (and also Qemu).
+
+pinging < 1ms, even when print on packet within isr.
+
+However, time becomes about 12 ms when the screen needs to be scrolled
+with SCREEN_BUFFER enabled, and half that without screen buffer.
+Using movsd instead of movsd reduces it from 6 to 3. The first ping is
+then 1 ms.
+
+Wwen doing a similar movsw without referencing video memory the ping 
+times become < 1ms again.
+
+Thus i suspect that on memory access vmware steps in and does a screen update.
+
+
+The screen buffer thing then (besides bypassing referincing hardware mapped 
+memory
+such as 0xb800 in VMware) has another advantage, besides page-up scrolling,
+and that is when it is drawn to screen outside of interrupts. interrupts
+then can still print (or log to file), but the 'real' operation (io, memory)
+is done nonblocking, asynchronous.  (i.e. outside the ISR).
+
+There can be a screen update interrupt handler, which can be triggered
+by the ISR itself to indicate screen updates. Then, APIC etc. priorities
+come in handy.
+
+Reading in the manual, it occurred to me that there is an enormous
+amount of code in the CPU to efficiently handle interrupts.
+
+It seems a waste of the capability of having 65536 interrupts available
+(256 via INT instruction) and only using 19 (protected mode exceptions)
++ 16 (PIC) of them.
+
+
+Context switching is the more general form of task switching as it also
+includes interrupt gates, which have their selector and offset point to the
+code rather than to the TSS which will hold the context (registers).
+
+It seems appropriate to make more use of these features as no popular
+operating system does this.
+
+---
+
+Interrupts can then be linked to processes. This puts a limit to the number
+of concurrent processes supported by hardware.
+
+Programs would need to know the number of another process in order to call
+them through their interrupt number.
+
+Expected to find an interrupt trigger instruction with a variable parameter:
+
+	int	ax
+	intw	[eax]
+
+or such. It does not seem to exist. There is a SYSENTER/SYSRET/SYSEXIT
+that looks promising, though it has no parameters and triggers a task
+switch to CPL0. Parameters are provided by IA32_SYSENTER_(CS|EIP|ESP)
+
+Form:
+
+	WRMSR	IA32_SYSENTER_CS, SEL_...	# SS becomes CS+8
+	WRMSR	IA32_SYSENTER_EIP, ...
+	WRMSR	IA32_SYSENTER_ESP, ...
+	store_local_context_for_return_from_syscall
+	SYSENTER	# destroy CS, EIP, SS, ESP; CPL 3->0
+
+	#
+	
+	WRMSR	IA32_SYSENTER_CS, SEL_...	# SS becomes CS+8
+	mov	edx, offset
+	mov	ecx, stackoffset
+	SYSEXIT		# destroys CS, EIP, SS, ESP; CPL 0->3
+
+	# see SWAPGS to make SYSENTER/EXIT into a call
+
+	#
+
+	# 64 bit mode only:
+	mov	IA32_LSTAR, offset
+	SYSCALL		# RCX<-RIP
+
+	SYSRET	# RIP <- RCX
+	
+

@@ -1,0 +1,31 @@
+GNU Assembler Oddities
+----------------------
+
+
+kernel.s: Error: attempt to get value of unresolved symbol `L0'
+
+
+	.data
+	1: .asciz "foo"
+	2: 
+	.text
+	mov	eax, offset 2b - offset 1b
+
+
+
+Error: too many memory references for 'mov'  [on a macro line]
+
+	generally: macro references a macro argument without \
+
+
+kernel.s: Fatal error: Case value 61 unexpected at line 1152 of file "/netrel/src/binutils-2.22.51-2/gas/symbols.c"
+
+
+	using 'offset' keyword in .data:
+
+	.data
+	fs_root_instance: .long offset fs_root_class
+
+	=>
+
+	fs_root_instance: .long fs_root_class

@@ -1,0 +1,28 @@
+== Qemu ==
+
+Install openvpn - it comes with a virtual NIC TAP driver. This is all 
+that is needed from openvpn.
+Create this TAP device using the start menu.
+Rename it to 'tap-bridge'.
+Create a bridge between the LAN nic and the TAP nic.
+
+Windows 7: qemu-windows-1.0.1: qemu-system-x86_64.exe
+
+qemu -L path/to/Bios -vga std -no-reboot -hda hdd0.raw -hdb hdd-dos.raw \
+	-cdrom os.iso -boot d
+	-net nic,model=rtl8139
+	-net tap,ifname=tap-bridge
+
+
+== VirtualBox ==
+
+Networking:
+
+File->Preferences->Network: Create a Host-Only adapter. Reboot for it to 
+become visible to wireshark.
+
+Create a network bridge between the physical network card connected to
+the local/internet, and the Host-Only adapter in the Network Connections
+(adapter settings) in windows.
+
+

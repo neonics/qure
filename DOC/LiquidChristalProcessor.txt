@@ -1,0 +1,283 @@
+Have a piece of semiconductor that is able to at runtime configure
+connections. 
+
+Thus, the 'firmware' of the CPU is then loaded at boot-time,
+thus creating the architecture of the cpu at runtime.
+
+A blueprint template matrix is loaded from ROM and uploaded to the CPU.
+
+This is equivalent to having the ability to etch a chip and change it at will.
+
+Compilers would generate an appropriate matrix in memory, the cpu can be
+triggered to adopt this structure and apply it to form its internal structure,
+which equates to the hardwiring of switches into certain patterns.
+
+
+A NAND gate is the basic building block and can be used to generate any
+kind of binary logic.
+
+It and's its arguments, and then inverts the result.
+
+At a more basic level, NPN and PNP transistors are the switches.
+At the most basic level, diodes are the switches.
+
+Using the basis as a transistor allows for a layer where the Base 
+is a switch that determines whether or not there is flow between Collector
+and Emittor.
+
+
+The top level layer thus is a grid of base connection points.
+This grid allows to configure any form of circuitry.
+The values offered to this grid are 0 or 1 as per memory.
+
+
+Looking at it in the form of mono-diodes, or, just a grid of bases,
+like antenna's into the semiconductor where when voltage is applied
+to the kathode, a circular/semispherical area around the anode - the point
+where the antenna is grounded - becomes conductive.
+
+In this way one can then draw a grid of conductivity.
+
+A normal semiconductor switch looks something like this:
+
+      C    B    E
+      _    _    _
+-----| |--| |--| |----
+     ---  ---  ---
+----------------------
+
+
+The proposed one looks like this:
+
+         B
+         _
+--------| |----------
+        ---
+     _        _
+----| |------| |-----
+    ---      ---
+
+However in this case, for the top layer, more than two anodes are defined,
+put in a square or triangle.
+
+
+
+2D simulation, 'game of life'
+
+Tic-tac-toe:
+
+  X X
+   O 
+  X X
+
+The center is the Base, whereas the four X-es are connection points.
+When the O is 1, all X's are connected with near-zero resistance.
+
+
+The decoding of the signal, or the application of the matrix/blueprint,
+is like generating a two dimensional wave pattern, where peaks indicate 1's,
+and valleys 0. The wavelength is the distance between two O's, or switches.
+This wave repeats a very large number of times to cross one direction of the
+chip. At each repetition, the wave can be different. The idea here is then
+to apply a base wave, with a wavelength many orders of magnitude lower,
+which is applied all at once to the entire chip breadth.
+One could say that this wave contains the higher frequency information
+waves encoding the matrix, and that this wave travels along the chip until
+the entire wave is aligned properly. 
+In this moment, the matrix is properly aligned and thus the blueprint is
+proper. It is at this point that a clock pulse is sent through the grid,
+which is now properly configured (according to blueprint).
+
+However, lets say there are a million by a million, so, one Tera-bit
+of switches. Since the carrier wave travels in one direction, we could say
+that the information wave is 'executed' at each switch-line.
+Thus the calculation result is progressed across the chip.
+
+First, this means that a million operations are executed in parallel,
+and second, that the chip repeats the same instructions, shifting it over
+its surface, until the entire surface contains a single 'moment', at which
+point the 2D blueprint of the chip wiring is aligned.
+
+Given the speed of light for electric waves, and assuming a superconductor,
+.... 2.4 ghz.....
+
+
+
+Registers
+
+These register - and remember - the state of connection, or, the value
+calulations. These remain persistent across the carrier wave, clock cycles.
+This is done by building in capacitance using inductance. At each clock cycle,
+a value change flowing through a conductive circle will generate a magnetic
+field, encoding whether or not there was a value change. This value change then
+represents the 1 or 0 - delta encoding. In the next cycle this field is
+discharged, resulting in the original current.
+
+Further more, this allows for 'trits' or 'trinary digits'. Since a value
+changing from 0 to 1 (charge) creates a field that is opposite in polarity
+compared to a value change from 1 to 0 (discharge). This then allows
+to encode three values in the magnetic field: North-South (positive charge),
+South-North (discharge/negative charge), and neutral or no change.
+
+
+Application
+
+The first application is to emulate the current processor architectures,
+which is done at start time, and this architecture is kept constant
+during the execution of memory against the processor.
+
+A first extension of this would be to have multiple cores in the CPU,
+or, to have the semiconductor grid be large enough to accommodate two
+or more blueprints. This would allow to run any application designed
+for any hardware architecture alongside an operating system that remains
+programmed for a single architecture.
+Programming the CPU for a particular architecture would take very little
+time, and thus, task-switching the second core between different architectures
+is feasible. The single fixed architecture core then would be the hypervisor.
+
+This introduces the first use of runtime-change of blueprint for the CPU,
+where the change only affects part of the CPU and thus does not interfere
+with whatever program is already executing. This is simply done by
+preparing a memory area with the CPU architecture blueprint in a 'free zone',
+and reprogramming the entire CPU. This programming should take at most
+the number of clock cycles representing the depth of the semiconductor layers,
+as the entire block is programmed in parallel.
+
+
+[Further, this allows for dynamic CPU architecture at runtime,
+where the current state is encoded as the instruction and registers 
+and memory addresses in use. The types of instructions do not necessarily
+have to be the basic instruction set, as programs could be compiled by
+encoding the sequence of instructions regardless of memory, and the
+changes they effect.]
+
+
+Next, programs will make use of this architecture, where the hypervisor
+reserves an area of the semiconductor for use of the currently executing
+program. THis program is then free to generate its own organisation of
+this to execute its own instructions. Certain pieces of code for instance,
+might want to make heavy use of parallelism, such as image manipulation,
+by applying a single operation to an area of memory simultaneously.
+The nature of this single operation is but one instruction and thus
+the area does not need to incorporate any complexity regarding support
+for all predefined instructions. For a sequence of parallel operations to
+be applied, since selecting the operation (programming the area) takes
+only a few clock cycles, and the application of it depends on the complexity
+of the encoded instruction, but does not exceed the depth of the semiconductor,
+and will thus also be at most the same number of cycles it takes to program
+the CPU, means that it is equally fast to encode the instruction as to 
+apply it to the entire range.
+
+In this way, we could say that the instructions of this kind of program
+no longer rely on the predefined instructions, but that every instruction
+is the blueprint, including the reference to the input/output memory area.
+
+The CPU then contains a library of instruction blueprints, which can
+be added onto. 
+Code then referencing these instructions can be reused and made to serve
+any number of purposes by changing the blueprint of the instructions.
+
+LOOP instruction: 'rep my_opcode'
+
+my_opcode could be defined as a method call. In this way, a generic function
+iterating a list of numbers could either sum them up, or print them, for isntance.
+
+BEGIN	initialisation	for ( int i = 0;
+WORK	operation		i++
+END	completion		i< X)
+
+The work 'command' here could be a type-specific operation. By changing
+the instruction blueprint of the operation, it would apply to say integers
+and floating points. 
+
+By prefixing this instruction with one that defines the type to operate
+on, by changing the instruction (i.e. parameterized/generic methods),
+even very small operations can be re-used. This would do away with nested
+calls and conversion to re-use code.
+
+Further, the code may be written in a very generic way, and thus yield
+very small programs which would be able to be programmed onto the semiconductor
+as a whole. This would also mean that those programs would execute all
+their code all at once. Parts of the code can be disabled - forward flow
+not enabled - to indicate which areas of the code are active.
+
+
+At a certain level, any binary operation can be defined relating a number
+of bits of at most that number of different memory addresses.
+This reduces the need to fetch unnecessary bits from memory, perform
+masks and shifts, compares and jumps into a single operation.
+
+Special instructions can be deviced for this that would take an area of
+memory and map it's contents onto another area of memory using any
+of the 16 binary operations.
+Given a large area being able to be programmed, even the same operation
+applying to multiple limited structures in random places in memory 
+can be done simultaneously. In this way, a nested check (compare, jump,
+or if/then/else)
+referencing different memory areas can be done simultaneously.
+
+For instance:
+
+	if ( a ) {..}			  test [a]; jnz 0f
+	else if ( b )			0:test [b]; jnz 0f
+	{
+		if ( c ) {..}		  test [c]; jnz 1f
+		else {..}		1:
+	}				0:
+
+let's say that it ends up executing the nested else. Linearly this would
+take 3 cycles to reach, where each cycle is the test/jmp.
+
+Programming this in parallel, the tests for a, b and c would be
+evaluated simulatenously. This yields 3 bits indicating whether to jump.
+As such it yields three addresses for the next instruction to execute.
+The first bit (we only deal with the zero flag here as a specialized version
+of the test instruction) that is 0 will be the next isntruction to execute.
+
+A simpler parallel example would be:
+
+	if (a) {A}
+	if (b) {B}
+	if (c) {C}
+
+Maintaining linearity of semantics, when A does not alter b or c, (and B does not alter c) the conditions can be executed simultaneously to yield meaningful 
+(as per the intent of the programmer encoding semantics linearly) results.
+
+Initially I foresee translation programs that optimize for these kinds of
+things. This can even be done on the static assembly level, by
+categorizing all the code into independent sections.
+A section boundary is created whenever an instruction depends on the previous
+instruction. In the example above, the jumps depend on the flags which
+are altered by the test instruction. 
+The parallel optimisation suggested deals with branching (jumping), 
+which is where parallel processing provides the 'fork'.
+The next check to be done is to find references between the sections,
+to find out whether B influences c. This is where things become
+complicated, as B may refer to indirectly using a register which
+may or may not be changed by A. 
+As such, this type of optimization is best done at runtime, since when
+the instruction to test for c is executed, the exact memory address
+it references is known. Execution of C can be postponed until the instruction
+in A referencing c has been executed. 
+
+
+
+Crystal Structure
+
+Let's assume that it is possible to, depending on the polarity of the potential
+applied to the Base (O) in the 'tic tac toe' structure,
+to either configure the node as either an anode or a cathode, i.e., to
+generate 'N' or 'P' material.
+In this way diodes could be programmed ('etched') configuring any kind
+of connection or transistor. 
+Another possibility for the encoding is to have the diagonals of the X's
+respond in opposite, i.e., have 
+
+N P
+ O
+P N
+
+or vice versa depending on the potential's polarity. This would allow to
+direct the current in two directions and thus create an oriented graph.
+
+

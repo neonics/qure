@@ -1,0 +1,82 @@
+	# the route will either be a default gateway (mask/network 0),
+	# or the nic itself (with the gateway either 0, or the ip of the nic)
+
+	# the route entry contains a reference to the nic, and thus provides
+	# the link with the 'physical' network.
+
+	# In the case of a LAN address, where a LAN on the ethernet
+	# (link layer) consists of all NIC's that can receive broadcasts
+	# to the LAN. This means that routing is transparent on the MAC
+	# level, and logically, that there is no routing on the IP level
+	# within the network, as each IP address translates to a MAC address
+	# that identifies the NIC on the network willing to take that identity.
+	#
+	# Routing on the IP level adds the concept of an IP gateway,
+	# one of the LAN addresses serving as a gateway to a network.
+	# The gateway is a local network point abstraction, which serves
+	# all the IP addresses that do not respond to ARP requests,
+	# which are those IP addresses outside of the LAN area network.
+	#
+	# Thus the gateway is that machine that designates the boundary
+	# between a LAN - a pool of local IP addresses linked to NICS -
+	# and the WAN - remote networks.
+	#
+	# Since not only machines outside of the LAN do not respond to
+	# ARP requests to a LAN request as to not flood the ARP tables,
+	# but also IP addresses in the LAN that are not associated with
+	# a machine, 
+	#
+	# the client (the one initiating a lookup/connection), will then
+	# not do ARP requests for IP addresses outside of it's LAN.
+	#
+	# Thus, each machine in a LAN is configured with a consensus
+	# network/netmask/gateway (using DHCP or manual configuration),
+	# which basically merely indicates a range of addresses that 
+	# can provide MAC addresses, and a default MAC address for the
+	# gateway, indicated by a special local area network IP address,
+	# usually network + 1 ip, which serves as the IP address to
+	# use when the ARP request is for an IP outside of the configured
+	# LAN. At the ARP level, the transport layer is purely ethernet (MAC),
+	# broadcast MAC.
+	#
+	# Therefore, it is expected that only ARP requests are transmitted
+	# onto the network that are for LAN addresses.
+	# Further, due to the broadcast nature of ARP, where each gateway
+	# in the network can decide whether or not to propagate the request
+	# onto other physical networks depending on its own network
+	# configurations.
+	# Due to the broadcast nature, any machine can respond to any ARP
+	# request.
+	# As such, it is possible to do an ARP request even for non-LAN
+	# ip addresses. The result would be that any gateway able to serve
+	# this ip address (by having a NIC that is connected to a network
+	# that contains the IP address), can respond with it's own MAC
+	# address, since this is the MAC address that will be used for routing.
+	#
+	# Thus, routing can be dynamic within a LAN.
+	# 
+	# The purpose then of configuring a point/node/host in a network
+	# with a LAN is so that
+	# 1) no ARP requests are done for IP addresses outside the LAN, or
+	# 2) MAC addresses for IP addresses outside the LAN are not stored
+	#    in the ARP table, as there will most likely be one or a few
+	#    gateways on the network.
+	#
+	# Thus, the gateway and LAN configurations are to serve a
+	# default MAC address for network routing.
+	# It specifies a default MAC address for ALL IP addresses
+	# that are not in the range of the network of the gateway.
+	# Thus it defines the MAC address by excluding all LAN addresses.
+	#
+	# A gateway then is identified by the ip addresses it does not
+	# have a MAC address for.
+	#
+	# Lets say there are two gateways, both of which are on a different
+	# network, say A 10.0.0.0/14 and B 192.168.1.0/24, and both have
+	# an internet connection.
+	# 
+	# The inter-network range then is defined by all non-LAN ip addresses,
+	# not only by those besides the LAn the gateway is on.
+	# 
+	# 
+	
