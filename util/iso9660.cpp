@@ -336,7 +336,7 @@ int main(int argc, char ** argv)
 
 			while ( buf[offs] != 0 )
 			{
-			printf( "Path Table Record: * OFFS: %d (0x%x)\n", offs, offs);
+			printf( "Path Table Record: OFFS: %d (0x%x)\n", offs, offs);
 			printf( "  Directory Identifier len: %d\n", buf[offs+0] );
 			printf( "  Extended Attribute Record len: %d\n", buf[offs+1] );
 			int extsect=

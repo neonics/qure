@@ -74,10 +74,14 @@ iso9660_test:
 	.endif
 	# load edx with the ports
 	call	ata_get_ports$
-
+.data
+atapi_al: .byte 0
+atapi_edx: .long 0
+.text32
+	mov	[atapi_al], al
+	mov	[atapi_edx], edx
 
 ##################################################################
-	.if 0 # this works in qemu and vmware
 	println "read capacity"
 	DEBUG_BYTE al
 	push	edx
@@ -85,12 +89,18 @@ iso9660_test:
 	call	atapi_read_capacity$
 	pop	eax
 	pop	edx
-	.endif
 
 	println "read volume descriptor"
 	# Read Primary Volume Descriptor
+	mov	eax, ecx # block len
+	call	malloc
+	jc	iso_err$
+	mov	edi, eax
+	mov	[iso_root], eax
 	mov	ebx, 16	# LBA
-	mov	ecx, 1 	# sectors
+	#mov	ecx, 1 	# sectors
+	mov	al, [atapi_al]
+	mov	edx, [atapi_edx]
 
 	call	atapi_read12$
 	jc	iso_err$
@@ -144,30 +154,62 @@ iso_print_primary$:
 	dec	esi
 	call	newline
 ################################################################
+.data
+iso_logical_block_size: .long 0
+iso_path_table_lba: .long 0
+iso_path_table: .long 0
+iso_root: .long 0
+iso_cur_pt_lba:.long 0
+.text32
 	movzx	ebx, word ptr [esi + 140]	# LSB path table location
+	mov	[iso_path_table_lba], ebx
+	mov	[iso_cur_pt_lba],ebx
+	push	eax
+	movzx	eax, word ptr [esi + 128]	# logical block size
+	mov	[iso_logical_block_size], eax
+	call	malloc
+	mov	edi, eax
+	mov	[iso_path_table], eax
+	pop	eax
+	jc	iso_err$
 	call	atapi_read12$
 	jc	iso_err$
 
 	# print directory structure
 
+iso_print_path_table:
 	xor	ebx, ebx
 0:
-	movzx	ecx, byte ptr [esi + ebx]	# directory identifier len
+.struct 0
+iso9660_dir_name_len: .byte 0
+iso9660_extent_attr_len: .byte 0
+iso9660_extent_location: .long 0
+iso9660_parent_dir_nr: .word 0
+iso9660_dir_name: 
+.text32
+	movzx	ecx, byte ptr [esi + ebx + iso9660_dir_name_len]
 	jecxz	1f
 
+	PRINT	"Directory: "
 	push	esi
 	add	esi, 8
 	add	esi, ebx
-	PRINT	"Directory: "
-	push	edx
 	mov	edx, ebx
 	call	printhex8
-	pop	edx
-	PRINT	" '"
+	print	" name='"
 	call	nprint
-	PRINTLN "'"
 	pop	esi
+	PRINT	"' parent="
+	mov	dx, [esi + ebx + iso9660_parent_dir_nr]
+	call	printhex4
+	print	" extentLBA: "
+	mov	edx, [esi + ebx + iso9660_extent_location]
+	call	printhex8
+	call	newline
 
+	call	iso_print_dir_extent
+#	jc	iso_err$
+	
 	add	ebx, 8		# directory identifier length identifier (msb and lsb)
 	add	ebx, ecx	# dir ident len
 	and	ecx, 1		# align
@@ -177,6 +219,100 @@ iso_print_primary$:
 	
 ##################################################################
 	ret
+
+iso_print_dir_extent:
+	push	esi
+	push	ebx
+	push	ecx
+	push	eax
+
+	mov	ebx, [esi + ebx + iso9660_extent_location]
+	cmp	ebx, [iso_cur_pt_lba]
+	jz	3f
+	mov	[iso_cur_pt_lba],ebx
+
+	mov	eax, [iso_logical_block_size]
+	call	malloc
+	jc	2f
+	mov	edi, eax
+	mov	edx, [atapi_edx]
+	mov	al, [atapi_al]
+	call	atapi_read12$	# in: edx, ebx, edi; out: esi
+	jc	2f
+
+0:	cmp	byte ptr [esi], 0	# record len
+	jz	0f
+
+	print "  File: "
+	push	esi
+	add	esi, 33
+	movzx	ecx, byte ptr [esi -1]
+	call	nprint
+	pop	esi
+	print " size: "
+	mov	edx, [esi + 10]
+	call	printdec32
+	print " fileext: "
+	mov	edx, [esi + 2]
+	call	printhex8
+	call	newline
+
+		push	edi
+		push	esi
+		add	esi, 33
+		movzx	ecx, byte ptr [esi-1]
+		LOAD_TXT "HELLO.TXT;1", edi
+		repz	cmpsb
+		pop	esi
+		pop	edi
+		jnz	1f
+			
+			mov	eax, [esi + 10]
+			call	malloc
+			jc	2f
+
+			push	edi
+			mov	edi, eax
+			push	edi
+			mov	al, [atapi_al]
+			mov	edx, [atapi_edx]
+			mov	ebx, [esi + 2]
+
+			push	esi
+			call	atapi_read12$
+			jc	4f
+			print "   Content: ["
+			mov	ecx, [esp]
+			mov	ecx, [ecx + 10]
+			call	nprint
+			printchar ']'
+		4:	pop	esi
+
+			pop	eax
+			call	mfree
+			pop	edi
+			call	newline
+
+	1:
+
+	movzx	ecx, byte ptr [esi]
+	add	esi, ecx
+	jmp	0b
+0:
+	mov	eax, edi
+	call	mfree
+	jnc	3f
+
+2:	printlnc 4, "iso_print_dir_extent: error"
+	stc
+3:
+	pop	eax
+	pop	ecx
+	pop	ebx
+	pop	esi
+	ret
+
+
 
 iso_err$:
 	PRINTLNc 4, "Error reading CD-ROM"

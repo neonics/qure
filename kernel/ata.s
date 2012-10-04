@@ -502,6 +502,7 @@ ata_list_drives:
 
 		mov	ebx, 16	# LBA
 		mov	ecx, 1	# number of sectors
+		mov	edi, ....buffer
 		call	atapi_read12$
 	0:
 	.endif
@@ -1582,6 +1583,7 @@ atapi_read_capacity$:
 	call	atapi_packet_clear$
 	mov	[atapi_packet_opcode], byte ptr ATAPI_OPCODE_READ_CAPACITY
 	mov	esi, offset atapi_packet
+	mov	edi, offset atapi_packet # overwrites...
 	mov	ecx, 8
 	call	atapi_packet_command
 	jc	1f
@@ -1645,6 +1647,7 @@ atapi_print_packet$:
 # in: edx [DCR, Base]
 # in: ebx = LBA
 # in: ecx = nr of sectors (2kb/sect typically)
+# in: edi = buffer
 # out: esi = offset to buffer
 # out: ecx = length of data in buffer
 atapi_read12$:
@@ -1693,6 +1696,7 @@ atapi_packet:
 
 
 ####### ATAPI Packet Command
+# in: al = bus<<1|drive
 # in: edx = [DCR, Base]
 # in: esi = 6 word packet data
 # in: ecx = max transfer size
@@ -1824,6 +1828,7 @@ atapi_packet_command:
 		pop	edx
 	.endif
 
+.if 0 # edi is buffer
 	.data SECTION_DATA_BSS
 		data_buffer$: .long 0
 	.text32
@@ -1835,6 +1840,7 @@ atapi_packet_command:
 	jz	0f
 	call	mfree
 0:
+.endif
 
 	push	ecx
 	push	dx
@@ -1843,7 +1849,9 @@ atapi_packet_command:
 	push	ds
 	pop	es
 	push	edi
+.if 0
 	mov	edi, [data_buffer$]
+.endif
 	inc	ecx
 	shr	ecx, 1
 	.if 0
@@ -1869,7 +1877,11 @@ atapi_packet_command:
 		PRINTln "Data read."
 	.endif
 
+.if 0
 	mov	esi, [data_buffer$]
+.else
+	mov	esi, edi
+.endif
 	clc
 1:	ret
 
