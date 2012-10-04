@@ -248,7 +248,7 @@ pic_mask: .word 0
 		A = \irq_line
 	.else
 		P = IO_PIC2 + 1
-		A = irq_line - 8
+		A = \irq_line - 8
 	.endif
 	in	al, P
 	and	al, ~ ( 1 << A )
@@ -261,7 +261,7 @@ pic_mask: .word 0
 		A = \irq_line
 	.else
 		P = IO_PIC2 + 1
-		A = irq_line - 8
+		A = \irq_line - 8
 	.endif
 	in	al, P
 	or	al, 1 << A

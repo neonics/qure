@@ -3,8 +3,8 @@
 .intel_syntax noprefix
 .code32
 
-ATA_DEBUG = 0
-ATAPI_DEBUG = 1
+ATA_DEBUG = 0		# 0..4
+ATAPI_DEBUG = 0		# 0..3
 
 ATA_MAX_DRIVES = 8	# 4 buses with 2 drives each supported
 
@@ -23,6 +23,8 @@ IO_ATA_QUATERNARY	= 0x168 # - 0x16F DCR: 0x366	(just before SECONDARY)
 # Add these to the IO_ATA_ base:
 ATA_PORT_DATA		= 0
 ATA_PORT_FEATURE	= 1	# write
+  ATA_FEATURE_DMA		= 1 << 0	# 0=PIO, 1=DMA
+  ATA_FEATURE_OVERLAP		= 1 << 1
 ATA_PORT_ERROR		= 1	# read
   ATA_ERROR_BBK			= 0b10000000	# Bad Block
   ATA_ERROR_UNC			= 0b01000000	# Uncorrectable Data Error
@@ -33,6 +35,15 @@ ATA_PORT_ERROR		= 1	# read
   ATA_ERROR_TK0NF		= 0b00000010	# Track 0 Not Found
   ATA_ERROR_AMNF		= 0b00000001	# Address Mark Not Found
 ATA_PORT_SECTOR_COUNT	= 2	# Interrupt Reason register (DRQ)
+  ATAPI_DRQ_CoD			= 1 << 0	# 0: user data; 1: command
+  ATAPI_DRQ_IO			= 1 << 1	# 1=in(dev->host) 0=out(host->dev)
+  ATAPI_DRQ_RELEASE		= 1 << 2	# dev release ata bus before cmd completion
+  ATAPI_DRQ_SERVICE	 	= 0x10
+
+  ATAPI_DRQ_DATAIN		= 0b010
+  ATAPI_DRQ_DATAOUT		= 0b000
+  ATAPI_DRQ_CMDOUT		= 0b001
+
 ATA_PORT_ADDRESS1	= 3	# sector	/ LBA lo
 ATA_PORT_ADDRESS2	= 4	# cylinder low	/ LBA mid    Byte Count
 ATA_PORT_ADDRESS3	= 5	# cylinder hi	/ LBA high   Byte Count
@@ -82,10 +93,56 @@ ATA_PORT_STATUS		= 7	# read
   ATA_STATUS_IDX		= 0b00000010	# IDX index mark
   ATA_STATUS_ERR		= 0b00000001	# ERR error
 ATA_PORT_DCR		= 0x206	# (206-8 for TERT/QUAT) device control register
-  ATA_DCR_nIEN			= 1	# no INT ENable
-  ATA_DCR_SRST			= 2	# software reset (all ata drives on bus)
+  ATA_DCR_0			= 0<<0
+  ATA_DCR_nIEN			= 1<<1	# no INT ENable
+  ATA_DCR_SRST			= 1<<2	# software reset (all ata drives on bus)
+  ATA_DCR_3			= 1<<3
   ATA_DCR_HOB			= 7	# cmd: read High Order Byte of LBA48
 
+##############################################################################
+
+.macro ATA_OUTB reg, val=al
+	.if al != \val
+	mov	al, \val
+	.endif
+
+	.ifc DCR,\reg
+	ror	edx, 16
+	out	dx, al
+	ror	edx, 16
+	.else
+	add	dx, ATA_PORT_\reg
+	out	dx, al
+	sub	dx, ATA_PORT_\reg
+	.endif
+.endm
+
+.macro ATA_INB reg
+	.ifc DCR,\reg
+	ror	edx, 16
+	in	al, dx
+	ror	edx, 16
+	.else
+	add	dx, ATA_PORT_\reg
+	in	al, dx
+	sub	dx, ATA_PORT_\reg
+	.endif
+.endm
+
+.macro ATA_INW reg
+	add	dx, ATA_PORT_\reg
+	in	ax, dx
+	sub	dx, ATA_PORT_\reg
+.endm
+
+.macro ATA_SELECT_DELAY
+	ror	edx, 16
+	in	al, dx
+	in	al, dx
+	in	al, dx
+	in	al, dx
+	ror	edx, 16
+.endm
 
 #########################################################
 # ATA IDENTIFY drive information structure
@@ -433,9 +490,15 @@ ata_list_drives:
 		and	al, 1
 		call	ata_get_ports2$
 	# doesnt yield proper results in virtualbox - the 'transfer size' is -1/0xffff
+		push	eax
 		push	edx
+		push	ecx
+		push	ebx
 		call	atapi_read_capacity$
+		pop	ebx
+		pop	ecx
 		pop	edx
+		pop	eax
 
 		mov	ebx, 16	# LBA
 		mov	ecx, 1	# number of sectors
@@ -443,7 +506,69 @@ ata_list_drives:
 	0:
 	.endif
 	.endif
+
+
+###################################################
+.if 1
+	mov	cx, cs
+	mov	ebx, offset ata_isr1
+	add	ebx, [realsegflat]
+	mov	ax, IRQ_BASE + IRQ_PRIM_ATA
+	call	hook_isr
+
+	mov	cx, cs
+	mov	ebx, offset ata_isr2
+	add	ebx, [realsegflat]
+	mov	ax, IRQ_BASE + IRQ_SEC_ATA
+	call	hook_isr
+
+
+	PIC_ENABLE_IRQ IRQ_PRIM_ATA
+	PIC_ENABLE_IRQ IRQ_SEC_ATA
+
+	# enable IRQ on ATA buses
+	mov	cx, 0x0100
+0:	test	[ata_bus_presence], ch
+	jz	1f
+
+	mov	al, cl
+	call	ata_get_ports$
+	ATA_OUTB DCR, 0 # reset nIEN  // out dx, ax crashes vmware
+
+1:	shl	ch, 1
+	add	cl, 2
+	cmp	cl, ATA_MAX_DRIVES
+	jb	0b
+.endif
+###################################################
 	ret
+
+.data SECTION_DATA_BSS
+ata_irq: .byte 0
+.text32
+ata_isr1:
+	.if ATA_DEBUG > 3
+	DEBUG "ATA ISR1"
+	.endif
+	jmp	1f
+ata_isr2:
+	.if ATA_DEBUG > 3
+	DEBUG "ATA ISR2"
+	.endif
+1:	push	eax
+	push	ds
+	mov	ax, SEL_compatDS
+	mov	ds, ax
+	.if ATA_DEBUG > 2
+		printc 0xcf, "ATA_ISR"
+	.endif
+	inc	byte ptr [ata_irq]
+	mov	al, 0x20
+	out	IO_PIC2, al
+	out	IO_PIC1, al
+	pop	ds
+	pop	eax
+	iret
 
 # in: al = (ata bus << 1) | drive (0 or 1)
 # out: edx = [DCR, Base]
@@ -739,9 +864,9 @@ read$:	call	print
 	COLOR 8
 
 	##################################################
+	mov	dx, [parameters_buffer$ + ATA_ID_CONFIG]
 	.if ATA_DEBUG
 		PRINTc	7, "Word 0: "
-		mov	dx, [parameters_buffer$ + ATA_ID_CONFIG]
 		call	printhex
 	.endif
 
@@ -1018,16 +1143,23 @@ ata_wait_status$:
 		PRINTc	5, "]"
 	.endif
 
-	# by default error bits should be 0
-	or	bh, ATA_STATUS_CORR #| ATA_STATUS_ERR 
+	# error bits are not set by default as ATAPI sometimes has ERR
+	# set before it's ready. Also it interferes with list_drives.
+	#or	bh, ATA_STATUS_CORR #| ATA_STATUS_ERR
 
 	# TODO: when BSY, other bits are meaningless
 	# Also, BSY only valid after 400ns
 	mov	ecx, ATA_WAIT_STATUS_COUNT
 
+	.if 0	# when enabling this, timeouts can occur in VMWare.
+	in	al, dx
+	in	al, dx
+	in	al, dx
+	in	al, dx
+	.endif
 0:	in	al, dx
-	test	al, ATA_STATUS_ERR
-	jnz	1f
+	#test	al, ATA_STATUS_ERR
+	#jnz	1f
 	mov	ah, bh
 	and	ah, al	# test for bits to be 0
 	jnz	2f
@@ -1060,11 +1192,13 @@ ata_wait_status$:
 0:
 	.if ATA_DEBUG > 1
 		pushf
+		cmp	ecx, ATA_WAIT_STATUS_COUNT
+		jz	1f
 		DEBUG "ata_wait_status"
-		neg ecx
-		add ecx, ATA_WAIT_STATUS_COUNT
+		neg	ecx
+		add	ecx, ATA_WAIT_STATUS_COUNT
 		DEBUG_DWORD ecx
-		popf
+	1:	popf
 	.endif
 
 	pop	edx
@@ -1108,7 +1242,6 @@ ata_select_drive$:
 	jc	1f
 
 	# b) host writes device/head register with DEV bit value
-	add	dx, ATA_PORT_DRIVE_SELECT
 	and	al, 1	# mask out bus (if al=bus|drive)
 	shl	al, 4
 	# optionally: for 28bit PIO, low 4 bits = highest 4 bits of LBA
@@ -1116,22 +1249,15 @@ ata_select_drive$:
 	# for 48bit pio: 40 master, 50 slave
 	or	al, 0xA0 	# (B0 for slave)
 	#or	al, 0xef	#  all bits 1, bit 4=0 drive 0, 1=drive 1
-	out	dx, al
-	sub	dx, ATA_PORT_DRIVE_SELECT
+	ATA_OUTB DRIVE_SELECT
 
 	# c) host reads status until BSY=0 and DRDY=1
-	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRDY
+	mov	ax, ((ATA_STATUS_ERR | ATA_STATUS_BSY) << 8) | ATA_STATUS_DRDY
 	call	ata_wait_status$
 	jc	1f
 	
-#	add	dx, ATA_PORT_STATUS - ATA_PORT_DRIVE_SELECT
-#	in	al, dx
-#	sub	dx, ATA_PORT_STATUS
-#	.if ATA_DEBUG > 1
-#		call	ata_print_status$
-#	.endif
-
 	# other addendum: if al=0 then the drive is nonexistent
+	# (and 0x7f seems to indicate the same).
 	or	al, al
 	jnz	1f
 	stc
@@ -1149,21 +1275,6 @@ ata_select_drive$:
 	ret
 
 
-# simulate 400ns delay
-# in: edx = HI = DCR, LO (dx) = base port
-ata_select_delay:
-	push	ax
-	push	edx
-	ror	edx, 16
-	and	dx, 0xff0	# dx = DCR
-	in	al, dx
-	in	al, dx
-	in	al, dx
-	in	al, dx
-	pop	edx
-	pop	ax
-	ret
-
 # in: edx = [DCR, Base]
 ata_software_reset:
 	ror	edx, 16
@@ -1179,6 +1290,7 @@ ata_software_reset:
 ata_dbg$:
 	PRINTc	9 "STATUS["
 	push	dx
+	push	ax
 	add	dx, ATA_PORT_STATUS
 	in	al, dx
 	call	ata_print_status$
@@ -1187,7 +1299,8 @@ ata_dbg$:
 	add	dx, ATA_PORT_ERROR - ATA_PORT_STATUS
 	in	al, dx
 	call	ata_print_error$
-0:	pop	dx
+0:	pop	ax
+	pop	dx
 	PRINTc	9 "]"
 	ret
 
@@ -1446,35 +1559,25 @@ atapi_packet_clear$:
 # out: CF
 atapi_get_capacity:
 	push	ebx
+	push	ecx
+
 	call	ata_is_disk_known
 	jc	9f
 	call	ata_get_ports$
 	jc	9f
 
-	call	atapi_read_capacity$	# out: ebx=lba, eax=blocklen/sectorsize
-	jc	9f
+	call	atapi_read_capacity$	# out: ebx=lba, ecx=blocklen, edx:eax=capacity
 
-	mov	eax, edx
-	inc	ebx
-	mul	ebx
-	dec	ebx
-	PRINT " Capacity: "
-	call	printhex8
-	mov	edx, eax
-	call	printhex8
-	call	newline
-	pop	eax
-
-9:	pop	ebx
+9:	pop	ecx
+	pop	ebx
 	ret
 
 # in: edx = io ports
-# out: ebx = last LBA
-# out: eax = block length
+# out: ecx = block length (typically 0x0800)
+# out: ebx = last LBA (medium size)
+# out: edx:eax = capacity in bytes
 atapi_read_capacity$:
 	push	esi
-	push	ecx
-	push	ebx
 
 	call	atapi_packet_clear$
 	mov	[atapi_packet_opcode], byte ptr ATAPI_OPCODE_READ_CAPACITY
@@ -1482,48 +1585,45 @@ atapi_read_capacity$:
 	mov	ecx, 8
 	call	atapi_packet_command
 	jc	1f
-	.if ATAPI_DEBUG
+
+	.if ATAPI_DEBUG > 1
 		PRINT "Received "
 		mov	edx, ecx
 		call	printdec32
-		PRINT " bytes: "
+		PRINTLN " bytes: "
 	.endif
-	lodsd
-	xchg	al, ah
-	ror	eax, 16
-	xchg	al, ah
-	mov	edx, eax
-	mov	ebx, eax
-	PRINT	"LBA: 0x"
-	call	printhex8
-	lodsd
-	xchg	al, ah
-	ror	eax, 16
-	xchg	al, ah
-	mov	edx, eax
-	PRINT	" Block Length: 0x"
-	call	printhex8
-	call	newline
 
-	push	eax
-	mov	eax, edx
+	mov	ebx, [esi]	# LBA
+	bswap	ebx
+
+	mov	ecx, [esi + 4]	# block length
+	bswap	ecx
+
+	.if ATAPI_DEBUG
+		print	" LBA: "
+		mov	edx, ebx
+		call	printhex8
+		print 	" Block length: "
+		mov	edx, ecx
+		call	printhex8
+	.endif
+
+	mov	eax, ecx
 	inc	ebx
 	mul	ebx
 	dec	ebx
-	PRINT " Capacity: "
-	call	printhex8
-	mov	edx, eax
-	call	printhex8
-	call	newline
-	pop	eax
 
-1:	pop	ebx
-	pop	ecx
-	pop	esi
+	.if ATAPI_DEBUG
+		PRINT " Capacity: "
+		call	print_size
+		call	newline
+	.endif
+
+1:	pop	esi
 	ret
 
-atapi_print_packet$:
 
+atapi_print_packet$:
 	push	dx
 	push	esi
 	mov	ecx, 12
@@ -1542,28 +1642,21 @@ atapi_print_packet$:
 
 
 
-# in: edx [DCR, Base], ebx=LBA
-# read 1 sector
-# out: esi = offset to buffer, ecx = data in buffer
+# in: edx [DCR, Base]
+# in: ebx = LBA
+# in: ecx = nr of sectors (2kb/sect typically)
+# out: esi = offset to buffer
+# out: ecx = length of data in buffer
 atapi_read12$:
 	call	atapi_packet_clear$
 
 	.if ATAPI_DEBUG > 1
-		push	edx
-		mov	edx, ebx
-		PRINT "LBA: "
-		call	printhex8
-		pop	edx
-
-		mov	esi, offset atapi_packet
-		call	atapi_print_packet$
-		call	newline
+		DEBUG "atapi_read12 LBA"
+		DEBUG_DWORD ebx
 	.endif
 
 	# convert to MSB:
-	xchg	bl, bh
-	ror	ebx, 16
-	xchg	bl, bh
+	bswap	ebx
 
 	mov	[atapi_packet_opcode], byte ptr ATAPI_OPCODE_READ
 	mov	[atapi_packet_LBA], ebx
@@ -1574,7 +1667,7 @@ atapi_read12$:
 	call	atapi_packet_command
 	ret
 
-.data
+.data SECTION_DATA_BSS
 atapi_packet: 
 	atapi_packet_opcode: .byte 0
 		# bits 7,6,5: group code
@@ -1595,6 +1688,7 @@ atapi_packet:
 	# - db opcode
 	# - dd lba
 	# - dd transfer length (or dw)
+	.long 0	# config WORD 0 may indicate 16 byte packet structure
 .text32
 
 
@@ -1607,13 +1701,18 @@ atapi_packet_command:
 	cmp	ecx, ATAPI_SECTOR_SIZE
 	jbe	0f
 
-	PRINTc	4, "ATAPI Packet Command: Transfer length too large"
+	PRINTLNc 4, "atapi_packet_command: Transfer length too large"
 	stc
 	ret
 0:
-	.if ATAPI_DEBUG > 1
+	mov	byte ptr [ata_irq], 0
+
+	.if ATAPI_DEBUG > 2
 		PRINT "Select Drive "
+		DEBUG_BYTE al
+		DEBUG_DWORD edx
 	.endif
+
 	call	ata_select_drive$
 	jc	ata_timeout$
 
@@ -1621,84 +1720,30 @@ atapi_packet_command:
 	call	ata_wait_status$
 	jc	ata_timeout$
 
-	.if ATAPI_DEBUG > 1
-		call	ata_dbg$
-		call	newline
+	ATA_OUTB FEATURE, 0	# 0=PIO 1=DMA
+	ATA_OUTB ADDRESS2, cl	# byte count
+	ATA_OUTB ADDRESS3, ch
+	ATA_OUTB COMMAND, ATAPI_COMMAND_PACKET
 
-		PRINT "PIO Mode "
-	.endif
+	# dev sets BSY before status read
+	# dev sets CoD, clears RELEASE, IO when ready to accept command packet
+	# DRQ asserted
 
-	push	dx
-	add	dx, ATA_PORT_FEATURE 
-	mov	al, 0	# 0 = PIO, 1 = DMA
-	out	dx, al
-	pop	dx
+	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
+	call	ata_wait_status$
+	jc	ata_timeout$
 
-	.if ATAPI_DEBUG > 1
-		call	ata_dbg$
-		call	newline
-
-		PRINT "Transfer Size "
-	.endif
-
-	push	dx
-	add	dx, ATA_PORT_ADDRESS2
-	mov	ax, cx
-	out	dx, ax
-	pop	dx
-
-	.if ATAPI_DEBUG > 1
-		call	ata_dbg$
-		call	newline
-
-		PRINT "Command PACKET "
-	.endif
-
-	# Send command
-	push	dx
-	add	dx, ATA_PORT_COMMAND
-	mov	al, ATAPI_COMMAND_PACKET
-	out	dx, al	# write command
-	in	al, dx	# read status
-	pop	dx
-
-	.if ATAPI_DEBUG > 1
+	.if ATAPI_DEBUG > 2
 		call	ata_dbg$
 		call	newline
 	.endif
 	
-	# TODO: check IO clear and CoD set
+	# check IO clear and CoD set
+	ATA_INB SECTOR_COUNT
+	cmp	al, ATAPI_DRQ_CMDOUT
+	jnz	atapi_drq_reason_mismatch$
 
-	.macro WAIT_DATAREADY errlabel
-		.if ATAPI_DEBUG > 1
-			PRINT "Wait ready "
-		.endif
-		mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRQ
-		call	ata_wait_status$
-		jc	ata_timeout$
-
-		.if ATA_DEBUG > 1
-			call	ata_dbg$
-		.endif
-		# DRQ is set, so read size:
-		push	dx
-		add	dx, ATA_PORT_ADDRESS2
-		in	ax, dx
-		mov	dx, ax
-		.if ATAPI_DEBUG > 1
-			PRINT "Transfer size: "
-			call	printhex4
-			call	newline
-		.endif
-		pop	dx
-		cmp	ax, -1
-		stc
-		jz	\errlabel
-	.endm
-
-	WAIT_DATAREADY 1f
-
-	.if ATAPI_DEBUG > 1
+	.if ATAPI_DEBUG > 2
 		PRINT "Write Packet "
 		push	dx
 		push	esi
@@ -1723,26 +1768,63 @@ atapi_packet_command:
 	pop	ecx
 	pop	dx
 
-	.if ATA_DEBUG > 1
+	.if ATAPI_DEBUG > 2
 		call	ata_dbg$
 	.endif
 
+	# device clears DRQ (when 6th word written), sets BSY, reads features/bytecount,
+	# prepares release of ATA bus or bus transfer.
+	# IF not cfg specifies to gen int after accepting packet cmd data,
+	# device may not release ata bus, and moves to data transfer, DRQ=1,CoD=0,IO=0
+	# ELSE clears IO, CoD, DRQ, BSY. When ready, device sets SERVICE in ATAPI STATUS
+	# register, DRQ, INTRQ. On INTRQ read status, send Service 0xa2 command.
+	# When dev ready, CYL hi/lo contians data count, SERVICE cleared, IO set, CoD
+	# clear, DRQ set, BSY clear.
+
 	# TODO: check IO set and CoD clear
-	WAIT_DATAREADY 1f
 
-	xor	ecx, ecx
-	mov	cx, ax
+	call	ata_wait_irq
+	jc	ata_timeout$
+	#WAIT_DATAREADY 1f
 
-	.if ATAPI_DEBUG > 1
+	.if ATAPI_DEBUG > 2
+		call ata_dbg$
+	.endif
+
+	ATA_INB SECTOR_COUNT	# (DRQ) interrupt reason
+	.if ATAPI_DEBUG > 2
+		DEBUG "DRQ Reason:"
+		DEBUG_BYTE al
+		PRINTFLAG al, ATAPI_DRQ_CoD, "CMD", "DATA"
+		PRINTFLAG al, ATAPI_DRQ_IO, "IN", "OUT"
+		PRINTFLAG al, ATAPI_DRQ_RELEASE, "RELEASE"
+	.endif
+	cmp	al, ATAPI_DRQ_DATAIN
+	jnz	atapi_drq_reason_mismatch$
+
+	xor	eax, eax	# clear high word for malloc
+	ATA_INB ADDRESS3
+	mov	ah, al
+	ATA_INB ADDRESS2
+
+	movzx	ecx, ax
+	or	ecx, ecx
+	jnz	1f
+	printlnc 4, "atapi_packet_command: error: transfer size 0"
+	stc
+	ret
+1:
+
+	.if ATAPI_DEBUG > 2
 		push	edx
 		mov	edx, ecx
 		PRINT "Reading "
 		call	printdec32
-		PRINT " bytes"
+		PRINT " bytes "
 		pop	edx
 	.endif
 
-	.data
+	.data SECTION_DATA_BSS
 		data_buffer$: .long 0
 	.text32
 
@@ -1760,6 +1842,7 @@ atapi_packet_command:
 	push	es
 	push	ds
 	pop	es
+	push	edi
 	mov	edi, [data_buffer$]
 	inc	ecx
 	shr	ecx, 1
@@ -1769,6 +1852,7 @@ atapi_packet_command:
 	.else
 	rep	insw
 	.endif
+	pop	edi
 	pop	es
 	pop	dx
 	pop	ecx
@@ -1789,6 +1873,43 @@ atapi_packet_command:
 	clc
 1:	ret
 
+# jump target for when SECTOR_COUNT register (ATAPI DRQ Reason) shows 
+# unexpected value (i.e. OUT vs IN, CMD vs DATA, or RELEASE when not expected).
+atapi_drq_reason_mismatch$:
+	printlnc 4, "atapi_drq_reason_mismatch"
+	stc
+	ret
+
+#######
+ATA_WAIT_IRQ_TIMEOUT = 0x100000	# high timeout for ATAPI
+ata_wait_irq:
+	push	ecx
+	mov	ecx, ATA_WAIT_IRQ_TIMEOUT
+
+	.if ATA_DEBUG > 2
+		DEBUG "ata_wait_irq:"
+		DEBUG_BYTE [ata_irq]
+	.endif
+
+1:	cmp	byte ptr [ata_irq], 0
+	jnz	1f
+	pause
+	loop	1b
+	printc 4, "ata_wait_irq: timeout"
+	stc
+	pop	ecx
+	ret
+1:	.if ATA_DEBUG > 2
+		DEBUG "ata_wait_irq: Got IRQ"
+		neg	ecx
+		add	ecx, ATA_WAIT_IRQ_TIMEOUT
+		DEBUG_DWORD ecx
+		DEBUG_BYTE [ata_irq]
+	.endif
+	mov	byte ptr [ata_irq], 0
+	pop	ecx
+	clc
+	ret
 
 
 ##############################################################################

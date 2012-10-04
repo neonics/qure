@@ -115,6 +115,7 @@ SHELL_COMMAND "gpf"		cmd_gpf
 SHELL_COMMAND "colors"		cmd_colors
 
 SHELL_COMMAND "debug"		cmd_debug
+SHELL_COMMAND "pic"		cmd_pic
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -1466,3 +1467,9 @@ cmd_debug:
 
 	ret
 
+cmd_pic:
+	call	pic_get_mask32
+	mov	dx, ax
+	call	printbin16
+	call	newline
+	ret

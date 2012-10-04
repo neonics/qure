@@ -2,6 +2,16 @@
 # ISO 9660 File System
 #
 .intel_syntax noprefix
+
+##############################################################################
+
+ISO9660_VOLDESC_BOOT		= 0
+ISO9660_VOLDESC_PRIMARY		= 1
+ISO9660_VOLDESC_ENHANCED	= 2
+ISO9660_VOLDESC_PARTITION	= 3
+
+
+##############################################################################
 .data
 fs_iso9660_class:
 .long fs_iso9660_mount
@@ -64,46 +74,86 @@ iso9660_test:
 	.endif
 	# load edx with the ports
 	call	ata_get_ports$
-	DEBUG_DWORD edx
 
 
 ##################################################################
+	.if 0 # this works in qemu and vmware
+	println "read capacity"
+	DEBUG_BYTE al
+	push	edx
+	push	eax
+	call	atapi_read_capacity$
+	pop	eax
+	pop	edx
+	.endif
 
+	println "read volume descriptor"
 	# Read Primary Volume Descriptor
-
 	mov	ebx, 16	# LBA
+	mov	ecx, 1 	# sectors
+
 	call	atapi_read12$
 	jc	iso_err$
 
+################################################################
 	PRINTc	11, "Volume descriptor type: "
 	push	edx
-	mov	dl, [esi]
+	movzx	edx, byte ptr [esi]
 	call	printhex2
-	pop	edx
-
+	call	printspace
+	cmp	dl, 4
+	jae	1f
+	.data
+	iso9660_voldesc_labels$:
+	STRINGPTR "Boot Record"
+	STRINGPTR "Primary Volume Descriptor"
+	STRINGPTR "Supplementary/Enhanced Volume Descriptor"
+	STRINGPTR "Volume Partition Descriptor"
+	.text32
+	push	esi
+	mov	esi, [iso9660_voldesc_labels$ + edx * 4]
+	call	print
+	pop	esi
+	jmp	2f
+1:	printc 4, "[reserved]"
+2:	pop	edx
 	call	newline
+################################################################
+	cmp	byte ptr [esi], ISO9660_VOLDESC_BOOT
+	jz	iso_print_boot$
+	cmp	byte ptr [esi], ISO9660_VOLDESC_PRIMARY
+	jz	iso_print_primary$
+	cmp	byte ptr [esi], ISO9660_VOLDESC_ENHANCED
+	jz	iso_print_enhanced$
+	cmp	byte ptr [esi], ISO9660_VOLDESC_PARTITION
+	jz	iso_print_partition$
+	ret
+################################################################
+iso_print_boot$:
+iso_print_enhanced$:
+iso_print_partition$:
+	ret
+
+
+################################################################
+iso_print_primary$:
 	PRINTc	11, "Standard Identifier: "
 	mov	ecx, 5
-	push	esi
 	inc	esi
 	call	nprint
-	pop	esi
+	dec	esi
 	call	newline
-
-	xor	ebx, ebx
-	mov	bx, [esi + 140]	# LSB path table location
-	DEBUG_WORD bx
+################################################################
+	movzx	ebx, word ptr [esi + 140]	# LSB path table location
 	call	atapi_read12$
 	jc	iso_err$
 
 	# print directory structure
 
 	xor	ebx, ebx
-	xor	ecx, ecx
 0:
-	mov	cl, [esi+ebx]	# directory identifier len
-	or	cl, cl
-	jz	1f
+	movzx	ecx, byte ptr [esi + ebx]	# directory identifier len
+	jecxz	1f
 
 	push	esi
 	add	esi, 8
@@ -118,9 +168,9 @@ iso9660_test:
 	PRINTLN "'"
 	pop	esi
 
-	add	ebx, 8
-	add	ebx, ecx
-	and	ecx, 1
+	add	ebx, 8		# directory identifier length identifier (msb and lsb)
+	add	ebx, ecx	# dir ident len
+	and	ecx, 1		# align
 	add	ebx, ecx
 	jmp	0b
 1:	

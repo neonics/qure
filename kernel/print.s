@@ -72,6 +72,8 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 .macro PRINT_START c=0, char=0
 	push	ax
+	pushf	# prevent interrupts during es != ds
+	cli
 	push	es
 	push	edi
 	movzx	edi, word ptr [screen_sel]
@@ -98,6 +100,8 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 
 .macro PRINT_START_ c=0, char=0
+	pushf	# prevent interrupts during es != ds
+	cli
 	push	es
 	push	edi
 	movzx	edi, word ptr [screen_sel]
@@ -141,6 +145,7 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 
 	pop	edi
 	pop	es
+	popf
 .endm
 
 
