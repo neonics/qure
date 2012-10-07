@@ -60,6 +60,8 @@ DEFINE = 1
 .include "hash.s"
 .include "string.s"
 
+.include "schedule.s"
+
 .include "token.s"
 .include "shell.s"
 

@@ -322,3 +322,5 @@ TODO: offload screen writing in interrupts
   Thus i suspect that on memory access vmware steps in and does a screen update.
 
   See DOC/TaskSwitching.txt
+
+BUG: On resume after hibernate of host os, qemu's nic irq/scheduler doesn't trigger.

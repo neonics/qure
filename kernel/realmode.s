@@ -147,6 +147,7 @@ CHAIN_RETURN_RM_KERNEL = 1
 # in: ds:cx = ramdisk address
 # in: 0:ebx = kernel load end
 realmode_kernel_entry:
+	int	1	# trigger debugger from pmode - when eip=0
 	push	cx
 	mov	ax, 0x0f00
 	xor	di, di

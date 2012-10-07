@@ -48,11 +48,15 @@ IDT:
 DEFIDT 0, SEL_flatCS, ACC_PR+ACC_RING0+ACC_SYS+IDT_ACC_GATE_INT32
 .endr
 
+
+
+IRQ_PROXIES = 1	# Experimental!
+
 .text32
 
-# in: ax: interrupt number (at current: al, as the IDT only has 256 ints)
-#     cx: segment selector
-#     ebx: offset
+# in: ax = interrupt number (at current: al, as the IDT only has 256 ints)
+# in: cx = segment selector
+# in: ebx = offset
 hook_isr:
 	pushf
 	cli
@@ -69,6 +73,26 @@ hook_isr:
 		I2	" @ "
 	.endif
 
+.if IRQ_PROXIES
+	push	eax
+	push	edx
+
+	.if 0 # if len = 9: pushf; lcall; iret
+	mov	edx, eax
+	shl	eax, 3
+	add	eax, edx	# * 9
+	.else # len = 15
+	shl	eax, 4
+	.endif
+
+	mov	[irq_proxies + eax + 2], ebx
+	mov	[irq_proxies + eax + 6], cx
+	mov	cx, cs
+	lea	ebx, [irq_proxies + eax]
+	pop	edx
+	pop	eax
+.endif
+
 	shl	eax, 3
 	add	eax, offset IDT
 
@@ -82,7 +106,7 @@ hook_isr:
 		call	newline
 		pop	edx
 	.endif
-	
+
 	mov	[eax], bx
 	mov	[eax+2], cx
 	mov	[eax+4], word ptr (ACC_PR + IDT_ACC_GATE_INT32 ) << 8
@@ -107,6 +131,21 @@ isr_jump_table:
 		.endif
 		INT_NR = INT_NR + 1
 	.endr
+
+.if IRQ_PROXIES
+irq_proxies:
+INT_NR = 0
+.rept 256
+	# size 16
+	pushf
+	lcall	SEL_compatCS, jmp_table_target + JMP_ENTRY_LEN * INT_NR	# 7
+	jmp	schedule	# needs to do iret! see schedule.s
+	nop
+	nop
+	nop
+INT_NR = INT_NR + 1
+.endr
+.endif
 
 .data
 # Faults: correctable; CS:EIP point to faulting instruction
@@ -301,6 +340,47 @@ jmp_table_target:
 	PRINT " Flags: "
 	mov	edx, ss:[SR_FLAGS]
 	call	printhex8
+	call	printspace
+	PRINTFLAG edx, 1 << 21, "ID "	# CPUID available (pentium+)
+	PRINTFLAG edx, 1 << 20, "VIP "	# virtual interrupt pending (pentium+)
+	PRINTFLAG edx, 1 << 19, "VIF "	# virtual interrupt flag (pentium+)
+	PRINTFLAG edx, 1 << 18, "AC "	# alignment check (486SX+)
+	PRINTFLAG edx, 1 << 17, "VM "	# virtual 8086 mode (386+)
+	PRINTFLAG edx, 1 << 16, "RF "	# resume flag (386+)
+
+	PRINTFLAG dx, 1 << 15, "XT "	# reserved: 1 for 8086/80186, 0 for above
+	PRINTFLAG dx, 1 << 14, "NT "	# Nested task (1 for 8086/80186)
+	printc	13, "IOPL "
+	push	edx
+	shr	edx, 12
+	and	edx, 3
+	call	printhex1
+	pop	edx
+	call	printspace
+
+	.macro PRINTFLAGc_ reg, bit, char
+		mov	al, \char
+		test	\reg, \bit
+		jnz	77f
+		color	8
+		or	al, 0x20	# lowercase
+		jmp	78f
+	77:	color	7
+	78:	call	printchar
+	.endm
+
+	PRINTFLAGc_ dx, 1 << 11, 'O'	# overflow
+	PRINTFLAGc_ dx, 1 << 10, 'D'	# direction
+	PRINTFLAGc_ dx, 1 << 9, 'I'	# interrupt enable
+	PRINTFLAGc_ dx, 1 << 8, 'T'	# trap (single step)
+	PRINTFLAGc_ dx, 1 << 7, 'S'	# sign
+	PRINTFLAGc_ dx, 1 << 6, 'Z'	# zero
+	# reserved: 0
+	PRINTFLAGc_ dx, 1 << 4, 'A'	# adjust
+	# reserved: 0
+	PRINTFLAGc_ dx, 1 << 2, 'P'	# parity
+	# reserved: 1
+	PRINTFLAGc_ dx, 1 << 0, 'C'	# carry
 
 	call	newline
 
@@ -509,7 +589,7 @@ call newline
 	printlnc 9, " flags"
 	add	ebp, 4
 
-	mov	ecx, 10 # 16
+	mov	ecx, 5#10 # 16
 0:	mov	edx, ebp
 	color	12
 	call	printhex8
