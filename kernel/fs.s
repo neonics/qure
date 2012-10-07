@@ -205,11 +205,12 @@ cmd_mount$:
 	printc 14, "disk "
 	movzx	edx, al
 	call	printdec32
+	cmp	ah, -1
+	jz	1f
 	printc 14, " partition "
 	movzx	edx, ah
 	call	printdec32
-	call	printspace
-
+1:	call	printspace
 
 	# load the partition table for the disk
 	push	esi
@@ -318,9 +319,13 @@ fs_load$:
 	push	ebx
 	push	ecx
 	push	edx
-	ARRAY_LOOP [fs_classes], 8, ebx, edx, 9f
+	ARRAY_LOOP [fs_classes], 4, ebx, edx, 9f
 	mov	ecx, [ebx + edx]
+	push	ebx
+	push	edx
 	call	[ecx + fs_api_mount]
+	pop	edx
+	pop	ebx
 	jnc	0f
 1:	ARRAY_ENDL
 
@@ -352,6 +357,13 @@ mtab_print$:
 	printc_	8, " fs "
 	mov	dl, [ebx + ecx + mtab_fs]
 	call	printhex2
+	call	printspace
+	color 14
+	mov	esi, [ebx + ecx + mtab_fs_instance]
+	mov	esi, [esi + fs_obj_class]
+	mov	esi, [esi + fs_api_label]
+	call	print
+	color 7
 	printc_	8, " (disk "
 	mov	dl, byte ptr [ebx + ecx + mtab_disk]
 	call	printdec32
@@ -424,6 +436,7 @@ cmd_umount$:
 # in: ebx = fs-specific handle from previous call or -1 for root directory
 ###################################################
 .struct 0
+fs_api_label:	.long 0	# short filesystem name
 # in: ax: al = disk ah = partition
 # in: esi = partition table pointer
 # out: eax: class instance (object)
@@ -438,6 +451,7 @@ fs_api_open:	.long 0
 fs_api_close:	.long 0
 fs_api_nextentry:.long 0
 fs_api_read:	.long 0	# ebx=filehandle, edi=buf, ecx=size
+FS_API_NUM_METHODS = (. - fs_api_mount) / 4
 FS_API_STRUCT_SIZE = .
 
 ###################################################
@@ -446,14 +460,16 @@ FS_API_STRUCT_SIZE = .
 fs_obj_class:		.long 0	# pointer to fs_class (array of fs_api methods)
 fs_obj_disk:		.byte 0
 fs_obj_partition:	.byte 0
+fs_obj_sector_size:	.long 0 # 512 for ATA, 2048 for ATAPI generally
 fs_obj_p_start_lba:	.long 0, 0
 fs_obj_p_size_sectors:	.long 0, 0
 fs_obj_p_end_lba:	.long 0, 0
 fs_obj_methods:		.space FS_API_STRUCT_SIZE
 FS_OBJ_STRUCT_SIZE = .
-
+###################################################
 .data
-fs_classes:	.long 0	# array: [class_ptr, string]*
+fs_classes:	.long 0	# ptr_array of class_ptr
+###################################################
 .text32
 
 fs_init:
@@ -463,40 +479,40 @@ fs_init:
 	mov	[fs_classes], eax
 
 	mov	ebx, offset fs_root_class
-	LOAD_TXT "root"
 	call	fs_register_class
 
 	mov	ebx, offset fs_fat16_class
-	LOAD_TXT "fat16"
+	call	fs_register_class
+
+	mov	ebx, offset fs_iso9660_class
 	call	fs_register_class
 
 	mov	ebx, offset fs_sfs_class
-	LOAD_TXT "sfs"
 	call	fs_register_class
 	ret
 
 
 fs_list_filesystems:
-	ARRAY_LOOP [fs_classes], 8, eax, ebx, 9f
+	ARRAY_LOOP [fs_classes], 4, eax, ebx, 9f
 	printc	11, "fs: "
 	mov	edx, [eax + ebx]
 	call	printhex8
 	call	printspace
-	mov	esi, [eax + ebx + 4]
+	pushcolor 14
+	mov	esi, [edx + fs_api_label]
 	call	println
+	popcolor
 	ARRAY_ENDL
 9:	ret
 
 
 fs_register_class:
-	mov	ecx, 8
-	call	array_newentry
+	call	ptr_array_newentry
 	mov	[fs_classes], eax
 	add	edx, eax
-	mov	[edx + 0], ebx	# class ptr
-	mov	[edx + 4], esi	# name
+	mov	[edx], ebx	# class ptr
 	mov	edx, [realsegflat]
-	mov	ecx, FS_API_STRUCT_SIZE / 4
+	mov	ecx, FS_API_NUM_METHODS
 0:	add	[ebx + ecx * 4 - 4], edx
 	loop	0b
 	ret
@@ -511,6 +527,7 @@ fs_unmount:
 #############################################################################
 .data
 fs_root_class:	# declaration of fs_api for fs_root class
+	STRINGPTR "root"
 	.long fs_root_mount$
 	.long fs_root_umount$
 	.long fs_root_open$
@@ -546,6 +563,7 @@ fs_root_open$:
 0:	mov	ebx, -1	# indicates root
 	mov	byte ptr [edi + fs_dirent_attr], 0x10
 	mov	word ptr [edi + fs_dirent_name], '/'
+	clc
 	ret
 
 fs_root_close$:
@@ -572,18 +590,20 @@ fs_root_read$:
 .struct 0
 fs_dirent_name: .space 255
 fs_dirent_attr:	.byte 0		# RHSVDA78
+  FS_DIRENT_ATTR_DIR = 1 << 4
 fs_dirent_size:	.long 0, 0
 FS_DIRENT_STRUCT_SIZE = .
 .text32
 
 
 .struct 0			# index bits available:
-fs_handle_label:	.long 0	# total 2
-fs_handle_mtab_idx:	.long 0 # total 3
-fs_handle_dir:		.long 0 # total 2
-fs_handle_dir_iter:	.long 0 # total 4
-fs_handle_dir_size:	.long 0 # total 2
-fs_handle_buf:		.long 0
+fs_handle_parent:	.long 0 # total 2
+fs_handle_label:	.long 0	# total 3
+fs_handle_mtab_idx:	.long 0 # total 2
+fs_handle_dir:		.long 0 # total 4
+fs_handle_dir_iter:	.long 0 # total 2
+fs_handle_dir_size:	.long 0 # total 3?
+fs_handle_buf:		.long 0 # total 4?
 fs_handle_dirent:	.space FS_DIRENT_STRUCT_SIZE
 FS_HANDLE_STRUCT_SIZE = .
 
@@ -654,10 +674,10 @@ fs_handle_printinfo:
 	mov	edx, [eax + ebx + fs_handle_dir]
 	call	printhex8
 
-.if 0
-	printc	10, " Flags: "
-	mov	dl, al
-	call	printbin2
+.if 1
+	printc	10, " attr: "
+	mov	dl, [eax + ebx + fs_handle_dirent + fs_dirent_attr]
+	call	printhex2
 .endif
 
 	mov	esi, [eax + ebx + fs_handle_label]
@@ -759,30 +779,42 @@ fs_nextentry:
 	jmp	0b
 
 # in: eax = handle
-# in: edi = buffer
-# in: ecx = bytes to read/max buf size
+# out: esi = buffer
+# out: ecx = bytes to read/max buf size
 fs_handle_read:
 	push	eax
+	push	edi
+	push	edx
 	call	fs_validate_handle
 	jc	9f
 
 	mov	edi, [eax + edx + fs_handle_buf]
 	or	edi, edi
-	jnz	0f
+	jnz	1f
 	push	eax
 	mov	eax, [eax + edx + fs_handle_dirent +  fs_dirent_size]
-	add	eax, 511
-	and	eax, 0xfffffe00
+#	add	eax, 511
+#	and	eax, 0xfffffe00
+	add	eax, 2048	# ATAPI bufsize, just in case
+	and	eax, ~2047
 	call	malloc
 	mov	edi, eax
 	pop	eax
+	jc	0f
+
 	mov	[eax + edx + fs_handle_buf], edi
-0:
+1:
 	mov	ecx, [eax + edx + fs_handle_dirent +  fs_dirent_size]
 	mov	ebx, [eax + edx + fs_handle_dir]
+	push	ecx
+	push	edi
 	FS_HANDLE_CALL_API read, edx	# in: ebx=handle, edi,ecx = buf
+	pop	esi
+	pop	ecx
 
-0:	pop	eax
+0:	pop	edx
+	pop	edi
+	pop	eax
 	ret
 9:	printc 4, "fs_handle_read: unknown handle"
 	stc
@@ -834,15 +866,18 @@ fs_validate_handle:
 	mov	eax, [fs_handles$]
 	or	eax, eax
 	jz	1f
+
 	cmp	edx, [eax + array_index]
 	jae	1f
 
 	cmp	[eax + edx + fs_handle_label], dword ptr -1
 	jz	1f
+
 	clc
 	ret
 1:	stc
 	ret
+
 
 # in: eax = handle index
 fs_close:	# fs_free_handle
@@ -870,7 +905,11 @@ fs_close:	# fs_free_handle
 	# mark filesystem handle as free
 	mov	[eax + edx + fs_handle_label], dword ptr -1
 
+	mov	ebx, [eax + edx + fs_handle_dir]
+	push	edi
+	lea	edi, [eax + edx + fs_handle_dirent]
 	FS_HANDLE_CALL_API close, ecx
+	pop	edi
 
 0:	mov	eax, -1
 	pop	ecx
@@ -917,6 +956,7 @@ fs_opendir:
 	push	edx
 	push	esi
 	push	edi
+	push	dword ptr -1	# space for last handle
 	mov	ebp, esp
 	push	eax				# [ebp - 4] = full path
 	sub	esp, FS_HANDLE_STRUCT_SIZE	# [ebp -4-FS_HANDLE_STRUCT_SIZE]
@@ -938,7 +978,9 @@ fs_opendir:
 	# special case. strtok will skip '/'.
 	# assume [esi]='/'
 	mov	ecx, 1
+	push	esi
 	call	handle_pathpart$
+	pop	esi
 ###############################################
 
 	xor	ecx, ecx
@@ -948,7 +990,41 @@ fs_opendir:
 	push	esi	# preserve for next strtok call
 	push	ecx
 
+		# todo: clear stack handle
+		# copy path so far:
+		push	ecx
+		push	esi
+		push	edi
+		add	ecx, esi
+		mov	eax, [ebp - 4]
+		sub	ecx, eax
+		call	strndup	# in: eax, ecx; out: eax
+		lea	edi, [ebp - 4 - FS_HANDLE_STRUCT_SIZE + fs_handle_label]
+		stosd
+		pop	edi
+		pop	esi
+		pop	ecx
+
 	call	handle_pathpart$
+		jc	2f
+		# allocate handle for each subdir
+		call	fs_new_handle$	# out: eax + edx
+		jc	2f	# TODO: also dealloc handle_pathparth's ebx
+		push	edi
+		lea	edi, [eax + edx]
+		lea	esi, [ebp - 4 - FS_HANDLE_STRUCT_SIZE]
+		mov	ecx, FS_HANDLE_STRUCT_SIZE
+		rep	movsb
+		mov	ecx, eax
+		#mov	eax, [ebp - 4]
+		#call	strdup	# in: eax; out: eax
+		#mov	[ecx + edx + fs_handle_label], eax
+		mov	eax, [ebp]
+		mov	[ecx + edx + fs_handle_parent], eax
+		mov	[ebp], edx # store last handle
+		pop	edi
+		clc
+	2:
 
 	pop	ecx
 	pop	esi
@@ -958,21 +1034,26 @@ fs_opendir:
 	jmp	9f
 
 1:	# end of path found. done.
-	# copy the fs_handle on the stack to a new entry
-	call	fs_new_handle$	# out: eax + edx
-	jc	9f
-	lea	edi, [eax + edx]
-	lea	esi, [ebp - 4 - FS_HANDLE_STRUCT_SIZE]
-	mov	ecx, FS_HANDLE_STRUCT_SIZE
-	rep	movsb
-	mov	ecx, eax
-	mov	eax, [ebp - 4]
-	call	strdup
-	mov	[ecx + edx + fs_handle_label], eax
-	mov	eax, edx
+
+	.if 0
+		# copy the fs_handle on the stack to a new entry
+		call	fs_new_handle$	# out: eax + edx
+		jc	9f
+		lea	edi, [eax + edx]
+		lea	esi, [ebp - 4 - FS_HANDLE_STRUCT_SIZE]
+		mov	ecx, FS_HANDLE_STRUCT_SIZE
+		rep	movsb
+		mov	ecx, eax
+		mov	eax, [ebp - 4]
+		call	strdup	# in: eax; out: eax
+		mov	[ecx + edx + fs_handle_label], eax
+		mov	eax, edx
+	.endif
+	mov	eax, [ebp] # get last handle
 	clc
 
 9:	mov	esp, ebp
+	pop	edi	# pop space for last handle
 	pop	edi
 	pop	esi
 	pop	edx
@@ -1022,13 +1103,18 @@ handle_pathpart$:
 		mov	esi, [mtab]
 		mov	esi, [esi + eax + mtab_mountpoint]
 		call	print
+		DEBUG_DWORD eax
 		pop	esi
 	.endif
 
 	mov	[edi + fs_handle_mtab_idx], eax
 	mov	[edi + fs_handle_dir], dword ptr -1	# filehandle
-	clc
-	jmp	3f
+
+	# open mountpoint-relative root:
+	push	ebp
+	mov	ebp, esp
+	push	dword ptr '/'	# keep stack align
+	jmp	4f
 
 2:	cmp	dword ptr [edi + fs_handle_mtab_idx], -1
 	jz	1f
@@ -1045,7 +1131,7 @@ handle_pathpart$:
 	mov	byte ptr [edi], 0
 	pop	edi
 	#######	prepare args, call filesystem api
-	mov	esi, esp			# in: esi = file/dirname pointer
+4:	mov	esi, esp			# in: esi = file/dirname pointer
 	mov	eax, [mtab]
 	add	eax, [edi + fs_handle_mtab_idx]
 	mov	eax, [eax + mtab_fs_instance]	# in: eax = fs_instance
@@ -1062,8 +1148,7 @@ handle_pathpart$:
 	#######
 	jc	1f
 	mov	[edi + fs_handle_dir], ebx	# out: ebx = fs specific handle
-	clc
-	jmp	2f
+	ret
 
 1:	printc 12, "File not found: "
 	push	ecx
@@ -1075,8 +1160,7 @@ handle_pathpart$:
 	pop	esi
 	pop	ecx
 	stc
-2:
-3:	ret
+2:	ret
 
 ###############################################################################
 # Utility functions

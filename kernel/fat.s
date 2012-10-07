@@ -77,6 +77,7 @@ FS_FAT_DEBUG = 0
 # fs_fat class - virtual method pointers:
 .data
 fs_fat16_class:
+STRINGPTR "fat16"
 .long fs_fat16b_mount	# constructor
 .long fs_fat16b_umount	# destructor
 .long fs_fat16_open
@@ -619,7 +620,6 @@ cmd_fat_handles:
 # in: edi = fs dir entry struct (to be filled in)
 # out: ebx = directory/file handle
 fs_fat16_open:
-
 	.if FS_FAT_DEBUG > 1
 		DEBUG "fs_instance"
 		DEBUG_DWORD eax
@@ -1201,20 +1201,6 @@ fs_fat16_read:
 	pop	ebx
 	pop	eax
 	jc	9f
-
-	push	esi
-	mov	esi, edi
-0:	lodsb
-	cmp	al, '\r'
-	jz	1f
-	cmp	al, '\n'
-	jnz	2f
-	call	newline
-	jmp	1f
-2:	call	printchar
-1:	loop	0b
-	pop	esi
-	call	newline
 	ret
 9:	printc 4, "fs_fat16_read: read error"
 	stc

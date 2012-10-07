@@ -30,19 +30,24 @@
 
 .macro MORE
 .if 1
+	pushf
+	sti
 	push	eax
 	call	newline
 	call	newline
 	sub	[screen_pos], dword ptr 160
 	PUSH_SCREENPOS
 	PRINTc 0xf1, " --- More ---"
-	xor	ah, ah
+0:	xor	ah, ah
 	call	keyboard
+	cmp	ax, K_ENTER
+	jnz	0b
 	POP_SCREENPOS
 	PUSH_SCREENPOS
 	PRINT "             "
 	POP_SCREENPOS
 	pop	eax
+	popf
 .else
 	call	newline
 	PRINT_START 0xf1
@@ -118,7 +123,7 @@ DEBUG_DWORD \r
 	pushcolor DEBUG_COLOR1
 	print	"\r8="
 	color	DEBUG_COLOR2
-	.if \r8 == dl
+	.ifc dl,\r8
 	call	printhex2
 	.else
 	push	edx
@@ -136,13 +141,13 @@ DEBUG_DWORD \r
 	pushcolor DEBUG_COLOR1
 	print	"\r16="
 	color	DEBUG_COLOR2
-	.if \r16 != dx
+	.ifc dx,\r16
+	call	printhex4
+	.else
 	push	edx
 	mov	dx, \r16
 	call	printhex4
 	pop	edx
-	.else
-	call	printhex4
 	.endif
 	call	printspace
 	popcolor
@@ -154,13 +159,13 @@ DEBUG_DWORD \r
 	pushcolor DEBUG_COLOR1
 	print	"\r32="
 	color	DEBUG_COLOR2
-	.if \r32 != dx
+	.ifc	edx,\r32
+	call	printhex8
+	.else
 	push	edx
 	mov	edx, \r32
 	call	printhex8
 	pop	edx
-	.else
-	call	printhex8
 	.endif
 	call	printspace
 	popcolor

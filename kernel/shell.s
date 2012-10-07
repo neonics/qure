@@ -63,6 +63,7 @@ SHELL_COMMAND "mkfs",		cmd_sfs_format
 SHELL_COMMAND "partinfo",	cmd_partinfo$
 SHELL_COMMAND "mount",		cmd_mount$
 SHELL_COMMAND "umount",		cmd_umount$
+SHELL_COMMAND "listfs"		fs_list_filesystems
 SHELL_COMMAND "lsof",		fs_list_openfiles
 SHELL_COMMAND "fat_handles"	cmd_fat_handles
 # memory
@@ -109,13 +110,14 @@ SHELL_COMMAND "obj"		pci_list_obj_counters
 SHELL_COMMAND "gdt"		cmd_print_gdt
 SHELL_COMMAND "p"		cmd_ping_gateway
 SHELL_COMMAND "gfx"		cmd_gfx
-SHELL_COMMAND "iso"		iso9660_test
 
 SHELL_COMMAND "gpf"		cmd_gpf
 SHELL_COMMAND "colors"		cmd_colors
 
 SHELL_COMMAND "debug"		cmd_debug
 SHELL_COMMAND "pic"		cmd_pic
+
+SHELL_COMMAND "cdrom"		cmd_cdrom	# mount hdc, cat HELLO.TXT
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -142,6 +144,8 @@ shell:	push	ds
 	call	nic_zeroconf
 
 start$:
+	call	newline_if
+
 	print "!"
 	PUSH_SCREENPOS
 	sub	dword ptr [esp], 2
@@ -533,6 +537,23 @@ cmdline_print_args$:
 	ret
 
 .endif
+
+
+newline_if:
+	push	eax
+	push	edx
+	push	ecx
+	xor	edx, edx
+	mov	eax, [screen_pos]
+	mov	ecx, 160
+	div	ecx
+	or	edx, edx
+	jz	1f
+	call	newline
+1:	pop	ecx
+	pop	edx
+	pop	eax
+	ret
 
 
 ###################################################
@@ -1129,9 +1150,21 @@ cmd_cat$:
 	call	fs_openfile	# out: eax = file handle
 	jc	9f
 	push	eax
-	call	fs_handle_read
+	call	fs_handle_read # in: eax = handle; out: esi, ecx
 	pop	eax
 	call	fs_close
+
+0:	lodsb
+	cmp	al, '\r'
+	jz	1f
+	cmp	al, '\n'
+	jnz	2f
+	call	newline
+	jmp	1f
+2:	call	printchar
+1:	loop	0b
+	call	newline_if
+
 	ret
 
 9:	printlnc 12, "usage: cat <filename>"
@@ -1472,4 +1505,26 @@ cmd_pic:
 	mov	dx, ax
 	call	printbin16
 	call	newline
+	ret
+
+cmd_cdrom:
+	.data
+	1:
+	STRINGPTR "mount"
+	STRINGPTR "hdc"
+	STRINGPTR "/c"
+	STRINGNULL
+	.text32
+	mov	esi, offset 1b
+	call	cmdline_print_args$
+	call	cmd_mount$
+	.data
+	1:
+	STRINGPTR "cat"
+	STRINGPTR "/c/HELLO.TXT"
+	STRINGNULL
+	.text32
+	mov	esi, offset 1b
+	call	cmdline_print_args$
+	call	cmd_cat$
 	ret

@@ -529,9 +529,25 @@ fdisk_print_usage$:
 
 	printc	9, "fdisk "
 	call	disk_print_label
-
 	printc 9, "; capacity: "
-	call	ata_print_capacity
+	push	eax
+	push	edx
+	call	disk_get_capacity
+	call	print_size
+	pop	edx
+	pop	eax
+
+	# check for ATA
+	push	eax
+	movzx	eax, al
+	cmp	byte ptr [ata_drive_types + eax], TYPE_ATAPI
+	cmp	byte ptr [ata_drive_types + eax], TYPE_ATA
+	pop	eax
+	jz	1f
+	printlnc 12, " unsupported drive type: not ATA"
+	stc
+	ret
+1:
 
 	push	edx
 	.if 0
@@ -833,7 +849,12 @@ disk_get_partition:
 	.text32
 	push	eax
 	push	edx
+
 	call	disk_get_capacity
+	jc	9f
+	shrd	eax, edx, 9	# shr eax,9, fill with edx
+	shr	edx, 9
+
 	mov	esi, offset fake_partition
 	mov	[esi + PT_STATUS], byte ptr 0
 	mov	[esi + PT_CHS_START], dword ptr 0	# 3 bytes
@@ -841,7 +862,7 @@ disk_get_partition:
 	mov	[esi + PT_CHS_END], dword ptr 0	# 3 bytes
 	mov	[esi + PT_LBA_START], dword ptr 0 # or 1
 	mov	[esi + PT_SECTORS], eax
-	pop	edx
+9:	pop	edx
 	pop	eax
 	ret
 

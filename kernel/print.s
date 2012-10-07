@@ -214,7 +214,7 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 # does not preserve ax
 .macro PRINTCHARc_ col, c
 	mov	ax, (\col<<8) | \c
-	call	printchar
+	call	printcharc
 .endm
 
 ###### Load String Pointer
@@ -238,18 +238,18 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 .endm
 
 
+# call from .data
 .macro STRINGPTR n
 	.data SECTION_DATA_STRINGS
 	99: .asciz "\n"
 	.data
 	.long 99b
-	.text32
 .endm
 
+# call from .data
 .macro STRINGNULL
 	.data
 	.long 0
-	.text32
 .endm
 
 

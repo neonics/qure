@@ -474,38 +474,6 @@ ata_list_drives:
 
 		mov	dl, dh
 		call	printhex2
-
-
-	.if 0
-		cmp	dh, -1
-		je	0f
-
-		println "Attempting to read CDROM (press key)"
-		xor	ah, ah
-		call	keyboard
-
-		mov	ah, dh
-		mov	al, ah
-		shr	ah, 1
-		and	al, 1
-		call	ata_get_ports2$
-	# doesnt yield proper results in virtualbox - the 'transfer size' is -1/0xffff
-		push	eax
-		push	edx
-		push	ecx
-		push	ebx
-		call	atapi_read_capacity$
-		pop	ebx
-		pop	ecx
-		pop	edx
-		pop	eax
-
-		mov	ebx, 16	# LBA
-		mov	ecx, 1	# number of sectors
-		mov	edi, ....buffer
-		call	atapi_read12$
-	0:
-	.endif
 	.endif
 
 
@@ -533,7 +501,7 @@ ata_list_drives:
 	jz	1f
 
 	mov	al, cl
-	call	ata_get_ports$
+	call	ata_get_ports_$
 	ATA_OUTB DCR, 0 # reset nIEN  // out dx, ax crashes vmware
 
 1:	shl	ch, 1
@@ -573,11 +541,15 @@ ata_isr2:
 
 # in: al = (ata bus << 1) | drive (0 or 1)
 # out: edx = [DCR, Base]
+# out: CF
 ata_get_ports$:
+	call	ata_is_disk_known
+	jc	9f
+ata_get_ports_$:
 	# check whether ata bus is known
 	cmp	al, 8
 	cmc
-	jb	0f	# jb = jc
+	jb	9f	# jb = jc
 	# skip drive known check as this code may be called for drive detection.
 
 	push	eax
@@ -586,10 +558,10 @@ ata_get_ports$:
 	mov	ax, [ata_buses + edx]
 	mov	dx, [ata_bus_dcr_rel + edx]
 	add	dx, ax
-	shl	edx, 16
+	shl	edx, 16		# out: CF=0
 	mov	dx, ax
 	pop	eax
-0:	ret
+9:	ret
 
 # in: ah = ata bus
 # out: edx = [DCR, Base]
@@ -609,12 +581,10 @@ ata_get_ports2$:
 # in: al = drive (0 or 1)
 ata_list_drive:
 	COLOR 7
-	call	ata_get_ports2$
-	# EDX: DSR, Base
+	call	ata_get_ports2$	# out: edx = [DCR, Base]
 
-	shl	ah, 1
 	add	al, ah
-	shr	ah, 1
+	add	al, ah
 	mov	bl, al
 
 	push	eax
@@ -1179,6 +1149,8 @@ ata_wait_status$:
 		call	ata_print_status$
 	.endif
 
+	test	bh, ATA_STATUS_ERR	# werent asked to check err, so dont print
+	jz	0f
 	test	al, ATA_STATUS_ERR
 	jz	0f
 	call	ata_print_status$
@@ -1252,8 +1224,8 @@ ata_select_drive$:
 	#or	al, 0xef	#  all bits 1, bit 4=0 drive 0, 1=drive 1
 	ATA_OUTB DRIVE_SELECT
 
-	# c) host reads status until BSY=0 and DRDY=1
-	mov	ax, ((ATA_STATUS_ERR | ATA_STATUS_BSY) << 8) | ATA_STATUS_DRDY
+	# c) host reads status until BSY=0 and DRDY=1 (ignore ERR!)
+	mov	ax, (ATA_STATUS_BSY << 8) | ATA_STATUS_DRDY
 	call	ata_wait_status$
 	jc	1f
 	
@@ -1562,23 +1534,21 @@ atapi_get_capacity:
 	push	ebx
 	push	ecx
 
-	call	ata_is_disk_known
-	jc	9f
-	call	ata_get_ports$
-	jc	9f
-
-	call	atapi_read_capacity$	# out: ebx=lba, ecx=blocklen, edx:eax=capacity
+	call	atapi_read_capacity	# out: ebx=lba, ecx=blocklen, edx:eax=capacity
 
 9:	pop	ecx
 	pop	ebx
 	ret
 
-# in: edx = io ports
+# in: al = drive nr
 # out: ecx = block length (typically 0x0800)
 # out: ebx = last LBA (medium size)
 # out: edx:eax = capacity in bytes
-atapi_read_capacity$:
+atapi_read_capacity:
+	call	ata_get_ports$
+	jc	9f
 	push	esi
+	push	edi
 
 	call	atapi_packet_clear$
 	mov	[atapi_packet_opcode], byte ptr ATAPI_OPCODE_READ_CAPACITY
@@ -1621,8 +1591,9 @@ atapi_read_capacity$:
 		call	newline
 	.endif
 
-1:	pop	esi
-	ret
+1:	pop	edi
+	pop	esi
+9:	ret
 
 
 atapi_print_packet$:
@@ -1644,13 +1615,19 @@ atapi_print_packet$:
 
 
 
-# in: edx [DCR, Base]
+# in: al = drive
 # in: ebx = LBA
 # in: ecx = nr of sectors (2kb/sect typically)
 # in: edi = buffer
 # out: esi = offset to buffer
 # out: ecx = length of data in buffer
 atapi_read12$:
+	push	edx
+	push	ebx
+
+	call	ata_get_ports$
+	jc	9f
+
 	call	atapi_packet_clear$
 
 	.if ATAPI_DEBUG > 1
@@ -1668,6 +1645,8 @@ atapi_read12$:
 
 	mov	ecx, ATAPI_SECTOR_SIZE
 	call	atapi_packet_command
+9:	pop	ebx
+	pop	edx
 	ret
 
 .data SECTION_DATA_BSS
@@ -1699,6 +1678,7 @@ atapi_packet:
 # in: al = bus<<1|drive
 # in: edx = [DCR, Base]
 # in: esi = 6 word packet data
+# in: edi = buffer
 # in: ecx = max transfer size
 # out: esi = offset to buffer, ecx = data in buffer
 atapi_packet_command:
@@ -1828,20 +1808,6 @@ atapi_packet_command:
 		pop	edx
 	.endif
 
-.if 0 # edi is buffer
-	.data SECTION_DATA_BSS
-		data_buffer$: .long 0
-	.text32
-
-	call	malloc
-	jc	1f
-	xchg	eax, [data_buffer$]
-	or	eax, eax
-	jz	0f
-	call	mfree
-0:
-.endif
-
 	push	ecx
 	push	dx
 	add	dx, ATA_PORT_DATA
@@ -1849,17 +1815,9 @@ atapi_packet_command:
 	push	ds
 	pop	es
 	push	edi
-.if 0
-	mov	edi, [data_buffer$]
-.endif
 	inc	ecx
 	shr	ecx, 1
-	.if 0
-0:	insw
-	loop	0b
-	.else
 	rep	insw
-	.endif
 	pop	edi
 	pop	es
 	pop	dx
@@ -1877,11 +1835,7 @@ atapi_packet_command:
 		PRINTln "Data read."
 	.endif
 
-.if 0
-	mov	esi, [data_buffer$]
-.else
 	mov	esi, edi
-.endif
 	clc
 1:	ret
 

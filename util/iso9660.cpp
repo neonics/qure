@@ -359,6 +359,7 @@ int main(int argc, char ** argv)
 					if ( extbuf[o] == 0 ) break;
 
 					//pdr( "   Directory Record", extbuf, o, o + extbuf[o] );
+					printf("    [offset: %x]\n", o);
 					printf("    File:(%d) \"", extbuf[o+32] );
 					for ( int j = 0; j < extbuf[o+32]; j ++)
 						printf( "%c", extbuf[o+33+j] );

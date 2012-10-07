@@ -10,6 +10,7 @@ SFS_MAGIC = ( 'S' | 'F' << 8 | 'S' << 16 | '0' << 24)
 #############################################################################
 .data
 fs_sfs_class:
+STRINGPTR "sfs"
 .long sfs_mount, sfs_umount, sfs_open, sfs_close, sfs_nextentry, sfs_read
 .struct FS_OBJ_STRUCT_SIZE # runtime struct
 sfs_disk:		.byte 0
