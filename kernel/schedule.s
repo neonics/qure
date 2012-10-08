@@ -16,8 +16,14 @@ SCHEDULE_STRUCT_SIZE = 12
 # This method is called immediately after an interrupt has handled,
 # and it is the tail part of the irq_proxy.
 schedule:
+	push	ds
+	push	es
 	push	eax
 	push	edx
+	mov	eax, SEL_compatDS
+	mov	ds, eax
+	mov	es, eax
+
 	call	get_scheduled_task$	# out: eax, edx
 	jc	9f
 
@@ -37,6 +43,8 @@ schedule:
 
 9:	pop	edx
 	pop	eax
+	pop	es
+	pop	ds
 	iret
 
 
