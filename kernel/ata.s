@@ -1847,10 +1847,10 @@ atapi_drq_reason_mismatch$:
 	ret
 
 #######
-ATA_WAIT_IRQ_TIMEOUT = 0x100000	# high timeout for ATAPI
+ATA_WAIT_IRQ_TIMEOUT = 0x100	# using hlt.
 ata_wait_irq:
 	push	ecx
-	mov	ecx, ATA_WAIT_IRQ_TIMEOUT
+	mov	ecx, 0x100 # ATA_WAIT_IRQ_TIMEOUT
 
 	.if ATA_DEBUG > 2
 		DEBUG "ata_wait_irq:"
@@ -1859,7 +1859,7 @@ ata_wait_irq:
 
 1:	cmp	byte ptr [ata_irq], 0
 	jnz	1f
-	pause
+	hlt
 	loop	1b
 	printc 4, "ata_wait_irq: timeout"
 	stc

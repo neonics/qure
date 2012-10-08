@@ -714,7 +714,6 @@ net_arp_handle:
 
 	mov	eax, [ebx + nic_ip]
 	call	protocol_arp_response
-	call	newline
 
 0:	ret
 
@@ -894,6 +893,9 @@ arp_request:
 	push	ecx
 	push	esi
 
+	mov	edi, [arp_table]
+	mov	byte ptr [edi + edx + arp_entry_status], ARP_STATUS_REQ
+
 	NET_BUFFER_GET
 	jc	6f
 	push	edi
@@ -922,8 +924,6 @@ arp_request:
 		DEBUG "Sent ARP request"
 	.endif
 
-	mov	edi, [arp_table]
-	mov	byte ptr [edi + edx + arp_entry_status], ARP_STATUS_REQ
 
 0:	pop	esi
 	pop	ecx
@@ -4092,6 +4092,10 @@ cmd_ping:
 	call	net_parse_ip
 	jc	9f
 
+	mov	ecx, 4
+7:	push	ecx
+	push	eax
+############################
 	print	"Pinging "
 	call	net_print_ip
 	print	": "
@@ -4143,8 +4147,18 @@ call printdec32
 	println "ms"
 	mov	eax, [icmp_requests]
 	dec	byte ptr [eax + edx + 0] # not really needed
-########
-6:	ret
+############################
+6:	pop	eax
+	pop	ecx
+	dec	ecx
+	jz	1f
+	push	ecx
+	mov	ecx, [pit_timer_frequency]
+0:	hlt
+	loop	0b
+	pop	ecx
+	jmp	7b
+1:	ret
 9:	printlnc 12, "usage: ping <ip>"
 	ret
 
