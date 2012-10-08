@@ -356,6 +356,11 @@ rtl8139_isr_dev: .long 0	# direct memory address of device object
 .text32
 rtl8139_isr:
 	pushad
+	push	es
+	push	ds
+	mov	ax, SEL_compatDS
+	mov	ds, ax
+	mov	es, ax
 
 	.if RTL8139_DEBUG
 		printc 0xf5, "NIC ISR"
@@ -548,6 +553,8 @@ rtl8139_isr:
 	mov	ebx, [rtl8139_isr_dev]
 	PIC_SEND_EOI [ebx + dev_irq]
 
+	pop	ds
+	pop	es
 	popad	# edx ebx eax
 	iret
 
