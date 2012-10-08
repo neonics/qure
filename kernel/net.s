@@ -14,6 +14,7 @@ NET_TCP_DEBUG = NET_DEBUG
 NET_TCP_CONN_DEBUG = 0
 NET_TCP_OPT_DEBUG = 0
 
+NET_HTTP_DEBUG = 1
 
 CPU_FLAG_I = (1 << 9)
 CPU_FLAG_I_BITS = 9
@@ -44,7 +45,7 @@ CPU_FLAG_I_BITS = 9
 	.endm
 
 #############################################################################
-PROTO_PRINT_ETHERNET = 0	# 0 = never, 1 = only if nested print, 2=always
+PROTO_PRINT_ETHERNET = 1	# 0 = never, 1 = only if nested print, 2=always
 PROTO_PRINT_LLC = 0
 PROTO_PRINT_IPv4 = 1
 PROTO_PRINT_ARP = 1
@@ -358,7 +359,7 @@ net_eth_protocol_get_handler$:
 	sub	edi, offset eth_proto$ + 2
 	shr	edi, 1
 	call	proto_struct_idx2offs
-	
+
 	clc	# redundant
 1:	ret
 
@@ -429,15 +430,32 @@ arp_table_print:
 	push	edx
 	push	ecx
 	push	ebx
+	pushcolor 7
 	mov	ebx, [arp_table]
 	or	ebx, ebx
 	jz	9f
 	xor	ecx, ecx
 	jmp	1f
-0:	
+0:
+	color 8
 	mov	dl, [ebx + ecx + arp_entry_status]
 	call	printhex2
 	call	printspace
+
+	cmp	dl, ARP_STATUS_NONE
+	jnz	2f
+	printc 12, "none      "
+	jmp	3f
+2:	cmp	dl, ARP_STATUS_REQ
+	jnz	2f
+	printc  9, "requested "
+	jmp	3f
+2:	cmp	dl, ARP_STATUS_RESP
+	jnz	2f
+	printc 10, "resolved  "
+	jmp	3f
+2:	printc 12, "unknown   "
+3:
 
 	lea	esi, [ebx + ecx + arp_entry_mac]
 	call	net_print_mac
@@ -451,7 +469,8 @@ arp_table_print:
 1:	cmp	ecx, [ebx + array_index]
 	jb	0b
 
-9:	pop	ebx
+9:	popcolor
+	pop	ebx
 	pop	ecx
 	pop	edx
 	pop	esi
@@ -597,10 +616,10 @@ net_arp_print:
 
 
 net_arp_handle:
-	.if NET_ARP_DEBUG 
+	.if NET_ARP_DEBUG
 		printc 15, "ARP"
 	.endif
-	
+
 	# check if it is for ethernet
 	cmp	word ptr [esi + arp_hw_type], ARP_HW_ETHERNET
 	jnz	0f
@@ -612,7 +631,7 @@ net_arp_handle:
 	cmp	dword ptr [esi + arp_proto], 0x1006dd86
 	jnz	0f
 
-6:	# IPv6	
+6:	# IPv6
 	.if NET_ARP_DEBUG
 		printc 11, "IPv6"
 	.endif
@@ -628,7 +647,14 @@ net_arp_handle:
 	jz	1f
 
 	cmp	word ptr [esi + arp_opcode], ARP_OPCODE_REPLY
-	jnz	0f	# unknown
+	.if NET_ARP_DEBUG
+		jz	2f
+		printc 12, "Unknown opcode"
+		jmp	0f
+	2:
+	.else
+		jnz	0f
+	.endif
 
 	.if NET_ARP_DEBUG
 		DEBUG "ARP"
@@ -734,14 +760,14 @@ protocol_arp_response:
 	stosw
 .endif
 	# ethernet frame done.
-	
+
 	# set arp data
 	mov	[edi + arp_hw_type], word ptr 1 << 8
 	mov	[edi + arp_proto], word ptr 0x8	# IP
 	mov	[edi + arp_hw_size], byte ptr 6
 	mov	[edi + arp_proto_size], byte ptr 4
 	mov	[edi + arp_opcode], word ptr 2 << 8# reply
-	
+
 	# set dest mac and ip in arp packet
 	push	edi
 	push	esi
@@ -774,10 +800,12 @@ protocol_arp_response:
 
 	.if NET_ARP_DEBUG > 1
 		printlnc 11, "Sending ARP response"
+	.endif
+	.if NET_ARP_DEBUG > 2
 		call	net_packet_hexdump
 	.endif
 
-	call	[ebx + nic_api_send]	
+	call	[ebx + nic_api_send]
 9:	ret
 
 
@@ -791,10 +819,13 @@ net_arp_resolve_ipv4:
 	push	edx
 
 	# get the route entry
-	call	net_route_get	# in: eax=ip; out: edx=gw ip, ebx=nic
+	call	net_route_get	# in: eax=ip; out: edx=gw ip/eax, ebx=nic
 	jc	9f
 
-	call	arp_table_getentry_by_ip # in: edx; out: ecx + edx
+	push	eax
+	mov	eax, edx
+	call	arp_table_getentry_by_ip # in: eax; out: ecx + edx
+	pop	eax
 	jc	0f
 	cmp	byte ptr [ecx + edx + arp_entry_status], ARP_STATUS_RESP
 	jnz	2f
@@ -855,7 +886,7 @@ arp_probe:
 # in: edx = arp table offset
 # out: CF
 arp_request:
-	.if NET_ARP_DEBUG 
+	.if NET_ARP_DEBUG
 		DEBUG "arp_request: ip:"
 		call net_print_ip
 	.endif
@@ -886,6 +917,10 @@ arp_request:
 	pop	esi
 	NET_BUFFER_SEND
 	jc	9f
+
+	.if NET_ARP_DEBUG
+		DEBUG "Sent ARP request"
+	.endif
 
 	mov	edi, [arp_table]
 	mov	byte ptr [edi + edx + arp_entry_status], ARP_STATUS_REQ
@@ -919,7 +954,11 @@ arp_wait_response:
 	.endif
 
 	# wait for arp response
-	mov	ecx, 0x3
+# TODO: suspend (blocking IO/wait for arp response with timeout)
+	mov	ecx, [pit_timer_frequency]
+	shl	ecx, 1	# 2 second delay
+	jnz	0f
+	mov	ecx, 2000/18	# probably
 0:	mov	ebx, [arp_table]
 	cmp	byte ptr [ebx + edx + arp_entry_status], ARP_STATUS_RESP
 	jz	0f
@@ -935,7 +974,7 @@ arp_wait_response:
 	stc
 	jmp	1f
 
-0:	
+0:
 	lea	esi, [ebx + edx + arp_entry_mac]
 
 	.if NET_ARP_DEBUG
@@ -954,8 +993,8 @@ arp_wait_response:
 	.endif
 
 	clc
-	
-1:	
+
+1:
 	pop	edx
 	pop	ecx
 	pop	ebx
@@ -1036,7 +1075,7 @@ net_ipv4_header_put:
 
 	push	dx
 	mov	dx, 0x0800	# ipv4
-	call	net_eth_header_put # in: edi, ebx, eax, esi, dx, cx 
+	call	net_eth_header_put # in: edi, ebx, eax, esi, dx, cx
 	pop	dx
 
 	# out: edi points to end of ethernet frame, start of embedded protocol
@@ -1113,7 +1152,7 @@ net_ipv4_print:
 
 	movzx	edx, byte ptr [esi + ipv4_v_hlen]
 	and	dl, 0xf
-	shl	edx, 2	
+	shl	edx, 2
 	print " HLEN "
 	call	printhex4
 
@@ -1241,26 +1280,26 @@ net_ipv4_handle:
 	jc	0f	# not for us
 
 # XXX when IRQ handler wants to send a response it doesnt need to do ARP
-push	eax
-push	esi
-mov	eax, [esi + ipv4_src]
-lea	esi, [esi - ETH_HEADER_SIZE + eth_src]
-.if NET_ARP_DEBUG
-DEBUG "net_ipv4_handle: ["
-.endif
-call arp_table_put_mac
-.if NET_ARP_DEBUG
-DEBUG "]"
-.endif
-pop	esi
-pop	eax
+#push	eax
+#push	esi
+#mov	eax, [esi + ipv4_src]
+#lea	esi, [esi - ETH_HEADER_SIZE + eth_src]
+#.if NET_ARP_DEBUG
+#DEBUG "net_ipv4_handle: ["
+#.endif
+##call arp_table_put_mac # no longer needed due to scheduling
+#.if NET_ARP_DEBUG
+#DEBUG "]"
+#.endif
+#pop	esi
+#pop	eax
 
 	# forward to ipv4 sub-protocol handler
 	mov	al, [esi + ipv4_protocol]
 	call	ipv4_get_protocol_handler
 	LOAD_TXT "unknown protocol", edx
 	jc	9f
-	
+
 	mov	edx, esi
 	add	esi, ebp	# payload offset
 	sub	ecx, ebp	# subtract header len
@@ -1269,7 +1308,8 @@ pop	eax
 	or	eax, eax
 	jz	1f
 	add	eax, [realsegflat]
-
+#DEBUG "call"
+#DEBUG_DWORD eax
 	call	eax	# ebx=nic, edx=ipv4 frame, esi=payload, ecx=payload len
 
 	clc
@@ -1289,11 +1329,11 @@ pop	eax
 	ret
 
 #############################################################################
-# ICMP 
+# ICMP
 .struct 0	# 14 + 20
 icmp_header:
 icmp_type: .byte 0 # .byte 8
-	# type  
+	# type
 	#*0	echo (ping) reply
 	# 1,2	reserved
 	# 3	destination unreachable
@@ -1329,7 +1369,7 @@ icmp_type: .byte 0 # .byte 8
 	# 42-255 reserved
 
 icmp_code: .byte 0
-icmp_checksum: .word 0 
+icmp_checksum: .word 0
 icmp_id: .word 0
 icmp_seq: .word 0
 ICMP_HEADER_SIZE = .
@@ -1812,7 +1852,7 @@ tcp_windowsize:	.word 0	# sender receive capacity
 tcp_checksum:	.word 0 #
 tcp_urgent_ptr:	.word 0 # valid when URG
 TCP_HEADER_SIZE = .
-tcp_options:	# 
+tcp_options:	#
 	# 4-byte aligned - padded with TCP_OPT_END.
 	# 3 fields:
 	# option_kind:	 .byte 0	# required
@@ -1926,7 +1966,7 @@ tcp_conn_state:		.byte 0
 #	TCP_CONN_STATE_CLOSED		= 9
 .align 4
 TCP_CONN_STRUCT_SIZE = .
-.data
+.data SECTION_DATA_BSS
 tcp_connections: .long 0	# volatile array
 .text32
 tcp_conn_print_state_$:
@@ -2003,16 +2043,23 @@ net_tcp_conn_newentry:
 	cmp	byte ptr [eax + edx + tcp_conn_state], -1
 	jz	1f
 	ARRAY_ENDL
-9:	
+9:
 	push	ecx
 	ARRAY_NEWENTRY [tcp_connections], TCP_CONN_STRUCT_SIZE, 4, 9f
+	jmp	2f
+9:	pop	ecx
+	pop	edx
 	pop	ecx
+	ret
+
+2:	pop	ecx
+
 1:	push	edx	# retval eax
 
 	add	eax, edx
 
 	# eax = tcp_conn ptr
-	# ecx = ip frame 
+	# ecx = ip frame
 	# edx = free
 
 	mov	[eax + tcp_conn_state], byte ptr 0
@@ -2161,7 +2208,10 @@ net_tcp_conn_list:
 	printc 8, " ack "
 	mov	edx, [esi + ebx + tcp_conn_remote_seq_ack]
 	call	printhex8
-	call	printspace
+
+	printc 14, " hndlr "
+	mov	edx, [esi + ebx + tcp_conn_handler]
+	call	printhex8
 
 	call	newline
 
@@ -2233,7 +2283,6 @@ TCP_DEBUG_COL3   = 0xf4
 # in: ecx = tcp frame len
 net_ipv4_tcp_handle:
 	# firewall
-
 	call	net_tcp_conn_get
 	jc	0f
 
@@ -2286,7 +2335,7 @@ net_ipv4_tcp_handle:
 		printc TCP_DEBUG_COL3, "tcp: unknown connection"
 	.endif
 	jmp	1f
-9:	
+9:
 	.if NET_TCP_DEBUG
 		printc 0x8c, "tcp: DROP SYN: "
 	.endif
@@ -2306,7 +2355,7 @@ net_ipv4_tcp_handle:
 # in: esi = tcp frame
 # in: ecx = tcp frame len
 net_tcp_handle:
-	# C->S  FIN, ACK  
+	# C->S  FIN, ACK
 	# S->C  FIN, ACK
 	# C->S  ACK
 	.if NET_TCP_DEBUG
@@ -2351,11 +2400,12 @@ net_tcp_handle:
 		printc TCP_DEBUG_COL_TX, "ACK "
 	.endif
 	mov	dl, TCP_FLAG_ACK
-	jnz	1f
-	.if NET_TCP_DEBUG
-		printc TCP_DEBUG_COL_TX, "FIN "
-	.endif
-	or	dl, TCP_FLAG_FIN
+#	jnz	1f
+#	.if NET_TCP_DEBUG
+#		printc TCP_DEBUG_COL_TX, "FIN "
+#	.endif
+#	# XXX
+#	or	dl, TCP_FLAG_FIN
 1:	xor	ecx, ecx
 	# send ACK [FIN]
 	call	net_tcp_send
@@ -2364,7 +2414,7 @@ net_tcp_handle:
 	.if NET_TCP_DEBUG
 		call	newline
 	.endif
-	ret
+	#ret
 ########
 0:
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_PSH
@@ -2373,7 +2423,7 @@ net_tcp_handle:
 		printc TCP_DEBUG_COL_RX, "PSH "
 	.endif
 	call	net_tcp_handle_psh
-0:	
+0:
 	.if NET_TCP_DEBUG
 		printlnc	TCP_DEBUG_COL_RX, ">"
 	.endif
@@ -2382,7 +2432,7 @@ net_tcp_handle:
 
 # in: eax = tcp_conn array index
 # in: esi = tcp frame
-# in: esi = tcp frame len
+# in: ecx = tcp frame len
 net_tcp_handle_psh:
 	push	ecx
 	push	edx
@@ -2400,14 +2450,19 @@ net_tcp_handle_psh:
 	add	[eax + tcp_conn_remote_seq], ecx
 	pop	eax
 	# send ack
+	push	eax
 	call	net_tcp_conn_send_ack
+	pop	eax
 
 	# call handler
 
 	mov	edi, [tcp_connections]
+or edi, edi
+jz 10f
 	add	edi, eax
 	mov	edi, [edi + tcp_conn_handler]
 	add	edi, [realsegflat]
+jz	9f
 	pushad
 	call	edi
 	popad
@@ -2416,7 +2471,13 @@ net_tcp_handle_psh:
 	pop	edx
 	pop	ecx
 	ret
-
+9:	printlnc 4, "net_tcp_handle_psh: nullpointer"
+	int	1
+10:	printlnc 4, "net_tcp_handle_psh: no connections"
+	pushad
+	call	net_tcp_conn_list
+	popad
+	int	1
 
 net_tcp_conn_update_ack:
 	push	eax
@@ -2447,6 +2508,7 @@ net_tcp_conn_send_ack:
 	ret
 
 # in: esi = tcp frame
+# out: edi = handler
 net_tcp_service_get:
 	.data
 	tcp_service_ports: .word 80
@@ -2464,7 +2526,6 @@ net_tcp_service_get:
 	pop	eax
 	stc
 	jnz	9f
-
 	sub	edi, offset tcp_service_ports + 2
 	mov	edi, [tcp_service_handlers + edi * 2]
 
@@ -2508,56 +2569,139 @@ ep1: .space 260, ' '
 .ascii "    </ul>\n\n"
 .ascii "    <h2><a name='s_source'>Source / Issues / Wiki</h2>\n"
 .ascii "      <a href='https://github.com/neonics/qure'>GitHub</a>\n"
-.ascii "    </code>\n"
-.word 0
+.asciz "    </code>\n"
 html2:
-.ascii "  </body>"
-.ascii "</html>"
-.word 0
+.ascii "  </body>\n"
+.asciz "</html>\n"
 .text32
 
 # in: eax = tcp_conn array index
 # in: esi = request data
 # in: ecx = request data len
 net_service_tcp_http:
-	printc 11, "TCP HTTP "
-	push	eax
-	add	eax, [tcp_connections]
-	movzx	edx, word ptr [eax + tcp_conn_remote_port]
-	xchg	dl, dh
-	mov	eax, [eax + tcp_conn_remote_addr]
-	call	net_print_ip
-	printchar_ ':'
-	call	printdec32
-	pop	eax
-	call	newline
+	.if NET_HTTP_DEBUG
+		printc 11, "TCP HTTP "
+		push	eax
+		add	eax, [tcp_connections]
+		movzx	edx, word ptr [eax + tcp_conn_remote_port]
+		xchg	dl, dh
+		mov	eax, [eax + tcp_conn_remote_addr]
+		call	net_print_ip
+		printchar_ ':'
+		call	printdec32
+		call	printspace
+		pop	eax
+	.endif
 
-	push	eax
-	pushcolor 15
-0:	lodsb
-
-	cmp	al, '\r'
-	jz	1f
-	cmp	al, '\n'
-	jnz	2f
-	call	newline
-	color	15
-	jmp	1f
-
-2:	call	printchar
-	cmp	al, ':'
-	jnz	1f
-	color	7
-
-1:	loop	0b
-	popcolor
-	call	newline
-	pop	eax
-
+	call	http_parse_header
 
 	# Send a response
+	cmp	edx, -1	# no GET / found in headers
+	jz	404f
 
-	# fill in the ep1:
+	.if NET_HTTP_DEBUG
+		push	esi
+		pushcolor 14
+		mov	esi, edx
+		call	println
+		popcolor
+		pop	esi
+	.endif
+
+	cmp	word ptr [edx], '/'
+	jz	0f	# serve root
+
+	# serve custom file:
+	.data SECTION_DATA_STRINGS
+	www_docroot$: .asciz "/c/WWW/"
+	WWW_DOCROOT_STR_LEN = . - www_docroot$
+	.data SECTION_DATA_BSS
+	www_content$: .long 0
+	www_file$: .space MAX_PATH_LEN
+	.text32
+
+	mov	esi, edx
+	call	strlen_
+	cmp	ecx, MAX_PATH_LEN - WWW_DOCROOT_STR_LEN -1
+	jae	414f
+
+	# calculate path
+	mov	edi, offset www_file$
+	mov	esi, offset www_docroot$
+	mov	ecx, WWW_DOCROOT_STR_LEN
+	rep	movsb
+
+	mov	edi, offset www_file$
+	mov	esi, edx
+	inc	esi	# skip leading /
+	call	fs_update_path	# edi=base/output, esi=rel
+	# strip last char
+	mov	byte ptr [edi-1], 0
+
+	# check whether path is still in docroot:
+	mov	esi, offset www_docroot$
+	mov	edi, offset www_file$
+	mov	ecx, WWW_DOCROOT_STR_LEN - 1 # skip null terminator
+	repz	cmpsb
+	jnz	404f
+
+	.if NET_HTTP_DEBUG > 1
+		printc 13, "Serving file: '"
+		mov	esi, offset www_file$
+		call	print
+		printlnc 13, "'"
+	.endif
+
+	push	eax	# preserve net_tcp_conn_index
+	mov	eax, offset www_file$
+	call	fs_openfile
+	jc	1f
+	push	eax
+	call	fs_handle_read	# out: esi, ecx
+	pop	eax
+	pushf
+	call	fs_close
+	popf
+1:	pop	eax
+	jc	404f
+
+	push	esi
+	push	ecx
+	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
+	call	strlen_
+	push	edx
+	mov	dl, TCP_FLAG_PSH # | TCP_FLAG_FIN
+	call	net_tcp_send
+	pop	edx
+	pop	ecx
+	pop	esi
+
+	jmp	10f	# in: esi, ecx
+
+404:
+.data SECTION_DATA_STRINGS
+www_404$:
+.ascii "HTTP/1.1 404 OK\r\n"
+.ascii "Content-Type: text/html; charset=UTF-8\r\n"
+.ascii "Connection: close\r\n"
+.ascii "\r\n"
+.ascii "<html><body>File not found!</body></html>"
+.byte 0
+.text32
+	mov	esi, offset www_404$
+	jmp	8f
+
+414:	# request uri too long
+.data SECTION_DATA_STRINGS
+www_414$:
+.ascii "HTTP/1.1 414 ERROR\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n"
+.asciz "<html><body>Request uri too long</body></html>"
+.text32
+	mov	esi, offset www_414$
+	jmp	8f
+
+# default root:
+0:	# fill in the ep1:
 	push	eax
 	xor	edx, edx
 	mov	edi, offset ep1
@@ -2608,40 +2752,122 @@ net_service_tcp_http:
 
 	pop	eax
 
-
 	mov	esi, offset html
-	push	eax
-	mov	eax, esi
-	call	strlen
-	mov	ecx, eax
-	inc	ecx
-	pop	eax
+	call	strlen_	# in: esi; out: ecx
 
 	push	edx
 	mov	dl, TCP_FLAG_PSH # | TCP_FLAG_FIN
 	call	net_tcp_send
 	pop	edx
 
-.if 1
 	mov	esi, offset html2
-	push	eax
-	mov	eax, esi
-	call	strlen
-	mov	ecx, eax
-	inc	ecx
-	pop	eax
+8:	call	strlen_
 
-	push	edx
+10:	push	edx
 	mov	dl, TCP_FLAG_PSH # | TCP_FLAG_FIN
 	call	net_tcp_send
 	pop	edx
-.endif
 
+9:
 	push	edx
 	xor	ecx, ecx
 	mov	dl, TCP_FLAG_FIN
 	call	net_tcp_send
 	pop	edx
+	ret
+
+
+# in: esi = header
+# in: ecx = header len
+# out: edx = -1 or resource name (GET /x -> /x)
+http_parse_header:
+	push	eax
+	.if NET_HTTP_DEBUG > 1
+		pushcolor 15
+	.endif
+	mov	edx, -1		# the file to serve
+	mov	edi, esi	# mark beginning
+0:	lodsb
+	cmp	al, '\r'
+	jz	1f
+	cmp	al, '\n'
+	jnz	2f
+	.if NET_HTTP_DEBUG > 1
+		call	newline
+		color	15
+	.endif
+	call	http_parse_header_line$	# update edx if GET /...
+	mov	edi, esi	# mark new line beginning
+	jmp	1f
+
+2:	.if NET_HTTP_DEBUG > 1
+		call	printchar
+		color	7
+	.endif
+
+1:	loop	0b
+	.if NET_HTTP_DEBUG > 1
+		popcolor
+		call	newline
+	.endif
+	pop	eax
+	ret
+
+
+
+# in: edi = start of header line
+# in: esi = end of header line
+# in: edx = known value (-1) to compare against
+# out: edx = resource identifier (if request match): 0 for root, etc.
+http_parse_header_line$:
+	push	esi
+	push	ecx
+	mov	ecx, esi
+	sub	ecx, edi
+	mov	esi, edi
+
+	.if NET_HTTP_DEBUG > 2
+		push esi
+		push ecx
+		printchar '<'
+		call nprint
+		printchar '>'
+		pop ecx
+		pop esi
+	.endif
+
+	LOAD_TXT "GET /", edi
+	push	ecx
+	push	esi
+	mov	ecx, 5
+	repz	cmpsb
+	pop	esi
+	pop	ecx
+	jnz	9f
+
+	add	esi, 4		# preserve the leading /
+	sub	ecx, 4
+	mov	edx, esi	# start of resource
+0:	lodsb
+	cmp	al, ' '
+	jz	0f
+	cmp	al, '\n'
+	jz	0f
+	cmp	al, '\r'
+	jz	0f
+	loop	0b
+	# hmmm
+0:	mov	[esi - 1], byte ptr 0
+	mov	esi, edx
+
+	.if NET_HTTP_DEBUG > 1
+	print "Resource: <"
+	call	print
+	println ">"
+	.endif
+
+9:	pop	ecx
+	pop	esi
 	ret
 
 # in: eax = tcp_conn array index
@@ -2711,9 +2937,10 @@ net_tcp_send:
 
 	.if NET_TCP_DEBUG
 		pushcolor TCP_DEBUG_COL_TX
-		print "Tx "
+		print "[Tx "
 		xchg	al, ah
 		TCP_DEBUG_FLAGS ax
+		print "]"
 		popcolor
 	.endif
 
@@ -2740,7 +2967,7 @@ net_tcp_send:
 	mov	esi, edi
 	# in: ecx = tcp frame len
 	add	ecx, TCP_HEADER_SIZE
-	call	net_tcp_checksum	
+	call	net_tcp_checksum
 
 	# send packet
 
@@ -2875,7 +3102,6 @@ net_tcp_handle_syn$:
 	mov	ecx, _TCP_HLEN
 	call	net_tcp_checksum
 
-
 	# send packet
 
 	pop	esi
@@ -2883,12 +3109,9 @@ net_tcp_handle_syn$:
 
 9:	pop	eax
 	jc	1f
-
 	add	eax, [tcp_connections]
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_SYN_ACK_TX | TCP_CONN_STATE_SYN_TX
-
-1:
-	pop	ebp
+1:	pop	ebp
 	popad
 	ret
 
@@ -2917,9 +3140,9 @@ net_tcp_copyoptions:
 
 
 	xor	edx, edx	# contains MSS and WS
-	
+
 	add	esi, TCP_HEADER_SIZE
-0:	
+0:
 	.if NET_TCP_OPT_DEBUG > 1
 		call newline
 		DEBUG_DWORD ecx
@@ -2949,7 +3172,7 @@ net_tcp_copyoptions:
 		jnz	0f
 		lodsw
 		mov	dx, ax
-	
+
 	.if NET_TCP_OPT_DEBUG > 1
 		DEBUG "MSS"
 		DEBUG_WORD dx
@@ -2988,7 +3211,7 @@ net_tcp_copyoptions:
 	.endif
 		ror	edx, 16
 	jmp	0b
-		
+
 1:
 	cmp	al, TCP_OPT_SACK
 	jz	2f
@@ -3013,7 +3236,7 @@ net_tcp_copyoptions:
 	jz	0b
 	sub	cl, al
 	ja	0b
-0:	
+0:
 	.if NET_TCP_OPT_DEBUG > 1
 		DEBUG "opts done"
 		DEBUG_DWORD ecx
@@ -3025,7 +3248,7 @@ net_tcp_copyoptions:
 	mov	esi, edi	# return value
 
 	add	edi, TCP_HEADER_SIZE
-	
+
 	push	edi
 	mov	al, TCP_OPT_NOP
 	mov	ecx, _TCP_OPTS
@@ -3038,7 +3261,7 @@ net_tcp_copyoptions:
 	# MSS
 	mov	[edi], byte ptr TCP_OPT_MSS
 	mov	[edi + 1], byte ptr 2+2
-	mov	[edi + 2], word ptr 0xb405 
+	mov	[edi + 2], word ptr 0xb405
 1:
 	add	edi, 4
 	rol	edx, 8
@@ -3052,7 +3275,7 @@ net_tcp_copyoptions:
 	mov	[edi + 3], byte ptr TCP_OPT_NOP
 1:
 	add	edi, 4
-	
+
 	rol	edx, 8
 	or	dl, dl
 	jz	1f
@@ -3079,7 +3302,7 @@ net_tcp_checksum:
 	push	edx
 	push	ecx
 	push	eax
-	
+
 	# calculate tcp pseudo header:
 	# dd ipv4_src
 	# dd ipv4_src
@@ -3100,18 +3323,17 @@ net_tcp_checksum:
 
 	#xchg	cl, ch		# headerlen + datalen
 	shl	ecx, 8	# hmmm
-
 	add	edx, ecx
+	shr	ecx, 8
 	pop	esi
 
 	# esi = start of ipv4 frame (saved above)
-	shr	ecx, 8
-.if 0
+	# deal with odd length:
+	mov	word ptr [esi + ecx], 0	# just in case
 	inc	ecx
-	mov	byte ptr [esi + ecx], 0	# just in case
-.endif
 	shr	ecx, 1
-	mov	edi, offset tcp_checksum	#
+
+1:	mov	edi, offset tcp_checksum	#
 	call	protocol_checksum_
 
 	pop	eax
@@ -3129,7 +3351,7 @@ net_ivp4_icmp_print:
 	print " TYPE "
 	mov	dl, [esi + icmp_type]
 	call	printhex2
-	
+
 	print " CODE "
 	mov	dl, [esi + icmp_code]
 	call	printhex2
@@ -3173,13 +3395,14 @@ protocol_icmp_ping_response:
 
 # FIXME bypass arp lookup - this code is triggered from the NIC ISR and thus
 # cannot rely on IRQ's for packet Tx/Rx for the ARP protocol.
-call arp_table_put_mac
+#call arp_table_put_mac
 
 	# in: dl = ipv4 sub-protocol
 	mov	dl, IP_PROTOCOL_ICMP
 	# in: cx = payload length
 	call	net_ipv4_header_put # in: dl, ebx, edi, eax, esi, cx
 	pop	esi
+	jc	1f
 
 	# ethernet/ip frame done.
 
@@ -3224,6 +3447,8 @@ call arp_table_put_mac
 	mov	ecx, ICMP_HEADER_SIZE + IPV4_HEADER_SIZE + ETH_HEADER_SIZE + 32
 	call	[ebx + nic_api_send]
 9:	ret
+1:	pop	esi
+	ret
 
 ###########################################################################
 # UDP
@@ -3256,7 +3481,7 @@ protocol_udp:
 
 
 net_ipv4_udp_print:
-	print	"UDP "   
+	print	"UDP "
 	print	"sport "
 	xor	edx, edx
 	mov	dx, [esi + udp_sport]
@@ -3360,7 +3585,7 @@ net_dns_print:
 	mov	ax, [esi + dns_questions]
 	mov	bx, [esi + dns_answer_rr]
 	cmp	ax, bx
-	jnz	2f
+#	jnz	2f
 
 	add	esi, DNS_HEADER_SIZE
 	# print the question
@@ -3507,7 +3732,7 @@ net_dns_request:
 #	mov	al, 0
 #	stosb
 
-	mov	ax, 1 << 8	# Type A 
+	mov	ax, 1 << 8	# Type A
 	stosw
 	mov	ax, 1 << 8	# Class IN
 	stosw
@@ -3551,7 +3776,33 @@ net_ipv6_print:
 # in: esi = packet (ethernet frame)
 # in: ecx = packet len
 net_rx_packet:
+	# this is called in IRQ handlers of the nics, so we need to schedule.
+	# Alternative approach is to schedule the IRQ handlers themselves differently.
+	# First approach:
+	push	eax
+	push	ecx
+	push	esi
+	mov	eax, offset net_rx_packet_task
+	add	eax, [realsegflat]
+	push	ecx
+	mov	ecx, 8	# size of argument
+	push	esi
+	LOAD_TXT "net"
+	call	schedule_task	# returns argument pointer
+	pop	esi
+	pop	ecx
+	mov	[eax], esi
+	mov	[eax + 4], ecx
+	pop	esi
+	pop	ecx
+	pop	eax
+	ret
+
+# in: edx = argument ptr
+net_rx_packet_task:
 	pushad
+	mov	esi, [edx]
+	mov	ecx, [edx + 4]
 	push	esi
 	push	ecx
 	push	ebx
@@ -3591,7 +3842,8 @@ net_rx_packet:
 net_route_gateway: .long 0
 net_route_network: .long 0
 net_route_netmask: .long 0
-net_route_nic: .long 0
+net_route_nic:	   .long 0
+net_route_metric:  .word 0
 NET_ROUTE_STRUCT_SIZE = .
 .data
 net_route: .long 0
@@ -3601,6 +3853,7 @@ net_route: .long 0
 # in: ebx = device
 # in: ecx = network
 # in: edx = netmask
+# in: si = metric
 net_route_add:
 	push	eax
 	push	ebx
@@ -3625,6 +3878,7 @@ net_route_add:
 	mov	[eax + edx + net_route_nic], ebx
 	mov	ebx, [esp + 12]
 	mov	[eax + edx + net_route_gateway], ebx
+	mov	[eax + edx + net_route_metric], si
 
 9:	pop	edx
 	pop	ecx
@@ -3649,6 +3903,11 @@ net_route_print:
 	print	" gw "
 	mov	eax, [ebx + edx + net_route_gateway]
 	call	net_print_ip
+	print	" metric "
+	push	edx
+	movzx	edx, word ptr [ebx + edx + net_route_metric]
+	call	printdec32
+	pop	edx
 	call	printspace
 
 	push	esi	# WARNING: using nonrelative pointer
@@ -3660,7 +3919,8 @@ net_route_print:
 	call	newline
 	ARRAY_ENDL
 
-9:	pop	edx
+9:
+	pop	edx
 	pop	ebx
 	pop	eax
 	ret
@@ -3672,22 +3932,33 @@ net_route_get:
 	push	eax
 	push	edi
 	push	ecx
+	push	esi
+	xor	esi, esi	# metric
 
 	ARRAY_LOOP [net_route], NET_ROUTE_STRUCT_SIZE, edi, ecx, 9f
+	cmp	si, [edi + ecx + net_route_metric]
+	ja	0f
 	mov	edx, eax
-	and	edx, [edi + ecx + net_route_netmask]
+	and	edx, [edi + ecx + net_route_netmask]	# zf=1 for default gw
 	cmp	edx, [edi + ecx + net_route_network]
+	jnz	0f
 	mov	edx, [edi + ecx + net_route_gateway]
-	mov	ebx, [edi + ecx + net_route_nic]
-	jz	1f
-	ARRAY_ENDL
+	or	edx, edx
+	jnz	1f
+	mov	edx, eax
+1:	mov	ebx, [edi + ecx + net_route_nic]
+	mov	si, [edi + ecx + net_route_metric]
+0:	ARRAY_ENDL
+	or	esi, esi
+	jnz	1f
 
 9:	printc 4, "net_route_get: no route: "
 	call	net_print_ip
 	call	newline
 	stc
 
-1:	pop	ecx
+1:	pop	esi
+	pop	ecx
 	pop	edi
 	pop	eax
 	ret
@@ -3700,6 +3971,8 @@ cmd_route:
 	lodsd
 	or	eax, eax
 	jz	net_route_print
+	push	ebp
+	mov	bp, 100		# metric
 	CMD_ISARG "add"
 	jnz	9f
 	xor	edi, edi	# gw ip
@@ -3727,6 +4000,7 @@ cmd_route:
 	jnz	0f
 	xor	ecx, ecx
 	xor	edx, edx
+	mov	bp, 10
 ####
 2:	lodsd
 0:	CMD_ISARG "gw"
@@ -3772,12 +4046,14 @@ cmd_route:
 	call	newline
 
 	mov	eax, edi
+	mov	si, bp	# metric
 	call	net_route_add
+0:	pop	ebp
 	ret
 
 9:	printlnc 12, "usage: route add [default] gw <ip>"
 	printlnc 12, "       route add [net <ip>] [mask <ip>] gw <ip>"
-	ret
+	jmp	0b
 
 ############################################################################
 
@@ -3835,13 +4111,18 @@ cmd_ping:
 	call	net_icmp_register_request
 
 	pop	esi
-
+push dword ptr [clock_ms]
 	NET_BUFFER_SEND
 
+pop ebx
 
 	# Wait for response
 
-	mov	ecx, 0x03
+	# calc clocks:
+	mov	ecx, [pit_timer_frequency]
+	shl	ecx, 1
+	jnz	0f
+	mov	ecx, 2000/18	# probably
 0:	mov	eax, [icmp_requests]
 	cmp	byte ptr [eax + edx + icmp_request_status], 0
 	jnz	1f
@@ -3850,10 +4131,16 @@ cmd_ping:
 	printc 4, "PING timeout for "
 	jmp	2f
 
-1:	print	"ICMP PING response from "
+1:
+sub ebx, [clock_ms]
+	print	"ICMP PING response from "
 2:	mov	eax, [eax + edx + 1]
 	call	net_print_ip
-	call	newline
+call printspace
+mov edx, ebx
+neg edx
+call printdec32
+	println "ms"
 	mov	eax, [icmp_requests]
 	dec	byte ptr [eax + edx + 0] # not really needed
 ########

@@ -674,6 +674,7 @@ nic_zeroconf:
 	.data
 77:	STRINGPTR "route"
 	STRINGPTR "add"
+	STRINGPTR "default"
 	STRINGPTR "gw"
 	STRINGPTR "192.168.1.1"
 	STRINGNULL
