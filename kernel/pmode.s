@@ -516,6 +516,8 @@ call_realmode:
 	mov	[bkp_pm_ss], ss
 	mov	[bkp_pm_esp], esp
 
+	call	pic_save_mask32
+
 	mov	dx, [esp + 4]
 
 
@@ -560,6 +562,8 @@ call_realmode:
 	add	word ptr [bkp_reg_sp], 8
 	push	ds
 	pop	es
+
+	call	pic_restore_mask32
 	ret	4
 
 
