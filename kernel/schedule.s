@@ -11,8 +11,33 @@ task_registrar:	.long 0	# address from which schedule_task was called (for debug
 schedule_sem: .long 0
 scheduled_tasks: .long 0
 SCHEDULE_STRUCT_SIZE = 12
-argbuf: .space 256
 .text32
+
+# This method is called immediately after an interrupt has handled,
+# and it is the tail part of the irq_proxy.
+schedule:
+	push	eax
+	push	edx
+	call	get_scheduled_task$	# out: eax, edx
+	jc	9f
+
+	# keep interrupt flag as before IRQ
+	#	test	word ptr [esp + 8 + 4 + 4], 1 << 9	# irq flag; 8:cs:eip, 4:eax, 4:edx
+	#	jz	2f
+	sti
+
+	pushad
+	call	eax	# in: edx; assume the task does not change segment registers
+	popad
+
+	.if 1
+	mov	eax, edx
+	call	mfree
+	.endif
+
+9:	pop	edx
+	pop	eax
+	iret
 
 
 # nr: 3 = failed to acquire lock
@@ -27,16 +52,61 @@ argbuf: .space 256
 	.else
 	mov	eax, \nr
 	.endif
-
-	#push	ebx
-	#mov	ax, [sched_graph_symbols + eax * 2]
-	#call	printcharc
-	#pop	ebx
-
 	call	sched_update_graph
 	pop	eax
 .endif
 .endm
+
+
+# out: eax = task ptr
+# out: edx = task arg
+# out: esi = task label
+# out: CF = 1: no task or cannot lock task list
+get_scheduled_task$:
+	# schedule_task does spinlock, so we don't, as this
+	# method is called regularly.
+	mov	eax, 1
+	xchg	[schedule_sem], eax
+	or	eax, eax
+	jnz	9f	# task list locked - abort.
+
+	push	ebx
+	push	ecx
+########
+	# one-shot first-in-list
+	mov	ebx, [scheduled_tasks]
+	or	ebx, ebx
+	jz	1f
+	xor	ecx, ecx	# index
+########
+0:	mov	eax, -1
+	xchg	eax, [ebx + ecx + task_addr]
+	mov	edx, [ebx + ecx + task_arg]	# ptr
+	#mov	esi, [ebx + ecx + task_label]	# label
+	cmp	eax, -1
+	jnz	0f
+########
+	add	ecx, SCHEDULE_STRUCT_SIZE
+	cmp	ecx, [ebx + array_index]
+	jb	0b
+########
+1:	SCHED_UPDATE_GRAPH 2
+	stc
+	jmp	1f	# no task
+0:	SCHED_UPDATE_GRAPH 3
+	clc
+########
+1:	pop	ecx
+	pop	ebx
+
+	mov	dword ptr [schedule_sem], 0	# we have lock so we can write.
+	ret
+
+9:	SCHED_UPDATE_GRAPH 1
+	stc
+	ret
+
+
 
 .if SCHEDULE_DEBUG
 .data SECTION_DATA_BSS
@@ -81,104 +151,11 @@ sched_update_graph:
 .endif
 
 
-# This method is called immediately after an interrupt has handled,
-# and it is the tail part of the irq_proxy.
-schedule:
-	cmp	dword ptr [scheduled_tasks], 0
-	jz	1f
-	# one-shot first-in-list
-	push	eax
-.if 1
-	mov	eax, 1
-	xchg	[schedule_sem], eax	# exactly 50% fault rate
-	or	eax, eax
-	jz	2f
-.else
-	push	ebx
-	# if [schedule_sem] == eax 	# ZF
-	# then [schedule_sem] = ebx	# ZF = 1
-	# else eax = [schedule_sem]	# ZF = 0
-	xor	eax, eax
-	mov	ebx, 1
-	lock cmpxchg	[schedule_sem], ebx	# 100% success rate
-	pop	ebx
-	#jnz	9f 	# sem was 1, task running, abort execution - timer will pick it up
-	jz	2f
-.endif
-SCHED_UPDATE_GRAPH 1
-	pop eax
-	iret
-
-	2:
-	push	ebx
-	push	ecx
-	push	edx
-	push	esi
-########
-	mov	ebx, [scheduled_tasks]
-	xor	ecx, ecx	# index
-########
-0:	mov	eax, -1
-	xchg	eax, [ebx + ecx + task_addr]
-	mov	esi, [ebx + ecx + task_label]	# label
-	mov	edx, [ebx + ecx + task_arg]	# ptr
-	cmp	eax, -1
-	jnz	0f
-	or	eax, eax	# nullpointer check
-	jz	4f
-########
-	add	ecx, SCHEDULE_STRUCT_SIZE
-	cmp	ecx, [ebx + array_index]
-	jb	0b
-SCHED_UPDATE_GRAPH 2
-	jmp	3f	# no task
-0:
-SCHED_UPDATE_GRAPH 3
-########
-.if SCHEDULE_DEBUG > 1
-printc 0xf4, "[SCHEDULE "
-pushcolor 0xf3
-call print
-popcolor
-printc 0xf4, "]"
-.endif
-	# keep interrupt flag as before IRQ
-#	test	word ptr [esp + 8 + 4 + 4], 1 << 9	# irq flag; 8:cs:eip, 4:eax, 4:edx
-#	jz	2f
-	sti
-#2:
-	pushad
-	call	eax	# assume the task does not change segment registers
-	popad
-	.if 0
-	mov	eax, edx
-	call	mfree
-	.endif
-
-3:
-	pop	esi
-	pop	edx
-	pop	ecx
-	pop	ebx
-
-	mov	dword ptr [schedule_sem], 0	# free sem
-9:	pop	eax
-1:	iret
-
-4:	printc 0xf4, "[schedule:null task: label='"
-	call	print
-	printc 0xf4, "' arg="
-	call	printhex8
-	printc 0xf4, " registrar="
-	mov	edx, [ebx + ecx + task_registrar]
-	call	printhex8
-	printc 0xf4, "]"
-	jmp	3b
-
 
 # in: cs
-# in: eax = offset
+# in: eax = task code offset
 # in: ecx = size of argument
+# in: esi = label for task
 # out: eax = argument buffer
 schedule_task:
 	push	ebx
@@ -186,27 +163,41 @@ schedule_task:
 	push	edx
 	mov	ebx, eax
 
+######## spin lock
+	mov	ecx, 0x1000
+0:	dec	ecx	# infinite loop limit
+	stc
+	jz	9f
+	mov	eax, 2	# for future debugging - who has lock.
+	xchg	[schedule_sem], eax
+	or	eax, eax
+	pause
+	jnz	0b
+########
 	ARRAY_LOOP [scheduled_tasks], SCHEDULE_STRUCT_SIZE, eax, edx, 9f
 	cmp	dword ptr [eax + edx], -1
 	jz	1f
 	ARRAY_ENDL
 9:	ARRAY_NEWENTRY [scheduled_tasks], SCHEDULE_STRUCT_SIZE, 4, 9f
-1:	mov	[eax + edx], ebx
-	mov	[eax + edx + 8], esi
-.if 0
+1:	mov	[eax + edx + task_addr], ebx
+	mov	[eax + edx + task_label], esi
+########
 	push	eax
 	mov	eax, ecx
-	call	malloc	# TODO: more efficient buffer
+	call	malloc
 	mov	ecx, eax
 	pop	eax
-
-	mov	[eax + edx + 4], ecx
+	jnc	1f
+	# no mem - unschedule task
+	mov	dword ptr [eax + edx], -1
+	jmp	9f
+########
+1:	mov	[eax + edx + task_arg], ecx
 	mov	eax, ecx
-.else
-mov eax, offset argbuf
-.endif
 
-	pop	edx
+	mov	dword ptr [schedule_sem], 0
+
+9:	pop	edx
 	pop	ecx
 	pop	ebx
 	ret
