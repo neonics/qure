@@ -864,6 +864,23 @@ kalloc_printmem:
 	ret
 
 #######################################################################
+# sums all allocated handles.
+# out: eax
+mem_get_used:
+	push	ebx
+	push	edx
+	mov	ebx, [mem_handles]
+	mov	edx, [handle_fa_first]
+	xor	eax, eax
+0:	test	[ebx + edx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
+	jz	1f
+	add	eax, [ebx + edx + handle_size]
+1:	mov	edx, [ebx + edx + handle_fa_next]
+	cmp	edx, -1
+	jnz	0b
+	pop	edx
+	pop	ebx
+	ret
 
 print_handles$:
 	push	eax
@@ -2419,10 +2436,16 @@ cmd_mem$:
 	xor	edx, edx
 	call	print_size
 
-	printc 15, " Allocated: "
+	printc 15, " Reserved: "
 	mov	eax, [mem_heap_alloc_start]
 	sub	eax, [mem_heap_start]
 	call	print_size
+
+	push	eax
+	printc 15, " Allocated: "
+	call	mem_get_used
+	call	print_size
+	pop	eax
 
 	printc 15, " Free: "
 	sub	eax, [mem_heap_size]
