@@ -94,6 +94,37 @@ debug_regdiff$:
 
 
 .text32
+debug_load_symboltable:
+.if 0 # if ISO9660 implements multiple sector reading,
+	LOAD_TXT "/a/BOOT/KERNEL.SYM", eax
+	mov	cl, [boot_drive]
+	add	[eax + 1], cl
+	call	fs_openfile	# out: eax = file handle
+	jc	1f
+	call	fs_handle_read # in: eax = handle; out: esi, ecx
+	jc	1f
+
+	# copy buffer
+	mov	eax, ecx
+	call	malloc
+	mov	[kernel_symtab], eax
+	mov	[kernel_symtab_size], ecx
+	mov	edi, eax
+	rep	movsb
+1:	call	fs_close
+.elseif 0 # OR if bootloader also loads the symbol table.
+.else # lame - require 2 builds due to the inclusion of output generated
+	# after compilation.
+	.data SECTION_DATA_STRINGS # not pure asciiz...
+	ksym: .incbin "../root/boot/kernel.sym"
+	0:
+	.text32
+	mov	[kernel_symtab], dword ptr offset ksym
+	mov	[kernel_symtab_size], dword ptr (offset 0b - offset ksym)
+.endif
+	ret
+
+
 # in: edx
 # out: esi
 # out: CF
