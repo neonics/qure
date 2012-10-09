@@ -112,11 +112,14 @@ protected_mode:
 		mov	dx, sp
 		call	printhex_16
 		print_16 ": "
+		push	bp
 		mov	bp, sp
+		add	bp, 2
 	0:	mov	dx, ss:[bp]
 		call	printhex_16
 		add	bp, 2
 		jnz	0b
+		pop	bp
 		call	newline_16
 	.if DEBUG_PM > 3
 	#	xor	ax,ax
@@ -189,9 +192,9 @@ protected_mode:
 	mov	cx, SEL_flatCS
 
 	.if DEBUG_PM > 1
-		rmPC	0x01 "Flat"
+		PRINTc_16 0x01, "Flat"
 		jmp	1f
-	0:	rmPC	0x03 "Realmode Compatible"
+	0:	PRINTc_16 0x03, "Realmode Compatible"
 	1:	rmI2	" Address mode"
 		rmOK
 	.else
@@ -204,18 +207,18 @@ protected_mode:
 	.if DEBUG_PM > 2
 		rmI2 "  - Address: "
 
-		rmCOLOR 0x09
+		COLOR_16 0x09
 		mov	dx, cx
 		call	printhex_16
 		mov	edx, eax
 		call	printhex8_16
 
 		rmI2 " flat segment offset: "
-		rmCOLOR 0x0a
+		COLOR_16 0x0a
 		mov	edx, [realsegflat]
 		call	printhex8_16
 		rmI2 " reloc: "
-		rmCOLOR 0x0a
+		COLOR_16 0x0a
 		mov	edx, [reloc$]
 		call	printhex8_16
 		call	newline_16
@@ -672,6 +675,13 @@ real_mode_rm:
 .code16
 0:	# pmode 16 bit realmode-compatible code selector
 
+	.if DEBUG_PM > 2
+		mov ax, SEL_vid_txt
+		mov es, ax
+		xor di, di
+		mov ax, (0xf4<<8)|'!'
+		stosw
+	.endif
 
 	# prepare return address
 	push	[bkp_reg_cs]
@@ -687,10 +697,11 @@ real_mode_rm:
 	# PLACE NO CODE HERE - serialize CPU to reload code segment
 
 	retf
+
 .text16
 rm_entry:
-	mov	ax, 0xb800
-	mov	es, ax
+	mov	ax, cs
+	mov	ds, ax
 
 	.if DEBUG_PM > 1
 		rmI "Back in realmode!"
@@ -748,9 +759,9 @@ rm_entry:
 		call	printhex2_16
 		inc	bx
 		loop	0b
-#		println_16 " - Press a key"
-#		xor	ah, ah
-#		int	0x16
+		println_16 " - Press a key"
+		xor	ah, ah
+		int	0x16
 	.endif
 
 	.if DEBUG_PM
@@ -825,9 +836,9 @@ reenter_protected_mode_rm:
 	mov	cx, SEL_flatCS
 
 	.if DEBUG_PM > 1
-		rmPC	0x01 "Flat"
+		PRINTc_16 0x01, "Flat"
 		jmp	1f
-	0:	rmPC	0x03 "Realmode Compatible"
+	0:	PRINTc_16 0x03, "Realmode Compatible"
 	1:	rmI2	" Address mode"
 		rmOK
 	.else
@@ -840,14 +851,14 @@ reenter_protected_mode_rm:
 	.if DEBUG_PM > 2
 		rmI2 "  - Address: "
 
-		rmCOLOR 0x09
+		COLOR_16 0x09
 		mov	dx, cx
 		call	printhex_16
 		mov	edx, eax
 		call	printhex8_16
 
 		rmI2 " flat segment offset: "
-		rmCOLOR 0x0a
+		COLOR_16 0x0a
 		mov	edx, [realsegflat]
 		call	printhex8_16
 		call	newline_16

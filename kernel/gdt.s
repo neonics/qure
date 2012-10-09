@@ -367,7 +367,7 @@ init_gdt_16:
 
 	.if DEBUG > 2
 		call	newline_16
-		rmCOLOR 8
+		COLOR_16 8
 		PRINTLN_16 "  Original: "
 		PRINT_DT_16 "    Realmode" rm_gdtr rm_idtr
 		PRINT_DT_16 "    PMode   " pm_gdtr pm_idtr

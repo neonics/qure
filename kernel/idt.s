@@ -51,6 +51,7 @@ DEFIDT 0, SEL_flatCS, ACC_PR+ACC_RING0+ACC_SYS+IDT_ACC_GATE_INT32
 
 
 IRQ_PROXIES = 1	# Experimental!
+SCHEDULE_IRET = 1
 
 .text32
 
@@ -139,8 +140,13 @@ INT_NR = 0
 	# size 16
 	pushf
 	lcall	SEL_compatCS, jmp_table_target + JMP_ENTRY_LEN * INT_NR	# 7
+.if SCHEDULE_IRET
 	jmp	schedule	# needs to do iret! see schedule.s
 	nop
+.else
+	call	schedule
+	iret
+.endif
 	nop
 	nop
 INT_NR = INT_NR + 1
@@ -566,7 +572,9 @@ call newline
 	mov	edx, [ebp]
 	color	7
 	call	printhex8
-	printlnc 9, " eip"
+	printc 9, " eip "
+	call	debug_printsymbol
+	call	newline
 	add	ebp, 4
 
 	mov	edx, ebp
@@ -597,6 +605,8 @@ call newline
 	mov	edx, [ebp]
 	color	7
 	call	printhex8
+	call	printspace
+	call	debug_printsymbol
 	call	newline
 	add	ebp, 4
 	loop	0b

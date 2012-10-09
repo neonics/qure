@@ -210,19 +210,6 @@ kmain:
 
 	call	ata_list_drives
 
-	I "Mounting root filesystem: "
-	call	mount_init$
-
-	.data
-	0:
-	STRINGPTR "mount"
-	STRINGPTR "hdb0"
-	STRINGPTR "/b"
-	STRINGNULL
-	.text32
-	mov	esi, offset 0b
-	call	cmd_mount$
-
 	#MORE
 .if SHOWOFF
 	WAITSCREEN
@@ -241,15 +228,60 @@ kmain:
 .endif
 
 
-	I "Relocation / Kernel Load Address: "
+	I "Relocation: "
 	call	0f
 0:	pop	edx
 	sub	edx, offset 0b
+	COLOR 8
 	call	printhex8
+	I2 " Kernel Load Address: "
+	GDT_GET_BASE edx, cs
+	call	printhex8
+	I2 " Boot Drive: "
+	mov	ax, [boot_drive]
+	call	disk_print_label
 	call	newline
+	COLOR 7
+
+	I "Enabling scheduler"
+	mov	dword ptr [schedule_sem], 0
+	OK
 
 
-OPEN_SHELL_DEFAULT = 1
+	I "Mounting root filesystem: "
+	call	mount_init$
+
+	.data
+	0:
+	STRINGPTR "mount"
+	1:
+	STRINGPTR "hdb0\0\0"
+	3:
+	STRINGPTR "/b"
+	STRINGNULL
+	.text32
+	# overwrite with boot drive
+	mov	ax, [boot_drive]
+	add	al, 'a'
+	mov	edi, [3b]
+	inc	edi
+	stosb
+	mov	edi, [1b]
+	add	edi, 2
+	stosb
+	cmp	ah, -1
+	jnz	2f
+	xor	al, al
+	stosb
+	jmp	3f
+2:	movzx	edx, ah
+	call	sprintdec32
+3:	mov	esi, offset 0b
+	call	cmd_mount$
+
+
+
+OPEN_SHELL_DEFAULT = 0
 
 
 	.if !OPEN_SHELL_DEFAULT
@@ -280,7 +312,7 @@ OPEN_SHELL_DEFAULT = 1
 	call	newline
 
 	call	shell
-
+shell_return$:	# debug symbol
 	##################################################################
 
 	call	newline

@@ -269,9 +269,11 @@ strndup:
 # out: ecx = length of next token (0 for token sep)
 # out: CF = 1: match  0: end of string reached
 strtok:
-	stc
-	adc	esi, ecx
-	call	strlen_
+	add	esi, ecx
+	cmp	[esi], al
+	jnz	1f
+	inc	esi	# should happen for all but the first (only potentially)
+1:	call	strlen_
 	stc
 	jecxz	9f
 	push	edi

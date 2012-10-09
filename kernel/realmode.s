@@ -14,14 +14,21 @@ DEBUG_KERNEL_REALMODE = 0	# 1: require keystrokes at certain points
 CHAIN_RETURN_RM_KERNEL = 1
 #########################################################
 
-.macro PRINT_START_16
+.macro PRINT_START_16 col=-1
 	push	es
 	push	di
 	push	ax
 	mov	di, 0xb800
 	mov	es, di
 	mov	di, [screen_pos]
+	.ifc \col,-1
 	mov	ah, [screen_color]
+	.else
+	.ifc ah,\col
+	.else
+	mov	ah, \col
+	.endif
+	.endif
 .endm
 
 .macro PRINT_END_16
@@ -37,13 +44,19 @@ CHAIN_RETURN_RM_KERNEL = 1
 	pop	es	
 .endm
 
-.macro PRINTCHAR_16 c
+.macro PRINTCHAR_16 char
 	push	ax
-	mov	al, \c
+	mov	al, \char
 	call	printchar_16
 	pop	ax
 .endm
 
+.macro PRINTCHARc_16 col, char
+	push	ax
+	mov	ax, (\col << 8) | \char
+	call	printcharc_16
+	pop	ax
+.endm
 
 .macro PRINT_16 m
 	# need to declare realmode strings in .text as kernel .text shifts
@@ -83,7 +96,7 @@ CHAIN_RETURN_RM_KERNEL = 1
 
 .macro PH8_16 m x
 	PRINT_16 "\m"
-	.if \x != edx
+	.ifc edx,\x
 	push	edx
 	mov	edx, \x
 	call	printhex8_16
@@ -94,7 +107,7 @@ CHAIN_RETURN_RM_KERNEL = 1
 .endm
 
 
-.macro rmCOLOR c
+.macro COLOR_16 c
 	mov	[screen_color], byte ptr \c
 .endm
 
@@ -107,29 +120,15 @@ CHAIN_RETURN_RM_KERNEL = 1
 	pop	word ptr [screen_color]
 .endm
 
-
-.macro rmD a b
-	PRINT_START_16
-	mov	ax, (\a << 8 ) + \b
-	stosw
-	PRINT_END_16
-.endm
-
-
-.macro rmPC c m
-	PRINTc_16 \c, "\m"
-.endm
-
-
 .macro rmI m
-	rmD 0x09 '>'
-	rmPC 0x0f " \m"
-	rmCOLOR 7
+	PRINTCHARc_16 0x09, '>'
+	PRINTc_16 0x0f, " \m"
+	COLOR_16 7
 .endm
 
 
 .macro rmI2 m
-	rmPC 0x03 "\m"
+	PRINTc_16 0x03, "\m"
 .endm
 
 
@@ -142,7 +141,7 @@ CHAIN_RETURN_RM_KERNEL = 1
 .text16
 
 # in: es = 0xb800
-# in: dl = boot drive
+# in: dl = boot drive, dh = boot partition
 # in: ds:si = mbr partition info (offset 446 in MBR in memory)
 # in: ds:cx = ramdisk address
 # in: 0:ebx = kernel load end
@@ -177,9 +176,11 @@ realmode_kernel_entry:
 
 ####### print hello
 
-	rmCOLOR	14
+	COLOR_16 14
 	println_16 "Kernel booting"
-	rmCOLOR 7
+	COLOR_16 7
+
+	mov	[boot_drive], dx
 
 	.if DEBUG
 		PRINTc_16 8, " boot drive: "
@@ -260,9 +261,9 @@ realmode_kernel_entry:
 	mov	edx, [bx]
 	pop	ds
 
-	rmCOLOR	0x0b
+	COLOR_16 0x0b
 	call	printhex8_16
-	rmCOLOR	0x0f
+	COLOR_16 0x0f
 
 	call	newline_16
 
@@ -299,10 +300,10 @@ realmode_kernel_entry:
 	printc_16 15, "High memory Map:"
 	call	newline_16
 
-	rmCOLOR 7
+	COLOR_16 7
 	print_16 "Base:              | Length:             | Region Type| Attributes"
 	call	newline_16
-	rmCOLOR 8
+	COLOR_16 8
 
 	mov	di, offset memory_map
 	xor	ebx, ebx
@@ -327,18 +328,18 @@ realmode_kernel_entry:
 	mov	edx, es:[di]
 	call	printhex8_16
 	add	di, 8
-	rmCOLOR 1
+	COLOR_16 1
 	print_16 " |  "
-	rmCOLOR 8
+	COLOR_16 8
 	# qword length
 	mov	edx, es:[di+4]
 	call	printhex8_16
 	mov	edx, es:[di]
 	call	printhex8_16
 	add	di, 8
-	rmCOLOR 1
+	COLOR_16 1
 	print_16 " |  "
-	rmCOLOR 8
+	COLOR_16 8
 	# dword region type
 	# 1 = usable ram
 	# 2 = reserved
@@ -348,9 +349,9 @@ realmode_kernel_entry:
 	mov	edx, es:[di]
 	add	di, 4
 	call	printhex8_16
-	rmCOLOR 1
+	COLOR_16 1
 	print_16 " |  "
-	rmCOLOR 8
+	COLOR_16 8
 	# dword ACPI 3.0 attributes
 	mov	edx, es:[di]
 	add	di, 4
@@ -360,12 +361,12 @@ realmode_kernel_entry:
 	jmp	0b
 #	jmp	1f
 
-0:	rmCOLOR 12
+0:	COLOR_16 12
 	print_16 "int 0x15 error: eax="
 	mov	edx, eax
-	rmCOLOR 4
+	COLOR_16 4
 	call	printhex8_16
-1:	rmCOLOR 7
+1:	COLOR_16 7
 
 
 	.if 1
@@ -378,8 +379,22 @@ realmode_kernel_entry:
 	mov	si, offset cdrom_spec_packet
 	int	0x13
 	pop	es
+	pushf
 	mov	dx, ax
 	call	printhex_16
+	popf
+	jc	1f
+	# so there was boot emulation: get the real boot drive:
+	rmI2 "Drive: "
+	mov	dh, [cdrom_spec_packet + cdrom_spec_device]
+	and	dh, 1
+	mov	dl, [cdrom_spec_packet + cdrom_spec_controller_nr]
+	shl	dl, 1
+	or	dl, dh
+	mov	dh, -1
+	mov	[boot_drive], dx
+	call	printhex2_16
+1:	call newline_16
 	rmOK
 	.endif
 
@@ -388,9 +403,9 @@ realmode_kernel_entry:
 	mov	cx, 21
 	mov	bx, offset kmain
 0:	mov	dx, bx
-	rmCOLOR	0x07
+	COLOR_16 0x07
 	call	printhex_16
-	rmCOLOR	0x08
+	COLOR_16 0x08
 	mov	edx, [bx]
 	call	printhex8_16
 	call	newline_16
@@ -473,9 +488,25 @@ memory_map_attributes:	.long 0 	# ACPI compliancy
 memory_map_struct_size: 
 
 .data16
-low_memory_size: .word 0 # in kb
-memory_map:	.space 24 * (10+1)	# 11 lines (qemu: 5, vmware: 10)
-cdrom_spec_packet: .space 0x13
+low_memory_size:	.word 0 # in kb
+boot_drive:		.byte 0
+boot_partition:		.byte 0
+memory_map:		.space 24 * (10+1) # 11 lines (qemu: 5, vmware: 10)
+cdrom_spec_packet:	.space 0x13
+.struct 0
+cdrom_spec_size:	.byte 0		# size of packet
+cdrom_spec_boot_media_type: .byte 0 #3:0: 0=no emul;1=1.2;2=1.44;3=2.88;4=hdd
+				# 6: image has atapi driver; 7: has scsi driver.
+cdrom_spec_drive_number:.byte 0 # 00=floppy image, 80=hdd,81+=nonboot/no emul.
+cdrom_spec_controller_nr: .byte 0
+cdrom_spec_image_lba:	.long 0
+cdrom_spec_device:	.word 0 # [15:8: bus nr] [7:0 SCSI LUN+PUN] [0:slave]
+cdrom_spec_buffer_seg:	.word 0	# segment of 3k buffer
+cdrom_spec_load_seg:	.word 0	# boot image initial load segment (0: 0x07c0)
+cdrom_spec_num_virt_sect:.word 0 # nr of 512 byte virtual sectors
+cdrom_spec_cyl_lo:	.byte 0
+cdrom_spec_sect_cyl_hi:	.byte 0
+cdrom_spec_head:	.byte 0
 
 
 .text16
@@ -488,6 +519,7 @@ printhex1_16:
 	mov	ecx, 1
 	rol	edx, 28
 	jmp	1f
+printhex4_16:
 printhex_16:
 	push	ecx
 	mov	ecx, 4
@@ -531,6 +563,12 @@ newline_16:
 
 printchar_16:
 	PRINT_START_16
+	stosw
+	PRINT_END_16
+	ret
+
+printcharc_16:
+	PRINT_START_16 ah
 	stosw
 	PRINT_END_16
 	ret

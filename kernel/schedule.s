@@ -7,8 +7,9 @@ task_addr:	.long 0	# eip of task
 task_arg:	.long 0	# value to be passed in edx
 task_label:	.long 0	# name of task (for debugging)
 task_registrar:	.long 0	# address from which schedule_task was called (for debugging when task_addr=0)
+.data
+schedule_sem: .long -1	# -1: scheduling disabled; locked by: 1=schedule 2=schedule_task
 .data SECTION_DATA_BSS
-schedule_sem: .long 0
 scheduled_tasks: .long 0
 SCHEDULE_STRUCT_SIZE = 12
 .text32
@@ -16,6 +17,9 @@ SCHEDULE_STRUCT_SIZE = 12
 # This method is called immediately after an interrupt has handled,
 # and it is the tail part of the irq_proxy.
 schedule:
+	push	ebp
+	mov	ebp, esp
+	push	offset schedule	# for stack debugging
 	push	ds
 	push	es
 	push	eax
@@ -28,12 +32,19 @@ schedule:
 	jc	9f
 
 	# keep interrupt flag as before IRQ
-	#	test	word ptr [esp + 8 + 4 + 4], 1 << 9	# irq flag; 8:cs:eip, 4:eax, 4:edx
-	#	jz	2f
+	.if 1
+	# access EFLAGS: ebp + 4 -> eip:cs:eflags (+12 then ->eflags)
+	# unless SCHEDULE_IRET = 0: a return ptr then preceeds eip on stack.
+	test	word ptr [ebp + 12 + 4*(SCHEDULE_IRET-1)], 1 << 9 # irq flag;
+	jz	1f
 	sti
+1:
+	.else
+	sti
+	.endif
 
-	pushad
-	call	eax	# in: edx; assume the task does not change segment registers
+	pushad		# assume the task does not change segment registers
+	call	eax	# in: edx;
 	popad
 
 	.if 1
@@ -45,7 +56,13 @@ schedule:
 	pop	eax
 	pop	es
 	pop	ds
+	add	esp, 4	# pop offset schedule (as iret has no arguments)
+	pop	ebp
+.if SCHEDULE_IRET
 	iret
+.else
+	ret
+.endif
 
 
 # nr: 3 = failed to acquire lock
@@ -110,7 +127,8 @@ get_scheduled_task$:
 	mov	dword ptr [schedule_sem], 0	# we have lock so we can write.
 	ret
 
-9:	SCHED_UPDATE_GRAPH 1
+9:	mov	[schedule_sem], eax	# ok since nonzero (Potential race condition!)
+	SCHED_UPDATE_GRAPH 1
 	stc
 	ret
 
@@ -125,6 +143,10 @@ sched_graph_symbols:
 	.byte '-', 0x4f
 	.byte '-', 0x3f
 	.byte '+', 0x2f
+	.byte 'S', 0x1f
+	.byte '?', 0x0f
+	.byte '?', 0x0f
+	.byte '?', 0x0f
 .text32
 # in: al = nr
 # destroys: eax
@@ -145,7 +167,7 @@ sched_update_graph:
 	xor	eax, eax
 	mov	ecx, 80
 0:	lodsb
-	and	al, 3
+	and	al, 7
 	xor	ah, ah
 	mov	ax, [sched_graph_symbols + eax * 2]
 	stosw
@@ -160,12 +182,15 @@ sched_update_graph:
 
 
 
+# This method is typically called in an ISR.
 # in: cs
 # in: eax = task code offset
 # in: ecx = size of argument
 # in: esi = label for task
 # out: eax = argument buffer
 schedule_task:
+	cmp	dword ptr [schedule_sem], -1
+	jz	8f
 	push	ebx
 	push	ecx
 	push	edx
@@ -173,16 +198,24 @@ schedule_task:
 
 ######## spin lock
 	mov	ecx, 0x1000
-0:	dec	ecx	# infinite loop limit
-	stc
-	jz	9f
-	mov	eax, 2	# for future debugging - who has lock.
+0:	mov	eax, 2	# for future debugging - who has lock.
 	xchg	[schedule_sem], eax
 	or	eax, eax
-	pause
-	jnz	0b
+	jz	0f
+	SCHED_UPDATE_GRAPH 4
+	DEBUG_DWORD eax
+#	pause
+pushf
+sti
+hlt
+popf
+	loop	0b
+	printlnc 4, "failed to acquire schedule semaphore"
+	DEBUG_DWORD eax
+	stc
+	jmp	9f
 ########
-	ARRAY_LOOP [scheduled_tasks], SCHEDULE_STRUCT_SIZE, eax, edx, 9f
+0:	ARRAY_LOOP [scheduled_tasks], SCHEDULE_STRUCT_SIZE, eax, edx, 9f
 	cmp	dword ptr [eax + edx], -1
 	jz	1f
 	ARRAY_ENDL
@@ -210,3 +243,5 @@ schedule_task:
 	pop	ebx
 	ret
 
+8: DEBUG "scheduling disabled"
+ret

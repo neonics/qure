@@ -1,21 +1,10 @@
+######################################################################
 .intel_syntax noprefix
-.text32
-.code32
-
-.macro BREAKPOINT label
-	pushf
-	push 	eax
-	PRINTC 0xf0, "\label"
-	xor	eax, eax
-	call	keyboard
-	pop	eax
-	popf
-.endm
-
-BREAKPOINT "foo"
 
 .data SECTION_DATA_BSS
-debug_registers$: .space 4 * 32
+debug_registers$:	.space 4 * 32
+kernel_symtab:		.long 0
+kernel_symtab_size:	.long 0
 .text32
 
 debug_regstore$:
@@ -92,3 +81,57 @@ debug_regdiff$:
 .endm
 
 
+.macro BREAKPOINT label
+	pushf
+	push 	eax
+	PRINTC 0xf0, "\label"
+	xor	eax, eax
+	call	keyboard
+	pop	eax
+	popf
+.endm
+
+
+
+.text32
+# in: edx
+# out: esi
+# out: CF
+debug_getsymbol:
+	mov	esi, [kernel_symtab]
+	or	esi, esi
+	jz	9f
+
+	push	ecx
+	push	edi
+	push	eax
+	mov	eax, edx
+	mov	ecx, [esi]
+	lea	edi, [esi + 4]
+	repnz	scasd
+	stc
+	jnz	1f
+
+
+	mov	ecx, [esi]
+	mov	edi, [edi - 4 + ecx * 4]
+	lea	esi, [esi + 4 + ecx * 8]
+	lea	esi, [esi + edi]
+	clc
+1:	pop	eax
+	pop	edi
+	pop	ecx
+9:	ret
+
+
+
+# in: eax = address
+debug_printsymbol:
+	push	esi
+	call	debug_getsymbol
+	jc	1f
+	pushcolor 14
+	call	print
+	popcolor
+1:	pop	esi
+	ret

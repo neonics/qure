@@ -499,13 +499,19 @@ TRACE '*'
 	println ":0000"
 
 	# set up some args:
-	call	get_boot_drive	# dl = drive
 	mov	si, [partition]	# pointer to MBR partition info
+	mov	dx, si
+	sub	dx, offset mbr	# 16 bytes/entry
+	shl	dx, 9		# ah = partition index
+	call	get_boot_drive	# dl = drive
 	mov	cx, [ramdisk_address]
 				# bx = end of kernel
 
 	push	dx
 	PRINT	"dl: boot drive: "
+	call	printhex2
+	PRINT	"partition: "
+	mov	dl, dh
 	call	printhex2
 	call	newline
 
