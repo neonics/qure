@@ -262,9 +262,16 @@ cmd_mount$:
 	mov	eax, ebx
 	add	eax, edx
 
-	mov	dl, [eax + mtab_fs]
 	printc	14, "type "
+	mov	dl, [eax + mtab_fs]
 	call	printhex2
+	call	printspace
+	pushcolor 9
+	mov	esi, [eax + mtab_fs_instance]
+	mov	esi, [esi + fs_obj_class]
+	mov	esi, [esi + fs_api_label]
+	call	print
+	popcolor
 	call	printspace
 
 	mov	eax, [eax + mtab_partition_size]
@@ -367,10 +374,12 @@ mtab_print$:
 	printc_	8, " (disk "
 	mov	dl, byte ptr [ebx + ecx + mtab_disk]
 	call	printdec32
-	printc_	8, " partition "
 	mov	dl, byte ptr [ebx + ecx + mtab_partition]
+	cmp	dl, -1
+	jz	2f
+	printc_	8, " partition "
 	call	printdec32
-	call	printspace
+2:	call	printspace
 	mov	eax, [ebx + ecx + mtab_partition_size]
 	xor	edx, edx
 	color	7
@@ -780,9 +789,10 @@ fs_nextentry:
 
 # in: eax = handle
 # out: esi = buffer
-# out: ecx = bytes to read/max buf size
+# out: ecx = buffer size
 fs_handle_read:
 	push	eax
+	push	ebx
 	push	edi
 	push	edx
 	call	fs_validate_handle
@@ -790,7 +800,7 @@ fs_handle_read:
 
 	mov	edi, [eax + edx + fs_handle_buf]
 	or	edi, edi
-	jnz	1f
+	jnz	1f	# assume buffer is large enough
 	push	eax
 	mov	eax, [eax + edx + fs_handle_dirent +  fs_dirent_size]
 #	add	eax, 511
@@ -814,6 +824,7 @@ fs_handle_read:
 
 0:	pop	edx
 	pop	edi
+	pop	ebx
 	pop	eax
 	ret
 9:	printc 4, "fs_handle_read: unknown handle"
@@ -886,7 +897,7 @@ fs_close:	# fs_free_handle
 	push	ecx
 
 	call	fs_validate_handle	# out: eax+edx
-	jc	1f
+	jc	9f
 
 	mov	ebx, eax
 	mov	eax, [ebx + edx + fs_handle_label]
@@ -901,6 +912,12 @@ fs_close:	# fs_free_handle
 
 	call	mfree
 
+	mov	eax, [ebx + edx + fs_handle_buf]
+	or	eax, eax
+	jz	1f
+	call	mfree
+1:
+
 	mov	eax, ebx
 	# mark filesystem handle as free
 	mov	[eax + edx + fs_handle_label], dword ptr -1
@@ -911,13 +928,14 @@ fs_close:	# fs_free_handle
 	FS_HANDLE_CALL_API close, ecx
 	pop	edi
 
+
 0:	mov	eax, -1
 	pop	ecx
 	pop	ebx
 	pop	edx
 	ret
 
-1:	printc	4, "fs_close: free for unknown handle: "
+9:	printc	4, "fs_close: unknown handle: "
 	call	printhex8
 	call	newline
 	stc
@@ -987,6 +1005,7 @@ fs_opendir:
 0:	mov	al, '/'
 	call	strtok	# out: esi, ecx
 	jc	1f
+
 	push	esi	# preserve for next strtok call
 	push	ecx
 
@@ -1172,6 +1191,9 @@ handle_pathpart$:
 # out: edi points to end of the new path pointed to by edi.
 # effect: applies the (relative or absolute) path in esi to edi.
 fs_update_path:
+	push	ebp
+	push	edi
+	mov	ebp, esp
 	push	eax
 	push	ebx
 	push	edx
@@ -1212,27 +1234,24 @@ fs_update_path:
 	inc	edx
 	jmp	1b
 
-1:	mov	byte ptr [esi -1 ], '/'
+1:# 'damagnie' mov	byte ptr [esi -1 ], '/'
 2:	# calculate path entry length
 	mov	ecx, esi
 	sub	ecx, ebx	# strlen
 	dec	ecx
 	jz	7f	# no length - no effect
 
-	.if 0
-		cmp	byte ptr [ebp], 0
-		jz	1f
+	.if FS_DEBUG > 1
 		push	esi
 		mov	esi, ebx
 		call	nprint
 		printchar ' '
 		pushcolor 13
-		mov	esi, offset cd_cwd$
+		mov	esi, [ebp]
 		call	print
 		print " -> "
 		popcolor
 		pop	esi
-	1:
 	.endif
 
 ###	# check whether we just had a ... sequence
@@ -1246,7 +1265,7 @@ fs_update_path:
 	dec	edi
 2:	mov	al, '/'
 	mov	ecx, edi
-	sub	ecx, offset cd_cwd$
+	sub	ecx, [ebp]
 	jbe	3f
 	je	3f
 	dec	edi
@@ -1273,16 +1292,13 @@ fs_update_path:
 	pop	esi
 7:	
 ###
-	.if 0
-		cmp	byte ptr [ebp], 0
-		jz	1f
+	.if FS_DEBUG > 1
 		pushcolor 13
 		push	esi
-		mov	esi, offset cd_cwd$
+		mov	esi, [ebp]
 		call	println
 		pop	esi
 		popcolor
-	1:
 	.endif
 
 	mov	ebx, esi
@@ -1292,6 +1308,8 @@ fs_update_path:
 4:	pop	edx
 	pop	ebx
 	pop	eax
+	add	esp, 4 # pop edi
+	pop	ebp
 	ret
 
 
