@@ -498,6 +498,12 @@ gfx_textmode:
 	sub	sp, 512
 	mov	di, sp
 	int	0x10
+
+	# hide cursor
+	mov	cx, 0x2000	# 0x2607 - underline rows 6 and 7
+	mov	ah, 1
+	int	0x10
+
 	add	sp, 512
 	pop	es
 	ret
