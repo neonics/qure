@@ -100,6 +100,7 @@ debug_regdiff$:
 debug_getsymbol:
 	mov	esi, [kernel_symtab]
 	or	esi, esi
+	stc
 	jz	9f
 
 	push	ecx
@@ -111,7 +112,6 @@ debug_getsymbol:
 	repnz	scasd
 	stc
 	jnz	1f
-
 
 	mov	ecx, [esi]
 	mov	edi, [edi - 4 + ecx * 4]

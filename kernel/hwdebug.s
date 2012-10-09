@@ -57,6 +57,7 @@ enable_breakpoint_memwrite_dword:
 	DEBUG_DWORD eax
 
 
+breakpoint_set_memwrite_dword:
 	mov	ebx, dr7
 	#	ebx, 0b11111111111111110010011111111111 # 0=reserved bit
 	#              f   f   f   f   2   7   aabbccdd
@@ -83,7 +84,7 @@ enable_breakpoint_memwrite_dword:
 	add	eax, 2
 	mov	dr1, eax      #SECNfrst
 	and	ebx, 0b11111111000000001111111111111111 # clear bits to change
-	or	ebx, 0b00000000010101010000000000000101 # len 1, data wr only
+	or	ebx, 0b00000000010101010000000000000101 # len 2 Write, len 2 write
 	mov	dr7, ebx
 	ret
 
@@ -101,3 +102,97 @@ enable_breakpoint_memwrite_dword:
 	ret
 
 
+breakpoint_set_memwrite_word:
+	mov	ebx, dr7
+	test	al, 1
+	jz	1f
+
+	mov	dr0, eax
+	inc	eax
+	mov	dr1, eax
+		#              LLRWLLRW  LL=00=byte
+	and	ebx, 0b11111111000000001111111111111111 # clear bits to change
+	or	ebx, 0b00000000000100010000000000000101 # len 1, data wr only
+	mov	dr7, ebx
+	ret
+
+1:	# word aligned
+	mov	dr0, eax
+		#      ............LLRW LL=01=word
+	and	ebx, 0b11111111111100001111111111111111 # clear bits to change
+	or	ebx, 0b00000000000001010000000000000001 # len 1, data wr only
+	mov	dr7, ebx
+	ret
+
+breakpoint_set_memwrite_byte:
+	mov	ebx, dr7
+	mov	dr0, eax
+	and	ebx, 0b11111111111100001111111111111111 # clear bits to change
+	or	ebx, 0b00000000000000010000000000000101 # len 1, data wr only
+	mov	dr7, ebx
+	ret
+
+# in: eax = address
+# in: bl = size: 1, 2, 3
+breakpoint_set_memwrite:
+
+	test	bl, ~3
+	jnz	9f
+	or	bl, bl
+	jz	breakpoint_set_code
+
+	push	edx
+	pushcolor 0xe0
+	printc	0xe1, "Breakpoint: "
+	mov	edx, eax
+	call	printhex8
+	GDT_GET_BASE edx, ds
+	add	eax, edx
+	mov	edx, eax
+	printc	0xe1 " (phys addr: "
+	call	printhex8
+	printc	0xe1, ") size "
+	push	ecx
+	mov	cl, bl
+	dec	cl
+	mov	edx, 1
+	shl	edx, cl
+	pop	ecx
+	call	printhex1
+	mov	edx, [eax]
+	printc 0xe1, " cur value: "
+	mov	edx, [eax]
+	call	printhex8
+	call	printspace
+	call	printhex2
+	shr	edx, 8
+	call	printhex2
+	shr	edx, 8
+	call	printhex2
+	shr	edx, 8
+	call	printhex2
+	call	newline
+	popcolor
+	pop	edx
+
+	cmp	bl, 3
+	jz	breakpoint_set_memwrite_dword
+	cmp	bl, 2
+	jz	breakpoint_set_memwrite_word
+	cmp	bl, 1
+	jz	breakpoint_set_memwrite_byte
+
+9:	printlnc 4, "breakpoint_set_memwrite: wrong size: "
+	push	edx
+	movzx	edx, bl
+	call	printdec32
+	pop	edx
+	printlnc 4, " - not 1, 2 or 3"
+	stc
+	jmp	0b
+
+
+# in: eax = address
+breakpoint_set_code:
+	printlnc 0xe4, "code breakpoint not implemented yet"
+	ret

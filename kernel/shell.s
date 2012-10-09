@@ -115,9 +115,8 @@ SHELL_COMMAND "gpf"		cmd_gpf
 SHELL_COMMAND "colors"		cmd_colors
 
 SHELL_COMMAND "debug"		cmd_debug
+SHELL_COMMAND "breakpoint"	cmd_breakpoint
 SHELL_COMMAND "pic"		cmd_pic
-
-SHELL_COMMAND "cdrom"		cmd_cdrom	# mount hdc, cat HELLO.TXT
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -225,6 +224,12 @@ start1$:
 	jae	start1$	# ignore
 	cmp	al, 32
 	jb	start1$	# ignore
+
+	push	eax
+	shr	eax, 16	# test the mutators: al=shift, ah:0=ctrl, ah:1=alt
+	or	ah, ah
+	pop	eax
+	jnz	start1$	# ignore control/alt + common keys.
 	
 1:	#cmp	byte ptr [insertmode], 0
 	#jz	insert$
@@ -633,9 +638,13 @@ cmdline_execute$:
 	mov	esi, offset cmdline_args
 
 	add	edx, [realsegflat]
+	jz	9f
 	call	edx
+exec_return$:
 
 	ret
+9:	printlnc 12, "Error: command null."
+	int	1
 
 
 ##############################################################################
@@ -975,7 +984,6 @@ cmd_cd$:
 	mov	ecx, MAX_PATH_LEN
 	rep	movsb
 	pop	esi
-
 	mov	edi, offset cd_cwd$
 	call	fs_update_path
 ##############################################################################
@@ -1148,12 +1156,11 @@ cmd_cat$:
 
 	mov	eax, offset 88b
 	call	fs_openfile	# out: eax = file handle
-	jc	9f
-	push	eax
+	jc	3f
 	call	fs_handle_read # in: eax = handle; out: esi, ecx
-	pop	eax
-	call	fs_close
+	jc	6f
 
+	push	eax
 0:	lodsb
 	cmp	al, '\r'
 	jz	1f
@@ -1164,8 +1171,10 @@ cmd_cat$:
 2:	call	printchar
 1:	loop	0b
 	call	newline_if
+	pop	eax
 
-	ret
+6:	call	fs_close
+3:	ret
 
 9:	printlnc 12, "usage: cat <filename>"
 	stc
@@ -1500,31 +1509,43 @@ cmd_debug:
 
 	ret
 
+cmd_breakpoint:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	9f
+	mov	eax, [eax]
+	mov	bl, 1
+	cmp	ax, 'b'
+	jz	1f
+	add	bl, bl
+	cmp	ax, 'w'
+	jz	1f
+	add	bl, bl
+	cmp	ax, 'd'
+	jz	1f
+	xor	bl, bl
+	cmp	ax, 'c'
+	jnz	9f
+1:	lodsd
+	or	eax, eax
+	jz	9f
+	call	htoi
+	jc	9f
+	or	bl, bl
+	jz	1f
+	call	breakpoint_set_memwrite
+	ret
+1:	call	breakpoint_set_code
+	ret
+9:	printlnc 12, "usage: breakpoint [b|w|d|c] <hex address>"
+	printlnc 12, "  sets mem write breakpoint for b (byte) w (word) d (dword)"
+	printlnc 12, "  sets code exec breakpoint for c (code)"
+	ret
+
 cmd_pic:
 	call	pic_get_mask32
 	mov	dx, ax
 	call	printbin16
 	call	newline
-	ret
-
-cmd_cdrom:
-	.data
-	1:
-	STRINGPTR "mount"
-	STRINGPTR "hdc"
-	STRINGPTR "/c"
-	STRINGNULL
-	.text32
-	mov	esi, offset 1b
-	call	cmdline_print_args$
-	call	cmd_mount$
-	.data
-	1:
-	STRINGPTR "cat"
-	STRINGPTR "/c/HELLO.TXT"
-	STRINGNULL
-	.text32
-	mov	esi, offset 1b
-	call	cmdline_print_args$
-	call	cmd_cat$
 	ret

@@ -30,7 +30,7 @@ KB_STATUS_OBF	= 0b00000001	# Output buffer full
 KB_STATUS_IBF	= 0b00000010	# Input buffer full
 KB_STATUS_SYS	= 0b00000100	# POST: 0: power-on reset; 1: BAT code, powered
 KB_STATUS_A2	= 0b00001000	# address line A2; last written: 0=0x60, 1=0x64
-KB_STATUS_INH	= 0b00010000	# Communication inhibited: 0=yes 
+KB_STATUS_INH	= 0b00010000	# Communication inhibited: 0=yes
 KB_STATUS_MOBF	= 0b00100000	# PS2: OBF for mouse; AT: TxTO (timeout)
 KB_STATUS_TO	= 0b01000000	# PS2: general (TX/RX) Timeout; AT: RxTO
 KB_STATUS_PERR	= 0b10000000	# Parity Error
@@ -142,27 +142,20 @@ CK_RIGHT_CTRL		= 0b100000
 
 .data16 # XXX .text32 to keep in realmode access
 old_kb_isr: .word 0, 0
-scr_o: .word 7 * 160
 
 .text32
 isr_keyboard:
 	push	ds
 	push	es
-	push	edi
 	push	eax
 	push	edx
 
 	mov	ax, SEL_compatDS
 	mov	ds, ax
+	mov	es, ax
 
 	call	buf_avail
 	jle	2f
-
-	# debug
-	mov	ax, SEL_vid_txt
-	mov	es, ax
-	xor	edi, edi
-	mov	di, [scr_o]
 
 	mov	ah, 0x90
 #0:	in	al, 0x64
@@ -245,6 +238,8 @@ isr_keyboard:
 		keys_pressed: .space 128
 		kb_shift: .byte 0
 		kb_caps: .byte 0
+		kb_control: .byte 0
+		kb_alt: .byte 0
 	.data
 		keymap:
 		.byte 0, 0 	# 00: error code
@@ -297,8 +292,8 @@ isr_keyboard:
 		.byte 0, 0	# 2a Left Shift
 		.byte '\\', '|'	# 2b
 		.byte 'z', 'Z'	# 2c
-		.byte 'x', 'X'	#
-		.byte 'c', 'C'	#
+		.byte 'x', 'X'	# 2d
+		.byte 'c', 'C'	# 2e
 		.byte 'v', 'V'	#
 		.byte 'b', 'B'	#
 		.byte 'n', 'N'	#
@@ -364,7 +359,7 @@ isr_keyboard:
 		.byte 0,0	# 63 MS: wake
 
 
-		# turbo mode scan codes: 
+		# turbo mode scan codes:
 		# (lCtrl-lAlt-grey+)  1d  38  4a  ce  b8  9d
 		#                    ML^ ML@ MG- BG+ BL@ BL^
 		# (lCtrl-lAlt-grey-)  1d  38  4e  ce  b8  9d
@@ -385,17 +380,13 @@ isr_keyboard:
 
 	.text32
 
-	mov	dx, ax
-.if DEBUG_KB > 3
-	push	ax
-	mov	ah, 0x40
-	call	printhex
-	pop	ax
-.endif
-	and	edx, 0xff
+	movzx	edx, al
 	mov	[keys_pressed + edx], ah
 
-	# Check for shift key
+	# Check shift, control, alt.
+	# NOTE: pressing left (shift/ctrl/alt) marks 1.
+	# Then pressing right, marks 1.
+	# Then releasing either, marks 0.
 
 	cmp	al, 0x2a	# left shift
 	je	1f
@@ -409,10 +400,23 @@ isr_keyboard:
 	jne	4f
 	xor	[kb_caps], ah	# ah=1=press,0=depress/ TODO: need to find init state
 
+4:	cmp	al, K_LEFT_CONTROL >> 8
+	je	1f
+	cmp	al, K_RIGHT_CONTROL >> 8
+	jne	0f
+1:	mov	[kb_control], ah
+	jmp	4f
+
+0:	cmp	al, K_LEFT_ALT >> 8
+	je	1f
+	cmp	al, K_RIGHT_ALT >> 8
+	jne	4f
+1:	mov	[kb_alt], ah
+
 4:	or	ah, ah
 	jz	2f	# only store keys that are pressed
 
-	# translate 
+	# translate
 	mov	dx, ax
 	and	edx, 0x7f
 	shl	dx, 1
@@ -421,42 +425,103 @@ isr_keyboard:
 	shl	ax, 8 # preserve scancode
 	mov	al, [keymap + edx]
 
-.if DEBUG_KB > 3
-	#### debug print
-	push	ax
-	mov	ah, 0x3f
-	stosw
-	call	printhex
-	pop	ax
-	####
-.endif
-
 3:	#################
 	call	buf_putw
-.if DEBUG_KB > 3
-	#### debug print
-	mov	dx, ax
-	push	ax
-	mov	ah, 0xf1
-	mov	al, '!'
-	stosw
-	call	printhex
-	mov	ah, 0xf2
-	stosw
-	pop	ax
-	add	di, 2
-	#####
-.endif
+2:
 
-2:	mov	[scr_o], di
+	# schedule keyboard task
+	push	ecx
+	push	esi
+	mov	ecx, 8
+	LOAD_TXT "kb"
+	mov	eax, offset kb_task
+	call	schedule_task
+	pop	esi
+	pop	ecx
 
 	PIC_SEND_EOI IRQ_KEYBOARD
 	pop	edx
 	pop	eax
-	pop	edi
 	pop	es
 	pop	ds
 	iret
+
+
+# 'root override' if you will...
+kb_task:
+.if 1
+	cmp	byte ptr [kb_control], 0
+	jnz	1f
+.else
+	cmp	byte ptr [keys_pressed + (K_LEFT_CONTROL >> 8)], 0
+	jnz	1f
+	cmp	byte ptr [keys_pressed + (K_RIGHT_CONTROL >> 8)], 0
+	jnz	1f
+.endif
+	ret
+
+# Control:
+1:
+.if 1
+	cmp	byte ptr [kb_alt], 0
+	jnz	1f
+.else
+	cmp	byte ptr [keys_pressed + (K_LEFT_ALT >> 8)], 0
+	jnz	1f
+	cmp	byte ptr [keys_pressed + (K_RIGHT_ALT >> 8)], 0
+	jnz	1f
+.endif
+
+	cmp	byte ptr [keys_pressed + 0x2e], 0	# scancode for 'C'
+	jz	9f
+	PRINTLNc 0xe2, "^C"
+
+	call	debug_printstack$
+	ret
+# Control + Alt:
+1:	#PRINTc 0xe2, "^@"
+	cmp	byte ptr [keys_pressed + (K_DELETE >> 8)], 0
+	jz	9f
+	PRINTc 0xe2, "Ctrl-Alt-Delete"
+9:	ret
+
+
+debug_printstack$:
+	push	ebp
+	sub	ebp, 20
+	push	edx
+	push	ecx
+	push	esi
+	mov	ecx, 20
+0:	mov	edx, ebp
+	call	printhex8
+	print_ ": "
+	mov	edx, [ebp]
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol	# in: edx
+	cmp	edx, offset kb_task
+	jnz	2f
+	printc_ 11, "kb_task"
+2:	cmp	edx, offset schedule
+	jnz	2f
+	printc_ 11, "schedule"
+2:	cmp	edx, offset exec_return$	# shell
+	jnz	2f
+	printc_ 11, "shell exec_return$"
+2:	cmp	edx, offset shell_return$	# kernel shell call
+	jnz	2f
+	printc_ 11, "kernel"
+2:	call	newline
+
+	add	ebp, 4
+	dec	ecx
+	jnz	0b
+	pop	esi
+	pop	ecx
+	pop	edx
+	pop	ebp
+	ret
 
 # Hook Keyboard ISR
 keyboard_hook_isr:
@@ -471,7 +536,7 @@ keyboard_hook_isr:
 	mov	cx, SEL_compatCS
 	mov	ebx, offset isr_keyboard
 	call	hook_isr
-	
+
 	PIC_ENABLE_IRQ IRQ_KEYBOARD
 
 	popf
@@ -722,7 +787,7 @@ buf_put_$:
 
 
 ##########################################################################
-### Public API 
+### Public API
 ##########################################################################
 
 #Int 16/AH=09h - KEYBOARD - GET KEYBOARD FUNCTIONALITY
@@ -733,7 +798,7 @@ buf_put_$:
 
 KB_GET		= 0
 KB_PEEK		= 1
-KB_GETSHIFT	= 2
+KB_GET_MUTATORS	= 2	# shift, control, alt; out: al=shift, ah:0 = control, ah:1=alt
 KB_SETSPEED	= 3
 KB_GETCHAR	= 10
 
@@ -755,8 +820,8 @@ keyboard:
 	jz	k_get$
 	cmp	ah, KB_PEEK
 	jz	k_peek$
-	cmp	ah, KB_GETSHIFT
-	jz	k_getshift$
+	cmp	ah, KB_GET_MUTATORS
+	jz	k_getmutators$
 	cmp	ah, KB_SETSPEED
 	jz	k_setspeed$
 	cmp	ah, KB_GETCHAR
@@ -765,7 +830,7 @@ keyboard:
 	pop	ds
 	ret
 
-k_get$:	
+k_get$:
 	mov	esi, [keyboard_buffer_ro]
 1:	cmp	esi, [keyboard_buffer_wo]
 	jnz	1f
@@ -777,15 +842,31 @@ k_get$:
 	jl	1f
 	sub	esi, KB_BUF_SIZE
 1:	mov	[keyboard_buffer_ro], esi
+	ror	eax, 16
+	mov	al, [kb_shift]
+	mov	ah, [kb_alt]
+	shl	ah, 1
+	or	ah, [kb_control]
+	ror	eax, 16
 	jmp	0b
 k_peek$:
 	mov	esi, [keyboard_buffer_ro]
 	cmp	esi, [keyboard_buffer_wo]
 	jz	0b
 	mov	ax, [keyboard_buffer + esi]
+	ror	eax, 16
+	mov	al, [kb_shift]
+	mov	ah, [kb_alt]
+	shl	ah, 1
+	or	ah, [kb_control]
+	ror	eax, 16
 	or	ax, ax # ZF = 1
 	jmp	0b
-k_getshift$:
+k_getmutators$:
+	mov	al, [kb_shift]
+	mov	ah, [kb_alt]
+	shl	ah, 1
+	or	ah, [kb_control]
 	jmp	0b
 k_setspeed$:
 	jmp	0b
