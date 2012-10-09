@@ -372,13 +372,9 @@ realmode_kernel_entry:
 	.if 1
 	rmI "Terminating CDROM disk emulation: "
 	mov	ax, 0x4b00
-	mov	dl, 0x7f	# terminate all
-	push	es
-	push	ds
-	pop	es
+	mov	dl, [boot_drive] # 0x7f	# terminate all
 	mov	si, offset cdrom_spec_packet
 	int	0x13
-	pop	es
 	pushf
 	mov	dx, ax
 	call	printhex_16
