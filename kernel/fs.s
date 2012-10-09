@@ -556,12 +556,20 @@ fs_root_umount$:
 	stc
 	ret
 
+ROOT_DEV_PATH = ('d')|('e'<<8)|('v'<<16)
+
 # in: eax = offset fs_root_instance
 # in: esi = directory
 # in: edi = fs dirent
+# out: ebx = file/dir handle
 fs_root_open$:
+	mov	byte ptr [edi + fs_dirent_attr], 0x10
 	cmp	word ptr [esi], '/'
 	jz	0f
+	cmp	[esi], dword ptr ROOT_DEV_PATH
+	jz	1f
+
+9:
 	.if FS_DEBUG > 1
 		printc 4, "fs_root_open "
 		call	print
@@ -569,18 +577,107 @@ fs_root_open$:
 	.endif
 	stc
 	ret
+
+1:	mov	ebx, -2 # indicates /dev
+	mov	[edi + fs_dirent_name + 0], byte ptr '/'
+	mov	[edi + fs_dirent_name + 1], dword ptr ROOT_DEV_PATH
+	clc
+	ret
+
 0:	mov	ebx, -1	# indicates root
-	mov	byte ptr [edi + fs_dirent_attr], 0x10
 	mov	word ptr [edi + fs_dirent_name], '/'
 	clc
 	ret
 
+# in: eax = fs info
 fs_root_close$:
 	clc
 	ret
 
+# Generate a root directory listing on the fly. First entry is /dev,
+# the rest is all mountpoints that are direct descendents of /.
+# in: eax = fs info
+# in: ebx = dir handle
+# in: ecx = cur entry
+# in: edi = fs dir entry struct
+# out: ecx = next entry (-1 for none)
+# out: edx = directory name
 fs_root_nextentry$:
-	printlnc 4, "fs_root_nextentry: not implemented"
+	cmp	ebx, -1	# /
+	jz	0f
+
+	cmp	ebx, -2	# /dev
+	jnz	9f
+
+1:	mov	byte ptr [edi + fs_dirent_attr], 0x04 # system
+	mov	eax, [devices]
+	or	eax, eax
+	jz	9f
+	cmp	ecx, [eax + array_index]
+	jae	9f
+
+	lea	esi, [eax + ecx + dev_name]
+	push	edi
+	push	ecx
+	call	strlen_
+	inc	ecx
+	lea	edi, [edi + fs_dirent_name]
+	rep	movsb
+	pop	ecx
+	pop	edi
+
+	add	ecx, [eax + ecx + obj_size]
+	clc
+	ret
+
+0:	mov	byte ptr [edi + fs_dirent_attr], 0x10
+	or	ecx, ecx
+	jnz	1f
+	mov	[edi + fs_dirent_name + 0], byte ptr '/'
+	mov	[edi + fs_dirent_name + 1], dword ptr ROOT_DEV_PATH
+	inc	ecx
+	ret
+
+1:	mov	eax, [mtab]
+	or	eax, eax
+	jz	9f
+0:	dec	ecx
+	cmp	ecx, [eax + array_index]
+	jae	9f
+	# check if dir is mounted in root:
+	push	ecx
+	push	esi
+##
+	mov	esi, [eax + ecx + mtab_mountpoint]
+	call	strlen_
+	cmp	ecx, 1
+	jz	1f
+	push	ecx
+	push	edi
+	mov	edi, esi
+	mov	al, '/'
+	inc	edi	# assume all mountpoints are absolute
+	repnz	scasb
+	pop	edi
+	pop	ecx
+	jz	1f
+
+	push	edi
+	add	edi, offset fs_dirent_name
+	inc	ecx
+	rep	movsb
+	pop	edi
+	or	esi, esi	# clear ZF
+1:	pop	esi
+	pop	ecx
+	pushf
+	add	ecx, MTAB_ENTRY_SIZE + 1
+	popf
+	jz	0b
+	clc
+	ret
+
+9:	mov	ecx, -1
 	stc
 	ret
 
@@ -754,7 +851,6 @@ fs_nextentry:
 	push	eax
 	call	fs_validate_handle	# in: eax; out: eax + edx
 	jc	9f
-
 	lea	esi, [eax + edx + fs_handle_dirent]
 	push	esi
 	push	ecx
@@ -996,9 +1092,15 @@ fs_opendir:
 	# special case. strtok will skip '/'.
 	# assume [esi]='/'
 	mov	ecx, 1
+	call	handle_copy_path$
 	push	esi
 	call	handle_pathpart$
 	pop	esi
+	jc	2f
+	push	esi
+	call	handle_dup$
+	pop	esi
+2:
 ###############################################
 
 	xor	ecx, ecx
@@ -1009,41 +1111,13 @@ fs_opendir:
 	push	esi	# preserve for next strtok call
 	push	ecx
 
-		# todo: clear stack handle
-		# copy path so far:
-		push	ecx
-		push	esi
-		push	edi
-		add	ecx, esi
-		mov	eax, [ebp - 4]
-		sub	ecx, eax
-		call	strndup	# in: eax, ecx; out: eax
-		lea	edi, [ebp - 4 - FS_HANDLE_STRUCT_SIZE + fs_handle_label]
-		stosd
-		pop	edi
-		pop	esi
-		pop	ecx
-
+	# todo: clear stack handle
+	call	handle_copy_path$ # copy path so far
 	call	handle_pathpart$
-		jc	2f
-		# allocate handle for each subdir
-		call	fs_new_handle$	# out: eax + edx
-		jc	2f	# TODO: also dealloc handle_pathparth's ebx
-		push	edi
-		lea	edi, [eax + edx]
-		lea	esi, [ebp - 4 - FS_HANDLE_STRUCT_SIZE]
-		mov	ecx, FS_HANDLE_STRUCT_SIZE
-		rep	movsb
-		mov	ecx, eax
-		#mov	eax, [ebp - 4]
-		#call	strdup	# in: eax; out: eax
-		#mov	[ecx + edx + fs_handle_label], eax
-		mov	eax, [ebp]
-		mov	[ecx + edx + fs_handle_parent], eax
-		mov	[ebp], edx # store last handle
-		pop	edi
-		clc
-	2:
+	jc	2f
+	# allocate handle for each subdir
+	call	handle_dup$ # copy from stack
+2:
 
 	pop	ecx
 	pop	esi
@@ -1080,6 +1154,44 @@ fs_opendir:
 	pop	ebx
 	pop	ebp
 	ret
+
+handle_copy_path$:
+	# copy path so far:
+	push	ecx
+	push	esi
+	push	edi
+	add	ecx, esi
+	mov	eax, [ebp - 4]
+	sub	ecx, eax
+	call	strndup	# in: eax, ecx; out: eax
+	lea	edi, [ebp - 4 - FS_HANDLE_STRUCT_SIZE + fs_handle_label]
+	stosd
+	pop	edi
+	pop	esi
+	pop	ecx
+	ret
+
+# private/inner function:
+# in: ebp
+# out: eax, esi, ecx, [ebp]
+handle_dup$:
+	call	fs_new_handle$	# out: eax + edx
+	jc	9f	# TODO: also dealloc handle_pathparth's ebx
+	push	edi
+	lea	edi, [eax + edx]
+	lea	esi, [ebp - 4 - FS_HANDLE_STRUCT_SIZE]
+	mov	ecx, FS_HANDLE_STRUCT_SIZE
+	rep	movsb
+	mov	ecx, eax
+	#mov	eax, [ebp - 4]
+	#call	strdup	# in: eax; out: eax
+	#mov	[ecx + edx + fs_handle_label], eax
+	mov	eax, [ebp]
+	mov	[ecx + edx + fs_handle_parent], eax
+	mov	[ebp], edx # store last handle
+	pop	edi
+	clc
+9:	ret
 
 
 # in: esi = path part ptr
