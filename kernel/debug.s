@@ -83,11 +83,11 @@ DEBUG_COLOR3 = 0x1f
 	popf
 .endm
 
-.macro DEBUGS reg=esi
+.macro DEBUGS reg=esi, color=DEBUG_COLOR2
 	pushf
 	pushcolor DEBUG_COLOR1
 	PRINTCHAR '\''
-	COLOR	DEBUG_COLOR2
+	COLOR	\color
 	.if \reg == esi
 	call	print
 	.else

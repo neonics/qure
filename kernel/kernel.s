@@ -86,6 +86,7 @@ DEFINE = 1
 
 .include "gfx.s"
 .include "hwdebug.s"
+.include "vmware.s"
 ###################################
 
 .text32

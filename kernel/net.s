@@ -21,11 +21,15 @@ CPU_FLAG_I_BITS = 9
 
 # out: CF = IF
 .macro IN_ISR
-	push	eax
+	push	edx
 	pushfd
-	pop	eax
-	shr	eax, CPU_FLAG_I_BITS
-	pop	eax
+	pop	edx
+	.if NET_DEBUG > 1
+		DEBUG "FLAGS:"
+		call printbin16
+	.endif
+	shr	edx, CPU_FLAG_I_BITS
+	pop	edx
 .endm
 
 
@@ -851,8 +855,8 @@ net_arp_resolve_ipv4:
 	jc	1b	# out of mem
 
 2:###### have arp entry
-	IN_ISR
-	jc	9b
+#	IN_ISR
+#	jc	9b
 	# in: ebx = nic
 	# in: eax = ip
 	# in: edx = arp table offset
@@ -955,6 +959,11 @@ arp_wait_response:
 
 	# wait for arp response
 # TODO: suspend (blocking IO/wait for arp response with timeout)
+
+IN_ISR
+jnc 1f
+DEBUG "WARNING: IF=0"
+1:
 	mov	ecx, [pit_timer_frequency]
 	shl	ecx, 1	# 2 second delay
 	jnz	0f

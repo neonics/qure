@@ -117,6 +117,8 @@ SHELL_COMMAND "colors"		cmd_colors
 SHELL_COMMAND "debug"		cmd_debug
 SHELL_COMMAND "breakpoint"	cmd_breakpoint
 SHELL_COMMAND "pic"		cmd_pic
+
+SHELL_COMMAND "vmcheck"		cmd_vmcheck
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -383,6 +385,8 @@ key_pgdown:
 
 key_up$:
 	mov	eax, [cmdline_history]
+	cmp	[eax + buf_index], dword ptr 0
+	jz	start0$
 	mov	ebx, [cmdline_history_current]
 	sub	ebx, 4
 	jns	0f
@@ -700,7 +704,9 @@ cmdline_history_add:
 	mov	esi, [eax + edx]
 	add	edx, 4
 	mov	edi, offset cmdline
-	mov	ecx, [cmdlinelen]
+	call	strlen_
+	cmp	ecx, [cmdlinelen]
+	jnz	0b
 	repz	cmpsb
 	jnz	0b
 2:	stc
@@ -1363,9 +1369,11 @@ cmd_netdump:
 	push	esi
 	mov	edi, esi
 	call	shell_variable_set
-	printlnc 11, "Capturing Ethernet packets - press any key to quit."
-	xor	ax, ax
+	printlnc 11, "Capturing Ethernet packets - press enter to quit."
+0:	xor	ax, ax
 	call	keyboard
+	cmp	ax, K_ENTER
+	jnz	0b
 	pop	esi
 	call	shell_variable_unset
 	printlnc 11, "capture complete."
@@ -1549,3 +1557,4 @@ cmd_pic:
 	call	printbin16
 	call	newline
 	ret
+

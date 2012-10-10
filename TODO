@@ -324,3 +324,8 @@ TODO: offload screen writing in interrupts
   See DOC/TaskSwitching.txt
 
 BUG: On resume after hibernate of host os, qemu's nic irq/scheduler doesn't trigger.
+
+BUG: since fixing strtok and fs_update_path, the directory is no longer trailed by /.
+     cd /b then yields dir /b, not /b/, thus catting a file F yields path /bF.
+WORKAROUND: cd /b/
+

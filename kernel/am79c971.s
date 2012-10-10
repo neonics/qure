@@ -394,7 +394,7 @@ am79c971_init:
 
 	AM79C_WRITE_CSR CSR3, AM79C_CSR3_MASK_ALL	# disable all interrupts
 
-	# disable tx polling - only tx on demand.
+	# disable tx polling - only tx on demand. # N/A on vmware VLANCE.
 	AM79C_WRITE_CSR CSR_TXPOLLINT, 0
 
 	.if 0
