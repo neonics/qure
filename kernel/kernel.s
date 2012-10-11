@@ -101,6 +101,25 @@ kmain:
 	PRINTLNc 11 "Protected mode initialized."
 	COLOR 7
 
+	.if SCREEN_BUFFER
+	# copy the screen to the screenbuffer
+	push	ecx
+	push	esi
+	push	edi
+	mov	ecx, [screen_pos] # 160 * 25
+	add	ecx, 160
+	mov	esi, SEL_vid_txt
+	mov	ds, esi
+	xor	esi, esi
+	mov	edi, offset screen_buf + SCREEN_BUF_SIZE
+	sub	edi, ecx
+	rep	movsb
+	pop	edi
+	pop	esi
+	pop	ecx
+	mov	ds, ax
+	.endif
+
 	call	debug_load_symboltable	# a simple reference check and pointer calculation.
 
 	# Flush keyboard buffer

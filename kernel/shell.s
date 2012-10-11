@@ -359,23 +359,59 @@ key_escape$:
 key_pgup:
 .if SCREEN_BUFFER
 	# test the buffer using more
-	mov	ecx, 24
-0:	call	newline
-	loop	0b
+	SCROLL_DISPLAY_LINES = 25
+	SCREENBUF_DISPLAY_END = SCREEN_BUF_SIZE - SCROLL_DISPLAY_LINES * 160
 
-	mov	edx, 3
-	mov	esi, offset screen_buf
-0:	printlnc 11, "***********************"
-	mov	ecx, 160 * 24
-DEBUG_DWORD ecx
-	PRINT_START
-	xor	edi, edi
+	mov	esi, SCREENBUF_DISPLAY_END - SCROLL_DISPLAY_LINES * 160
+0:	xor	edi, edi
+	mov	ecx, 160 * SCROLL_DISPLAY_LINES
+	push	es
+	mov	ax, SEL_vid_txt
+	mov	es, ax
+	push	esi
+	add	esi, offset screen_buf
 	rep	movsb
-	PRINT_END # 0, 1
-	call	newline
-	call	more
-	dec	edx
-	jnz	0b
+	pop	esi
+	pop	es
+
+	cmp	esi, SCREENBUF_DISPLAY_END
+	jae	start1$
+
+1:	xor	ax, ax
+	call	keyboard
+	cmp	ax, K_UP
+	jz	2f
+	cmp	ax, K_DOWN
+	jz	3f
+	cmp	ax, K_ENTER
+	jz	3f
+	cmp	al, ' ' #K_SPACE
+	jz	4f
+	cmp	ax, K_PGDN
+	jz	4f
+	cmp	ax, K_PGUP
+	jz	5f
+	jmp	1b
+3: # down 1 line
+	add	esi, 160
+
+19:	# check end
+	cmp	esi, SCREENBUF_DISPLAY_END
+	jb	0b
+	mov	esi, SCREENBUF_DISPLAY_END
+	jmp	0b
+2: # up
+	sub	esi, 160
+11:	# check start
+	jns	0b
+	xor	esi, esi
+	jmp	0b
+4: # page down
+	add	esi, 160 * (SCROLL_DISPLAY_LINES - 4)
+	jmp	19b
+5: # page up
+	sub	esi, 160 * (SCROLL_DISPLAY_LINES - 4)
+	jmp	11b
 .endif
 	jmp	start1$
 key_pgdown:

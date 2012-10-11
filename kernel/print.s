@@ -555,16 +555,16 @@ newline:
 
 
 ##### SCROLLBACK BUFFER ######
-SCREEN_BUFFER = 0
+SCREEN_BUFFER = 1
 .if SCREEN_BUFFER
 .data SECTION_DATA_BSS
-SCREEN_BUF_SIZE = 160 * 24 * 4	# 4 pages
+SCREEN_BUF_SIZE = 160 * 25 * 6	# 6 pages
 screen_buf_offs: .long 0
 screen_buf: .space SCREEN_BUF_SIZE
 .text32
 .endif
 ##############################
-# this method is only to be called when edi > 160 * 24
+# this method is only to be called when edi > 160 * 25
 __scroll:
 	push	esi
 	push	ecx
@@ -584,14 +584,16 @@ __scroll:
 		push edx
 		xor	edx, edx
 		mov	eax, edi
-		sub	eax, 160 * 24 - 159 # for modulo add
+		sub	eax, 160 * 25
+		jle	1f
+		add	eax, 159
+
 		# eax = len(abc)
 		# calculate nr of lines
 		mov	ecx, 160
 		div	ecx
 		mul	ecx
 		mov	ecx, eax
-
 
 		# shift the buffer
 		push	esi
@@ -601,21 +603,23 @@ __scroll:
 		mov	eax, es
 		mov	es, esi
 		mov	edi, offset screen_buf
-		lea	esi, [edi + ecx]
+		lea	esi, [edi + 160]
 		push	ecx
+		neg	ecx
+		add	ecx, SCREEN_BUF_SIZE
 		rep	movsb
 		pop	ecx
 		# es:edi = ok
 		# ecx = ok
 		# ds:esi:
-		mov	ds, eax
+		mov	ds, eax	# no need to restore - is altered right below
 		mov	esi, 160 * 24
 		sub	edi, ecx
 		rep	movsb
 		pop	es
 		pop	edi
 		pop	esi
-
+	1:
 		pop edx
 		pop eax
 	.endif
@@ -634,18 +638,6 @@ __scroll:
 	pop	edi
 
 	pop	ds
-.if 0 # SCREEN_BUFFER
-push edi
-push edx
-mov edx, [screen_buf_offs]
-mov edi, 80
-push eax
-mov ah, 0xe0
-call __printhex8
-pop eax
-pop edx
-pop edi
-.endif
 	pop	ecx
 	pop	esi
 
