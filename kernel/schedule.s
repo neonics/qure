@@ -118,7 +118,21 @@ get_scheduled_task$:
 1:	SCHED_UPDATE_GRAPH 2
 	stc
 	jmp	1f	# no task
-0:	SCHED_UPDATE_GRAPH 3
+0:	## null check
+	or	eax, eax
+	jnz	2f
+	printlnc 4, "ERROR: scheduled task address NULL: registrar: "
+	push	edx
+	mov	edx, [ebx + ecx + task_registrar]
+	call	printhex8
+	pop	edx
+	mov	eax, edx
+	call	mfree
+	SCHED_UPDATE_GRAPH 5
+	stc
+	jmp	1f
+2:	##
+	SCHED_UPDATE_GRAPH 3
 	clc
 ########
 1:	pop	ecx
@@ -144,7 +158,7 @@ sched_graph_symbols:
 	.byte '-', 0x3f
 	.byte '+', 0x2f
 	.byte 'S', 0x1f
-	.byte '?', 0x0f
+	.byte 'x', 0xf4
 	.byte '?', 0x0f
 	.byte '?', 0x0f
 .text32

@@ -436,12 +436,13 @@ jmp_table_target:
 	PRINTc 12, "IP beyond limit"
 	jmp	0f
 1: 
-	
 	# print the opcode: 4 bytes before, 4 bytes after cs:eip
 	PRINTc	9, "OPCODE["
 	push	fs
 	mov	fs, ax
 	mov	ebx, edx
+	cmp	ebx, 4
+	jb	2f
 	mov	edx, fs:[ebx-4]	# check instruction XXX
 	.rept 3
 	call	printhex2
@@ -450,7 +451,7 @@ jmp_table_target:
 	.endr
 	call	printhex2
 	call	printspace
-	mov	edx, fs:[ebx]	# check instruction XXX
+2:	mov	edx, fs:[ebx]	# check instruction XXX
 	.rept 3
 	call	printhex2
 	shr	edx, 8

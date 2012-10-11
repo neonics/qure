@@ -342,8 +342,20 @@ fs_iso9660_read:
 	push	eax
 	push	ebx
 	push	ecx
+	push	edx
+	mov	edx, ecx
+0:	mov	ecx, edx
+	push	eax
 	mov	al, [eax + fs_obj_disk]
-	call	atapi_read12$
+	call	atapi_read12$	# mod: eax, ecx, esi
+	pop	eax
+	jc	9f
+	inc	ebx
+	add	edi, ecx
+	sub	edx, ecx
+	ja	0b
+	clc
+9:	pop	edx
 	pop	ecx
 	pop	ebx
 	pop	eax

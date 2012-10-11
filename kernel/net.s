@@ -2628,6 +2628,11 @@ net_service_tcp_http:
 	www_content$: .long 0
 	www_file$: .space MAX_PATH_LEN
 	.text32
+	push	eax
+	movzx	eax, byte ptr [boot_drive]
+	add	al, 'a'
+	mov	[www_docroot$ + 1], al
+	pop	eax
 
 	mov	esi, edx
 	call	strlen_
@@ -2772,13 +2777,27 @@ www_414$:
 	mov	esi, offset html2
 8:	call	strlen_
 
-10:	push	edx
+10:	cmp	ecx, 1024 # 1536 - TCP_HEADER_LEN - ETH_HEADER_LEN
+	jb	0f
+
+	push	ecx
+	mov	ecx, 1024 # 1536 - TCP_HEADER_LEN - ETH_HEADER_LEN
+	push	edx
+	mov	dl, TCP_FLAG_PSH
+	call	net_tcp_send
+	pop	edx
+	pop	ecx
+	add	esi, 1024 # 1536 - TCP_HEADER_LEN - ETH_HEADER_LEN
+	sub	ecx, 1024 # 1536 - TCP_HEADER_LEN - ETH_HEADER_LEN
+	ja	10b
+	jz	9f
+
+0:	push	edx
 	mov	dl, TCP_FLAG_PSH # | TCP_FLAG_FIN
 	call	net_tcp_send
 	pop	edx
 
-9:
-	push	edx
+9:	push	edx
 	xor	ecx, ecx
 	mov	dl, TCP_FLAG_FIN
 	call	net_tcp_send
@@ -2884,6 +2903,13 @@ http_parse_header_line$:
 # in: esi = payload
 # in: ecx = payload len
 net_tcp_send:
+	cmp	ecx, 1536 - TCP_HEADER_SIZE - ETH_HEADER_SIZE
+	jb	0f
+	printlnc 4, "tcp payload too large"
+	stc
+	ret
+0:
+
 	push	esi
 	push	eax
 	push	ebp
