@@ -26,11 +26,11 @@ os.iso: init build/boot.img
 	@genisoimage -input-charset utf-8 -o os.iso \
 		-r -b boot/boot.img \
 		$(ISO_ARGS) \
-		root/ 
-	@#-J -boot-info-table 
-	@#-boot-load-size 2884 
-	@#-no-emul-boot 
-	@#-hard-disk-boot 
+		root/
+	@#-J -boot-info-table
+	@#-boot-load-size 2884
+	@#-no-emul-boot
+	@#-hard-disk-boot
 
 init:
 	[ -d build/ ] || mkdir -p build/
@@ -50,7 +50,7 @@ build/boot.img: build/boot.bin build/kernel.bin build/write.exe
 		-b bootloader/boot.bin \
 		-rd \
 		-b kernel/kernel.bin \
-		-b root/boot/kernel.sym \
+		-b kernel/kernel.sym \
 	&& chmod 644 $@
 
 build/boot.bin:
@@ -58,7 +58,7 @@ build/boot.bin:
 
 build/kernel.bin: fonts
 	$(call MAKE,kernel)
-	util/symtab.pl kernel/kernel.o root/boot/kernel.sym
+	util/symtab.pl kernel/kernel.o kernel/kernel.sym
 
 
 .PHONY: fonts
@@ -84,9 +84,18 @@ build/font.exe: util/font.cpp
 
 ##########################################################################
 
-site:	site.html
-	[ -f build/boot.img.gz ] && rm build/boot.img.gz || true
-	[ -f build/os.iso.gz ] && rm build/os.iso.gz || true
-	gzip build/boot.img -c > build/boot.img.gz 
-	gzip os.iso -c > build/os.iso.gz
-	
+site:	root/www/site.html all
+	[ -d root/www/screenshots ] || mkdir -p root/www/screenshots
+	[ -d root/www/download ] || mkdir -p root/www/download
+	cp -a DOC/Screenshots/*.png root/www/screenshots/
+	[ -f root/www/download/boot.img.gz ] && rm root/www/download/boot.img.gz || true
+	[ -f root/www/download/os.iso.gz ] && rm root/www/download/os.iso.gz || true
+	gzip build/boot.img -c > root/www/download/boot.img.gz
+	gzip os.iso -c > root/www/download/os.iso.gz
+	[ -d root/src/kernel ] || mkdir -p root/src/kernel
+	cp -a TODO Makefile 16 bootloader kernel util fonts root/src/kernel
+	[ -d root/src/kernel/DOC ] || mkdir -p root/src/kernel/DOC
+	cp DOC/* root/src/kernel/DOC/
+
+site-clean:
+	rm -rf root/www/screenshots root/www/download root/src/

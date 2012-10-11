@@ -2,8 +2,11 @@ The current procedure followed for debugging is:
 
 
   Altering DEBUG flags in the source files. They generally have values
-  from 0 to 4, where 4 often includes calls to 'more', which allows to
-  inspect the output before it scrolls off the screen.
+  from 0 to 4, where 4 often includes calls to 'more' (pmode)
+  or int 0x16 in realmode, which allows to inspect the output before
+  it scrolls off the screen (note that realmode scrolling does not remove
+  information from the screen, generally, but rather, prints it beyond
+  the visible page).
 
 
 Finding code locations:
@@ -54,7 +57,7 @@ Disassembly
   followed by running 'dk' and searching for the address label.
   The opcodes printed in an exception serve to doublecheck.
 
-  In the disassembly symbols appear, so scrolling up to find the nearest 
+  In the disassembly symbols appear, so scrolling up to find the nearest
   label allows to find the proper source.
 
   The macro 'w' serves to quickly find labels in the kernel source
@@ -89,10 +92,27 @@ Detecting memory writes
 
   The data address is typically obtained by adding DEBUG_DWORD [something]
   in the code where this address is set up.
-  
+
   Typically these kinds of breakpoints are only necessary when there is no
   indication of where the memory is written.
 
+
+
+== Bootloader debugging ==
+
+Tools:
+	alias hdi - shows hex dump of the boot image.
+
+	util/write.cpp - creates the image, including the ramdisk.
+
+There is a BOOTLOADER_DEBUG flag, where higher values represent more
+output and generally more keypresses. Debug levels attempt to accomodate
+not losing any information on the screen. However there are more debug
+sections available that need to be manually enabled once the location
+of the bug has been found and the cause is not clear.
+You will note that pretty much all debug code is still present, indicating
+past trouble-spots, some of them repeatedly occurring. The ones that
+did not occur frequenly are those that need to be manually activated.
 
 
 

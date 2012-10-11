@@ -474,8 +474,9 @@ kb_task:
 
 	cmp	byte ptr [keys_pressed + 0x2e], 0	# scancode for 'C'
 	jz	9f
-	PRINTLNc 0xe2, "^C"
+	PRINTc 0xe2, "^C"
 
+	printlnc 0xb8, " Stack dump: (nothing's broken! - press enter)"
 	call	debug_printstack$
 	ret
 # Control + Alt:
@@ -488,7 +489,7 @@ kb_task:
 
 debug_printstack$:
 	push	ebp
-	sub	ebp, 20
+	sub	ebp, 24	# starts printing at 'kb_task'
 	push	edx
 	push	ecx
 	push	esi
@@ -500,20 +501,7 @@ debug_printstack$:
 	call	printhex8
 	call	printspace
 	call	debug_printsymbol	# in: edx
-	cmp	edx, offset kb_task
-	jnz	2f
-	printc_ 11, "kb_task"
-2:	cmp	edx, offset schedule
-	jnz	2f
-	printc_ 11, "schedule"
-2:	cmp	edx, offset exec_return$	# shell
-	jnz	2f
-	printc_ 11, "shell exec_return$"
-2:	cmp	edx, offset shell_return$	# kernel shell call
-	jnz	2f
-	printc_ 11, "kernel"
-2:	call	newline
-
+	call	newline
 	add	ebp, 4
 	dec	ecx
 	jnz	0b

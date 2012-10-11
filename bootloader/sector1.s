@@ -1,7 +1,7 @@
 # included in bootloader.s
 .intel_syntax noprefix
 
-DEBUG_BOOTLOADER = 0	# skip enter
+DEBUG_BOOTLOADER = 0	# 0: no keypress. 1: keypress; 2: print ramdisk/kernel bytes.
 
 .text
 .code16
@@ -106,7 +106,6 @@ main:
 	mov	dx, si
 	call	printhex
 
-	call	newline
 .endif
 
 ####### Read RAMDISK sector
@@ -184,17 +183,36 @@ main:
 	call	printhex8
 
 	cmp	edx, 31
-	jb	0f
+	jbe	0f
 	mov	ah, 0xf4
 	print "More than 31 entries!"
 0:
 	cmp	dx, 1
 	je	0f
-	print "MULTIPLE ENTRIES - Choosing first"
-0:
-	call	newline
+	print "MULTIPLE ENTRIES - Choosing first" 
+0:	call	newline
 
-#####	prepare load address
+.if DEBUG_BOOTLOADER > 1	# ramdisk fat
+	push	si
+#	mov	si, ]
+	push ecx
+	push eax
+	push edx
+	mov	cx, 16
+0:	lodsd
+	mov	edx, eax
+	mov	ah, 0xf9
+	call	printhex8
+	loop	0b
+	pop edx
+	pop eax
+	pop ecx
+	pop	si
+.endif	
+
+######### first entry: kernel
+	print "Loading kernel: "
+#####	# prepare load address
 	xor	ebx, ebx
 	mov	bx, [ramdisk_address]
 	add	bx, 0x200
@@ -204,290 +222,71 @@ main:
 	shl	eax, 4
 	add	ebx, eax
 	.data
-		chain_addr_flat: .long 0
+		chain_addr_flat: .long 0 # load offset = ds<<4+bx
 	.text
 	mov	[chain_addr_flat], ebx
-
-	# ebx = flat start address
-#####
-	# si:
-	# 0: start low dword, start high dword
-	# 8: count low dword, count high dword
-
-	mov	ecx, [si + 8]	# load bytes
-	test	cx, 0x1ff
-	jz	0f
-	add	ecx, 0x200
-0:	shr	ecx, 9		# convert to sectors
-
-	mov	eax, [si]	# load start offset
-	test	eax, 0x1ff
-	jz	0f
-	mov	ah, 0xf4
-	PRINT	"Start offset not sector aligned!"
-	jmp	fail
-0:	shr	eax, 9		# convert to sectors
-	add	eax, SECTORS + 1
-
-
-	#call	cls
-
-	# ebx = load offset  [chain_addr_flat] = ds<<4+bx
-	# ecx = sectors to load
-	# eax = sector on disk
-
-	push	eax
-	mov	edx, eax
-	mov	ah, 0xf1
-
-	print	"Entry 1: Start(S): "
-	call	printhex8
-
-	print	"Count (S): "
-	mov	edx, ecx
-	call	printhex8
-
-	print	"Flat addr: "
-	mov	edx, [chain_addr_flat]
-	call	printhex8
-
-	push	edx
-	shr	edx, 4
-	call	printhex
-	mov	es:[di - 2], byte ptr ':'
-	pop	edx
-	and	dx, 0xf
-	mov	ah, 0xf1
-	call	printhex
-	call	newline
-	pop	eax
-
-####	
-	# eax = start sector
-	# ecx = count sectors
-	# ebx = flat address
-	push	eax
-	mov	edx, eax
-	add	edx, ecx
-	shl	edx, 9	
-	xor	eax, eax
-
-	mov	ax, ds
-	shl	eax, 4
-	add	edx, eax
-
-	mov	ah, 0xf2
-	print	"image load end: "
-	call	printhex8	# edx = end address (start+count)*512+ds*16
-	call	newline
-
-	print "Stack: "
-	push	edx
-	push	ecx
-	xor	edx, edx
-	mov	dx, ss
-	mov	ecx, edx
-	call	printhex
-	sub	di, 2
-	mov	al, ':'
-	stosw
-	mov	dx, sp
-	call	printhex8
-	shl	ecx, 4
-	add	ecx, edx
-
-	mov	edx, ecx
-	call	printhex8
-
-	mov	eax, ecx
-	pop	ecx
-	pop	edx
-
-.if 0
-	sub	eax, edx
-	mov	edx, eax
-	jge	0f
-	mov	ah, 0x4f
-	println "WARNING: Loaded image runs into stack!"
-	call	printhex8
-
-0:	mov	ah, 0x3f
-	print	"Room after image before stack: "
-	call	printhex8
-.endif
-
-	mov	ah, 0x2f
-	print	"Load region: "
-	mov	edx, ebx
-	call	printhex8
-	push	edx
-	xor	edx, edx
-	mov	eax, 0x200
-	mul	ecx
-	mov	edx, eax
-	add	edx, ebx
-	mov	ah, 0x2f
-	call	printhex8
-	pop	edx
-
-	pop	eax
-
-.if 0
-	push es
-	push ax
-	push cx
-	call cls
-	pop cx
-	pop ax
-	pop es
-.endif
+#####	# ebx = flat start address
 push ax
-mov ah, 0xf2
-mov dx, ds
+push dx
+mov ah, 0xf0
+mov dx, si
 call printhex
-mov es:[di-2], byte ptr ':'
-mov edx, ebx
-call printhex8
-call newline
+pop dx
 pop ax
 
-.macro TRACE_INIT
-	.data
-	trace$: .word 0
-	.text
-	push	di
-	push	cx
-	push	ax
-	mov	di, 160 * 24
-	mov	[trace$], di
-	mov	cx, 80
-	mov	ax, (0x3f<<8)
-	rep	stosw
-	pop	ax
-	pop	cx
-	pop	di
-.endm
+	call	load_ramdisk_entry
 
-.macro TRACE l
-	push	word ptr \l
-	call	trace
-	add	sp, 2
+push ax
+push dx
+mov ah, 0xf0
+mov dx, si
+call printhex
+pop dx
+pop ax
+print "<<<<"
 
-.endm
-
-
-	inc	ecx
-################################# load loop
-0:	push	ecx		# remember sectors to load
-	push	eax		# remember offset
-
-	.if 0	# use this to debug when loading fails
-	call	debug_print_load_address$
-	.endif
-
-TRACE_INIT
-TRACE '!'
-
-PRINT_LOAD_SECTORS = 0
-	.if PRINT_LOAD_SECTORS
-	mov	edx, eax
-	mov	ah, 0xf5
-	call	printhex8
-	mov	edx, ecx
-	call	printhex8
-	mov	dx, bx
-	inc ah
-	call	printhex
-	inc ah
-	sub	dx, 0x0e00
-	call	printhex
-	inc ah
-	mov	edx, [bx]
-	call	printhex8
-	pop	eax
-	push	eax
-	.endif
-
-	call	get_boot_drive	# dl = drive
-	call	lba_to_chs	# dh = head, cx = cyl/sect
-
-	.if PRINT_LOAD_SECTORS
-	push	dx
-	mov	ah, 0xf7
-	call	printhex
-	mov	dx, cx
-	call	printhex
-	pop	dx
-	.endif
-
-	push	es
-	mov	eax, ebx	# convert flat ebx to es:bx
-	ror	eax, 4
-	mov	es, ax
-	rol	eax, 4
-	and	eax, 0xf
-	push	ebx
-	mov	bx, ax
-	.if 0
-		call	debug_13_es_bx$
-	.endif
-	mov	ax, 0x0201 	# read 1 sector (dont trust multitrack)
-	int	0x13
-	pop	ebx
-	pop	es
-TRACE '>'
-
-	jc	fail
-	cmp	ax, 1
-	jne	fail
-
-TRACE 'c'
-
-	add	ebx, 0x200
-
-	mov	dx, ax
-	mov	ax, 0xf2<<8|'.'
-	stosw
-
-	.if !PRINT_LOAD_SECTORS
-	#add	di, 2
-	.else
-	call	newline
-	.endif
-
-	pop	eax
-	pop	ecx
-	inc	eax
-TRACE 'd'
-	.if 0
-	push ax
-	mov dx, ax
-	mov ah, 0xf8
-	call printhex
-	mov dx, cx
-	call printhex
-	pop	ax
-	.endif
-
-	loop	0b
-TRACE '*'
-	# bx points to end of loaded data (kernel)
-################################# end load loop
-	mov	ah, 0xf6
-	println	"Success!"
-
-
-.if 0
-	mov	si, [ramdisk_address]
-	add	si, 0x200
-	mov	cx, 10
+.if DEBUG_BOOTLOADER > 1	# dump head of kernel
+	push	si
+	#mov	si, [ramdisk_address]	# still so
+	mov	cx, 8
 0:
 	lodsd
 	mov	edx, eax
 	mov	ah, 0xf9
 	call	printhex8
 	loop	0b
+	pop	si
+.endif
+
+.if DEBUG_BOOTLOADER > 1	# dump head of kernel
+	push	si
+	# dump head of kernel
+#	add	si, 0x200 - 16*4
+	mov si, [ramdisk_address]
+	add si, 0x200
+	mov	cx, 4
+0:
+	lodsd
+	mov	edx, eax
+	mov	ah, 0xf8
+	call	printhex8
+	loop	0b
+	pop	si
 .endif	
+
+######### second entry: symbol table
+	add	si, 16		# ignore entry count and check size
+	mov	ecx, [si + 8]
+	mov ah, 0xf3
+	mov edx, ecx
+	call printhex8
+	jcxz	0f
+	mov	ebx, [si - 4]	# get the load end address of the previous segment
+	mov edx, ebx
+	call printhex8
+	call	load_ramdisk_entry
+0:
+
 
 	mov	ah, 0xf0
 	print "Chaining to next: "
@@ -703,14 +502,14 @@ debug_print_load_address$:
 
 	#cmp	ecx, 5
 	#ja	0f
-.if 1
+.if DEBUG_BOOTLOADER > 3
 	call	newline
 	call	printregisters
 	mov	byte ptr es:[di], '?'
 	xor	ah, ah
 	int	0x16
 .endif
-0:	
+0:
 	pop	ecx
 
 	pop	eax
@@ -720,6 +519,309 @@ debug_print_load_address$:
 	ret
 
 #############################################################################
+
+.macro TRACE_INIT
+	.data
+	trace$: .word 0
+	.text
+	push	di
+	push	cx
+	push	ax
+	mov	di, 160 * 24
+	mov	[trace$], di
+	mov	cx, 80
+	mov	ax, (0x3f<<8)
+	rep	stosw
+	pop	ax
+	pop	cx
+	pop	di
+.endm
+
+.macro TRACE l
+	push	word ptr \l
+	call	trace
+.endm
+
+# in: stackarg: word: byte=character
+# out: clears the argument from the stack
+trace:
+	push	bp
+	mov	bp, sp
+	pushf
+
+	push	es
+	push	di
+	push	ax
+
+	mov	al, [bp + 4]
+	mov	ah, 0x3f
+
+	mov	di, 0xb800
+	mov	es, di
+	mov	di, [trace$]
+	stosw
+	mov	[trace$], di
+
+	pop	ax
+	pop	di
+	pop	es
+
+	popf
+	pop	bp
+	ret	2
+
+# in: ebx = memory pointer where image will be loaded.
+# in: si: points to entry in ramdisk FAT.
+# in: [si + 0]: dword start sector, LSB
+# in: [si + 8]: dword count, LSB
+# out: [si + 4], image load start
+# out: [si + 12], image load end
+# NOTE: overwrites high 32 bit of count and address. This will only matter when
+# a ramdisk entry exceeds 4Gb in size.
+load_ramdisk_entry:
+	mov	[si + 4], ebx	# image base memory address
+
+	mov	ecx, [si + 8]	# load bytes
+	test	cx, 0x1ff
+	jz	0f
+	add	ecx, 0x200
+0:	shr	ecx, 9		# convert to sectors
+
+	mov	eax, [si]	# load start offset
+	test	eax, 0x1ff
+	jz	0f
+	mov	ah, 0xf4
+	PRINT	"Start offset not sector aligned!"
+	mov	edx, eax
+	call	printhex8
+	jmp	fail
+0:	shr	eax, 9		# convert to sectors
+	add	eax, SECTORS + 1
+####
+	# eax = start sector on disk
+	# ecx = count sectors
+	# ebx = flat address
+	push	eax
+	mov	edx, eax
+	add	edx, ecx
+	shl	edx, 9
+	xor	eax, eax
+
+	mov	ax, ds
+	shl	eax, 4
+	add	edx, eax
+	mov	[si + 12], edx	# image end address (start+count)*512+ds*16
+
+	mov	ah, 0xf2
+	print	"image load end: "
+	call	printhex8
+	call	newline
+
+	# edx = image load end (flat address + count sectors * 512)
+	call	print_ramdisk_entry_info$
+	pop	eax
+
+.if 0
+	push es
+	push ax
+	push cx
+	call cls
+	pop cx
+	pop ax
+	pop es
+.endif
+push ax
+mov ah, 0xf2
+mov dx, ds
+call printhex
+mov es:[di-2], byte ptr ':'
+mov edx, ebx
+call printhex8
+call newline
+pop ax
+
+	inc	ecx
+################################# load loop
+0:	push	ecx		# remember sectors to load
+	push	eax		# remember offset
+
+	.if 0	# use this to debug when loading fails
+	call	debug_print_load_address$
+	.endif
+
+TRACE_INIT
+TRACE '!'
+
+PRINT_LOAD_SECTORS = 0
+	.if PRINT_LOAD_SECTORS
+	mov	edx, eax
+	mov	ah, 0xf5
+	call	printhex8
+	mov	edx, ecx
+	call	printhex8
+	mov	dx, bx
+	inc ah
+	call	printhex
+	inc ah
+	sub	dx, 0x0e00
+	call	printhex
+	inc ah
+	mov	edx, [bx]
+	call	printhex8
+	pop	eax
+	push	eax
+	.endif
+
+	call	get_boot_drive	# dl = drive
+	call	lba_to_chs	# dh = head, cx = cyl/sect
+
+	.if PRINT_LOAD_SECTORS
+	push	dx
+	mov	ah, 0xf7
+	call	printhex
+	mov	dx, cx
+	call	printhex
+	pop	dx
+	.endif
+
+	push	es
+	mov	eax, ebx	# convert flat ebx to es:bx
+	ror	eax, 4
+	mov	es, ax
+	rol	eax, 4
+	and	eax, 0xf
+	push	ebx
+	mov	bx, ax
+	.if 0
+		call	debug_13_es_bx$
+	.endif
+	mov	ax, 0x0201 	# read 1 sector (dont trust multitrack)
+	int	0x13
+	pop	ebx
+	pop	es
+TRACE '>'
+
+	jc	fail
+	cmp	ax, 1
+	jne	fail
+
+TRACE 'c'
+
+	add	ebx, 0x200
+
+	mov	dx, ax
+	mov	ax, 0xf2<<8|'.'
+	stosw
+
+	.if !PRINT_LOAD_SECTORS
+	#add	di, 2
+	.else
+	call	newline
+	.endif
+
+	pop	eax
+	pop	ecx
+	inc	eax
+TRACE 'd'
+	.if 0
+	push ax
+	mov dx, ax
+	mov ah, 0xf8
+	call printhex
+	mov dx, cx
+	call printhex
+	pop	ax
+	.endif
+
+	loop	0b
+TRACE '*'
+	# bx points to end of loaded data (kernel)
+################################# end load loop
+	mov	ah, 0xf6
+	println	"Success!"
+
+	ret
+
+# eax = sector on disk
+# ebx = load offset  [chain_addr_flat] = ds<<4+bx
+# ecx = sectors to load
+print_ramdisk_entry_info$:
+	push	eax
+	mov	edx, eax
+	mov	ah, 0xf1
+
+	print	"Entry 1: Start(S): "
+	call	printhex8
+
+	print	"Count (S): "
+	mov	edx, ecx
+	call	printhex8
+
+	print	"Flat addr: "
+	mov	edx, [chain_addr_flat]
+	call	printhex8
+
+	push	edx
+	shr	edx, 4
+	call	printhex
+	mov	es:[di - 2], byte ptr ':'
+	pop	edx
+	and	dx, 0xf
+	mov	ah, 0xf1
+	call	printhex
+	call	newline
+
+	print "Stack: "
+	push	edx
+	push	ecx
+	xor	edx, edx
+	mov	dx, ss
+	mov	ecx, edx
+	call	printhex
+	sub	di, 2
+	mov	al, ':'
+	stosw
+	mov	dx, sp
+	call	printhex8
+	shl	ecx, 4
+	add	ecx, edx
+
+	mov	edx, ecx
+	call	printhex8
+
+	mov	eax, ecx
+	pop	ecx
+	pop	edx
+
+.if 0 #disabled since stack is before kernel
+	sub	eax, edx
+	mov	edx, eax
+	jge	0f
+	mov	ah, 0x4f
+	println "WARNING: Loaded image runs into stack!"
+	call	printhex8
+
+0:	mov	ah, 0x3f
+	print	"Room after image before stack: "
+	call	printhex8
+.endif
+
+	mov	ah, 0x2f
+	print	"Load region: "
+	mov	edx, ebx
+	call	printhex8
+	push	edx
+	xor	edx, edx
+	mov	eax, 0x200
+	mul	ecx
+	mov	edx, eax
+	add	edx, ebx
+	mov	ah, 0x2f
+	call	printhex8
+	pop	edx
+
+	pop	eax
+	ret
 
 
 # in: dl = drive, eax = absolute sector number (LBA-1)
@@ -1021,29 +1123,4 @@ init_bios_extensions:
 	stc
 	ret
 
-trace:
-	push	bp
-	mov	bp, sp
-	pushf
-
-	push	es
-	push	di
-	push	ax
-
-	mov	al, [bp + 4]
-	mov	ah, 0x3f
-
-	mov	di, 0xb800
-	mov	es, di
-	mov	di, [trace$]
-	stosw
-	mov	[trace$], di
-
-	pop	ax
-	pop	di
-	pop	es
-
-	popf
-	pop	bp
-	ret
 

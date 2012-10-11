@@ -341,11 +341,10 @@ white:
 	pop	cx
 	call	newline
 	loop	1b
-.endif
 
-	mov	ah, 0xf8
 	call	printregisters
-
+.endif
+	mov	ah, 0xf8
 	mov	dx, [bp+24]	# load dx - boot drive
 	call	printhex
 

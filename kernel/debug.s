@@ -163,7 +163,11 @@ DEBUG_DWORD \r
 	call	printhex8
 	.else
 	push	edx
+	.ifc esp,\r32
+	lea	edx, [esp + 4 + COLOR_STACK_SIZE]
+	.else
 	mov	edx, \r32
+	.endif
 	call	printhex8
 	pop	edx
 	.endif

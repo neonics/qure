@@ -180,7 +180,10 @@ realmode_kernel_entry:
 	println_16 "Kernel booting"
 	COLOR_16 7
 
+	mov	[bootloader_ds], ax
 	mov	[boot_drive], dx
+	mov	[ramdisk], cx
+	mov	[mbr], si
 
 	.if DEBUG
 		PRINTc_16 8, " boot drive: "
@@ -484,11 +487,16 @@ memory_map_attributes:	.long 0 	# ACPI compliancy
 memory_map_struct_size: 
 
 .data16
+boot_drive:		.byte 0	# bootloader, bios
+boot_partition:		.byte 0	# bootloader
+bootloader_ds:		.word 0
+ramdisk:		.word 0	# [bootloader_ds]:[ramdisk]
+mbr:			.word 0	# [bootloader_ds]:[ramdisk]
+# bios:
 low_memory_size:	.word 0 # in kb
-boot_drive:		.byte 0
-boot_partition:		.byte 0
 memory_map:		.space 24 * (10+1) # 11 lines (qemu: 5, vmware: 10)
 cdrom_spec_packet:	.space 0x13
+####################################
 .struct 0
 cdrom_spec_size:	.byte 0		# size of packet
 cdrom_spec_boot_media_type: .byte 0 #3:0: 0=no emul;1=1.2;2=1.44;3=2.88;4=hdd

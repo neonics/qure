@@ -28,13 +28,23 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	mov	byte ptr [screen_color], \c
 .endm
 
+COLOR_STACK_SIZE = 2
+
 .macro PUSHCOLOR c
+	.if COLOR_STACK_SIZE == 2
 	push	word ptr [screen_color]
+	.else
+	.error "COLOR_STACK_SIZE unknown value"
+	.endif
 	mov	byte ptr [screen_color], \c
 .endm
 
-.macro POPCOLOR c
+.macro POPCOLOR c=0
+	.if COLOR_STACK_SIZE == 2
 	pop	word ptr [screen_color]
+	.else
+	.error "COLOR_STACK_SIZE unknown value"
+	.endif
 .endm
 
 
@@ -80,7 +90,8 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 	mov	es, edi
 	mov	edi, [screen_pos]
 
-	.if \c == 0
+	.ifc ah,\c
+	.elseif \c == 0
 	mov	ah, [screen_color]
 	.else
 	mov	ah, \c
@@ -323,9 +334,16 @@ HEX_END_SPACE = 0	# whether to follow hex print with a space
 .endm
 
 .macro PRINTc_ color, str
+  .if 0
+  	DEBUG_DWORD esp
+  	push	word ptr \color # 
+	PUSH_TXT "\str"
+	call	_s_printc
+  .else
 	pushcolor \color
 	PRINT_ "\str"
 	popcolor
+  .endif
 .endm
 
 .macro PRINTLNc_ color, str
@@ -658,6 +676,28 @@ printchar_:
 	ret
 .endif
 
+.if 0
+# in: [esp] = offset
+# in: [esp + 4] = color (word)
+# out: clear stack arguments
+_s_printc:
+	push	esi
+	push	eax
+	mov	esi, [esp + 8 + 4 + 0]
+	mov	ah, [esp + 8 + 4 + 4]
+	call	printc
+	pop	eax
+	pop	esi
+	ret	4 + COLOR_STACK_SIZE
+
+_s_printcharc:
+	push	eax
+	mov	ah, [esp + 4 + 4 + 0]
+	call	printcharc
+	pop	eax
+	ret	COLOR_STACK_SIZE
+.endif
+
 printcharc:
 	PRINT_START_ -1
 	stosw
@@ -690,7 +730,11 @@ println:call	print
 	jmp	newline
 #println:push	offset newline
 
-.global print
+# in: ah = color
+# in: esi = string
+printc:	PRINT_START c=ah
+	push	esi
+	jmp	1f
 print:	PRINT_START
 	push	esi
 	jmp	1f

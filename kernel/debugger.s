@@ -98,7 +98,8 @@ debug_load_symboltable:
 .if 0 # if ISO9660 implements multiple sector reading,
 	LOAD_TXT "/a/BOOT/KERNEL.SYM", eax
 	mov	cl, [boot_drive]
-	add	[eax + 1], cl
+	add	cl, 'a'
+	mov	[eax + 1], cl
 	call	fs_openfile	# out: eax = file handle
 	jc	1f
 	call	fs_handle_read # in: eax = handle; out: esi, ecx
@@ -112,7 +113,51 @@ debug_load_symboltable:
 	mov	edi, eax
 	rep	movsb
 1:	call	fs_close
-.elseif 0 # OR if bootloader also loads the symbol table.
+	ret
+.elseif 1 # OR if bootloader also loads the symbol table.
+	movzx	eax, word ptr [bootloader_ds]
+	movzx	ebx, word ptr [ramdisk]
+	shl	eax, 4
+	add	eax, ebx
+	mov	bx, SEL_flatDS
+	mov	fs, bx
+	call	newline
+
+	cmp	dword ptr fs:[eax + 0], 'R'|('A'<<8)|('M'<<16)|('D'<<24)
+	jnz	9f
+	cmp	dword ptr fs:[eax + 4], 'I'|('S'<<8)|('K'<<16)|('0'<<24)
+	jnz	9f
+	mov	ecx, fs:[eax + 8]
+	cmp	ecx, 2
+	jb	9f
+
+	mov	edx, fs:[eax + 32 + 4]
+	call	printhex8
+	I "Found symboltable: "
+	GDT_GET_BASE eax, ds
+	cmp	eax, edx
+	ja	8f
+	sub	edx, eax
+	mov	[kernel_symtab], edx
+	mov	ebx, edx
+	call	printhex8
+	I2 " size "
+	mov	edx, fs:[eax + 32 + 12]
+	mov	[kernel_symtab_size], edx
+	call	printhex8
+	I2 " symbols "
+	mov	edx, [ebx]
+	call	printdec32
+	call	printspace
+	call	printhex8
+	ret
+
+8:	printlnc 12, "error: symboltable before kernel: "
+	call	printhex8
+	printc 12, "data base: "
+	mov	eax, edx
+	call	printhex8
+9:	ret
 .else # lame - require 2 builds due to the inclusion of output generated
 	# after compilation.
 	.data SECTION_DATA_STRINGS # not pure asciiz...
@@ -121,9 +166,36 @@ debug_load_symboltable:
 	.text32
 	mov	[kernel_symtab], dword ptr offset ksym
 	mov	[kernel_symtab_size], dword ptr (offset 0b - offset ksym)
-.endif
 	ret
+.endif
 
+# Idea:
+# Specify another table, containing argument definitions.
+# This table could be of equal length to the symbol table, containing relative
+# offsets to the area after the string table.
+# This table could be variable length (specified in symboltable), and would
+# be needed to be rep-scasd't.
+# An example of such a method is 'schedule', which is known to be an ISR-style method.
+# The first argument on the stack - the next higher dword - is eax.
+# The second argument is eip, the third cs, the fourth eflags.
+# The table entry could then be a symbol reference table, where these symbols
+# are merged in the main symbol table, or, a separate symbol table, to avoid scanning
+# these special symbols in general scans.
+#
+# Approach 1:
+# A second parameter ebp is used to check the symbol at a fixed distance
+# in the stack to see if there is an argument that matches the distance.
+# This could be encoded in a fixed-size array of words, one for each symbol,
+# encoding the relative start/end offsets (min/max distance to the symbol).
+# A second word could be an index into the argument list, capping the symbols to 65k.
+#
+# Approach 2:
+# Or, when a symbol is found, it's argument data is looked-up
+# and remembered in another register. Since the stack is traversed in an orderly
+# fashion, anytime a new symbol is found - of a certain type - it replaces the current
+# symbol. A register then is shared between the getsymbol method and the stack loop,
+# containing a pointer to the argument definitions for the current symbol.
+# Special care needs to be taken to avoid taking an argument as a return address.
 
 # in: edx
 # out: esi
@@ -152,6 +224,7 @@ debug_getsymbol:
 1:	pop	eax
 	pop	edi
 	pop	ecx
+	ret
 9:	ret
 
 

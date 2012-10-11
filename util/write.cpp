@@ -55,11 +55,16 @@ void fill_sector()
 		}
 		else
 		{
+			printf( " + sector %02d (0x%04x):"
+				" add image %d: %s",
+				sector, sector << 9,
+				rimgidx, images[rimgidx] );
+
 			h_in = open( images[rimgidx], O_RDONLY );
 
 			if ( h_in <= 0 )
 			{
-				printf( "not found: %a\n", images[rimgidx] );
+				printf( " ERROR: file not found: %s\n", images[rimgidx] );
 				exit(1);
 			}
 			else
@@ -68,11 +73,7 @@ void fill_sector()
 				long sl = (flen >> 9) + (flen % 9 > 0);
 
 				lseek( h_in, 0, SEEK_SET );
-				printf( " + sector %02d (0x%04x):"
-					" add image %d: %s"
-					" - %lld bytes, %ld sectors\n",
-					sector, sector << 9,
-					rimgidx, images[rimgidx],
+				printf( " - %lld bytes in %ld sectors\n",
 					flen, (flen >> 9) + (flen & 0x1ff > 0)
 				);
 
@@ -95,9 +96,8 @@ void fill_sector()
 					// increment ramdisk index counter
 					lseek( h_out, (dirindex_sector<<9) + 8, SEEK_SET );
 					write( h_out, &++dirindex_index, 8 );
-
-					// write ramdisk directory entry offset
-					lseek( h_out, (dirindex_index-1) * 8, SEEK_CUR );
+					// write ramdisk directory entry offset and size
+					lseek( h_out, (dirindex_index-1) * 16, SEEK_CUR );
 					write( h_out, &so, 8 );
 					write( h_out, &flen, 8 );
 

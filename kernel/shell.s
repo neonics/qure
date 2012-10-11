@@ -119,6 +119,7 @@ SHELL_COMMAND "breakpoint"	cmd_breakpoint
 SHELL_COMMAND "pic"		cmd_pic
 
 SHELL_COMMAND "vmcheck"		cmd_vmcheck
+SHELL_COMMAND "ramdisk"		cmd_ramdisk
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -644,7 +645,7 @@ cmdline_execute$:
 	add	edx, [realsegflat]
 	jz	9f
 	call	edx
-exec_return$:
+shell_exec_return$:	# debug symbol
 
 	ret
 9:	printlnc 12, "Error: command null."
@@ -1558,3 +1559,49 @@ cmd_pic:
 	call	newline
 	ret
 
+cmd_ramdisk:
+	movzx	eax, word ptr [bootloader_ds]
+	movzx	ebx, word ptr [ramdisk]
+	shl	eax, 4
+	add	eax, ebx
+	mov	bx, SEL_flatDS
+	mov	fs, bx
+	DEBUG "ramdisk address:"
+	DEBUG_DWORD eax
+	call	newline
+
+	.macro RD label, offs
+		printc_ 15, "\label: "
+		mov	edx, fs:[eax + \offs]
+		call	printhex8
+	.endm
+
+	printc_ 11, "entry #0: "
+	printc_ 15, "signature: "
+	push	dword ptr fs:[eax+4]
+	push	dword ptr fs:[eax]
+	mov	ecx, 8
+	mov	esi, esp
+	call	nprint
+	add	esp, 8
+	RD  " entries", 8
+	mov	ecx, edx
+	call	newline
+	
+	mov	ebx, 16
+0:	printc_	11, "entry #"
+	mov	edx, ebx
+	shr	edx, 4
+	call	printdec32
+	RD ": lba ", ebx
+	RD " sectors ", ebx+8
+	RD " mem start", ebx+4
+	RD " end", ebx+12
+	#call	newline  -- exactly 80 chars
+	add	ebx, 16
+	dec	ecx
+	jnz	0b
+#	loop	0b
+
+
+	ret

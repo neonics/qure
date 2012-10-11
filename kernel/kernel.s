@@ -49,10 +49,10 @@ data_bss_start:
 kernel_start:
 ###################################
 DEFINE = 1
-.include "print.s"
 .include "debug.s"
-.include "debugger.s"
+.include "print.s"
 .include "pmode.s"
+.include "debugger.s"
 .include "pit.s"
 .include "keyboard.s"
 
@@ -100,6 +100,8 @@ kmain:
 
 	PRINTLNc 11 "Protected mode initialized."
 	COLOR 7
+
+	call	debug_load_symboltable	# a simple reference check and pointer calculation.
 
 	# Flush keyboard buffer
 0:	mov	ah, KB_PEEK
@@ -313,7 +315,7 @@ OPEN_SHELL_DEFAULT = 0
 	call	newline
 
 	call	shell
-shell_return$:	# debug symbol
+kernel_shell_return$:	# debug symbol
 	##################################################################
 
 	call	newline
