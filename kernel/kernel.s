@@ -1,11 +1,14 @@
 .intel_syntax noprefix
 
+KERNEL_MIN_STACK_SIZE	= 0x1000	# needs to be power of 2!
+
 # .data layout
 SECTION_DATA		= 0
 SECTION_DATA_CONCAT	= 1
 SECTION_DATA_STRINGS	= 2
 SECTION_DATA_PCI_NIC	= 3
 SECTION_DATA_BSS	= 10
+SECTION_DATA_SIGNATURE	= SECTION_DATA_BSS -1
 
 # .text layout
 SECTION_CODE_TEXT16	= 0
@@ -24,28 +27,37 @@ SHOWOFF = 0
 # Level 4: full + key presses
 DEBUG = 0
 
-
-.text32
+# initialize section start labels:
+.text
 kernel_code_start:
-
-.include "realmode.s"
-
-.text32
-.org REALMODE_KERNEL_SIZE
-
+.text16
+kernel_rm_code_start:
+.data16
+data16_start:
 .data
 data_0_start:
+.data SECTION_DATA_CONCAT
+data_concat_start:
 .data SECTION_DATA_STRINGS
 data_str_start:
 .data SECTION_DATA_PCI_NIC
+data_pci_nic_start:
 data_pci_nic:
 # .word vendorId, deviceId
 # .long driver_constructor
 # .long name
 # .long 0	# alignment - total size: 16 bytes
+.data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
+data_signature_start:
 .data SECTION_DATA_BSS
 data_bss_start:
 .text32
+
+.include "realmode.s"
+
+.text32
+#.org REALMODE_KERNEL_SIZE
+kernel_pm_code_start:
 kernel_start:
 ###################################
 DEFINE = 1
@@ -395,18 +407,28 @@ halt:	call	newline
 kernel_task:
 	PRINTLNc 0x0b "Kernel Task"
 	retf
-
 kernel_code_end:
-
+# initialize section end labels
+.text32
+kernel_pm_code_end:
+.text16
+kernel_rm_code_end:
+.data16
+data16_end:
+.data SECTION_DATA_CONCAT
+data_concat_end:
 .data SECTION_DATA_STRINGS - 1
 data_0_end:
 .data SECTION_DATA_STRINGS
-data_str_end: .byte 0
+.byte 0
+data_str_end:
 .data SECTION_DATA_PCI_NIC
 data_pci_nic_end:
-.data SECTION_DATA_BSS - 1
-kernel_signature:.long 0x1337c0de
+.data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
+#kernel_signature:.long 0x1337c0de # when bss is no longer stored in .data, enable this
+data_signature_end:
 .data SECTION_DATA_BSS
+kernel_signature:.long 0x1337c0de # enabled this to check bootloader ramdisk overwrite
 data_bss_end:
 .data 99
 kernel_end:

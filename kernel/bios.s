@@ -132,6 +132,7 @@ bios_list_bda:
 	mov	dl, es:[0x477]	
 	PRINT	"XT HDD IO Port: "
 	call	printhex2
+	call	newline
 
 	pop	es
 	ret

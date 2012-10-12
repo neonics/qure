@@ -2420,10 +2420,14 @@ cmd_mem$:
 	jnz	1f
 	or	dword ptr [ebp], 4	# print addresses
 	jmp	2f
+1:	cmp	eax, '-' | ('s'<<8)
+	jnz	1f
+	or	dword ptr [ebp], 8	# print sections/memory map
+	jmp	2f
 	# experimental options:
 1:	cmp	eax, '-' | ('g'<<8)
 	jnz	1f
-	or	dword ptr [ebp], 8	# print graph
+	or	dword ptr [ebp], 128	# print graph
 	jmp	2f
 	###
 1:	jmp	9f
@@ -2475,14 +2479,14 @@ cmd_mem$:
 	call	newline
 
 	printc 15, " Code: "
-	mov	eax, kernel_code_end - kernel_code_start # realmode_kernel_entry 
+	mov	eax, kernel_code_end - kernel_code_start
 	xor	edx, edx
 	call	print_size
 	printc 15, " (realmode: "
-	mov	eax, realmode_kernel_end - realmode_kernel_entry
+	mov	eax, kernel_rm_code_end - kernel_rm_code_start
 	call	print_size
 	printc 15, " pmode: "
-	mov	eax, kernel_code_end - kernel_start # realmode_kernel_end
+	mov	eax, kernel_pm_code_end - kernel_pm_code_start
 	call	print_size
 	printc 15, ")"
 
@@ -2496,7 +2500,17 @@ cmd_mem$:
 	xor	edx, edx
 	mov	eax, kernel_end - data_0_start
 	call	print_size
-	printc 15, " (0: "
+	printc 15, " (rm: "
+	mov	eax, data16_end - data16_start
+	call	print_size
+
+	mov	ecx, cs
+	mov	edx, offset data16_start
+	mov	eax, offset data16_end
+	call	cmd_mem_print_addr_range$
+	xor	edx, edx
+
+	printc 15, " 0: "
 	mov	eax, data_0_end - data_0_start
 	call	print_size
 	printc 15, " str: "
@@ -2510,15 +2524,33 @@ cmd_mem$:
 	jz	2f
 	printc 12, " 99: "
 	call	print_size
-2:	printlnc 15, ")"
+2:	printc 15, ")"
 
+	mov	ecx, cs
+	mov	edx, offset data_0_start
+	mov	eax, offset data_bss_end
+	call	cmd_mem_print_addr_range$
+	call	newline
+
+	xor	edx, edx
+	mov	eax, [kernel_symtab_size]
+	or	eax, eax
+	jz	2f
+	printc 15, " Symbols: "
+	call	print_size
+	mov	edx, [symtab_load_start_flat]
+	mov	eax, [symtab_load_end_flat]
+	mov	ecx, SEL_flatDS
+	call	cmd_mem_print_addr_range$
+	call	newline
+
+2:	xor	edx, edx
 	printc 15, " Stack: "
 	mov	eax, [kernel_stack_top]
-	sub	eax, offset kernel_end
+	sub	eax, [ramdisk_load_end]	# offset kernel_end
 	call	print_size
-
 	mov	ecx, ss
-	mov	edx, offset kernel_end
+	mov	edx, [ramdisk_load_end] # offset kernel_end
 	mov	eax, [kernel_stack_top]
 	call	cmd_mem_print_addr_range$
 	call	newline
@@ -2528,8 +2560,108 @@ cmd_mem$:
 	jz	1f
 	call	print_handles$
 
-######## print graph
+######## print memory map
 1:	test	dword ptr [ebp], 8
+
+	# in: (besides arguments): ecx = end address of last section/memory range,
+	#   to be compared with the start of this one, for misalignment/overlap error detection.
+	# out: ecx updated
+	# out: (side-effect) ebx = start
+	# out: (side-effect) edi = end (same as ecx)
+	# destroys: eax, edx. (eax=range size, edx=0)
+	.macro PRINT_MEMRANGE label, st=0, nd=0, sz=0
+		.ifnc 0,\st
+		_PR_S = \st
+		.else
+		_PR_S = offset \label\()_start
+		.endif
+		.ifnc 0,\nd
+		_PR_E = \nd
+		.else
+		_PR_E = offset \label\()_end
+		.endif
+		.data
+		99: .ascii "\label: "
+		88: .space 20-(88b-99b), ' '
+		.byte 0
+		.text32
+		# print label
+		mov	ah, 15
+		mov	esi, offset 99b
+		call	printc
+
+		# print cs/ds relative:
+		mov	edx, _PR_S # offset \label\()_start
+		mov	ebx, edx	# remember start
+		push	edx
+		call	printhex8
+		printchar_ '-'
+		.if \sz
+		add	edx, _PR_E #offset \label\()_end
+		.else
+		mov	edx, _PR_E #offset \label\()_end
+		.endif
+		mov	edi, edx	# remember end
+		call	printhex8
+		# print size
+		mov	eax, edx
+		xchg	edx, [esp]	# store addresses
+		sub	eax, edx	# for flat print
+		push	edx
+		call	printspace
+
+		# a little check: ebx=start,ecx=prev end
+		cmp	ebx, ecx
+		mov	cl, '!'
+		jnz	77f
+		or	eax, eax
+		js	77f
+		mov	cl, ' '
+	77:	printcharc 12, cl
+		mov	ecx, edi	# remember new end
+
+		call	printspace
+
+		# print flat addresses:
+		pop	edx	# start
+		add	edx, [database]
+		call	printhex8
+		printchar '-'
+		pop	edx	# end
+		add	edx, [database]
+		call	printhex8
+		call	printspace
+		call	printspace
+
+		xor	edx, edx
+		or	eax, eax
+		jns	1f
+		neg	eax
+		printcharc 12, '-'
+	1:	call	print_size
+
+		call	newline
+	.endm
+
+	xor	ecx, ecx	# end address of previous entry
+	PRINT_MEMRANGE kernel_rm_code
+	PRINT_MEMRANGE data16
+	PRINT_MEMRANGE kernel_pm_code
+	PRINT_MEMRANGE data_0
+	#PRINT_MEMRANGE data_concat within data0's range
+	PRINT_MEMRANGE data_str
+	PRINT_MEMRANGE data_pci_nic
+	PRINT_MEMRANGE data_signature
+	PRINT_MEMRANGE data_bss
+	mov	edi, [kernel_load_end_flat]
+	sub	edi, [database]
+	PRINT_MEMRANGE "<slack>", (offset data_bss_end), edi # [kernel_load_end_flat]
+	PRINT_MEMRANGE "symbol table", [kernel_symtab], [kernel_symtab_size], sz=1
+	PRINT_MEMRANGE "stack", [ramdisk_load_end], [kernel_stack_top]
+
+
+######## print graph
+1:	test	dword ptr [ebp], 128
 	jz	1f
 	call	cmd_mem_print_graph$
 
@@ -2540,7 +2672,8 @@ cmd_mem$:
 9:	printlnc 12, "usage: mem [-hk]"
 	printlnc 12, "  -k   print kernel sizes"
 	printlnc 12, "  -a   print physical addresses"
-	printlnc 12, "  -h   print handles"
+	printlnc 12, "  -h   print malloc handles"
+	printlnc 12, "  -s   print code/data sections/images/memory map"
 	jmp	1b
 
 

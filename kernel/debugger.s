@@ -115,13 +115,15 @@ debug_load_symboltable:
 1:	call	fs_close
 	ret
 .elseif 1 # OR if bootloader also loads the symbol table.
+
+DEBUG_RAMDISK_DIY=0
+	.if DEBUG_RAMDISK_DIY
 	movzx	eax, word ptr [bootloader_ds]
 	movzx	ebx, word ptr [ramdisk]
 	shl	eax, 4
 	add	eax, ebx
 	mov	bx, SEL_flatDS
 	mov	fs, bx
-	call	newline
 
 	cmp	dword ptr fs:[eax + 0], 'R'|('A'<<8)|('M'<<16)|('D'<<24)
 	jnz	9f
@@ -130,9 +132,15 @@ debug_load_symboltable:
 	mov	ecx, fs:[eax + 8]
 	cmp	ecx, 2
 	jb	9f
+	.endif
 
-	mov	edx, fs:[eax + 32 + 4]
-	call	printhex8
+	.if DEBUG_RAMDISK_DIY
+	mov	edx, fs:[eax + 32 + 4]	# load start
+	.else
+	mov	edx, [symtab_load_start_flat]
+	.endif
+	or	edx, edx
+	jz	9f
 	I "Found symboltable: "
 	GDT_GET_BASE eax, ds
 	cmp	eax, edx
@@ -141,15 +149,24 @@ debug_load_symboltable:
 	mov	[kernel_symtab], edx
 	mov	ebx, edx
 	call	printhex8
-	I2 " size "
-	mov	edx, fs:[eax + 32 + 12]
-	mov	[kernel_symtab_size], edx
+	.if DEBUG_RAMDISK_DIY
+	mov	edx, fs:[eax + 32 + 12]	# load end
+	.else
+	mov	edx, [symtab_load_end_flat]
+	sub	edx, eax
+	.endif
+	printchar '-'
 	call	printhex8
+	I2 " size "
+	sub	edx, ebx
+	call	printhex8
+	mov	[kernel_symtab_size], edx
 	I2 " symbols "
 	mov	edx, [ebx]
 	call	printdec32
-	call	printspace
+	print " ("
 	call	printhex8
+	println ")"
 	ret
 
 8:	printlnc 12, "error: symboltable before kernel: "

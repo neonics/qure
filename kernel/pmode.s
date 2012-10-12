@@ -293,10 +293,7 @@ pmode_entry$:
 	.else
 	# stack is 'clean', so alloc a new one:
 	mov	ss, ax
-	mov	esp, offset kernel_end
-	add	esp, 0x20000
-	and	esp, ~0xffff	# for easier debugging
-	mov	[kernel_stack_top], esp
+	mov	esp, [kernel_stack_top]
 	.endif
 	mov	ax, SEL_realmodeES
 	mov	es, ax

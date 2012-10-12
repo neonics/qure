@@ -1629,11 +1629,11 @@ cmd_ramdisk:
 	mov	edx, ebx
 	shr	edx, 4
 	call	printdec32
-	RD ": lba ", ebx
+	RD ": lba", ebx
 	RD " sectors ", ebx+8
 	RD " mem start", ebx+4
 	RD " end", ebx+12
-	#call	newline  -- exactly 80 chars
+	call	newline
 	add	ebx, 16
 	dec	ecx
 	jnz	0b

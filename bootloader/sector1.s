@@ -283,6 +283,7 @@ print "<<<<"
 	jcxz	0f
 	mov	ebx, [si - 4]	# get the load end address of the previous segment
 	mov edx, ebx
+	mov ah, 0x0b
 	call printhex8
 	call	load_ramdisk_entry
 0:
@@ -602,12 +603,14 @@ load_ramdisk_entry:
 	# ecx = count sectors
 	# ebx = flat address
 	push	eax
+##
+	# if the ramdisk image is loaded consecutively:
 	mov	edx, eax
+	inc	edx	# account for FAT sector
 	add	edx, ecx
 	shl	edx, 9
-	xor	eax, eax
 
-	mov	ax, ds
+	mov	eax, ds
 	shl	eax, 4
 	add	edx, eax
 	mov	[si + 12], edx	# image end address (start+count)*512+ds*16
@@ -616,10 +619,10 @@ load_ramdisk_entry:
 	print	"image load end: "
 	call	printhex8
 	call	newline
-
+##
+	pop	eax
 	# edx = image load end (flat address + count sectors * 512)
 	call	print_ramdisk_entry_info$
-	pop	eax
 
 .if 0
 	push es
@@ -738,7 +741,10 @@ TRACE '*'
 	# bx points to end of loaded data (kernel)
 ################################# end load loop
 	mov	ah, 0xf6
-	println	"Success!"
+	print	"Success!"
+	mov	edx, ebx
+	call	printhex8
+	call	newline
 
 	ret
 

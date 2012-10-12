@@ -257,5 +257,10 @@ popf
 	pop	ebx
 	ret
 
-8: DEBUG "scheduling disabled"
-ret
+8:	DEBUG "scheduling disabled: caller="
+	push	edx
+	mov	edx, [esp + 4]
+	call	printhex8
+	pop 	edx
+	call	newline
+	ret

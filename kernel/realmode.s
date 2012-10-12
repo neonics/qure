@@ -58,7 +58,7 @@ CHAIN_RETURN_RM_KERNEL = 1
 	pop	ax
 .endm
 
-.macro PRINT_16 m
+.macro LOAD_TXT_16 m, reg16=si
 	# need to declare realmode strings in .text as kernel .text shifts
 	# data beyond 64kb reach.
 .if 0
@@ -70,10 +70,18 @@ CHAIN_RETURN_RM_KERNEL = 1
 	99: .asciz "\m"
 	.previous
 .endif
+	mov	\reg16, offset 99b
+.endm
+
+.macro PRINT_16 m
+	.ifc si,\m
+	call	print_16
+	.else
 	push	si
-	mov	si, offset 99b
+	LOAD_TXT_16 "\m"
 	call	print_16
 	pop	si
+	.endif
 .endm
 
 .macro PRINTc_16 c, m
@@ -128,7 +136,11 @@ CHAIN_RETURN_RM_KERNEL = 1
 
 
 .macro rmI2 m
+	.ifc si,\m
+	PRINTc_16 0x03, si
+	.else
 	PRINTc_16 0x03, "\m"
+	.endif
 .endm
 
 
@@ -266,9 +278,106 @@ realmode_kernel_entry:
 
 	COLOR_16 0x0b
 	call	printhex8_16
-	COLOR_16 0x0f
 
+	cmp	edx, 0x1337c0de
+	jnz	1f
+	rmOK
+	jmp	2f
+
+1:	PRINTc_16 0x4f, "Invalid signature - press key"
+	xor	ax, ax
+	int	0x16
 	call	newline_16
+
+2:	COLOR_16 0x0f
+
+	###############################################
+	# verify ramdisk, calculate kernel images end
+
+	rmI "Ramdisk: "
+
+	push	fs
+	mov	fs, [bootloader_ds]
+	mov	bx, [ramdisk]
+	cmp     dword ptr fs:[bx + 0], 'R'|('A'<<8)|('M'<<16)|('D'<<24)
+	jnz     1f
+	cmp     dword ptr fs:[bx + 4], 'I'|('S'<<8)|('K'<<16)|('0'<<24)
+	jz	2f
+
+1:	PRINTc_16 12, "Invalid signature"
+	jmp	3f
+
+2:	mov	eax, cs	# calculate minimum load end
+	shl	eax, 4
+	add	eax, offset kernel_end
+
+	mov	ecx, fs:[bx + 8]	# num entries
+	or	ecx, ecx
+	jz	9f
+
+	xor	di, di	# ramdisk entry index counter for label printing
+
+0:	add	bx, 16
+	mov	edx, fs:[bx + 4]	# load start
+	or	edx, edx
+	jz	1f			# not loaded
+	mov	esi, fs:[bx + 12]	# load end
+##
+	# print entry name
+	push	si
+	cmp	di, 0
+	jnz	3f
+	mov	[kernel_load_start_flat], edx
+	mov	[kernel_load_end_flat], esi
+	LOAD_TXT_16 "Kernel "
+	jmp	4f
+3:	cmp	di, 1
+	jnz	4f
+	mov	[symtab_load_start_flat], edx
+	mov	[symtab_load_end_flat], esi
+	LOAD_TXT_16 "Symtab "
+	jmp	4f
+	LOAD_TXT_16 "? "
+4:	rmI2	si
+	pop	si
+##
+	# print load start/end
+	call	printhex8_16
+	PRINT_16 "- "
+	mov	edx, fs:[bx + 12]	# load end
+	call	printhex8_16
+
+	cmp	edx, eax	# check if loaded higher
+	jb	1f
+	mov	eax, edx
+1:	inc	di
+	dec	ecx
+	jnz	0b
+9:	pop	fs
+
+	mov	[ramdisk_load_end_flat], eax
+	rmI2	"End: "
+	mov	edx, eax
+	call	printhex8_16
+
+	# calculate kernel load end (stack bottom)
+
+	mov	eax, cs
+	shl	eax, 4
+	sub	edx, eax
+	js	3f	# shouldn't happen...
+	color_16 8
+	call	printhex8_16
+	color_16 15
+
+	cmp	edx, offset kernel_end
+	jae	1f
+
+	PRINTc_16 12, "WARNING: kernel end before ramdisk end"
+3:	mov	edx, offset kernel_end
+
+1:	mov	[ramdisk_load_end], edx
+2:	call	newline_16
 
 	##############################################
 	# some last-minute realmode data gathering
@@ -393,8 +502,10 @@ realmode_kernel_entry:
 	mov	dh, -1
 	mov	[boot_drive], dx
 	call	printhex2_16
-1:	call newline_16
 	rmOK
+	jmp	2f
+1:	printlnc_16 4, "Error (no emulation?)"
+2:
 	.endif
 
 	###############################
@@ -492,6 +603,12 @@ boot_partition:		.byte 0	# bootloader
 bootloader_ds:		.word 0
 ramdisk:		.word 0	# [bootloader_ds]:[ramdisk]
 mbr:			.word 0	# [bootloader_ds]:[ramdisk]
+ramdisk_load_end_flat:	.long 0	# flat address of last ramdisk entry
+ramdisk_load_end:	.long 0	# realmode-cs-adjusted address
+kernel_load_start_flat:	.long 0	# ramdisk info
+kernel_load_end_flat:	.long 0
+symtab_load_start_flat:	.long 0
+symtab_load_end_flat:	.long 0
 # bios:
 low_memory_size:	.word 0 # in kb
 memory_map:		.space 24 * (10+1) # 11 lines (qemu: 5, vmware: 10)

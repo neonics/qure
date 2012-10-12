@@ -455,6 +455,27 @@ init_gdt_16:
 	mov	ax, sp
 	mov	esp, eax
 
+	# calculate stack top
+	mov	edx, [ramdisk_load_end]	# offset kernel_end
+
+	.if DEBUG
+		print_16 "  Ramdisk load end: "
+		call	printhex8_16
+	.endif
+
+	# align with ss for easier debugging
+	add	edx, KERNEL_MIN_STACK_SIZE * 2 -1
+	and	edx, ~(KERNEL_MIN_STACK_SIZE - 1)
+	mov	[kernel_stack_top], edx
+
+	.if DEBUG
+		print_16 "Stack top: "
+		call	printhex8_16
+		sub	edx, [ramdisk_load_end]
+		print_16 "size: "
+		call	printhex8_16
+		call	newline_16
+	.endif
 
 	# Set up ES
 
@@ -494,4 +515,3 @@ init_gdt_16:
 	pop	ebx
 	pop	eax
 	ret
-

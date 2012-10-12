@@ -329,3 +329,11 @@ BUG: since fixing strtok and fs_update_path, the directory is no longer trailed 
      cd /b then yields dir /b, not /b/, thus catting a file F yields path /bF.
 WORKAROUND: cd /b/
 
+FIXED: symboltable is loaded after kernel's BSS. Stack may run into it, as it is
+  64/128 kb beyond kernel end, not beyond symtab end.
+
+FIXED: bootloader's ramdisk kernel load end is before end of bss. This was due
+  to not taking the ramdisk FAT into account. Bug was detected by new '-s' option
+  to mem.
+
+BUG: occasionally 0x00000000 is called on ARP error from incoming connection.

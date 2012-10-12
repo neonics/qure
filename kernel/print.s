@@ -208,23 +208,46 @@ COLOR_STACK_SIZE = 2
 	call	printchar
 .endm
 
+.macro GET_INDEX name, values:vararg
+	_INDEX=-1
+	_I=0
+
+	.irp r,\values
+		.ifc \r,\name
+		_INDEX=_I
+		.exitm
+		.endif
+		_I=_I+1
+	.endr
+.endm
+
+.macro IS_REG8 var, val
+	GET_INDEX \val, al,ah,bl,bh,cl,ch,dl,dh
+	\var=_INDEX >=0
+.endm
+
 .macro PRINTCHARc col, c
-	.if 1
 	push	ax
+	IS_REG8 _IS_REG8, \c
+	.if _IS_REG8
+	mov	ah, \col
+	mov	al, \c
+	.else
 	mov	ax, (\col<<8) | \c
+	.endif
 	call	printcharc
 	pop	ax
-	.else
-	PRINT_START -1
-	mov	ax, (\col<<8) | \c
-	stosw
-	PRINT_END
-	.endif
 .endm
 
 # does not preserve ax
 .macro PRINTCHARc_ col, c
+	IS_REG8 _IS_REG8, \c
+	.if _IS_REG8
+	mov	ah, \col
+	mov	al, \c
+	.else
 	mov	ax, (\col<<8) | \c
+	.endif
 	call	printcharc
 .endm
 
@@ -1042,7 +1065,7 @@ calc_size:
 
 	add	esi, 3	# b
 	mov	edx, eax
-	xor	edx, edx
+	xor	eax, eax
 	ret
 
 8:	shrd	eax, edx, cl

@@ -187,8 +187,8 @@ cmos_list:
 	CMOS_PRINTDEC 1	# seconds alarm
 	call	newline
 
-	PRINTc 11, "Press 'q' or ESC to continue, any other key to redraw"
 .if 0
+	PRINTc 11, "Press 'q' or ESC to continue, any other key to redraw"
 	xor	ah, ah
 	call	keyboard
 	cmp	al, 'q'
@@ -206,7 +206,6 @@ cmos_list:
 	PRINT_END ignorepos=1
 
 	jmp	0b
-0:
+0:	call	newline
 .endif
-
 	ret
