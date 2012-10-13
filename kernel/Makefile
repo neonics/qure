@@ -13,7 +13,7 @@ kernel.bin: kernel.o
 
 KERNEL_SRC = kernel.s macros.s debug.s debugger.s realmode.s print.s \
 	pmode.s pic.s gdt.s idt.s tss.s \
-	mem.s hash.s list.s string.s schedule.s hwdebug.s
+	mem.s hash.s list.s string.s schedule.s hwdebug.s elf.s
 
 HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s \
 	nic.s dev.s $(NIC_SRC) vmware.s

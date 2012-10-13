@@ -337,3 +337,9 @@ FIXED: bootloader's ramdisk kernel load end is before end of bss. This was due
   to mem.
 
 BUG: occasionally 0x00000000 is called on ARP error from incoming connection.
+
+
+TODO: fat12 long filenames
+
+TODO: iso9660 RR extensions for long filenames
+

@@ -120,6 +120,8 @@ SHELL_COMMAND "pic"		cmd_pic
 
 SHELL_COMMAND "vmcheck"		cmd_vmcheck
 SHELL_COMMAND "ramdisk"		cmd_ramdisk
+
+SHELL_COMMAND "exe"		cmd_exe
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -1641,3 +1643,32 @@ cmd_ramdisk:
 
 
 	ret
+
+
+cmd_exe:
+	#LOAD_TXT "/c/A.EXE", eax
+	LOAD_TXT "/c/A.ELF", eax
+	call	fs_openfile
+	jc	9f
+	call	fs_handle_read
+	jc	10f
+########
+	cmp	[esi], word ptr 'M' | 'Z' << 8
+	jz	1f
+
+	cmp	[esi], dword ptr 0x7f | 'E' <<8 | 'L' <<16 | 'F' << 24
+	jz	exe_elf
+
+	printlnc 4, "unknown file format"
+	jmp	10f
+
+######## EXE
+1:	println "EXE/PE32 not supported yet"
+	jmp	10f
+########
+10:	call	fs_close
+	jc	9f
+9:	ret
+
+
+.include "elf.s"

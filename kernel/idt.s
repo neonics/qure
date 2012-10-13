@@ -598,7 +598,7 @@ call newline
 	printlnc 9, " flags"
 	add	ebp, 4
 
-	mov	ecx, 5#10 # 16
+	mov	ecx, 10 # 16
 0:	mov	edx, ebp
 	color	12
 	call	printhex8
