@@ -480,7 +480,7 @@ arp_table_print:
 	pop	esi
 	ret
 
-# in: edx
+# in: eax
 # out: ecx + edx
 arp_table_getentry_by_ip:
 	ARRAY_LOOP [arp_table], ARP_ENTRY_STRUCT_SIZE, ecx, edx, 9f
@@ -820,21 +820,20 @@ protocol_arp_response:
 net_arp_resolve_ipv4:
 	push	ecx
 	push	edx
+	push	eax
 
 	# get the route entry
 	call	net_route_get	# in: eax=ip; out: edx=gw ip/eax, ebx=nic
 	jc	9f
-
-	push	eax
 	mov	eax, edx
 	call	arp_table_getentry_by_ip # in: eax; out: ecx + edx
-	pop	eax
 	jc	0f
 	cmp	byte ptr [ecx + edx + arp_entry_status], ARP_STATUS_RESP
 	jnz	2f
 	lea	esi, [ecx + edx + arp_entry_mac]
 
-1:	pop	edx
+1:	pop	eax
+	pop	edx
 	pop	ecx
 	ret
 
@@ -850,7 +849,6 @@ net_arp_resolve_ipv4:
 
 ########
 0:	# no entry in arp table. Check if we can make request.
-
 	call	arp_table_newentry	# in: eax; out: ecx + edx
 	jc	1b	# out of mem
 
@@ -3063,7 +3061,7 @@ net_tcp_handle_syn$:
 	call	net_ipv4_header_put # mod eax, esi, edi
 	pop	esi
 	pop	edx
-	jc	9f
+	jc	8f
 
 	# add tcp header
 	push	edi
@@ -3149,7 +3147,8 @@ net_tcp_handle_syn$:
 1:	pop	ebp
 	popad
 	ret
-
+8:	pop	edi
+	jmp	9b
 
 # in: esi = source tcp frame
 # in: edi = target tcp frame
@@ -3964,26 +3963,28 @@ net_route_print:
 # out: ebx = nic to use
 # out: edx = gateway ip
 net_route_get:
-	push	eax
-	push	edi
-	push	ecx
-	push	esi
-	xor	esi, esi	# metric
+	push	ebp		# temp gateway
+	push	edi		# array base
+	push	ecx		# array index
+	push	esi		# metric
+	xor	esi, esi
 
 	ARRAY_LOOP [net_route], NET_ROUTE_STRUCT_SIZE, edi, ecx, 9f
 	cmp	si, [edi + ecx + net_route_metric]
 	ja	0f
 	mov	edx, eax
 	and	edx, [edi + ecx + net_route_netmask]	# zf=1 for default gw
+	jz	1f
 	cmp	edx, [edi + ecx + net_route_network]
 	jnz	0f
-	mov	edx, [edi + ecx + net_route_gateway]
-	or	edx, edx
+1:	mov	ebp, [edi + ecx + net_route_gateway]
+	or	ebp, ebp
 	jnz	1f
-	mov	edx, eax
+	mov	ebp, eax
 1:	mov	ebx, [edi + ecx + net_route_nic]
 	mov	si, [edi + ecx + net_route_metric]
 0:	ARRAY_ENDL
+	mov	edx, ebp
 	or	esi, esi
 	jnz	1f
 
@@ -3995,7 +3996,7 @@ net_route_get:
 1:	pop	esi
 	pop	ecx
 	pop	edi
-	pop	eax
+	pop	ebp
 	ret
 
 
