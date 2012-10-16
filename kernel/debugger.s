@@ -256,3 +256,149 @@ debug_printsymbol:
 	popcolor
 1:	pop	esi
 	ret
+
+
+.data SECTION_DATA_STRINGS
+regnames$:
+.ascii "cs"	# 0
+.ascii "ds"	# 2
+.ascii "es"	# 4
+.ascii "fs"	# 6
+.ascii "gs"	# 8
+.ascii "ss"	# 10
+
+.ascii "fl"	# 12
+
+.ascii "di"	# 14
+.ascii "si"	# 16
+.ascii "bp"	# 18
+.ascii "sp"	# 20
+.ascii "bx"	# 22
+.ascii "dx"	# 24
+.ascii "cx"	# 26
+.ascii "ax"	# 28
+.ascii "ip"	# 30
+
+.ascii "c.p.a.zstidoppn."
+
+.text32
+printregisters:
+	pushad
+	pushf
+	push	ss
+	push	gs
+	push	fs
+	push	es
+	push	ds
+	push	cs
+
+
+	call	newline_if
+	mov	ebx, esp
+
+	mov	esi, offset regnames$
+	mov	ecx, 16	# 6 seg 9 gu 1 flags 1 ip
+
+	PUSHCOLOR 0xf0
+
+	mov	ah, 0b111111	# 6 bits indicating print as word
+
+0:	COLOR	0xf0
+	cmp	cl, 16-7
+	ja	1f
+	printchar_ 'e'
+1:	lodsb
+	call	printchar
+	lodsb
+	call	printchar
+
+	COLOR 0xf8
+	printchar_ ':'
+
+	COLOR	0xf1
+	mov	edx, [ebx]
+	add	ebx, 4
+	shr	ah, 1
+	jc	1f
+	call	printhex8
+	jmp	2f
+1:	call	printhex4
+2:	call	printspace
+
+	cmp	ecx, 5
+	je	2f
+	cmp	ecx, 10
+	jne	1f
+
+	# print flag characters
+	push	ebx
+	push	esi
+	push	ecx
+
+	call	printflags$
+
+	pop	ecx
+	pop	esi
+	pop	ebx
+
+2:	call	newline
+
+1: 	loopnz	0b
+
+	call	newline
+
+	POPCOLOR
+	pop	eax # cs
+	pop	ds
+	pop	es
+	pop	fs
+	pop	gs
+	pop	ss
+	popf
+	popad
+	ret
+
+printflags$:
+	mov	esi, offset regnames$ + 32 # flags
+	mov	ecx, 16
+2:	lodsb
+	shr	edx, 1
+	setc	bl
+	jc	3f
+	add	al, 'A' - 'a'
+3:	shl	bl, 1
+	add	ah, bl
+	call	printcharc
+	sub	ah, bl
+	loop	2b
+	ret
+
+
+# task
+debugger:
+	PIC_GET_MASK
+	push	eax
+	PIC_SET_MASK ~(1<<IRQ_KEYBOARD | 1<<IRQ_TIMER)
+	sti	# for keyboard. Todo: mask other interrupts.
+
+1:	printc_ 0xb8, "Debugger: h=help c=continue p=printregisters"
+
+0:	printc_ 0xb8, "> "
+	xor	ax, ax
+	call	keyboard
+	call	newline
+	cmp	al, 'c'
+	jz	9f
+	cmp	al, 'p'
+	jz	2f
+	cmp	al, 'h'
+	jz	1b
+	jmp	0b
+
+
+9:	pop	eax
+	PIC_SET_MASK
+	ret
+
+2:	call	printregisters
+	jmp	0b

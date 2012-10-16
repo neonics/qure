@@ -181,6 +181,9 @@ STRINGPTR "SIMD Floating-Point Exception"	# 0x13 F
 .text32
 
 
+# NOTE! Do not proxy IRQ < 32 (exceptions) due to stack expectations of the
+# below handler!
+#
 # Stack:
 #
 # dd [ EFLAGS ] esp + 14
@@ -610,11 +613,18 @@ call newline
 	call	debug_printsymbol
 	call	newline
 	add	ebp, 4
+#	cmp	ebp, [kernel_stack_top]
+#	jae	2f
 	loop	0b
-	pop	ecx
+2:	pop	ecx
 	pop	ebp
 	#############################
 .endif
+	cmp	cx, 1	# debugger
+	jz	2f
+	cmp	cx, 3	# manual breakpoint
+	jz	2f
+
 	cmp	cx, 0x20 #PF
 	jb	halt
 
@@ -639,7 +649,6 @@ call newline
 
 	POPCOLOR
 	call	newline
-
 	pop	edx
 	pop	ebx
 	pop	esi
@@ -651,6 +660,9 @@ call newline
 	pop	ebp
 	add	esp, 2	# pop interrupt number
 	iret
+
+2:	call	debugger
+	jmp	0b
 
 
 ###################################################################
