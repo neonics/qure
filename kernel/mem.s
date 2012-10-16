@@ -2562,6 +2562,7 @@ cmd_mem$:
 
 ######## print memory map
 1:	test	dword ptr [ebp], 8
+	jz	1f
 
 	# in: (besides arguments): ecx = end address of last section/memory range,
 	#   to be compared with the start of this one, for misalignment/overlap error detection.
@@ -2635,10 +2636,10 @@ cmd_mem$:
 
 		xor	edx, edx
 		or	eax, eax
-		jns	1f
+		jns	77f
 		neg	eax
 		printcharc 12, '-'
-	1:	call	print_size
+	77:	call	print_size
 
 		call	newline
 	.endm
