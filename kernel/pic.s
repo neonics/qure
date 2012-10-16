@@ -365,7 +365,7 @@ pic_mask: .word 0
 # in: ax = bitmask (al = master, ah = slave)
 .macro PIC_SET_MASK mask=ax
 	push	ax
-	.if \mask != ax
+	.ifnc ax,\mask
 	mov	ax, \mask
 	.endif
 	out	IO_PIC1+1, al
