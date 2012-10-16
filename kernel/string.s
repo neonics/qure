@@ -287,3 +287,27 @@ strtok:
 2:	pop	edi
 	clc
 9:	ret
+
+
+
+# in: eax
+# in: edx
+# out: FLAGS
+strcmp:
+	push	esi
+	push	edi
+	push	ecx
+	push	eax
+	mov	edi, eax
+	call	strlen	# eax->eax
+	mov	esi, edx
+	call	strlen_	# esi->ecx
+	cmp	eax, ecx
+	jb	0f
+	mov	ecx, eax
+0:	rep	cmpsb
+	pop	eax
+	pop	ecx
+	pop	edi
+	pop	esi
+	ret

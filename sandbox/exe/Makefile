@@ -90,6 +90,18 @@ a.exe: test.o Makefile
 
 a.elf: a.exe
 	objcopy -O elf32-i386 $< $@
+
+###############
+
+elf.elf: elf.exe
+	objcopy -O elf32-i386 $< $@
+
+elf.o: ../elf.cpp
+	gcc -c $(CC_OPTS) $< -o $@
+
+elf.exe: elf.o
+	ld $(LD_OPTS) -pie -Bdynamic -L . -lc $< -o $@
+
 ############ create reference files
 
 default.c: test.c Makefile

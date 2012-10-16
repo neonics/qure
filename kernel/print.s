@@ -581,7 +581,8 @@ newline:
 SCREEN_BUFFER = 1
 .if SCREEN_BUFFER
 .data SECTION_DATA_BSS
-SCREEN_BUF_SIZE = 160 * 25 * 6	# 6 pages
+SCREEN_BUF_PAGES = 12
+SCREEN_BUF_SIZE = 160 * 25 * SCREEN_BUF_PAGES
 screen_buf_offs: .long 0
 screen_buf: .space SCREEN_BUF_SIZE
 .text32
@@ -1109,8 +1110,8 @@ sprint_size:
 
 
 ############################ PRINT FORMATTED STRING ###########
-
-# in: esi, stack
+PRINTF_DEBUG = 0
+# in: stack
 printf:
 	push	ebp
 	mov	ebp, esp
@@ -1124,21 +1125,25 @@ printf:
 	add	ebp, 4
 
 2:	xor	ecx, ecx	# holds width etc..
-	lodsb
+0:	lodsb
 	or	al, al
 	jz	2f
 
 ###########################
-0:	# %
+	# %
 	cmp	al, '%'
 	jne	0f
+	.if PRINTF_DEBUG
 		PRINTc	10, "%"
+	.endif
 	lodsb
 	or	al, al
 	jz	2f
+	.if PRINTF_DEBUG
 		pushcolor 10
 		call	printchar
 		popcolor
+	.endif
 
 	# check for flags:
 	# specifier: (rest of specifiers checked later)
@@ -1177,10 +1182,12 @@ printf:
 	jne	1f
 	mov	ecx, [ebp]
 	add	ebp, 4
+	.if PRINTF_DEBUG
 		pushcolor 11
 		mov edx, ecx
 		call printhex8
 		popcolor
+	.endif
 	lodsb
 	or	al, al
 	jz	2f
@@ -1197,10 +1204,12 @@ printf:
 	cmp	al, '*'
 	jne	5f
 	mov	ecx, [ebp]
+	.if PRINTF_DEBUG
 		pushcolor 11
 		mov edx, ecx
 		call printhex8
 		popcolor
+	.endif
 	add	ebp, 4
 	jmp	4f
 5:
@@ -1229,9 +1238,11 @@ printf:
 	jz	2f
 
 1:	
-	PRINTc	11, ">"
-	call printchar
-	PRINTc	11, "<"
+	.if PRINTF_DEBUG
+		PRINTc	11, ">"
+		call printchar
+		PRINTc	11, "<"
+	.endif
 	
 	mov	edx, [ebp]
 	add	ebp, 4

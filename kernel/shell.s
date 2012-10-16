@@ -1615,3 +1615,4 @@ cmd_exe:
 
 
 .include "elf.s"
+.include "libc.s"
