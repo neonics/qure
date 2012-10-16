@@ -23,3 +23,13 @@ K_RIGHT_CONTROL = 0x1d00	# same in qemu
 K_RIGHT_ALT = 0x3800		# same in qemu
 
 K_WIN = 0x5b00
+
+# apply these to ax from KB_GET_MUTATORS
+K_FLAG_SHIFT = 1 << 8	# and also 1 << 0
+K_FLAG_CONTROL = 1 << 9
+K_FLAG_ALT = 1 << 10
+
+# apply these to eax from KB_GET/KB_PEEK
+K_KEY_SHIFT = K_FLAG_SHIFT << 16
+K_KEY_CONTROL = K_FLAG_CONTROL << 16
+K_KEY_ALT = K_FLAG_ALT << 16
