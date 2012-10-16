@@ -205,8 +205,10 @@ sched_update_graph:
 schedule_task:
 	cmp	dword ptr [schedule_sem], -1
 	jz	8f
+	push	ebp	# alloc var ptr
 	push	ebx
 	push	ecx
+	mov	ebp, esp # init var ptr: [+0]=arg ecx
 	push	edx
 	mov	ebx, eax
 
@@ -238,9 +240,11 @@ popf
 	mov	[eax + edx + task_label], esi
 ########
 	push	eax
-	mov	eax, ecx
+	mov	eax, [ebp]
+	or	eax, eax
+	jz	2f
 	call	malloc
-	mov	ecx, eax
+2:	mov	ecx, eax
 	pop	eax
 	jnc	1f
 	# no mem - unschedule task
@@ -255,6 +259,7 @@ popf
 9:	pop	edx
 	pop	ecx
 	pop	ebx
+	pop	ebp
 	ret
 
 8:	DEBUG "scheduling disabled: caller="
