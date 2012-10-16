@@ -164,7 +164,7 @@ DEBUG_DWORD \r
 	.else
 	push	edx
 	.ifc esp,\r32
-	lea	edx, [esp + 4 + COLOR_STACK_SIZE]
+	lea	edx, [esp + 8 + COLOR_STACK_SIZE]
 	.else
 	mov	edx, \r32
 	.endif
