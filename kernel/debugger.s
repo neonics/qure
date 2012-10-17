@@ -245,16 +245,103 @@ debug_getsymbol:
 9:	ret
 
 
+# Expects symboltable sorted by address.
+#
+# in: edx
+# out: eax = preceeding symbol address
+# out: esi = preceeding symbol label
+# out: ebx = succeeding symbol address
+# out: edi = succeeding symbol label
+# out: CF
+debug_get_preceeding_symbol:
+	mov	esi, [kernel_symtab]
+	or	esi, esi
+	stc
+	jz	9f
+
+	push	ecx
+
+	mov	ecx, [esi]
+
+	cmp	edx, [esi + ecx * 4]
+	cmc
+	jb	8f	# dont yield results for out-of-range
+
+	# O(log2(ecx))
+	xor	eax, eax
+0:	shr	ecx, 1
+	jz	1f
+2:	add	eax, ecx	# [....eax....]
+	cmp	edx, [esi + 4 + eax * 4]
+	jz	0f
+	ja	0b		# [....|<eax....>]
+	sub	eax, ecx	# [<eax....>|....]
+	jmp	0b
+# odd
+1:	jnc	0f
+	cmp	edx, [esi + 8 + eax * 4]
+	jb	0f
+	inc	eax
+
+0:	mov	ecx, [esi]
+
+	push	dword ptr [esi + 4 + eax * 4]	# preceeding symbol address
+	push	dword ptr [esi + 8 + eax * 4]	# succeeding symbol address
+	lea	ebx, [esi + 4 + ecx * 4]	#ebx->str offset array
+	mov	edi, [ebx + eax * 4 + 4]# edi->str offset
+	mov	eax, [ebx + eax * 4]	# eax->str offset
+	lea	eax, [ebx + eax]	# eax = str ptr - ecx * 4
+	lea	esi, [eax + ecx * 4]	# preceeding symbol label
+	lea	edi, [ebx + edi]
+	lea	edi, [edi + ecx * 4]# succeeding symbol label
+	pop	ebx
+	pop	eax
+
+	clc
+8:	pop	ecx
+
+9:	ret
 
 # in: eax = address
 debug_printsymbol:
 	push	esi
+
 	call	debug_getsymbol
 	jc	1f
 	pushcolor 14
 	call	print
 	popcolor
-1:	pop	esi
+	jmp	9f
+
+1:	push	edi
+	push	eax
+	push	ebx
+	push	edx
+	call	debug_get_preceeding_symbol
+	jc	8f
+
+	pushcolor 13
+	call	print
+	print	" + "
+	sub	edx, eax
+	call	printhex8
+
+	printc 7, " | "
+	add	edx, eax
+	sub	edx, ebx
+	neg	edx
+	call	printhex8
+	print	" - "
+	mov	esi, edi
+	call	print
+	popcolor
+
+8:	pop	edx
+	pop	ebx
+	pop	eax
+	pop	edi
+
+9:	pop	esi
 	ret
 
 

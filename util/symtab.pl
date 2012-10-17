@@ -4,18 +4,28 @@
 
 @c = `objdump -t $ARGV[0]`; chomp @c;
 
-@a=();
-@s=();
+@tosort=();
 
 map {
 	($sec, undef, $a, $s) = /\[\d+\]\(sec\s*(.*?)\)(\(.*?\)\s?){4}(0x[0-9a-f]{8}) (\S+)/ and do {
 		$sec ne -1 and do {
-			printf "%08x: %s\n", hex $a, $s if $ARGV[2] eq '-p';
-			push @a, $a;
-			push @s, $s;
+			push @tosort, sprintf("%08x:$sec:$s",hex $a);
 		}
+
 	}
 } @c;
+
+@symtab = sort @tosort;
+
+@a=();
+@s=();
+
+map {
+	($a,$sec,$s)=split /:/, $_;
+	printf "%08x: %s\n", hex $a, $s if $ARGV[2] eq '-p';
+	push @a, $a;
+	push @s, $s;
+} @symtab;
 
 open BIN, ">:raw", $ARGV[1] or die "Cant open file '$ARGV[1]': $!";
 
