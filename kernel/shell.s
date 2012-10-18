@@ -96,7 +96,7 @@ SHELL_COMMAND "ifconfig"	cmd_ifconfig
 SHELL_COMMAND "ifup"		cmd_ifup
 SHELL_COMMAND "ifdown"		cmd_ifdown
 SHELL_COMMAND "route"		cmd_route
-#SHELL_COMMAND "dhcp"		cmd_dhcp
+SHELL_COMMAND "dhcp"		cmd_dhcp
 SHELL_COMMAND "ping"		cmd_ping
 SHELL_COMMAND "arp"		cmd_arp
 SHELL_COMMAND "icmp"		net_icmp_list
@@ -144,8 +144,6 @@ shell:	push	ds
 	mov	eax, offset cwd$
 	call	fs_opendir
 	mov	[cwd_handle$], eax
-
-	call	nic_zeroconf
 
 start$:
 	call	newline_if

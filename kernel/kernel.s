@@ -314,6 +314,10 @@ kmain:
 	call	cmd_mount$
 
 
+	I "Enabling networking"
+	call	newline
+	call	nic_zeroconf
+
 
 OPEN_SHELL_DEFAULT = 0
 

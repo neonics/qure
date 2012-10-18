@@ -331,7 +331,6 @@ rtl8139_ifup:
 	add	dx, RTL8139_CR
 	mov	al, CMD_TE | CMD_RE	# enable transmitter/receiver
 	out	dx, al
-	call	rtl8139_print_status
 	ret
 
 # in: ebx = nic object
@@ -345,7 +344,6 @@ rtl8139_ifdown:
 	out	dx, al
 	in	al, dx
 	call	printhex2
-	call	rtl8139_print_status
 	ret
 
 ################################################################
