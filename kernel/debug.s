@@ -154,10 +154,14 @@ DEBUG_DWORD \r
 	popf
 .endm
 
-.macro DEBUG_DWORD r32
+.macro DEBUG_DWORD r32, label=""
 	pushf
 	pushcolor DEBUG_COLOR1
+	.ifc "","\label"
 	print	"\r32="
+	.else
+	print	"\label="
+	.endif
 	color	DEBUG_COLOR2
 	.ifc	edx,\r32
 	call	printhex8

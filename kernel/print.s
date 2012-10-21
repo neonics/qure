@@ -84,6 +84,7 @@ COLOR_STACK_SIZE = 2
 	push	ax
 	pushf	# prevent interrupts during es != ds
 	cli
+	cld
 	push	es
 	push	edi
 	movzx	edi, word ptr [screen_sel]
@@ -113,6 +114,7 @@ COLOR_STACK_SIZE = 2
 .macro PRINT_START_ c=0, char=0
 	pushf	# prevent interrupts during es != ds
 	cli
+	cld
 	push	es
 	push	edi
 	movzx	edi, word ptr [screen_sel]
@@ -408,12 +410,12 @@ COLOR_STACK_SIZE = 2
 
 .macro PRINTFLAG reg, bit, msg, altmsg=""
 	test	\reg, \bit
-	jz	9f
+	jz	111f
 	PRINT	"\msg"
-	jmp	8f
-9:	
+	jmp	112f
+111:
 	PRINT	"\altmsg"
-8:
+112:
 .endm
 
 
