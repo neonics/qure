@@ -29,6 +29,8 @@ mem_sel_limit: .long 0
 
 MEM_DEBUG = 0
 
+MEM_PRINT_HANDLES = 2	# 1 or 2: different formats.
+
 .text32
 .code32
 
@@ -403,6 +405,9 @@ handle_flags: .byte 0	# 25
 	# yielding a handle for the requested size (possibly padded for 
 	# alignment).
 	MEM_SPLIT_THRESHOLD = 64
+
+	.byte 0,0,0 # 28 : align
+handle_caller: .long 0# 32
 
 HANDLE_STRUCT_SIZE = 32
 .macro HITO r	# handle_index_to_offset
@@ -1063,12 +1068,20 @@ print_handles$:
 	LL_PRINTARRAY (MEM_FLAG_ALLOCATED|MEM_FLAG_REUSABLE), 0
 	call	newline
 
+	.if MEM_PRINT_HANDLES == 2
+	call	print_handle_2h$
+	.else
+	.endif
 
 	mov	ebx, [mem_handles]
 0:	mov	edx, [mem_numhandles]
 	sub	edx, ecx
 	
+	.if MEM_PRINT_HANDLES == 2
+	call	print_handle_2$
+	.else
 	call	print_handle_$
+	.endif
 	add	ebx, HANDLE_STRUCT_SIZE
 
 	#loop	0b
@@ -1082,6 +1095,80 @@ print_handles$:
 	pop	ebx
 	pop	eax
 	ret
+
+print_handle_2h$:
+	println "Handle hndlptr  base.... size.... flags... caller.. [<- A ->] [<- S ->]"
+	ret
+
+
+print_handle_2$:
+	# if the screenis full, force a scroll, to get positive delta-screen_pos
+	call	printspace
+	mov	eax, [screen_pos]
+	call	printdec32
+.if 1
+	sub	eax, [screen_pos]
+	sar	eax, 1
+	push	ecx
+	mov	ecx, 6
+	add	ecx, eax
+	js	1f
+0:	call	printspace
+	loop	0b
+1:	pop	ecx
+.endif
+	mov	edx, ebx	# handle ptr
+	call	printhex8
+	call	printspace
+	mov	edx, [ebx + handle_base]
+	call	printhex8
+	call	printspace
+	mov	edx, [ebx + handle_size]
+	call	printhex8
+	call	printspace
+	mov	dl, [ebx + handle_flags]
+	call	printbin8
+	call	printspace
+	mov	edx, [ebx + handle_caller]
+	call	printhex8
+
+	call	printspace
+	mov	edx, [ebx + handle_fa_prev]
+	HOTOI	edx
+	call	printdec32
+	call	printspace
+	mov	edx, [ebx + handle_fa_next]
+	HOTOI	edx
+	call	printdec32
+	call	printspace
+	call	printspace
+	mov	edx, [ebx + handle_fs_prev]
+	HOTOI	edx
+	call	printdec32
+	call	printspace
+	mov	edx, [ebx + handle_fs_next]
+	HOTOI	edx
+	call	printdec32
+
+	mov	edx, [ebx + handle_caller]
+	push	ebx
+	push	esi
+	push	edi
+	call	debug_getsymbol
+	jnc	1f
+	call	debug_get_preceeding_symbol
+	jc	1f
+	call	printspace
+	call	print
+1:
+	pop	edi
+	pop	esi
+	pop	ebx
+
+	call	newline
+
+	ret
+
 
 print_handle_$:
 	print "Handle " 
@@ -1550,7 +1637,7 @@ malloc:
 		popcolor
 		.endif
 	mov	eax, [esi + ebx + handle_base]
-	jmp	1f
+	jmp	0f
 
 2:	call	get_handle$
 	jc	2f
@@ -1587,6 +1674,17 @@ malloc:
 	call	ll_update$
 	sub	esi, offset handle_base
 	pop	edi
+
+	# register caller
+0:	push	edx
+	mov	edx, offset _mallocz_malloc_ret$
+	add	edx, [realsegflat]
+	cmp	edx, [esp + 20]
+	mov	edx, [esp + 24]
+	jz	5f
+	mov	edx, [esp + 20]	# edx+esi+ebx+ret
+5:	mov	[esi + ebx + handle_caller], edx
+	pop	edx
 
 	clc
 
