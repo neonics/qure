@@ -29,3 +29,16 @@ kernel.s: Fatal error: Case value 61 unexpected at line 1152 of file "/netrel/sr
 	=>
 
 	fs_root_instance: .long fs_root_class
+
+
+
+
+kernel.s: Error: end of file inside conditional
+schedule.s:164: Error: here is the start of the unterminated conditional
+
+		.if FOO
+			jz	1f
+	1:	.endif
+
+
+	The .endif is not parsed!

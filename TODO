@@ -343,3 +343,51 @@ TODO: fat12 long filenames
 
 TODO: iso9660 RR extensions for long filenames
 
+TODO: use cld in IRQ proxies (and the core IRQ handler), as this is assumed,
+	yet some code uses std...cld, which might cause problems when IRQ's
+	are fired inbetween.
+
+
+TODO: Multitasking: shell.
+  - Make shell multi-instantiable, i.e. object.
+  - Have 'alt-2' open another console shell
+  - contextualize print routines: have an array/pointer to a struct
+    containing the pointer to the buffer and screenpos.
+    (alternate approach: have a print-object layer that can also be used
+    to print to files etc).
+  - create method to allocate a task/process context: object + stack.
+  - implement process array - reserve first N for console windows (or use
+    second array). Alt-NR activates (creates if nonexistent).
+  - update kernel context/IP pointer to a hlt loop, checking how many
+    processes are running. Add this context as the 0th context.
+  - process layout:
+     - kernel in hlt loop (idle task?)
+     - kb handler checking console activation
+     - when console activated, no process is allocated yet
+     - enter creates shell process.
+     - scheduler updates:
+       - round robin scan (skipping gaps).
+       - increase task entry struct with flags: one-shot or process.
+       - for task flags, the parameter buffer contains all registers.
+       - the task executed is executed as usual. A proxy task is used
+         for task switches, which uses the data pointed to by edx to configure
+	 the registers. TODO: look into using TSS for this.
+       - look into a clean exit from the scheduler, as the scheduler will
+         have a signature on the stack of whatever process was running,
+	 which may cause problems when the scheduler is invoked and schedules
+	 that same process again.
+	 Requires to unwind stack (add esp, x), and save the cs:eip:flags
+	 (aswell as all other registers) in the currently executing task's
+	 arguments. The return into the current task is then aborted,
+	 and reengaged when the scheduler reencounters the task.
+	 Initial approach:
+	 - unaware of current task. Simply append a task_switch task to the
+	   task queue, parameterized with all registers.
+	 - abort returning to currently executing task, and run a task from
+	   the queue. If there is no task on the queue, switch to a debug
+	   task that prints the time on the screen.
+
+
+
+TODO: Multitasking: ring 3.
+  - update exe (elf) loader to allocate stack.
