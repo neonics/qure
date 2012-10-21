@@ -1348,22 +1348,37 @@ net_ipv4_handle:
 
 #############################################################################
 # ICMP
+#
+# rfc 792
 .struct 0	# 14 + 20
 icmp_header:
-icmp_type: .byte 0 # .byte 8
+icmp_type: .byte 0
 	# type
 	#*0	echo (ping) reply
 	# 1,2	reserved
 	# 3	destination unreachable
-	# 4	source quench
-	# 5	redirect message
+	#	codes: 0=net / 1=host / 2=protocol / 3=port unreachable
+	#	  4=fragmentation needed & DontFrag set; 5=src route failed
+	#	msg format: [type][code][checksum], [id][seq] unused,
+	#	[internet header][64 bits of original datagram].
+	#	codes 0,1,4,5: gateway; codes 2,3: host
+	# 4	source quench: code 0; msg fmt: same as 3; gw queue full.
+	#	  gw can send 1 src quench msg for each discarded datagram.
+	#	  sender reduces speed of sending datagrams until no src quench
+	#	  messages are received.
+	# 5	redirect message; codes: 'redirect datagrams for: '
+	#	  0=network, 1=host, 2=ToS and network; 3=ToS and host.
+	#	  (ToS=Type of Service).
+	#	msg format: 2nd dword: gateway internet address to be used.
 	# 6	alternate host address
 	# 7	reserved
 	#*8	echo request (ping)
 	# 9	router advertisement
 	# 10	router sollicitation
-	# 11	time exceeded
-	# 12	parameter problem: bad ip header
+	# 11	time exceeded; code 0: ttl exceeded; 1: fragment reasmbl tm excd
+	#	msg format: same as type 3
+	# 12	parameter problem: bad ip header; code:0.
+	#	msg format: same as type 3,except 2nd dword:.byte ptr;.space 3
 	# 13	timestamp
 	# 14	timestamp reply
 	# 15	information request
@@ -1388,6 +1403,7 @@ icmp_type: .byte 0 # .byte 8
 
 icmp_code: .byte 0
 icmp_checksum: .word 0
+icmp_2nd:	# 2nd dword - various uses depending on type.
 icmp_id: .word 0
 icmp_seq: .word 0
 ICMP_HEADER_SIZE = .
@@ -1411,7 +1427,7 @@ net_icmp_header_put:
 
 	sub	ecx, ICMP_HEADER_SIZE
 
-	mov	[edi + icmp_type], byte ptr 8	# ping request
+	mov	[edi + icmp_type], word ptr 8	# type=ping request code=0
 	mov	[edi + icmp_id], word ptr 0x0100# bigendian 1
 	mov	dx, [icmp_sequence$]
 	xchg	dl, dh
@@ -1459,7 +1475,7 @@ net_ipv4_icmp_handle:
 	ret
 
 1:	cmp	[esi + icmp_type], byte ptr 0
-	jnz	9f
+	jnz	1f
 	mov	eax, [edx + ipv4_src]
 	.if NET_ICMP_DEBUG
 		printc 11, "ICMP PING RESPONSE from "
@@ -1470,6 +1486,21 @@ net_ipv4_icmp_handle:
 	clc
 0:	ret
 
+1:	cmp	[esi + icmp_type], byte ptr 5
+	jnz	1f
+	.if 1# NET_ICMP_DEBUG
+		printc 11, "ICMP Redirect "
+		mov	dl, [esi + icmp_code]
+		call	printhex2
+		printc 11, " gw "
+		mov	eax, [esi + icmp_2nd]
+		call	net_print_ip
+		call	newline
+	.endif
+	clc
+	ret
+
+1:
 9:	printlnc 4, "ipv4_icmp: dropped packet"
 	call	net_ivp4_icmp_print
 	stc
@@ -2557,7 +2588,7 @@ net_tcp_service_get:
 	jnz	9f
 	sub	edi, offset tcp_service_ports + 2
 	mov	edi, [tcp_service_handlers + edi * 2]
-
+DEBUG "net_tcp_service_get"; DEBUG_DWORD edi
 	clc
 9:	ret
 
@@ -3923,12 +3954,11 @@ cmd_host:
 ###########################################################################
 # DHCP
 #
-# rfc 2131
-
-.struct 0		# DISCOVER
-dhcp_op:	.byte 0 # 1 = bootrequest 2 = bootreply
-	DHCP_OP_REQUEST = 1
-	DHCP_OP_REPLY	= 2
+# rfc 2131 (protocol), rfc 1533 (options)
+.struct 0
+dhcp_op:	.byte 0
+	DHCP_OP_BOOTREQUEST	= 1
+	DHCP_OP_BOOTREPLY	= 2
 dhcp_hwaddrtype:.byte 0	# 1 = 10mbit ethernet
 dhcp_hwaddrlen:	.byte 0 # 6 bytes mac
 dhcp_hops:	.byte 0 # 0
@@ -3945,23 +3975,32 @@ dhcp_file:	.space 128
 dhcp_magic:	.long 0 # 0x63825363
 	DHCP_MAGIC = 0x63538263
 dhcp_options:	# variable. Format: .byte DHCP_OPT_..., len; .space [len]
+	# http://tools.ietf.org/html/rfc1533
 	#				# len	type
-	DHCP_OPT_SUBNET_MASK	= 1	# 4	ip
-	DHCP_OPT_ROUTER		= 3	# 4	ip
-	DHCP_OPT_DNS		= 6	# 4	ip
+	DHCP_OPT_SUBNET_MASK	= 1	# 4	ip	(must precede router)
+	DHCP_OPT_TIME_OFFSET	= 2	# 4	seconds
+	DHCP_OPT_ROUTER		= 3	# 4*n	ip list, minimum 1 ip
+	DHCP_OPT_TIME_SERVER	= 4	# 4*n	ip list
+	DHCP_OPT_NAME_SERVER	= 5	# 4*n	ip list (IEN 116 nameservers)
+	DHCP_OPT_DNS		= 6	# 4*n	ip list
+	# other servers: (all ip lists:)
+	# 7=log 8=cookie 9=lpr 10=impress 11=resource location
 	DHCP_OPT_HOSTNAME	= 12	# ?	string
-	DHCP_OPT_DOMAINNAME	= 15	# ?	string
-		# 31 - router discover
-		# 33 - static route
-		# 43 - vendor specific info
-		# 44 - netbios/tcpip name server
-		# 46 - netbios/tcpip node type
-		# 47 - netbios/tcpip scope
-		# 31 - router discover
+	DHCP_OPT_BOOT_FILE_SIZE	= 13	# 2	sectors
+	# 14=merit dump file (core dump file)
+	DHCP_OPT_DOMAINNAME	= 15	# 1+	string
+	# 16=swap server 17=root path 18=extensions path (TFTP)
+	# 19=ip forward enable/disable	# 1	0 or 1
+	# 26 = interface mtu opt	# 2	unsigned word; 68+
+	# 31 - router discover
+	# 33 - static route
+	# 43 - vendor specific info
+	# 44 - netbios/tcpip name server
+	# 46 - netbios/tcpip node type
+	# 47 - netbios/tcpip scope
 	DHCP_OPT_REQ_IP		= 50	# 4	ip	# requested ip address
-		# 60 - vendor class identifier
-	DHCP_OPT_CLIENT_ID	= 61	# 7	hwtype(1),mac
-	DHCP_OPT_CLIENT_FQDN	= 81	# 3+?	flags, A_RR, PTR_RR, string
+	DHCP_OPT_IP_LEASE_TIME	= 51	# 4	seconds
+	DHCP_OPT_OPTION_OVERLOAD= 52	# 1	1=file,2=sname,3=both have opts
 		# 53, 1, ? = message type, len 1, 1=DISCOVER,2=offer,3=req,4=decline,5=ACK, 8=inform
 	DHCP_OPT_MSG_TYPE	= 53	# 1	DHCP_MT_
 		DHCP_MT_DISCOVER		= 1
@@ -3970,22 +4009,32 @@ dhcp_options:	# variable. Format: .byte DHCP_OPT_..., len; .space [len]
 		DHCP_MT_DECLINE			= 4
 		DHCP_MT_ACK			= 5
 		DHCP_MT_NAK			= 6
-		# 7=?
-		DHCP_MT_INFORM			= 8
-		DHCP_MT_FORCE_RENEW		= 9
-	DHCP_OPT_LEASE_TIME	= 51	# 4	seconds
+		DHCP_MT_RELEASE			= 7
+		# not in rfc1533:
+		#DHCP_MT_INFORM			= 8
+		#DHCP_MT_FORCE_RENEW		= 9
 	DHCP_OPT_SERVER_IP	= 54	# 4	ip
 	DHCP_OPT_PARAM_REQ_LIST	= 55	# ?	option nr [,option nr,...]
-		# 121 - classless static route
-		# 249 - private/classless static route (MSFT)
+	DHCP_OPT_MESSAGE	= 56	# 1+	string	(NAK/DECLINE err msg)
+	DHCP_OPT_MAX_MSG_SIZE	= 57	# 2	576+ (DISCOVER/REQUEST)
+	DHCP_OPT_RENEWAL_TIME	= 58	# 4	seconds	(T1) (assign->RENEW)
+	DHCP_OPT_REBINDING_TIME	= 59	# 4	seconds	(T2) (assign->REBIND)
+	# 60 - vendor class identifier
+	DHCP_OPT_CLIENT_ID	= 61	# 2+(7)	custom (hwtype(1),mac)
+	DHCP_OPT_CLIENT_FQDN	= 81	# 3+?	flags, A_RR, PTR_RR, string
+	# 121 - classless static route
+	# 249 - private/classless static route (MSFT)
 	DHCP_OPT_EOO		= 255	# N/A	N/A - end of options.
-
-DHCP_STRUCT_SIZE = .
-
-.struct 0
-dhcp_txn_xid:	.long 0
-dhcp_txn_nic:	.long 0
-dhcp_txn_state:	.byte 0
+DHCP_HEADER_SIZE = .
+.struct 0	# transaction list
+dhcp_txn_xid:		.long 0
+dhcp_txn_nic:		.long 0
+dhcp_txn_server_ip:	.long 0	# ip of server offering
+dhcp_txn_server_mac:	.long 0	# ip of server offering
+dhcp_txn_yiaddr:	.long 0	# ip server offered (0 for discover)
+dhcp_txn_router:	.long 0
+dhcp_txn_netmask:	.long 0
+dhcp_txn_state:		.word 0	# lo byte = last sent msg; hi=last rx'd msg
 DHCP_TXN_STRUCT_SIZE = .
 .data
 mac_broadcast: .space 6, -1
@@ -4000,7 +4049,7 @@ dhcp_txn_new:
 	ARRAY_NEWENTRY [dhcp_transactions], DHCP_TXN_STRUCT_SIZE, 1, 9f
 	mov	ecx, eax
 	mov	[ecx + edx + dhcp_txn_nic], ebx
-	mov	[ecx + edx + dhcp_txn_state], byte ptr 0
+	mov	[ecx + edx + dhcp_txn_state], word ptr 0
 	mov	eax, [dhcp_xid_counter]
 	inc	dword ptr [dhcp_xid_counter]
 	mov	[ecx + edx + dhcp_txn_xid], eax
@@ -4008,18 +4057,46 @@ dhcp_txn_new:
 	ret
 
 
+# destroys: eax, ebx, ecx, edx, esi
 dhcp_txn_list:
-	ARRAY_LOOP [dhcp_transactions], DHCP_TXN_STRUCT_SIZE, eax, ecx, 9f
+	ARRAY_LOOP [dhcp_transactions], DHCP_TXN_STRUCT_SIZE, ebx, ecx, 9f
 	printc 11, "xid "
-	mov	edx, [eax + ecx + dhcp_txn_xid]
+	mov	edx, [ebx + ecx + dhcp_txn_xid]
 	call	printhex8
 	printc 11, " nic "
-	mov	ebx, [eax + ecx + dhcp_txn_nic]
-	lea	esi, [ebx + dev_name]
+	mov	edx, [ebx + ecx + dhcp_txn_nic]
+	lea	esi, [edx + dev_name]
 	call	print
-	printc 10, " state "
-	movzx	edx, byte ptr [eax + ecx + dhcp_txn_state]
-	call	printdec32
+	printc 10, " state: rx="
+	movzx	edx, byte ptr [ebx + ecx + dhcp_txn_state + 1]
+	cmp	dl, 8
+	ja	1f
+	mov	esi, [dhcp_message_type_labels$ + edx * 4]
+	call	print
+	jmp	2f
+1:	call	printhex2
+2:	printc 10, " tx="
+	movzx	edx, byte ptr [ebx + ecx + dhcp_txn_state]
+	cmp	dl, 8
+	ja	1f
+	mov	esi, [dhcp_message_type_labels$ + edx * 4]
+	call	print
+	jmp	2f
+1:	call	printhex2
+2:
+	printc 11, " server "
+	mov	eax, [ebx + ecx + dhcp_txn_server_ip]
+	call	net_print_ip
+	printc 11, " yip "
+	mov	eax, [ebx + ecx + dhcp_txn_yiaddr]
+	call	net_print_ip
+	printc 11, "/"
+	mov	eax, [ebx + ecx + dhcp_txn_netmask]
+	call	net_print_ip
+	printc 11, " gw "
+	mov	eax, [ebx + ecx + dhcp_txn_router]
+	call	net_print_ip
+
 	call	newline
 	ARRAY_ENDL
 9:	ret
@@ -4056,23 +4133,26 @@ net_dhcp_request:
 
 DHCP_OPTIONS_SIZE = 32
 	push	eax
-	mov	dx, IP_PROTOCOL_UDP | 1 << 8	# don't use ip
+
 	mov	eax, -1		# broadcast
 	mov	esi, offset mac_broadcast
-	mov	ecx, UDP_HEADER_SIZE + DHCP_STRUCT_SIZE + DHCP_OPTIONS_SIZE
+	mov	dx, IP_PROTOCOL_UDP | 1 << 8	# don't use ip
+
+	mov	ecx, UDP_HEADER_SIZE + DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE
 	call	net_ipv4_header_put
 	mov	esi, edi	# remember udp frame ptr for checksum
 	mov	eax, (68 << 16) | 67	# sport dport
-	mov	ecx, DHCP_STRUCT_SIZE + DHCP_OPTIONS_SIZE
+	mov	ecx, DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE
 	call	net_udp_header_put
 
 	xor	eax, eax
 	rep	stosb
-	mov	ecx, DHCP_STRUCT_SIZE + DHCP_OPTIONS_SIZE
+	mov	ecx, DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE
 	sub	edi, ecx
 	pop	eax
 
 	mov	dl, [eax + dhcp_txn_state]
+	push	eax
 	mov	eax, [eax + dhcp_txn_xid]
 
 	mov	[edi + dhcp_options + 2], dl
@@ -4082,6 +4162,7 @@ DHCP_OPTIONS_SIZE = 32
 	mov	[edi + dhcp_flags], word ptr 0x0080 # broadcast
 
 	mov	[edi + dhcp_xid], eax
+	pop	eax
 	mov	dword ptr [edi + dhcp_magic], DHCP_MAGIC
 	push	esi
 	lea	esi, [ebx + nic_mac]	# 16 byte-padded hw addr
@@ -4105,9 +4186,28 @@ DHCP_OPTIONS_SIZE = 32
 	mov	[edi + dhcp_options + 9], byte ptr 4	# len
 	mov	[edi + dhcp_options + 10], dword ptr ('Q'|'u'<<8|'R'<<16|'e'<<24)
 
+	mov	[edi + dhcp_options + 14], byte ptr DHCP_OPT_CLIENT_ID
+	mov	[edi + dhcp_options + 15], byte ptr 7
+	mov	[edi + dhcp_options + 16], byte ptr 1	# hw type
+	push	edi
+	push	esi
+	lea	esi, [edi + dhcp_chaddr]
+	lea	edi, [edi + dhcp_options + 17]
+	movsd
+	movsw
+	pop	esi
+	pop	edi
+	# at option offset 23
+	mov	edx, [eax + dhcp_txn_yiaddr]
+	or	edx, edx
+	jz	1f
+	mov	[edi + dhcp_options + 23], byte ptr DHCP_OPT_REQ_IP
+	mov	[edi + dhcp_options + 24], byte ptr 4
+	mov	[edi + dhcp_options + 25], edx
+1:
 
-	mov	[edi + dhcp_options + 14], byte ptr 0xff	# end options
-	add	edi, DHCP_STRUCT_SIZE + DHCP_OPTIONS_SIZE
+	mov	[edi + dhcp_options + 29], byte ptr 0xff	# end options
+	add	edi, DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE
 
 	# udp checksum
 
@@ -4118,7 +4218,7 @@ DHCP_OPTIONS_SIZE = 32
 	# in: esi = udp frame pointer
 	#mov	esi, [esp]
 	# in: ecx = tcp frame len
-	mov	ecx, UDP_HEADER_SIZE + DHCP_STRUCT_SIZE + DHCP_OPTIONS_SIZE
+	mov	ecx, UDP_HEADER_SIZE + DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE
 	call	net_udp_checksum
 
 	# send packet
@@ -4162,10 +4262,12 @@ ph_ipv4_udp_dhcp_s2c:
 	add	esi, offset UDP_HEADER_SIZE
 
 	.if NET_DHCP_DEBUG
+		push	edx
 		call	net_dhcp_print
+		pop	edx
 	.endif
 
-	cmp	byte ptr [esi + dhcp_op], DHCP_OP_REPLY
+	cmp	byte ptr [esi + dhcp_op], DHCP_OP_BOOTREPLY
 	jnz	19f
 
 	mov	dl, DHCP_OPT_MSG_TYPE
@@ -4187,6 +4289,10 @@ ph_ipv4_udp_dhcp_s2c:
 	call	dhcp_txn_get	# out: ecx + edx
 	jc	16f	# unknown transaction
 	lea	eax, [ecx + edx]
+
+	mov	edx, edi
+	mov	[eax + dhcp_txn_state + 1], dl
+
 	mov	dh, [eax + dhcp_txn_state]
 	xor	dl, dl
 	or	dx, di
@@ -4223,13 +4329,73 @@ ph_ipv4_udp_dhcp_s2c:
 	printlnc 4, "DHCP request NAK'd"
 	jmp	9f
 3:	# got ACK
-	printlnc 2, "DHCP request ACK'd"
-	# TODO: configure nic
+	mov	edi, eax	# remember txn obj
+
+	# configure nic
+	mov	eax, dword ptr [esi + dhcp_yiaddr]
+	mov	[ebx + nic_ip], eax
+
+	.if NET_DHCP_DEBUG
+		printc 2, "DHCP ACK: "
+		print "ip: "
+		call	net_print_ip
+	.endif
+
+	# add routes
+	mov	dl, DHCP_OPT_ROUTER
+	call	net_dhcp_get_option$
+	jc	1f
+	test	al, 0b11	# size: n*4, n>1.
+	jnz	1f
+	shr	al, 2
+	jz	1f
+	mov	eax, [edx]
+	mov	[edi + dhcp_txn_router], eax
+	.if NET_DHCP_DEBUG
+		print "router: "
+		call	net_print_ip
+	.endif
+1:
+	mov	dl, DHCP_OPT_SUBNET_MASK
+	call	net_dhcp_get_option$
+	jc	15f
+	cmp	al, 4
+	jnz	15f
+	mov	edx, [edx]
+	mov	[edi + dhcp_txn_netmask], edx
+
+	.if NET_DHCP_DEBUG
+		print "netmask: "
+		mov eax, edx
+		call 	net_print_ip
+	.endif
+
+	call	net_route_delete_dynamic	# in: ebx
+
+	# calculate params
+	#mov	edx, [edi + dhcp_txn_netmask]
+	xor	eax, eax	# eax = gw
+	mov	ecx, [edi + dhcp_txn_yiaddr]
+	and	ecx, edx	# ecx = network
+	mov	esi, 50 | NET_ROUTE_FLAG_DYNAMIC << 16	# metric & flag
+	call	net_route_add
+
+	mov	eax, [edi + dhcp_txn_router]
+	or	eax, eax
+	jz	9f	# no router, dont add route
+	xor	ecx, ecx
+	xor	edx, edx
+	mov	esi, 40 | NET_ROUTE_FLAG_DYNAMIC << 16
+	call	net_route_add
 	jmp	9f
 
 # in: eax = dhcp_txn
 # in: dl = DHCP_MT_
-0:	call	net_dhcp_request
+0:	push	dword ptr [esi + dhcp_yiaddr]
+	pop	dword ptr [eax + dhcp_txn_yiaddr]
+	push	dword ptr [esi - UDP_HEADER_SIZE - 8] # sender ip
+	pop	dword ptr [eax + dhcp_txn_server_ip]
+	call	net_dhcp_request
 9:	ret
 
 
@@ -4240,6 +4406,9 @@ ph_ipv4_udp_dhcp_s2c:
 17:	printlnc 4, "DHCP: unknown message type"
 	ret
 16:	printlnc 4, "DHCP: unknown XID"
+	ret
+# ACK errors:
+15:	printlnc 4, "DHCP: no subnet mask"
 	ret
 
 # in: dl = DHCP_OPT_...
@@ -4547,14 +4716,14 @@ dhcp_opt_print_cid:
 
 .data
 dhcp_message_type_labels$:
-STRINGPTR "0?"		# 0
+STRINGPTR "<invalid:0>"	# 0
 STRINGPTR "DISCOVER"	# 1
 STRINGPTR "OFFER"	# 2
 STRINGPTR "REQUEST"	# 3
 STRINGPTR "DECLINE"	# 4
 STRINGPTR "ACK"		# 5
-STRINGPTR "6?"		# 6
-STRINGPTR "7?"		# 7
+STRINGPTR "NAK"		# 6
+STRINGPTR "RELEASE"	# 7
 STRINGPTR "INFORM"	# 8
 STRINGPTR "FORCE RENEW"	# 9
 .text32
@@ -4590,15 +4759,35 @@ dhcp_opt_print_optlst:
 
 cmd_dhcp:
 	lodsd
+0:	call	getopt
+	jc	1f
+	mov	eax, [eax]
+	and	eax, 0x00ffffff
+	cmp	eax, '-'|'h'<<8
+	jz	9f
+	cmp	eax, '-'|'l'<<8
+	jz	2f
+	jmp	9f
+
+1:	# no more options
 	lodsd
-	CMD_ISARG "-l"
-	jz	1f
-	xor	eax, eax
-	call	nic_getobject
+	or	eax, eax
+	jz	9f
+
+	call	nic_parse
+	jc	9f
+
+#	xor	eax, eax
+#	call	nic_getobject
 	mov	dl, 1
 	xor	eax, eax
 	jmp	net_dhcp_request
-1:	call	dhcp_txn_list
+
+2:	call	dhcp_txn_list
+	ret
+
+9:	printlnc 12, "usage: dhcp -l        # list transactions"
+	printlnc 12, "       dhcp <ethX>    # configure ethX using DHCP"
 	ret
 
 #############################################################################
@@ -4620,18 +4809,23 @@ net_rx_packet:
 	push	eax
 	push	ecx
 	push	esi
+	push	ebx
 	mov	eax, offset net_rx_packet_task
 	add	eax, [realsegflat]
 	push	ecx
 	mov	ecx, 12	# size of argument
 	push	esi
 	LOAD_TXT "net"
+	push	ebx
+	xor	ebx, ebx	# flags
 	call	schedule_task	# returns argument pointer
+	pop	ebx
 	pop	esi
 	pop	ecx
 	mov	[eax + 0], ebx
 	mov	[eax + 4], esi
 	mov	[eax + 8], ecx
+	pop	ebx
 	pop	esi
 	pop	ecx
 	pop	eax
@@ -4680,11 +4874,13 @@ net_rx_packet_task:
 # IPv4 Routing
 
 .struct 0
-net_route_gateway: .long 0
-net_route_network: .long 0
-net_route_netmask: .long 0
-net_route_nic:	   .long 0
-net_route_metric:  .word 0
+net_route_gateway:	.long 0
+net_route_network:	.long 0
+net_route_netmask:	.long 0
+net_route_nic:		.long 0
+net_route_metric:	.word 0
+net_route_flags:	.word 0	# -1 indicates available - re-use entries.
+  NET_ROUTE_FLAG_DYNAMIC = 0x8000 # will be removed on dhcp
 NET_ROUTE_STRUCT_SIZE = .
 .data
 net_route: .long 0
@@ -4694,24 +4890,25 @@ net_route: .long 0
 # in: ebx = device
 # in: ecx = network
 # in: edx = netmask
-# in: si = metric
+# in: esi = [flags | metric]
 net_route_add:
 	push	eax
 	push	ebx
 	push	ecx
 	push	edx
+	xor	edx, edx
 	mov	ecx, NET_ROUTE_STRUCT_SIZE
 	mov	eax, [net_route]
 	or	eax, eax
-	jnz	1f
+	jnz	2f
 	inc	eax
 	call	array_new
 	jc	9f
 1:	call	array_newentry
 	jc	9f
-
 	mov	[net_route], eax
-	mov	ebx, [esp + 0]
+
+3:	mov	ebx, [esp + 0]
 	mov	[eax + edx + net_route_netmask], ebx
 	mov	ebx, [esp + 4]
 	mov	[eax + edx + net_route_network], ebx
@@ -4719,11 +4916,40 @@ net_route_add:
 	mov	[eax + edx + net_route_nic], ebx
 	mov	ebx, [esp + 12]
 	mov	[eax + edx + net_route_gateway], ebx
-	mov	[eax + edx + net_route_metric], si
+
+	mov	[eax + edx + net_route_metric], esi	# and flags
 
 9:	pop	edx
 	pop	ecx
 	pop	ebx
+	pop	eax
+	ret
+# check if there's available entry
+# in: eax = [net_route]
+# in: edx = index
+# in: ecx = NET_ROUTE_STRUCT_SIZE
+2:	cmp	edx, [eax + array_index]
+	jae	1b
+	cmp	[eax + edx + net_route_flags], word ptr -1
+	jz	3b
+	add	edx, ecx
+	jmp	2b
+
+
+# delete all dynamic routes for nic
+# in: ebx = nic
+net_route_delete_dynamic:
+	push	eax
+	push	edx
+	ARRAY_LOOP [net_route], NET_ROUTE_STRUCT_SIZE, eax, edx, 9f
+	cmp	ebx, [eax + edx + net_route_nic]
+	jnz	1f
+	test	word ptr [eax + edx + net_route_flags], NET_ROUTE_FLAG_DYNAMIC
+	jz	1f
+	# mark route as deleted/available
+	mov	word ptr [eax + edx + net_route_flags], -1
+1:	ARRAY_ENDL
+9: 	pop	edx
 	pop	eax
 	ret
 
@@ -4736,29 +4962,39 @@ net_route_print:
 	printlnc 11, "IPv4 Route Table"
 
 	ARRAY_LOOP [net_route], NET_ROUTE_STRUCT_SIZE, ebx, edx, 9f
+	cmp	word ptr [ebx + edx + net_route_flags], -1
+	jz	0f
+	printc 15, "net "
 	mov	eax, [ebx + edx + net_route_network]
 	call	net_print_ip
 	printchar_ '/'
 	mov	eax, [ebx + edx + net_route_netmask]
 	call	net_print_ip
-	print	" gw "
+	printc	15, " gw "
 	mov	eax, [ebx + edx + net_route_gateway]
 	call	net_print_ip
-	print	" metric "
+	printc	15, " metric "
 	push	edx
 	movzx	edx, word ptr [ebx + edx + net_route_metric]
 	call	printdec32
 	pop	edx
+	push	edx
+	printc	15, " flags "
+	mov	dx, [ebx + edx + net_route_flags]
+	call	printhex4
 	call	printspace
+	PRINTFLAG dx, NET_ROUTE_FLAG_DYNAMIC, "Dynamic "
+	pop	edx
 
 	push	esi	# WARNING: using nonrelative pointer
 	mov	esi, [ebx + edx + net_route_nic]
 	lea	esi, [esi + dev_name]
-	call	print
+	mov	ah, 14
+	call	printc
 	pop	esi
 
 	call	newline
-	ARRAY_ENDL
+0:	ARRAY_ENDL
 
 9:
 	pop	edx
@@ -4779,6 +5015,7 @@ net_route_print:
 	.endif
 	popf
 .endm
+
 # in: eax = target ip
 # out: ebx = nic to use
 # out: edx = gateway ip
@@ -4789,6 +5026,8 @@ net_route_get:
 	push	esi		# metric
 	xor	esi, esi
 	ARRAY_LOOP [net_route], NET_ROUTE_STRUCT_SIZE, edi, ecx, 9f
+	cmp	word ptr [edi + ecx + net_route_flags], -1
+	jz	0f
 	cmp	si, [edi + ecx + net_route_metric]
 	ja	0f
 	mov	edx, eax
@@ -4826,26 +5065,30 @@ cmd_route:
 	lodsd
 	or	eax, eax
 	jz	net_route_print
+	# parse command:
+	CMD_ISARG "print"
+	jz	net_route_print
 	push	ebp
-	mov	bp, 100		# metric
+	mov	ebp, 100	# flags, metric
 	CMD_ISARG "add"
 	jnz	9f
 	xor	edi, edi	# gw ip
 	xor	ebx, ebx	# nic object ptr
 	xor	ecx, ecx	# network
 	xor	edx, edx	# netmask
-	lodsd
+
+	CMD_EXPECTARG 9f
 ####
 	CMD_ISARG "net"
 	jnz	1f
-	lodsd
+	CMD_EXPECTARG 9f
 	call	net_parse_ip
 	jc	9f
 	mov	ecx, eax
-	lodsd
+	CMD_EXPECTARG 9f
 	CMD_ISARG "mask"
 	jnz	9f
-	lodsd
+	CMD_EXPECTARG 9f
 	call	net_parse_ip
 	jc	9f
 	mov	edx, eax
@@ -4857,21 +5100,32 @@ cmd_route:
 	xor	edx, edx
 	mov	ebp, 10
 ####
-2:	lodsd
+2:	CMD_EXPECTARG 1f
 0:	CMD_ISARG "gw"
 	jnz	0f
-	lodsd
+	CMD_EXPECTARG 9f
 	call	net_parse_ip
 	jc	9f
 	mov	edi, eax
-0:	lodsd
-	or	eax, eax
-	jz	0f
-	call	nic_parse
+	CMD_EXPECTARG 1f
+0:	CMD_ISARG "metric"
+	jnz	0f
+	CMD_EXPECTARG 9f
+	cmp	word ptr [eax], '0'|'x'<<8
+	jnz	2f
+	add	eax, 2
+	call	htoi
+	jmp	3f
+2:	call	atoi
+3:	jc	9f
+	mov	ebp, eax	# metric & flags
+	CMD_EXPECTARG 1f
+0:	call	nic_parse
 	jc	9f
-0:
-
-	or	ebx, ebx
+	cmp	dword ptr [esi], 0
+	jnz	9f
+#### args done
+1:	or	ebx, ebx
 	jnz	0f
 	# find nic
 	# TODO: use netmask/network to find appropriate nic
@@ -4896,8 +5150,12 @@ cmd_route:
 	call	net_print_ip
 	print	" metric "
 	push	edx
-	mov	edx, ebp
+	movzx	edx, bp
 	call	printdec32
+	print	" flags "
+	mov	edx, ebp
+	shr	edx, 16
+	call	printhex4
 	pop	edx
 	call	printspace
 	lea	esi, [ebx + dev_name]
@@ -4906,7 +5164,7 @@ cmd_route:
 	call	newline
 
 	mov	eax, edi
-	mov	si, bp	# metric
+	mov	esi, ebp	# metric, flags
 	call	net_route_add
 0:	pop	ebp
 	ret
@@ -4975,10 +5233,9 @@ cmd_ping:
 	call	net_icmp_register_request
 
 	pop	esi
-push dword ptr [clock_ms]
+	push dword ptr [clock_ms]
 	NET_BUFFER_SEND
-
-pop ebx
+	pop	ebx	# no longer needed - remember clock
 
 	# Wait for response
 
@@ -4996,19 +5253,21 @@ pop ebx
 	jmp	2f
 
 1:
-sub ebx, [clock_ms]
+	sub	ebx, [clock_ms]
 	print	"ICMP PING response from "
 2:	mov	eax, [eax + edx + 1]
 	call	net_print_ip
-call printspace
-mov edx, ebx
-neg edx
-jnz	2f
-print "< "
-mov	edx, [pit_timer_period]
-2:
-call printdec32
+	call printspace
+	push	edx
+	mov	edx, ebx
+	neg	edx
+	jnz	2f
+	print "< "
+	mov	edx, [pit_timer_period]
+2:	call printdec32
 	println "ms"
+	pop	edx
+
 	mov	eax, [icmp_requests]
 	dec	byte ptr [eax + edx + 0] # not really needed
 ############################

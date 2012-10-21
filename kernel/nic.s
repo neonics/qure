@@ -677,6 +677,8 @@ nic_zeroconf:
 	STRINGPTR "default"
 	STRINGPTR "gw"
 	STRINGPTR "192.168.1.1"
+	STRINGPTR "metric"
+	STRINGPTR "0x80000010"	# little hack: 0x80000000=dynamic flag
 	STRINGNULL
 	.text32
 	mov	esi, offset 77b
@@ -691,6 +693,8 @@ nic_zeroconf:
 	STRINGPTR "192.168.1.0"
 	STRINGPTR "mask"
 	STRINGPTR "255.255.255.0"
+	STRINGPTR "metric"
+	STRINGPTR "0x80000080"	# little hack: 0x80000000=dynamic flag
 	STRINGPTR "eth0"
 	STRINGNULL
 	.text32
@@ -715,4 +719,3 @@ nic_zeroconf:
 	pop	eax
 	pop	esi
 	ret
-
