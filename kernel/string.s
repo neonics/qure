@@ -311,3 +311,47 @@ strcmp:
 	pop	edi
 	pop	esi
 	ret
+
+# in: esi = string ptr
+# in: ecx = string len
+# out: esi = new offset
+# out: ecx = new length
+# out: [esi + ecx] = 0
+trim:
+	push	eax
+	push	ebx
+0:	lodsb
+	cmp	al, ' '
+	jz	1f
+	cmp	al, '\t'
+	jz	1f
+	cmp	al, '\r'
+	jz	1f
+	cmp	al, '\n'
+	jnz	2f
+1:	loop	0b
+	jecxz	9f	#untested
+
+2:	dec	esi
+	mov	ebx, esi	# mark start of non-whitespace
+	add	esi, ecx
+0:	mov	al, [esi]
+	cmp	al, ' '
+	jz	1f
+	cmp	al, '\t'
+	jz	1f
+	cmp	al, '\r'
+	jz	1f
+	cmp	al, '\n'
+	jnz	2f
+1:	dec	esi
+	cmp	esi, ebx
+	ja	0b
+2:
+	mov	ecx, esi
+	sub	ecx, ebx
+	mov	esi, ebx
+9:	mov	[esi + ecx], byte ptr 0
+	pop	ebx
+	pop	eax
+	ret

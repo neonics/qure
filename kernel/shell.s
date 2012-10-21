@@ -122,6 +122,7 @@ SHELL_COMMAND "vmcheck"		cmd_vmcheck
 SHELL_COMMAND "ramdisk"		cmd_ramdisk
 
 SHELL_COMMAND "exe"		cmd_exe
+SHELL_COMMAND "init"		cmd_init
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -291,6 +292,7 @@ key_enter$:
 	or	ecx, ecx
 	jz	start$
 
+	mov	esi, offset cmdline
 	call	cmdline_execute$
 	
 	jmp	start$
@@ -549,13 +551,15 @@ newline_if:
 ## Commandline execution
 
 # parses the commandline and executes the command(s)
+# in: esi = pointer to commandline (zero terminated)
+# in: ecx = cmdlinelen
 cmdline_execute$:
 
 	DEBUG_TOKENS = 0
 
 	.if DEBUG_TOKENS
 		PRINTc 9, "CMDLINE: \""
-		mov	esi, offset cmdline
+		#mov	esi, offset cmdline
 		call	nprint
 		PRINTLNc 9, "\""
 		mov	edx, ecx
@@ -565,8 +569,8 @@ cmdline_execute$:
 
 	push	ecx
 	mov	edi, offset cmdline_tokens
-	mov	esi, offset cmdline
-	#mov	ecx, [cmdlinelen]
+	#mov	esi, offset cmdline
+	##mov	ecx, [cmdlinelen]
 	call	tokenize
 	mov	[cmdline_tokens_end], edi
 	.if DEBUG_TOKENS
@@ -614,7 +618,7 @@ cmdline_execute$:
 	jmp	0b
 
 0:	PRINTLNc 4, "Unknown command"
-	jmp	start$
+	jmp	shell_exec_return$
 
 	# call the command
 
@@ -629,6 +633,7 @@ shell_exec_return$:	# debug symbol
 	ret
 9:	printlnc 12, "Error: command null."
 	int	1
+	ret
 
 
 ##############################################################################
@@ -1377,7 +1382,11 @@ cmd_netdump:
 	pop	esi
 .endm
 
-
+.macro CMD_EXPECTARG noarglabel
+	lodsd
+	or	eax, eax
+	jz	\noarglabel
+.endm
 
 cmd_print_gdt:
 
@@ -1614,3 +1623,71 @@ cmd_exe:
 
 .include "elf.s"
 .include "libc.s"
+
+
+cmd_init:
+	LOAD_TXT "/a/ETC/INIT.RC"
+	mov	al, [boot_drive]
+	add	al, 'a'
+	mov	[esi + 1], al
+
+	I "Init: "
+
+	mov	eax, esi
+	call	fs_openfile
+	jc	9f
+
+	I2 "executing "
+	call	print
+	call	printspace
+
+	call	fs_handle_read	# out: esi, ecx
+	jc	7f
+
+	printc 10, "load OK"
+	println ", executing"
+
+	jecxz	8f
+
+	push	eax
+0:	mov	al, '\n'
+	push	ecx
+	mov	edi, esi
+	repnz	scasb
+	pop	ecx
+	dec	edi
+
+	push	ecx
+	mov	ecx, edi
+	sub	ecx, esi
+
+	mov	[esi + ecx], byte ptr 0
+
+	call	trim	# in: esi, ecx; out: esi, ecx, [esi+ecx]=0
+	or	ecx, ecx
+	mov	eax, ecx
+	jle	1f
+
+	cmp	[esi], byte ptr '#'
+	jz	1f
+
+	push	ecx
+	push	edi
+	call	cmdline_execute$
+	pop	edi
+	pop	ecx
+	mov	eax, ecx
+1:	pop	ecx
+2:
+	mov	esi, edi
+	inc	esi
+	dec	ecx
+	sub	ecx, eax
+	jg	0b
+
+	pop	eax
+
+8:	call	fs_close
+9:	ret
+7:	printlnc 4, ": read error"
+	jmp	8b
