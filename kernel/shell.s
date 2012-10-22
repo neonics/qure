@@ -101,7 +101,7 @@ SHELL_COMMAND "ping"		cmd_ping
 SHELL_COMMAND "arp"		cmd_arp
 SHELL_COMMAND "icmp"		net_icmp_list
 SHELL_COMMAND "host"		cmd_host
-SHELL_COMMAND "netstat"		net_tcp_conn_list
+SHELL_COMMAND "netstat"		cmd_netstat
 # utils
 SHELL_COMMAND "hs",		cmd_human_readable_size$
 #SHELL_COMMAND "regexp",		regexp_parse
@@ -124,6 +124,8 @@ SHELL_COMMAND "ramdisk"		cmd_ramdisk
 SHELL_COMMAND "exe"		cmd_exe
 SHELL_COMMAND "init"		cmd_init
 SHELL_COMMAND "fork"		cmd_fork
+SHELL_COMMAND "traceroute"	cmd_traceroute
+SHELL_COMMAND "top"		cmd_top
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -1378,8 +1380,8 @@ cmd_netdump:
 	push	edi
 	mov	edi, eax
 	repz	cmpsb
-	pop	ecx
 	pop	edi
+	pop	ecx
 	pop	esi
 .endm
 
@@ -1732,3 +1734,17 @@ foo_task:
 dbg_clock_task$: # debug label
 	jmp	0b
 	ret
+
+cmd_top:
+0:	#call	cls
+	#call	newline
+	call	schedule_print
+	hlt
+	mov	ah, KB_PEEK
+	call	keyboard
+	jc	0b
+	cmp	ax, K_ESC
+	jz	0f
+	cmp	ax, K_ENTER
+	jnz	0b
+0:	ret

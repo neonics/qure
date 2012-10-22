@@ -1070,7 +1070,7 @@ IPV4_HEADER_SIZE = .
 
 # in: edi = out packet
 # in: dl = ipv4 sub-protocol
-# in: dh = 0: use nic ip; 1: use 0 ip.
+# in: dh = bit 0: 0=use nic ip; 1=use 0 ip; bit 1: 1=edx>>16&255=ttl
 # in: eax = destination ip
 # in: ecx = payload length (without ethernet/ip frame)
 # in: ebx = nic - ONLY if eax = -1!
@@ -1083,7 +1083,7 @@ net_ipv4_header_put:
 	cmp	eax, -1
 	jz	1f	# require ebx=nic and esi=mac to be arguments
 	call	net_arp_resolve_ipv4	# out: ebx=nic, esi=mac
-	jc	arp_err$
+	jc	0f	# jc arp_err$:printlnc 4,"ARP error";stc;ret
 
 1:	push	dx
 	mov	dx, 0x0800	# ipv4
@@ -1107,7 +1107,6 @@ net_ipv4_header_put:
 
 	# destination ip
 	mov	[edi + ipv4_dst], eax
-
 	# source ip
 	xor	ecx, ecx
 	test	dh, 1
@@ -1115,6 +1114,12 @@ net_ipv4_header_put:
 	mov	ecx, [ebx + nic_ip]
 1:	mov	[edi + ipv4_src], ecx
 
+	# ttl
+	test	dh, 2
+	jz	1f
+	shr	edx, 16
+	mov	[edi + ipv4_ttl], dl
+1:
 	# checksum
 	push	edi
 	mov	esi, edi
@@ -1128,11 +1133,6 @@ net_ipv4_header_put:
 
 0:	pop	esi
 	ret
-
-arp_err$:
-	printlnc 4, "ARP error"
-	stc
-	jmp	0b
 
 ######
 
@@ -1406,6 +1406,7 @@ icmp_checksum: .word 0
 icmp_2nd:	# 2nd dword - various uses depending on type.
 icmp_id: .word 0
 icmp_seq: .word 0
+icmp_payload:
 ICMP_HEADER_SIZE = .
 .data
 icmp_sequence$: .word 0
@@ -1413,14 +1414,18 @@ icmp_sequence$: .word 0
 # in: eax = target ip
 # in: esi = payload
 # in: ecx = payload len
+# in: dl = hops (ttl)
 # in: edi = out packet
 # out: ebx = nic
 # successful: modifies eax, esi, edi
 net_icmp_header_put:
 	push	edx
 	push	ecx
-
-	mov	dx, IP_PROTOCOL_ICMP
+	and	edx, 0xff
+	jz	1f
+	shl	edx, 16
+	mov	dh, 2
+1:	mov	dl, IP_PROTOCOL_ICMP
 	add	ecx, ICMP_HEADER_SIZE
 	call	net_ipv4_header_put
 	jc	0f
@@ -1461,9 +1466,11 @@ net_icmp_header_put:
 
 # in: ebx = nic
 # in: edx = ipv4 frame
-# in: esi = payload
+# in: esi = icmp frame
 # in: ecx = payload len
 net_ipv4_icmp_handle:
+	call	net_sock_deliver_icmp
+
 	# check for ping request
 	cmp	[esi + icmp_type], byte ptr 8
 	jnz	1f
@@ -1500,12 +1507,26 @@ net_ipv4_icmp_handle:
 	clc
 	ret
 
+1:	cmp	[esi + icmp_type], byte ptr 11
+	jnz	1f
+	.if NET_ICMP_DEBUG
+		printc 11, "ICMP timeout "
+		mov	dl, [esi + icmp_code]
+		call	printhex2
+		printc 11, " original: "
+		add	esi, ICMP_HEADER_SIZE
+		sub	ecx, ICMP_HEADER_SIZE
+		call	net_ipv4_print#_header
+		call	newline
+	.endif
+	clc
+	ret
+
 1:
 9:	printlnc 4, "ipv4_icmp: dropped packet"
 	call	net_ivp4_icmp_print
 	stc
 	ret
-
 
 .struct 0
 icmp_request_status: .byte 0
@@ -1546,7 +1567,7 @@ net_icmp_register_request:
 	ARRAY_ITER_NEXT eax, edx, ICMP_REQUEST_STRUCT_SIZE
 	jmp	1b
 
-
+# in: eax = ip
 net_icmp_register_response:
 	push	ebx
 	push	ecx
@@ -1563,6 +1584,7 @@ net_icmp_register_response:
 	ret
 
 net_icmp_list:
+	printlnc 11, "ICMP:"
 	ARRAY_LOOP [icmp_requests], ICMP_REQUEST_STRUCT_SIZE, ebx, ecx, 0f
 	mov	dl, [ebx + ecx + icmp_request_status]
 	call	printhex2
@@ -2200,6 +2222,12 @@ net_tcp_conn_update:
 	pop	eax
 	ret
 
+cmd_netstat:
+	call	net_tcp_conn_list
+	call	socket_list
+	call	net_icmp_list
+	call	arp_table_print
+	ret
 
 
 net_tcp_conn_list:
@@ -5132,6 +5160,7 @@ cmd_route:
 	call	net_parse_ip
 	jc	9f
 	mov	edi, eax
+		DEBUG_DWORD edi,"gw"
 	CMD_EXPECTARG 1f
 0:	CMD_ISARG "metric"
 	jnz	0f
@@ -5139,6 +5168,7 @@ cmd_route:
 	cmp	word ptr [eax], '0'|'x'<<8
 	jnz	2f
 	add	eax, 2
+		DEBUG_DWORD edi,"gw"
 	call	htoi
 	jmp	3f
 2:	call	atoi
@@ -5226,16 +5256,71 @@ icmp_get_payload:
 	mov	ecx, 32
 	ret
 
+# in: eax = ip
+# in: dl = ttl
+# out: ebx = clock
+net_ipv4_icmp_send_ping:
+	NET_BUFFER_GET
+	jc	9f
+	push	edi
+
+	# Construct Packet
+	call	icmp_get_payload	# out: esi, ecx
+	call	net_icmp_header_put	# in: edi, eax, dl=hops, esi, ecx
+	jnc	0f
+	pop	edi
+	jmp	9f
+0:
+	call	net_icmp_register_request
+
+	pop	esi
+	push	dword ptr [clock_ms]
+	NET_BUFFER_SEND
+	pop	ebx
+9:	ret
+
+PING_USE_SOCKET = 1
 
 cmd_ping:
-	lodsd
-	lodsd
-	or	eax, eax
-	jz	9f
-	call	net_parse_ip
+	push	ebp
+	.if PING_USE_SOCKET
+	push	dword ptr -1
+	.endif
+	push	dword ptr 0x00000004	# 00 00 00 ttl
+	mov	ebp, esp
+	lodsd	# skip cmd name
+	mov	ecx, 4
+	xor	edx, edx	# arg: hops
+	CMD_EXPECTARG 9f
+	CMD_ISARG "-ttl"
+	jnz	1f
+	CMD_EXPECTARG 9f
+	call	atoi
+	jc	9f
+	cmp	eax, 255
+	jae	9f
+	mov	[ebp], al
+	CMD_EXPECTARG 9f
+1:	CMD_ISARG "-n"
+	jnz	1f
+	CMD_EXPECTARG 9f
+	call	atoi
+	jc	9f
+	mov	ecx, eax
+	CMD_EXPECTARG 9f
+1:	call	net_parse_ip
 	jc	9f
 
-	mov	ecx, 4
+	.if PING_USE_SOCKET
+		push	eax
+		mov     ebx, IP_PROTOCOL_ICMP << 16 | 0
+		mov	eax, -1
+		call	socket_open
+		jc	1f
+		mov	[ebp + 4], eax
+	1:	pop	eax
+	.endif
+
 7:	push	ecx
 	push	eax
 ############################
@@ -5243,44 +5328,64 @@ cmd_ping:
 	call	net_print_ip
 	print	": "
 
+	mov	dl, [ebp]
 ########
-	NET_BUFFER_GET
+	call	net_ipv4_icmp_send_ping	# in: eax, dl; out: ebx=clock, eax+edx=icmp req
 	jc	6f
-	push	edi
-
-	# Construct Packet
-	call	icmp_get_payload	# out: esi, ecx
-	call	net_icmp_header_put	# in: edi, eax, esi, ecx
-	jnc	0f
-	pop	edi
-	jmp	6f
-0:
-	call	net_icmp_register_request
-
-	pop	esi
-	push dword ptr [clock_ms]
-	NET_BUFFER_SEND
-	pop	ebx	# no longer needed - remember clock
 
 	# Wait for response
+
+.if PING_USE_SOCKET
+	push	eax
+	mov	eax, [ebp + 4]
+	mov	ecx, 2000 # 2 seconds
+	call	socket_read # in: eax, ecx
+	pop	eax
+	jc	3f
+	mov	ecx, [esi - 8] # update ip in icmp request registration
+	mov	[eax + edx + 1], ecx
+	movzx	ecx, byte ptr [esi + icmp_type]
+	cmp	cl, 0	# ping response
+	jz	1f
+	cmp	cl, 11	# ttl exceeded
+	jnz	4f
+	printc 4, "ttl exceeded: "
+	push	edx
+	movsx	edx, byte ptr [esi - IPV4_HEADER_SIZE + ipv4_ttl]
+#		neg	edx
+	call	printdec32
+	call	printspace
+	pop	edx
+	jmp	2f
+4:	printc 4, "unimplemented response: type: "
+	push	edx
+	mov	edx, ecx
+	call	printhex8
+	pop	edx
+	# and dump to ping timeout
+3:
+.else
 
 	# calc clocks:
 	mov	ecx, [pit_timer_frequency]
 	shl	ecx, 1
 	jnz	0f
 	mov	ecx, 2000/18	# probably
+
 0:	mov	eax, [icmp_requests]
 	cmp	byte ptr [eax + edx + icmp_request_status], 0
 	jnz	1f
 	hlt
-	loop	0b
+	loop	0b	# timer freq: roughly the nr of interrupts
+.endif
+
 	printc 4, "PING timeout for "
 	jmp	2f
 
 1:
-	sub	ebx, [clock_ms]
 	print	"ICMP PING response from "
-2:	mov	eax, [eax + edx + 1]
+2:	sub	ebx, [clock_ms]
+	mov	eax, [eax + edx + 1]
 	call	net_print_ip
 	call printspace
 	push	edx
@@ -5306,8 +5411,199 @@ cmd_ping:
 	loop	0b
 	pop	ecx
 	jmp	7b
-1:	ret
-9:	printlnc 12, "usage: ping <ip>"
+1:
+	.if PING_USE_SOCKET
+	mov	eax, [ebp + 4]
+	or	eax, eax
+	js	1f
+	call	socket_close
+1:	add	esp, 8
+	.else
+	add	esp, 4	# local var
+	.endif
+	pop	ebp
+	ret
+9:	printlnc 12, "usage: ping [-ttl hops] [-n count] <ip>"
+	jmp	1b
+
+
+
+cmd_traceroute:
+	lodsd
+	mov	edx, 20	# max hops
+	CMD_EXPECTARG 9f
+	CMD_ISARG "-n"
+	jnz	1f
+	CMD_EXPECTARG 9f
+	call	atoi
+	jc	9f
+	mov	edx, eax
+	CMD_EXPECTARG 9f
+1:
+	call	net_parse_ip
+	jc	9f
+	mov	edi, offset 188f
+	# there's no net_sprint_ip, so we'll hack it here:
+	push	edx
+	.rept 3
+	movzx	edx, al
+	call	sprintdec32
+	mov	al, '.'
+	stosb
+	shr	eax, 8
+	.endr
+	movzx	edx, al
+	call	sprintdec32
+	pop	edx
+
+	.data
+	199: .ascii "ping -ttl "
+	198: .ascii "       "
+	.ascii " -n 1 "
+	188: .asciz "000.000.000.000"
+	.text32
+	mov	ecx, 0
+	
+0:	push	edx
+	push	ecx
+
+	mov	edx, ecx
+	call	printdec32
+	print ": "
+
+	mov	edi, offset 198b
+	mov	edx, ecx
+	call	sprintdec32
+	mov	[edi], byte ptr ' '
+	mov	esi, offset 199b
+	call	strlen_
+	call	cmdline_execute$
+
+	pop	ecx
+	pop	edx
+	inc	ecx
+	cmp	ecx, edx
+	jb	0b
+	ret
+9:	printlnc 12, "usage: traceroute [-n maxhops] <ip>"
 	ret
 
+
+#############################################################################
+# Sockets
+.struct 0
+sock_ip:	.long 0
+sock_port:	.word 0
+sock_proto:	.word 0
+sock_in:	.long 0	# updated by net_rx_packet's packet handlers if
+sock_inlen:	.long 0 # the ip, port and proto match.
+SOCK_STRUCT_SIZE = .
+.data SECTION_DATA_BSS
+socket_array: .long 0
+.text32
+# in: eax = ip
+# in: ebx = [proto] [port]
+# out: eax = socket index
+socket_open:
+	push	edx
+	push	esi
+	push	ecx
+	mov	esi, eax	# ip
+	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, eax, edx, 9f
+	cmp	[eax + edx + sock_port], dword ptr -1
+	jz	1f
+9:	ARRAY_ENDL
+	ARRAY_NEWENTRY [socket_array], SOCK_STRUCT_SIZE, 4, 9f
+1:	mov	[eax + edx + sock_ip], esi
+	mov	[eax + edx + sock_port], ebx
+	mov	eax, edx
+9:	pop	ecx
+	pop	esi
+	pop	edx
+	ret
+
+socket_close:
+	mov	edx, [socket_array]
+		cmp	eax, [edx + array_index]
+		ja	9f
+	mov	[edx + eax + sock_port], dword ptr -1
+	add	eax, SOCK_STRUCT_SIZE
+	cmp	eax, [edx + array_index]
+	jnz	1f
+	sub	[edx + array_index], dword ptr SOCK_STRUCT_SIZE
+1:	ret
+9:	printc 12, "invalid socket: "
+	mov	edx, eax
+	call	printhex8
+	call	newline
+	stc
+	ret
+
+socket_list:
+	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, ebx, ecx, 9f
+	printc 11, "socket "
+	mov	edx, ecx
+	call	printhex4
+	printc 11, " ip "
+	mov	eax, [ebx + ecx + sock_ip]
+	call	net_print_ip
+	printcharc 11, ':'
+	movzx	edx, word ptr [ebx + ecx + sock_port]
+	call	printdec32
+	printc 11, " proto "
+	movzx	edx, word ptr [ebx + ecx + sock_proto]
+	call	printdec32
+	printc 11, " inlen "
+	mov	edx, [ebx + ecx + sock_inlen]
+	call	printdec32
+	call	newline
+	ARRAY_ENDL
+9:	ret
+
+# Blocking read: waits for packet
+#
+# in: eax = socket index (as returned by socket_open)
+# in: ecx = timeout in milliseconds
+# out: esi, ecx
+# out: CF = timeout.
+socket_read:
+	push	eax
+	push	edx
+	push	ebx
+	mov	ebx, [clock_ms]
+	add	ebx, ecx # SO_TIMEOUT: 10 seconds
+0:	mov	edx, [socket_array]
+	xor	esi, esi
+	xor	ecx, ecx
+	xchg	esi, [edx + eax + sock_in]
+	xchg	ecx, [edx + eax + sock_inlen]
+	or	ecx, ecx
+	clc	# not sure if or clears it
+	jnz	1f
+	cmp	ebx, [clock_ms]
+	jb	1f
+	sti
+	hlt
+	jmp	0b
+
+2:	stc
+1:	pop	ebx
+	pop	edx
+	pop	eax
+	ret
+
+net_sock_deliver_icmp:
+	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, eax, edi, 9f
+	cmp	[eax + edi + sock_proto], word ptr IP_PROTOCOL_ICMP
+	jnz	1f
+#	cmp	[eax + edi + sock_addr], 
+	jz	2f
+1:	ARRAY_ENDL
+9:	ret
+########
+2:	# got a match
+	# TODO: copy packet (though that should've been done in net_rx_packet).
+	mov	[eax + edi + sock_in], esi
+	mov	[eax + edi + sock_inlen], ecx
+9:	ret
 

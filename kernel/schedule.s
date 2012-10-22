@@ -21,6 +21,9 @@
 
 SCHEDULE_DEBUG = 1
 
+SCHED_DEBUG_MUTEX = 0	# the 2nd line on the screen
+SCHED_DEBUG_TOP = 0	# the 'top' like output
+
 SCHED_ROUND_ROBIN = 1
 SCHED_MALLOC = 0	# 1: malloc/free schedule_task.ecx,eax; 0: use task_regs for storage.
 TASK_SWITCH = 1	# experimental; set to 0 for legacy.
@@ -179,18 +182,18 @@ schedule_delay: .long 0
 .endm
 
 
-debug_tasks:
-	mov eax, [screen_pos]
-	mov [screen_pos_bkp], eax
-	mov dword ptr [screen_pos], 160*3
-	mov ecx, 80 * 16
-	mov edi, 160 * 2
-	push es
-	mov eax, SEL_vid_txt
-	mov es, ax
-	mov ax, 0x1000
-	rep stosw
-	pop es
+schedule_print:
+	mov	eax, [screen_pos]
+	mov	[screen_pos_bkp], eax
+	mov	edi, 160 * 3
+	mov	[screen_pos], edi
+	mov	ecx, 80 * 12
+	push	es
+	mov	eax, SEL_vid_txt
+	mov	es, ax
+	mov	ax, 0x1000
+	rep	stosw
+	pop	es
 
 	pushfd
 	pop edx
@@ -222,6 +225,7 @@ schedule:
 		1:
 		mov dword ptr [schedule_delay], 0
 	.endif
+.if SCHED_DEBUG_MUTEX
 pushad
 push ss
 push ds
@@ -254,7 +258,7 @@ jz 1f
 	mov edx, [ebp + task_reg_eip]
 	call printhex8
 	pushad
-	call debug_tasks
+	call schedule_print
 	popad
 
 	stc
@@ -277,6 +281,14 @@ pop ds
 pop ss
 popad
 jc 999f
+.else
+push eax
+push ebx
+MUTEX_LOCK [block_schedule]
+pop ebx
+pop eax
+jnz 999f
+.endif
 
 	# preserve all registers for task switch. eip:cs:eflags already on stack.
 	pushad	# eax, ecx, edx, ebx, esp, ebp, esi, edi
@@ -291,8 +303,8 @@ jc 999f
 	mov	ds, eax
 	mov	es, eax
 
-	.if 1 # TASK_SWITCH_DEBUG
-		call debug_tasks
+	.if SCHED_DEBUG_TOP
+		call	schedule_print
 	.endif
 
 	.if TASK_SWITCH_DEBUG > 1
