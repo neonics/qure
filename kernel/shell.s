@@ -123,6 +123,7 @@ SHELL_COMMAND "ramdisk"		cmd_ramdisk
 
 SHELL_COMMAND "exe"		cmd_exe
 SHELL_COMMAND "init"		cmd_init
+SHELL_COMMAND "fork"		cmd_fork
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -1691,3 +1692,43 @@ cmd_init:
 9:	ret
 7:	printlnc 4, ": read error"
 	jmp	8b
+
+
+.data SECTION_DATA_BSS
+pid_counter: .long 0
+.text32
+
+cmd_fork:
+	PUSH_TXT "clock"
+	push	dword ptr 2	# context switch task
+	push	cs
+	mov	eax, offset foo_task
+	add	eax, [realsegflat]
+	push	eax
+	mov	eax, [pid_counter]
+	inc	eax
+	call	schedule_task
+	ret
+
+
+foo_task:
+0:	PUSH_SCREENPOS
+	pushcolor 0xa0
+	mov	[screen_pos], dword ptr 320
+	print "pid "
+	mov	edx, eax
+	call	printhex8
+	call	printspace
+	xor	ecx, ecx
+	mov	edx, [clock]
+	call	printhex8
+	call	printspace
+	mov	edx, ecx
+	call	printhex8
+	inc	ecx
+	popcolor
+	POP_SCREENPOS
+	hlt
+dbg_clock_task$: # debug label
+	jmp	0b
+	ret

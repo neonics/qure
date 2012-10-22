@@ -88,7 +88,7 @@ DEBUG_COLOR3 = 0x1f
 	pushcolor DEBUG_COLOR1
 	PRINTCHAR '\''
 	COLOR	\color
-	.if \reg == esi
+	.ifc esi,\reg
 	call	print
 	.else
 	push	esi

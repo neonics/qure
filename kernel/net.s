@@ -4803,9 +4803,24 @@ net_ipv6_print:
 # in: esi = packet (ethernet frame)
 # in: ecx = packet len
 net_rx_packet:
+.if 0
+DEBUG "N"
+DEBUG_DWORD ebx
+DEBUG_DWORD esi
+.endif
 	# this is called in IRQ handlers of the nics, so we need to schedule.
 	# Alternative approach is to schedule the IRQ handlers themselves differently.
 	# First approach:
+	.if 1
+	PUSH_TXT "net"
+	push	dword ptr 0 # flags
+	push	cs
+	push	eax
+	mov	eax, offset net_rx_packet_task
+	add	eax, [realsegflat]
+	xchg	eax, [esp]
+	call	schedule_task
+	.else
 	push	eax
 	push	ecx
 	push	esi
@@ -4818,7 +4833,7 @@ net_rx_packet:
 	LOAD_TXT "net"
 	push	ebx
 	xor	ebx, ebx	# flags
-	call	schedule_task	# returns argument pointer
+	call	schedule_task_LEGACY	# returns argument pointer eax
 	pop	ebx
 	pop	esi
 	pop	ecx
@@ -4829,14 +4844,24 @@ net_rx_packet:
 	pop	esi
 	pop	ecx
 	pop	eax
+	.endif
 	ret
 
 # in: edx = argument ptr
 net_rx_packet_task:
 	pushad
+	.if 1 # if task, i.e., complete context switch: regs already proper.
+		.if 0
+		DEBUG "T"
+		DEBUG_DWORD ebx
+		DEBUG_DWORD esi
+		call newline
+		.endif
+	.else
 	mov	ebx, [edx + 0]
 	mov	esi, [edx + 4]
 	mov	ecx, [edx + 8]
+	.endif
 	# this is called in IRQ handlers of the nics, so we need to schedule.
 	push	esi
 	push	ecx

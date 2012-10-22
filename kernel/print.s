@@ -263,7 +263,7 @@ COLOR_STACK_SIZE = 2
 
 .macro PUSH_TXT txt
 	.data SECTION_DATA_STRINGS
-		99: .asciz "\s"
+		99: .asciz "\txt"
 	.text32
 	push	dword ptr offset 99b
 .endm

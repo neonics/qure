@@ -302,7 +302,7 @@ debug_get_preceeding_symbol:
 
 9:	ret
 
-# in: eax = address
+# in: edx = address
 debug_printsymbol:
 	push	esi
 

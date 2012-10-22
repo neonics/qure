@@ -433,14 +433,37 @@ isr_keyboard:
 2:
 
 	# schedule keyboard task
+	.if 1
+	PUSH_TXT "kb"
+	push	dword ptr 0	# legacy task (job)
+	push	cs
+	push	eax
+	mov	eax, offset kb_task
+	add	eax, [realsegflat]
+	xchg	eax, [esp]
+	call	schedule_task	# caller cleanup
+	.if 0
+	jnc 1f
+	DEBUG "*** KB TASK SCHED FAIL ***"
+	jmp 2f
+	1:
+	DEBUG "%%%% KB SCHED %%%%%"
+	2:
+	.endif
+	.else
+	push	ebx
 	push	ecx
 	push	esi
 	mov	ecx, 8
 	LOAD_TXT "kb"
 	mov	eax, offset kb_task
-	call	schedule_task
+	add	eax, [realsegflat]
+	xor	ebx, ebx # flags
+	call	schedule_task_LEGACY
 	pop	esi
 	pop	ecx
+	pop	ebx
+	.endif
 
 	PIC_SEND_EOI IRQ_KEYBOARD
 	pop	edx
