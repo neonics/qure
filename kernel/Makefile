@@ -4,7 +4,7 @@ clean:
 	[ -f kernel.bin ] && /bin/rm kernel.bin || true
 	[ -f kernel.o ] && /bin/rm kernel.o || true
 
-AS = /bin/as -R -n --warn --fatal-warnings
+AS = /bin/as -R -n --warn --fatal-warnings --gstabs
 
 kernel.bin: kernel.o
 	@../util/checksymbols $<
@@ -27,7 +27,7 @@ FS_SRC = fs.s iso9660.s partition.s fat.s sfs.s
 GFX_SRC = gfx.s ../fonts/courier56.s
 
 kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s $(FS_SRC) $(NET_SRC) $(GFX_SRC) \
-		token.s shell.s
+		token.s shell.s Makefile
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
 	@../util/checksymbols $@

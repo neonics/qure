@@ -281,6 +281,7 @@ print "<<<<"
 	mov edx, ecx
 	call printhex8
 	jcxz	0f
+	print "Loading symbol table: "
 	mov	ebx, [si - 4]	# get the load end address of the previous segment
 	mov edx, ebx
 	mov ah, 0x0b
@@ -288,7 +289,22 @@ print "<<<<"
 	call	load_ramdisk_entry
 0:
 
+######### third entry: source line numbers
+	add	si, 16		# ignore entry count and check size
+	mov	ecx, [si + 8]
+	mov ah, 0xf3
+	mov edx, ecx
+	call printhex8
+	jcxz	0f
+	print "Loading stabs: "
+	mov	ebx, [si - 4]	# get the load end address of the previous segment
+	mov edx, ebx
+	mov ah, 0x0b
+	call printhex8
+	call	load_ramdisk_entry
+0:
 
+##############################################
 	mov	ah, 0xf0
 	print "Chaining to next: "
 	mov	edx, [chain_addr_flat]

@@ -332,12 +332,18 @@ realmode_kernel_entry:
 	LOAD_TXT_16 "Kernel "
 	jmp	4f
 3:	cmp	di, 1
-	jnz	4f
+	jnz	3f
 	mov	[symtab_load_start_flat], edx
 	mov	[symtab_load_end_flat], esi
 	LOAD_TXT_16 "Symtab "
 	jmp	4f
-	LOAD_TXT_16 "? "
+3:	cmp	di, 2
+	jnz	3f
+	mov	[stabs_load_start_flat], edx
+	mov	[stabs_load_end_flat], esi
+	LOAD_TXT_16 "Stabs "
+	jmp	4f
+3:	LOAD_TXT_16 "? "
 4:	rmI2	si
 	pop	si
 ##
@@ -609,6 +615,8 @@ kernel_load_start_flat:	.long 0	# ramdisk info
 kernel_load_end_flat:	.long 0
 symtab_load_start_flat:	.long 0
 symtab_load_end_flat:	.long 0
+stabs_load_start_flat:	.long 0
+stabs_load_end_flat:	.long 0
 # bios:
 low_memory_size:	.word 0 # in kb
 memory_map:		.space 24 * (10+1) # 11 lines (qemu: 5, vmware: 10)

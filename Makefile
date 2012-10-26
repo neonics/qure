@@ -51,6 +51,7 @@ build/boot.img: build/boot.bin build/kernel.bin build/write.exe
 		-rd \
 		-b kernel/kernel.bin \
 		-b kernel/kernel.sym \
+		-b kernel/kernel.stabs \
 	&& chmod 644 $@
 
 build/boot.bin:
@@ -59,6 +60,7 @@ build/boot.bin:
 build/kernel.bin: fonts
 	$(call MAKE,kernel)
 	util/symtab.pl kernel/kernel.o kernel/kernel.sym
+	util/stabs.pl kernel/kernel.o kernel/kernel.stabs
 
 
 .PHONY: fonts

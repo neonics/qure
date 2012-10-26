@@ -1960,7 +1960,7 @@ mfree:
 	mov	edx, eax
 	call	printhex8
 	print " called from "
-	mov	edx, [esp + 4*4 + 2]
+	mov	edx, [esp + 4*4 + COLOR_STACK_SIZE]
 	call	printhex8
 		.if 0
 		print " ecx="
@@ -2640,6 +2640,18 @@ cmd_mem$:
 	mov	eax, [symtab_load_end_flat]
 	mov	ecx, SEL_flatDS
 	call	cmd_mem_print_addr_range$
+
+	# no stabs without symbols (though possible)
+	xor	edx, edx
+	mov	eax, [kernel_stabs_size]
+	or	eax, eax
+	jz	2f
+	printc 15, " STABS: "
+	call	print_size
+	mov	edx, [stabs_load_start_flat]
+	mov	eax, [stabs_load_end_flat]
+	mov	ecx, SEL_flatDS
+	call	cmd_mem_print_addr_range$
 	call	newline
 
 2:	xor	edx, edx
@@ -2756,6 +2768,7 @@ cmd_mem$:
 	sub	edi, [database]
 	PRINT_MEMRANGE "<slack>", (offset data_bss_end), edi # [kernel_load_end_flat]
 	PRINT_MEMRANGE "symbol table", [kernel_symtab], [kernel_symtab_size], sz=1
+	PRINT_MEMRANGE "stabs", [kernel_stabs], [kernel_stabs_size], sz=1
 	PRINT_MEMRANGE "stack", [ramdisk_load_end], [kernel_stack_top]
 
 

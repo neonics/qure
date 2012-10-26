@@ -34,3 +34,5 @@ map { print BIN pack "L<", hex $_ } @a;
 $o=0;
 map { print BIN pack "L<", $o; $o+=1+length $_ } @s;
 map { print BIN pack "Z*", $_} @s;
+
+close BIN;
