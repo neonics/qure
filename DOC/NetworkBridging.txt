@@ -1,0 +1,59 @@
+QEMU: using OpenVPN Win32 TAP Driver on Windows 7.
+
+Devices:
+ - 'Wireless Network Connection':
+ 	HonHaiPr WiFi physical NIC: DHCP, LAN
+ - 'Network Bridge':
+ 	MAC Bridge Miniport: virtual nic. (not sure where it came from)
+ - 'tap-bridge':
+ 	OpenVPN TAP-Win32 Adapter V9 (2010).
+
+Wireless is bridged to mac bridge;
+tap-bridge is brided to mac bridge.
+
+
+Requests from the VM: DHCP/PING:
+
+
+tap-bridge TAP:
+
+  - DHCP requests/responses appear with proper mac in both eth header
+    and dhcp payload on tap-bridge. The problem is that the IP returned is
+    the ip of the Network Bridge (or WiFi).
+
+  - ICMP PING request/replies both show (with proper mac).
+
+Mac Bridge Virtual NIC:
+
+  - DHCP requests (sent from vm) appear on the mac bridge with the proper mac,
+    but not the responses.
+
+  - ICMP PING requests (sent from vm)/responses (from anywhere) do not show at all.
+    (icmp destination unreachable's do show fro mother nics).
+
+
+WiFi:
+
+  - DHCP requests/responses appear on the WiFi, but with the MAC of the Wifi.
+    Therefore the IP received from the router is the one for the WiFi's MAC,
+    not the tap-bridge's mac.
+
+  - ICMP PING request/replies both show, but with the WiFi's MAC.
+
+
+
+So, for PING it seems the mac bridge gets bypassed alltogether (at least the
+packets do not show up there).
+
+For DHCP it seems that the mac bridge forwards the DHCP requests to the WiFi,
+which then sends them using its own MAC.
+
+
+In any case, the WiFi uses it's own MAC to put packets on the network
+(doublecheck on other computer). This is not transparent.
+
+It can also be that the tap-bridge driver does mac substitution.
+
+
+Possible solution: have the DHCP server allow multiple IP's per mac. 
+Downside: all vm's will share the same mac on the network.

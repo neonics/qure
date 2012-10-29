@@ -83,9 +83,12 @@ DEBUG_COLOR3 = 0x1f
 	popf
 .endm
 
-.macro DEBUGS reg=esi, color=DEBUG_COLOR2
+.macro DEBUGS reg=esi, label=0, color=DEBUG_COLOR2
 	pushf
 	pushcolor DEBUG_COLOR1
+	.ifnc 0,\label
+	PRINT "\label="
+	.endif
 	PRINTCHAR '\''
 	COLOR	\color
 	.ifc esi,\reg

@@ -1,23 +1,40 @@
-alias fasm c:/apps/fasm/FASM.EXE
+#####################################################################
+# Debugging aliases
 alias disasm c:/apps/nasm-2.09.10/ndisasm.exe
-alias vm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe
-alias stopvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe controlvm \"QuRe\" poweroff
-alias startvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe startvm \"QuRe\"
-alias restartvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe controlvm \"QuRe\" reset
-alias testvm "make && startvm && perl -e '<>' && stopvm"
 alias blsource objdump -Mi8086,intel-mnemonic -d build/bootloader.o
-alias vmdisk vm modifyvm \"OS Test\" --boot1 disk --boot2 none --boot3 none
-alias vmcd vm modifyvm \"OS Test\" --boot1 dvd --boot2 none --boot3 none
 alias da objdump -Mi8086,intel-mnemonic -d bootloader/bootloader.o
 alias dk "objdump -Mintel-mnemonic -d kernel/kernel.o | less"
 alias dk16 "objdump -Mintel-mnemonic,i8086 -d kernel/kernel.o | less"
 alias hd "hexdump -C build/boot.bin | grep -e '*' -e '|'"
 alias hdi "hexdump -C build/boot.img | grep -e '*' -e '|' |& less"
+alias da32 objdump -d -Mintel-mnemonic build/bootloader.o
+alias w "grep \!* kernel/*.s"
+
+#####################################################################
+# VirtualBox aliases
+alias vm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe
+alias vmdisk vm modifyvm \"OS Test\" --boot1 disk --boot2 none --boot3 none
+alias vmcd vm modifyvm \"OS Test\" --boot1 dvd --boot2 none --boot3 none
+alias stopvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe controlvm \"QuRe\" poweroff
+alias startvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe startvm \"QuRe\"
+alias restartvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe controlvm \"QuRe\" reset
+alias testvm "make && startvm && perl -e '<>' && stopvm"
+
+#####################################################################
+# VMWare aliases (pff...)
+set VMRUN_PATH = "c:/Program\ Files\ \(x86\)/VMware/VMware\ VIX/vmrun.exe"
+alias vmwgetvm "$VMRUN_PATH -T player list | grep QuRe"
+set VMRUN_PATH2 = `cygpath -u "c:/Program Files (x86)/VMware/VMware VIX/vmrun.exe"`
+alias vmwreset 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player reset "$VMWVM"'
+alias vmwpause 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player pause "$VMWVM"'
+alias vmwunpause 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player pause "$VMWVM"'
+alias vmwscreenshot 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player captureScreen "$VMWVM" vmware.png'
+
+#####################################################################
+# Qemu aliases
 # qemu-img create -f raw hdd0.raw 32M
 #alias qemu "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -no-reboot -cdrom os.iso" -hda fat:root/ -boot d
 alias qemu "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -hda hdd0.raw -hdb hdd-dos.raw -cdrom os.iso" -boot d -net nic,model=rtl8139  -net tap,ifname=tap-bridge # -no-reboot
 alias qemu2 "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -hda hdd0.raw -hdb hdd-dos.raw -drive file=os.iso,if=ide,index=3,media=cdrom" -boot d -net nic,model=rtl8139  -net tap,ifname=tap-bridge # -no-reboot
 alias qemu-pcnet "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -hda hdd0.raw -hdb hdd-dos.raw -cdrom os.iso" -boot d -net nic,model=pcnet  -net tap,ifname=tap-bridge # -no-reboot
 alias qemu-dos "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -no-reboot -hda hdd-dos.raw -hdb hdd0.raw"
-alias da32 objdump -d -Mintel-mnemonic build/bootloader.o
-alias w "grep \!* kernel/*.s"

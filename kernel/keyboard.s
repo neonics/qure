@@ -477,6 +477,7 @@ isr_keyboard:
 kb_task:
 	mov	ah, KB_PEEK
 	call	keyboard
+	jz	9f
 	cmp	eax, K_KEY_CONTROL | K_KEY_ALT | K_DELETE
 	jz	1f
 	mov	ebx, eax
@@ -865,9 +866,10 @@ buf_put_$:
 
 KB_GET		= 0	# out: eax>>16: mutators; ax: keycode (ah=scancode,al=translation)
 KB_PEEK		= 1
-KB_GET_MUTATORS	= 2	# out: al=shift, ah:2=alt, ah:1=control, ah:0=shift
-KB_SETSPEED	= 3
-KB_GETCHAR	= 10
+KB_POLL		= 2
+KB_GET_MUTATORS	= 10	# out: al=shift, ah:2=alt, ah:1=control, ah:0=shift
+KB_GETCHAR	= 20
+KB_SETSPEED	= 50
 
 # Potential multitasking problems:
 # Writing to IO port. The last port written/read needs to be synchronous,
@@ -880,13 +882,15 @@ KB_GETCHAR	= 10
 keyboard:
 	push	ds
 	push	esi
-	mov	si, SEL_compatDS
-	mov	ds, si
+	mov	esi, SEL_compatDS
+	mov	ds, esi
 
 	or	ah, ah
 	jz	k_get$
 	cmp	ah, KB_PEEK
 	jz	k_peek$
+	cmp	ah, KB_POLL
+	jz	k_poll$
 	cmp	ah, KB_GET_MUTATORS
 	jz	k_getmutators$
 	cmp	ah, KB_SETSPEED
@@ -903,6 +907,7 @@ k_get$:
 	jnz	1f
 	hlt		# wait for interrupt
 	jmp	1b	# check again
+k_remove$:
 1:	.if KB_BUF_KEYSIZE == 3
 	mov	ah, [keyboard_buffer + esi + 2]
 	mov	al, ah
@@ -939,6 +944,11 @@ k_peek$:
 	.endif
 	or	ax, ax # ZF = 1
 	jmp	0b
+k_poll$:
+	mov	esi, [keyboard_buffer_ro]
+	cmp	esi, [keyboard_buffer_wo]
+	jz	0b
+	jmp	k_remove$
 k_getmutators$:
 	call	kb_get_mutators$
 	jmp	0b

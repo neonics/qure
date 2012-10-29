@@ -1022,6 +1022,11 @@ am79c971_isr_dev: .long 0	# direct memory address of device object
 .text32
 am79c971_isr:
 	pushad
+	push	ds
+	push	es
+	mov	eax, SEL_compatDS
+	mov	ds, eax
+	mov	es, eax
 
 	mov	ebx, [am79c971_isr_dev]
 
@@ -1165,6 +1170,8 @@ am79c971_isr:
 	mov	ebx, [am79c971_isr_dev]
 	PIC_SEND_EOI [ebx + dev_irq]
 
+	pop	es
+	pop	ds
 	popad	# edx ebx eax
 	iret
 

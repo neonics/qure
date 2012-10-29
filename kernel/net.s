@@ -441,7 +441,7 @@ arp_table_print:
 	jz	9f
 	xor	ecx, ecx
 	jmp	1f
-0:
+0:	printc_	11, "arp "
 	color 8
 	mov	dl, [ebx + ecx + arp_entry_status]
 	call	printhex2
@@ -687,8 +687,9 @@ net_arp_handle:
 	cmp	eax, [ebx + nic_ip]
 	jz	3f
 
-	printc 4, "MAC/IP mismatch: "
+	printc 4, "MAC/IP mismatch: packet="
 	call	net_print_ip
+	printc 4, " nic="
 	mov	eax, [ebx + nic_ip]
 	call	net_print_ip
 	call	newline
@@ -1584,8 +1585,8 @@ net_icmp_register_response:
 	ret
 
 net_icmp_list:
-	printlnc 11, "ICMP:"
 	ARRAY_LOOP [icmp_requests], ICMP_REQUEST_STRUCT_SIZE, ebx, ecx, 0f
+	printc 11, "icmp "
 	mov	dl, [ebx + ecx + icmp_request_status]
 	call	printhex2
 	call	printspace
@@ -2135,6 +2136,9 @@ net_tcp_conn_newentry:
 
 1:	push	edx	# retval eax
 
+0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
+	mov	eax, [tcp_connections]
+
 	add	eax, edx
 
 	# eax = tcp_conn ptr
@@ -2176,6 +2180,8 @@ net_tcp_conn_newentry:
 	mov	[eax + tcp_conn_remote_seq], dword ptr 0
 	mov	[eax + tcp_conn_local_seq_ack], dword ptr 0
 	mov	[eax + tcp_conn_remote_seq_ack], dword ptr 0
+
+	MUTEX_UNLOCK TCP_CONN
 
 	pop	eax
 	pop	edx
@@ -2220,13 +2226,6 @@ net_tcp_conn_update:
 	pop	ebx
 	pop	edx
 	pop	eax
-	ret
-
-cmd_netstat:
-	call	net_tcp_conn_list
-	call	socket_list
-	call	net_icmp_list
-	call	arp_table_print
 	ret
 
 
@@ -2615,8 +2614,10 @@ net_tcp_service_get:
 	stc
 	jnz	9f
 	sub	edi, offset tcp_service_ports + 2
-	mov	edi, [tcp_service_handlers + edi * 2]
-DEBUG "net_tcp_service_get"; DEBUG_DWORD edi
+DEBUG "net_tcp_service_get";
+DEBUG_DWORD edi,"index"
+	mov	edi, [tcp_service_handlers + edi * 4]
+DEBUG_DWORD edi,"handler"
 	clc
 9:	ret
 
@@ -4827,70 +4828,179 @@ net_ipv6_print:
 	ret
 
 ##############################################################################
+
+NET_RX_QUEUE = 0
+
+.if NET_RX_QUEUE == 0
+
+# in: ds = es = ss
 # in: ebx = nic
 # in: esi = packet (ethernet frame)
 # in: ecx = packet len
 net_rx_packet:
-.if 0
-DEBUG "N"
-DEBUG_DWORD ebx
-DEBUG_DWORD esi
-.endif
-	# this is called in IRQ handlers of the nics, so we need to schedule.
-	# Alternative approach is to schedule the IRQ handlers themselves differently.
-	# First approach:
-	.if 1
 	PUSH_TXT "net"
-	push	dword ptr 0 # flags
+	push	dword ptr 0 # TASK_FLAG_RESCHEDULE # flags
 	push	cs
 	push	eax
 	mov	eax, offset net_rx_packet_task
 	add	eax, [realsegflat]
 	xchg	eax, [esp]
 	call	schedule_task
-	.else
-	push	eax
-	push	ecx
-	push	esi
-	push	ebx
-	mov	eax, offset net_rx_packet_task
-	add	eax, [realsegflat]
-	push	ecx
-	mov	ecx, 12	# size of argument
-	push	esi
-	LOAD_TXT "net"
-	push	ebx
-	xor	ebx, ebx	# flags
-	call	schedule_task_LEGACY	# returns argument pointer eax
-	pop	ebx
-	pop	esi
-	pop	ecx
-	mov	[eax + 0], ebx
-	mov	[eax + 4], esi
-	mov	[eax + 8], ecx
-	pop	ebx
-	pop	esi
-	pop	ecx
-	pop	eax
-	.endif
+	jc	9f	# lock fail, already scheduled, ...
+	ret
+9:	printlnc 4, "net: packet dropped"
 	ret
 
-# in: edx = argument ptr
-net_rx_packet_task:
+.else
+# A queue for incoming packets so as to not flood the scheduler with a job
+# (and possibly a stack) for each packet.
+.struct 0
+net_rx_queue_status:	.long 0
+net_rx_queue_args:	.space 8*4
+NET_RX_QUEUE_STRUCT_SIZE = .
+.data SECTION_DATA_BSS
+net_rx_queue:	.long 0
+.text32
+# out: eax + edx
+net_rx_queue_newentry:
+	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 1f
+	cmp	[eax + edx + net_rx_queue_status], dword ptr 0
+	jz	2f
+	ARRAY_ENDL
+1:	ARRAY_NEWENTRY [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, 4, 9f
+2:	mov	[eax + edx + net_rx_queue_status], dword ptr 1
+9:	ret
+
+# in: ds = es = ss
+# in: ebx = nic
+# in: esi = packet (ethernet frame)
+# in: ecx = packet len
+net_rx_packet:
 	pushad
-	.if 1 # if task, i.e., complete context switch: regs already proper.
-		.if 0
-		DEBUG "T"
-		DEBUG_DWORD ebx
-		DEBUG_DWORD esi
-		call newline
-		.endif
-	.else
-	mov	ebx, [edx + 0]
-	mov	esi, [edx + 4]
-	mov	ecx, [edx + 8]
+0:	MUTEX_LOCK NET, 0b
+	call	net_rx_queue_newentry	# out: eax + edx
+	jnc	1f
+	MUTEX_UNLOCK NET
+	popad
+	jmp	9f
+
+1:	lea	edi, [eax + edx + net_rx_queue_args]
+	mov	esi, esp
+	mov	ecx, 8
+	rep	movsd
+	popad
+	MUTEX_UNLOCK NET
+
+net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
+	PUSH_TXT "net"
+	push	dword ptr TASK_FLAG_RESCHEDULE # flags
+	push	cs
+	push	eax
+	mov	eax, offset net_rx_queue_handler
+	add	eax, [realsegflat]
+	xchg	eax, [esp]
+	call	schedule_task
+	setc	al
+	DEBUG_BYTE al
+
+# have queue
+#	jc	9f	# lock fail, already scheduled, ...
+	ret
+9:	printlnc 4, "net: packet dropped"
+	ret
+
+
+net_rx_queue_handler:
+0:	MUTEX_LOCK NET, 0b
+	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
+	cmp	[eax + edx + net_rx_queue_status], dword ptr 1
+	jz	1f
+	ARRAY_ENDL
+9:	MUTEX_UNLOCK NET
+	ret	# queue exhausted
+
+1:	sub	esp, 8*4
+	lea	esi, [eax + edx + net_rx_queue_args]
+	mov	edi, esp
+	mov	ecx, 8
+	rep	movsd
+	popad
+
+	mov	eax, [net_rx_queue]
+	mov	[eax + edx + net_rx_queue_status], dword ptr 0
+
+	MUTEX_UNLOCK NET
+DEBUG "rx"
+	call	net_rx_packet_task
+DEBUG "done"
+DEBUG_DWORD [mutex]
+
+	# check if the queue is empty, if not, schedule job again
+0:	MUTEX_LOCK NET, 0b
+DEBUG "locked"
+DEBUG_DWORD [mutex]
+	xor	ecx, ecx
+	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
+	add	ecx, [eax + edx + net_rx_queue_status]
+	ARRAY_ENDL
+9:
+DEBUG_DWORD [net_rx_queue]
+DEBUG_DWORD eax
+DEBUG_DWORD [eax + array_index]
+DEBUG_DWORD ecx
+	MUTEX_UNLOCK NET
+	DEBUG "unlocked"
+	jecxz	9f
+	DEBUG "net again"; call newline
+	jmp	net_rx_queue_schedule
+#	jmp	net_rx_queue_handler
+9:	DEBUG "net done"; call newline
+	ret
+
+
+
+net_rx_queue_print:
+	printc 11, "net_rx_queue: "
+	xor	ecx, ecx
+	xor	ebx, ebx
+	# count packets
+0:	MUTEX_LOCK NET, 0b
+
+	.if 0
+		DEBUG_WORD ds
+		DEBUG_DWORD [net_rx_queue]
+		mov	eax, [net_rx_queue]
+		or	eax, eax
+		jz	1f
+		DEBUG_DWORD [eax + array_index]
+	1:	call	newline
 	.endif
-	# this is called in IRQ handlers of the nics, so we need to schedule.
+
+	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
+		DEBUG_DWORD eax
+		DEBUG_DWORD edx
+		DEBUG_DWORD [eax + edx + net_rx_queue_status], "st"
+		call newline
+	add	ecx, [eax + edx + net_rx_queue_status]	# 1 indicates pkt in q
+	inc	ebx
+
+	ARRAY_ENDL
+9:	MUTEX_UNLOCK NET
+
+	mov	edx, ecx
+	call	printdec32
+	printcharc 11, '/'
+	mov	edx, ebx
+	call	printdec32
+	printlnc 11, " packets"
+
+
+.endif
+
+# in: ebx = nic
+# in: esi = packet (ethernet frame)
+# in: ecx = packet len
+net_rx_packet_task:
 	push	esi
 	push	ecx
 	push	ebx
@@ -4913,13 +5023,11 @@ net_rx_packet_task:
 	pop	ecx
 	pop	esi
 
-1:
-	call	net_handle_packet
+1:	call	net_handle_packet
 
 	pop	ebx
 	pop	ecx
 	pop	esi
-	popad
 	ret
 
 
@@ -5160,7 +5268,6 @@ cmd_route:
 	call	net_parse_ip
 	jc	9f
 	mov	edi, eax
-		DEBUG_DWORD edi,"gw"
 	CMD_EXPECTARG 1f
 0:	CMD_ISARG "metric"
 	jnz	0f
@@ -5168,7 +5275,6 @@ cmd_route:
 	cmp	word ptr [eax], '0'|'x'<<8
 	jnz	2f
 	add	eax, 2
-		DEBUG_DWORD edi,"gw"
 	call	htoi
 	jmp	3f
 2:	call	atoi
@@ -5488,6 +5594,18 @@ cmd_traceroute:
 9:	printlnc 12, "usage: traceroute [-n maxhops] <ip>"
 	ret
 
+#############################################################################
+cmd_netstat:
+	call	net_tcp_conn_list
+	call	socket_list
+	call	net_icmp_list
+	call	arp_table_print
+	.if NET_RX_QUEUE
+	call	net_rx_queue_print
+	.endif
+	ret
+
+
 
 #############################################################################
 # Sockets
@@ -5512,8 +5630,8 @@ socket_open:
 	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, eax, edx, 9f
 	cmp	[eax + edx + sock_port], dword ptr -1
 	jz	1f
-9:	ARRAY_ENDL
-	ARRAY_NEWENTRY [socket_array], SOCK_STRUCT_SIZE, 4, 9f
+	ARRAY_ENDL
+9:	ARRAY_NEWENTRY [socket_array], SOCK_STRUCT_SIZE, 4, 9f
 1:	mov	[eax + edx + sock_ip], esi
 	mov	[eax + edx + sock_port], ebx
 	mov	eax, edx

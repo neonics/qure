@@ -1,0 +1,2 @@
+util/write.cpp:23: error: `long long long' is too long for GCC
+

@@ -126,6 +126,8 @@ SHELL_COMMAND "init"		cmd_init
 SHELL_COMMAND "fork"		cmd_fork
 SHELL_COMMAND "traceroute"	cmd_traceroute
 SHELL_COMMAND "top"		cmd_top
+SHELL_COMMAND "ps"		cmd_tasks
+SHELL_COMMAND "kill"		cmd_kill
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -281,6 +283,12 @@ cursor_toggle$:
 # Shell and History key handler
 key_enter$:	
 	call	cursor_toggle$
+		0:MUTEX_LOCK SCREEN 0b
+		mov	eax, [cmdline_prompt_label_length]
+		add	eax, [cmdlinelen]
+		add	eax, eax
+		add	[screen_pos], eax
+		MUTEX_UNLOCK SCREEN
 	call	newline
 
 	call	cmdline_history_add
@@ -1193,7 +1201,17 @@ cmd_int_count:
 	loop	0b
 	call	newline
 	ret
-#####################################
+#####################################################################
+# Shell Environment variables
+.struct 0
+env_var_label:	.long 0
+env_var_value:	.long 0
+env_var_handler:.long 0
+ENV_VAR_STRUCT_SIZE = .
+.data SECTION_DATA_BSS
+shell_variables: .long 0
+.text32
+
 cmd_set:
 	lea	eax, [esi + 4]
 	mov	esi, [eax]
@@ -1212,10 +1230,13 @@ cmd_set:
 
 	add	eax, 4
 	mov	esi, [eax]
+	or	esi, esi
+	jz	1f
 	call	println
 
 	mov	edi, esi
 	mov	esi, ebx
+	xor	eax, eax
 	call	shell_variable_set
 
 	ret
@@ -1223,9 +1244,6 @@ cmd_set:
 	stc
 	ret
 
-	.data
-	shell_variables: .long 0
-	.text32
 
 shell_variables_list:
 0:	mov	eax, [shell_variables]
@@ -1234,12 +1252,12 @@ shell_variables_list:
 	mov	ecx, [eax + array_index]
 	shr	ecx, 3
 	jz	1f
-0:	mov	esi, [eax + 0]
+0:	mov	esi, [eax + env_var_label]
 	call	print
 	print_ " = "
-	mov	esi, [eax + 4]
+	mov	esi, [eax + env_var_value]
 	call	println
-	add	eax, 8
+	add	eax, ENV_VAR_STRUCT_SIZE
 	loop	0b
 1:	ret
 
@@ -1265,9 +1283,9 @@ shell_variable_get:
 
 	mov	edx, [eax + array_index]
 
-0:	sub	edx, 8
+0:	sub	edx, ENV_VAR_STRUCT_SIZE
 	jc	1f
-	mov	edi, [eax + edx]
+	mov	edi, [eax + edx + env_var_label]
 	push	esi
 	repz	cmpsb
 	pop	esi
@@ -1298,12 +1316,12 @@ shell_variable_unset:
 	call	shell_variable_get
 	jc	0f
 	mov	ebx, eax
-	mov	eax, [ebx + edx]
+	mov	eax, [ebx + edx + env_var_label]
 	call	mfree
-	mov	eax, [ebx + edx + 4]
+	mov	eax, [ebx + edx + env_var_value]
 	call	mfree
 	mov	eax, ebx
-	mov	ecx, 8
+	mov	ecx, ENV_VAR_STRUCT_SIZE
 	call	array_remove
 9:	pop	edx
 	pop	ecx
@@ -1315,25 +1333,30 @@ shell_variable_unset:
 	stc
 	jmp	9b
 
+# TODO: locking
 # in: esi = varname
 # in: edi = value
+# in: eax = handler (or 0)
 # out: eax = var struct: .long name, value
 shell_variable_set:
+	push	ebx
+	mov	ebx, eax
 	call	shell_variable_get
 	jc	1f
 	# found
 	xchg	eax, edi
 	call	strdup
-	# free string
-	xchg	eax, [edi + 4]	
+	# free string value
+	xchg	eax, [edi + env_var_value]
 	call	mfree
 	mov	eax, edi
-	ret
+	mov	ebx, [edi + env_var_handler]
+	jmp	0f
 	
 1:	# add
 	mov	eax, [shell_variables]
 	or	eax, eax
-	mov	ecx, 8
+	mov	ecx, ENV_VAR_STRUCT_SIZE
 	jnz	1f	
 	inc	eax	
 	call	array_new
@@ -1342,20 +1365,27 @@ shell_variable_set:
 	add	eax, edx
 	xchg	eax, esi
 	call	strdup
-	mov	[esi], eax
+	mov	[esi + env_var_label], eax
 	mov	eax, edi
 	call	strdup
-	mov	[esi + 4], eax
+	mov	[esi + env_var_value], eax
+	mov	[esi + env_var_handler], ebx
+	mov	eax, esi
+0:	or	ebx, ebx
+	jz	1f
+	call	ebx
+1:	pop	ebx
 	ret
 
 #####################################
 cmd_netdump:
-	call	nic_zeroconf
-	jc	9f
+	#call	nic_zeroconf
+	#jc	9f
 
 	LOAD_TXT "ethdump"
 	push	esi
 	mov	edi, esi
+	xor	eax, eax
 	call	shell_variable_set
 	printlnc 11, "Capturing Ethernet packets - press enter to quit."
 0:	xor	ax, ax
@@ -1697,54 +1727,70 @@ cmd_init:
 
 
 .data SECTION_DATA_BSS
-pid_counter: .long 0
+fork_counter$: .long 0
 .text32
 
 cmd_fork:
-	PUSH_TXT "clock"
+	LOAD_TXT "clock    ", eax
+	call	strdup
+	push	eax
+	lea	edi, [eax + 5]
+	mov	edx, [fork_counter$]
+	call	sprintdec32
+
 	push	dword ptr 2	# context switch task
 	push	cs
-	mov	eax, offset foo_task
+	mov	eax, offset clock_task
 	add	eax, [realsegflat]
 	push	eax
-	mov	eax, [pid_counter]
-	inc	eax
+	mov	eax, [fork_counter$]
+	inc	dword ptr [fork_counter$]
 	call	schedule_task
 	ret
 
 
-foo_task:
+clock_task:
+	mov	ebx, eax	# calculate screen offset
+	add	ebx, 11
+	# * 160
+	mov	ecx, ebx
+	shl	ebx, 2
+	add	ebx, ecx
+	shl	ebx, 5
+
+	xor	ecx, ecx
+
+	# do it twice so 'top' shows EIP changing
+0:	mov	dl, '0'
+	call	0f
+	hlt
+dbg_clk_0:	# debug label
+	mov	dl, '1'
+	call	0f
+	hlt
+dbg_clk_1:	# debug label
+	jmp	0b
+
 0:	PUSH_SCREENPOS
 	pushcolor 0xa0
-	mov	[screen_pos], dword ptr 320
-	print "pid "
+	mov	[screen_pos], ebx # dword ptr 320
+	print "CLK "
+	push	edx
 	mov	edx, eax
-	call	printhex8
+	call	printhex2
 	call	printspace
-	xor	ecx, ecx
 	mov	edx, [clock]
 	call	printhex8
 	call	printspace
 	mov	edx, ecx
 	call	printhex8
 	inc	ecx
+	pop	edx
+	push	eax
+	mov	ah, 0xa8
+	mov	al, dl
+	call	printcharc
+	pop	eax
 	popcolor
 	POP_SCREENPOS
-	hlt
-dbg_clock_task$: # debug label
-	jmp	0b
 	ret
-
-cmd_top:
-0:	#call	cls
-	#call	newline
-	call	schedule_print
-	hlt
-	mov	ah, KB_PEEK
-	call	keyboard
-	jc	0b
-	cmp	ax, K_ESC
-	jz	0f
-	cmp	ax, K_ENTER
-	jnz	0b
-0:	ret

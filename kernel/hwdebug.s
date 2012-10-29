@@ -127,8 +127,8 @@ breakpoint_set_memwrite_word:
 breakpoint_set_memwrite_byte:
 	mov	ebx, dr7
 	mov	dr0, eax
-	and	ebx, 0b11111111111100001111111111111111 # clear bits to change
-	or	ebx, 0b00000000000000010000000000000101 # len 1, data wr only
+	and	ebx, 0b11111111111100001111111111111100 # clear bits to change
+	or	ebx, 0b00000000000000010000000000000011 # len 1, data wr only
 	mov	dr7, ebx
 	ret
 
@@ -147,6 +147,7 @@ breakpoint_set_memwrite:
 	mov	edx, eax
 	call	printhex8
 	GDT_GET_BASE edx, ds
+	push	eax
 	add	eax, edx
 	mov	edx, eax
 	printc	0xe1 " (phys addr: "
@@ -159,18 +160,22 @@ breakpoint_set_memwrite:
 	shl	edx, cl
 	pop	ecx
 	call	printhex1
-	mov	edx, [eax]
 	printc 0xe1, " cur value: "
-	mov	edx, [eax]
+	pop	edx
+	mov	edx, [edx]
 	call	printhex8
 	call	printspace
 	call	printhex2
+	call	printspace
 	shr	edx, 8
 	call	printhex2
+	call	printspace
 	shr	edx, 8
 	call	printhex2
+	call	printspace
 	shr	edx, 8
 	call	printhex2
+	call	printspace
 	call	newline
 	popcolor
 	pop	edx

@@ -1,0 +1,83 @@
+(Freedom.txt, Funny.txt)
+
+Fork.
+
+
+A fork represents a choice, go one way or the other.
+Continuation is the thread that is not taken, remembered for future continuation.
+
+The scheduler is an interrupt routine that on any input from devices (keyboard,
+network, storage, timer), re-evaluates what thread to continue on.
+
+Alternative options to the initial thread can be made known by the schedule_task
+method. This allocates a new context of execution: a stack. This stack will be
+filled with the current values of all registers (processor state), and used
+as context switch parameters.
+
+The registered task is remembered in an array. When there is only one task,
+the scheduler will continue executing that task. After scheduling a task,
+the soonest moment of execution is the next interrupt. Ofcourse, the registration
+of the task can also be used as a pivot moment.
+
+
+Pivot
+
+int 69, 0x45, 1000101
+int 96, 0x60, 1100000	
+
+Pivoting centers around the stack. The stack, at a minimum, needs to contain
+the code selector, instruction pointer, and flags.
+
+The IP and EFLAGS are needed only when a task can be interrupted in the middle
+of it's execution, 'unbeknownst' to the task. The code selector is needed to
+specify the execution context.
+
+A nested task - one that can interrupt its parent task - cannot run on the same stack,
+unless this task is cyclical with an identifiable point of neutrality, meaning,
+that it's effects on the stack are limited to only changing the content below the
+stack pointer. This means, simply put, that the point at which a task is cyclical,
+as evaluated from a linear perspective, is when it's stack pointer has returned
+to the same value as it had in the beginning.
+This task then can be clearly marked by a 'call' instruction, or even an 'int'
+instruction. This then means that it's beginning lies not in the addresses
+spanning the task's execution, for, the first instruction executed in the new task
+will already contain a return address on the stack. Thus, this initial point will
+be between the ret and call instructions, or, immediately before the call and after
+the return. For, this is the only point that guarantees that the execution of
+instructions of the task cannot be altered (malfunction) by changing the contents
+of registers. For, if registers change their value between instructions, the intended
+function of the task is compromised, as the form of the instructions encodes the meanings
+of the values of the registers, which are only relevant (meaningful) within the context
+of the task. Injecting and changing register values at random points introduces
+meaninglessness which makes the task's purpose meaningless. Further, tasks are
+typically programmed to operate within a boundary set by all assumptions formed by
+the meanings of the contents of registers. Methods for instance, specify the meanings
+of registers, which they then assume to be met with the calling agent, as the method
+only specifies it's effect given that it's conditions are satisfied, i.e., that
+there is agreement on the meaning of the context (contents of registers and stack).
+For any other meaning of these registers, the method is not defined. Applying it anyway
+yields results that have not been considered during the encoding of applying an effect.
+
+Thus, the 9 symbolizes a path becoming circular - a cycle or loop. The 6 represents
+the opposite, a loop becoming a path. Due to there being two symbols, both cycles
+represent the same thing, but the paths have different orientations and thus represent
+different paths. This cycle can be smaller than an instruction, from a task's point of
+view. The 96 then represents a portal, a vortex, a wormhole, where one linear path
+is set cycling - no change - and another that was in a state of no-change is resumed.
+
+Further, the 60 hexadecimal represents the same thing, but it lacks the second path
+being unfolded. Also, the direction of the entry in the first cycle comes from the center,
+not from a pole, as in 96. The 96 thus is a mirror, whereas the 60 only shows a partial
+view. The 6 symbolizes entering the cycle, and the 0 represents the cycle. From
+the caller's perspective then, the 60 is a yield, without even an expectation of
+another path continuing.
+
+69, symbolizes a similar thing, however, extending the spirals reveals there are two
+centers, on the far left and right, of these spirals. In the case of 96, these centers
+are in the middle, on the far right, and far left, respectively.
+
+
+The 0x45 sums to 9, an ending or yielding. Both 69 and 96 sum to 6, in this context,
+a beginning (or an ending). 69->6, 0x45->9; 96->6, 0x60->0x6.
+
+

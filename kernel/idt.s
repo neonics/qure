@@ -141,10 +141,10 @@ INT_NR = 0
 	pushf
 	lcall	SEL_compatCS, jmp_table_target + JMP_ENTRY_LEN * INT_NR	# 7
 .if SCHEDULE_IRET
-	jmp	schedule	# needs to do iret! see schedule.s
+	jmp	schedule_isr	# needs to do iret! see schedule.s
 	nop
 .else
-	call	schedule
+	call	schedule_near
 	iret
 .endif
 	nop
@@ -226,7 +226,9 @@ jmp_table_target:
 	SR_EDX	= ebp - 36
 
 	mov	eax, SEL_compatDS
-	mov	ds, ax
+	mov	ds, eax
+	mov	es, eax
+	cld
 
 	PUSHCOLOR 8
 	PRINT "(ISR "
@@ -254,6 +256,9 @@ jmp_table_target:
 	# it is an exception. Print exception name.
 	call	newline
 	PRINTc	12, "Exception: "
+	mov	dx, cx
+	call	printhex2
+	call	printspace
 
 	COLOR 11
 	mov	esi, [int_labels$ + ecx*4]
@@ -489,6 +494,66 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	#############################
 	call	newline
 
+	call	debug_print_exception_registers$
+
+	mov	esi, edi	# remember original stack ptr
+	call	debug_print_stack$
+	or	cx, cx	# division by zero
+	jz	2f
+	cmp	cx, 0xd	# general protection fault
+	jz	2f
+	cmp	cx, 6	# invalid opcode
+	jz	2f
+	cmp	cx, 5	# bounds
+	jz	2f
+	#############################
+.endif
+	cmp	cx, 1	# debugger
+	jz	2f
+	cmp	cx, 3	# manual breakpoint
+	jz	2f
+
+	cmp	cx, 0x20
+	jb	halt
+
+### A 'just-in-case' handler for PIC IRQs
+	movzx	dx, byte ptr [pic_ivt_offset]
+	mov	ax, cx # [ebp + 4]
+	sub	ax, dx		# assume [pic_ivt_offset] continuous
+	js	0f
+	cmp	ax, 0x10
+	jae	0f
+	shr	ax, 3
+	mov	al, 0x20
+	jz	1f
+	out	IO_PIC2 + 1, al
+1:	out	IO_PIC1 + 1, al
+	color 0x4f
+	PRINT	" IRQ "
+	sub	dx, cx
+	neg	dx
+	call	printhex2
+0:
+
+	POPCOLOR
+	call	newline
+	pop	edx
+	pop	ebx
+	pop	esi
+	pop	edi
+	pop	es
+	pop	ds
+	pop	ecx
+	pop	eax
+	pop	ebp
+	add	esp, 2	# pop interrupt number
+	iret
+
+2:	call	debugger
+	jmp	0b
+
+
+debug_print_exception_registers$:
 	printc_ 7, "cs:eip="
 	mov	edx, ss:[edi + 4]
 	call	printhex4
@@ -536,10 +601,23 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	printc_ 7, " esp="
 	lea	edx, [edi + 8]
 	call	printhex8
-
 	call	newline
+	ret
 
-	# print stack
+
+# in: edi = stack pointer
+# in: esi = original stack pointer (points to eip,cs,eflags)
+debug_print_stack$:
+	.data SECTION_DATA_BSS
+		stack_print_lines$:.long 0
+		stack_print_pos$:.long 0
+	.text32
+	mov	edx, [screen_scroll_lines]
+	#DEBUG_DWORD edx, "ssl"
+	mov	[stack_print_lines$], edx
+	mov	edx, [screen_pos]
+	#DEBUG_DWORD edx, "sp,spp"
+	mov	[stack_print_pos$], edx
 
 	printc 11, " STACK: "
 	mov	dx, ss
@@ -547,61 +625,17 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	printcharc 10 ':'
 	mov	edx, edi
 	call	printhex8
+	printc 11, " EFLAGS: "
+	pushfd
+	pop	edx
+	call	printhex8
 	call	newline
 
 	push	ebp
 	push	ecx
 	mov	ebp, edi
 
-.if 0	# print part of ISR local stack
-sub ebp, 12
-.rept 3
-color 12
-mov edx, ebp
-call printhex8
-printc 8, ": "
-mov edx, [ebp]
-color 7
-call printhex8
-add	ebp, 4
-call printspace
-.endr
-call newline
-.endif
-
-	mov	edx, ebp
-	color	12
-	call	printhex8
-	printc	8, ": "
-	mov	edx, [ebp]
-	color	7
-	call	printhex8
-	printc 9, " eip "
-	call	debug_printsymbol
-	call	newline
-	add	ebp, 4
-
-	mov	edx, ebp
-	color	12
-	call	printhex8
-	printc	8, ": "
-	mov	edx, [ebp]
-	color	7
-	call	printhex8
-	printlnc 9, " cs"
-	add	ebp, 4
-
-	mov	edx, ebp
-	color	12
-	call	printhex8
-	printc	8, ": "
-	mov	edx, [ebp]
-	color	7
-	call	printhex8
-	printlnc 9, " flags"
-	add	ebp, 4
-
-	mov	ecx, 10 # 16
+	mov	ecx, 5#10 # 16
 0:	mov	edx, ebp
 	color	12
 	call	printhex8
@@ -610,60 +644,47 @@ call newline
 	color	7
 	call	printhex8
 	call	printspace
-	call	debug_printsymbol
-	call	newline
-	add	ebp, 4
-#	cmp	ebp, [kernel_stack_top]
-#	jae	2f
-	loop	0b
-2:	pop	ecx
-	pop	ebp
-	#############################
-.endif
-	cmp	cx, 1	# debugger
-	jz	2f
-	cmp	cx, 3	# manual breakpoint
-	jz	2f
 
-	cmp	cx, 0x20 #PF
-	jb	halt
-
-### A 'just-in-case' handler for PIC IRQs, hardcoded to 0x20 offset
-	movzx	dx, byte ptr [pic_ivt_offset]
-	mov	ax, cx # [ebp + 4]
-	sub	ax, dx		# assume [pic_ivt_offset] continuous
-	js	0f
-	cmp	ax, 0x10
-	jae	0f
-	shr	ax, 3
-	mov	al, 0x20
+	# check if stack address points to eip,cs or eflags
+	push	esi
+	mov	eax, esi
+	mov	dl, 1
+	sub	eax, ebp
+	LOAD_TXT "eip \0cs \0eflags "
 	jz	1f
-	out	IO_PIC2 + 1, al
-1:	out	IO_PIC1 + 1, al
-	color 0x4f
-	PRINT	" IRQ "
-	sub	dx, cx
-	neg	dx
-	call	printhex2
-0:
+	inc	dl
+	add	esi, 5	# skip "eip \0"
+	add	eax, 4
+	jz	1f
+	add	esi, 4	# skip "cs \0"
+	add	eax, 4
+	jnz	2f
+1:	mov	ah, 9
+	call	printc
+	dec	dl
+2:	pop	esi
+	jnz	1f	# don't print symbol for cs, eflags
 
-	POPCOLOR
-	call	newline
-	pop	edx
-	pop	ebx
-	pop	esi
-	pop	edi
-	pop	es
-	pop	ds
+	call	debug_printsymbol
+1:	call	newline
+
+	add	ebp, 4
+	dec	ecx
+	jnz	0b
+
 	pop	ecx
-	pop	eax
 	pop	ebp
-	add	esp, 2	# pop interrupt number
-	iret
 
-2:	call	debugger
-	jmp	0b
-
+	# calculate stack print screenpos
+	mov	edx, [screen_scroll_lines]
+	sub	edx, [stack_print_lines$]
+	mov	[stack_print_lines$], edx
+	mov	eax, 160
+	imul	eax, edx
+	mov	edx, [stack_print_pos$]
+	sub	edx, eax
+	mov	[stack_print_pos$], edx
+	ret
 
 ###################################################################
 

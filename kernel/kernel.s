@@ -62,6 +62,7 @@ kernel_start:
 ###################################
 DEFINE = 1
 .include "debug.s"
+.include "mutex.s"
 .include "print.s"
 .include "pmode.s"
 .include "debugger.s"
@@ -241,10 +242,8 @@ kmain:
 
 
 	I "ATA:"
-
 	call	ata_list_drives
 
-	#MORE
 .if SHOWOFF
 	WAITSCREEN
 .endif
@@ -278,7 +277,7 @@ kmain:
 	COLOR 7
 
 	I "Enabling scheduler"
-	mov	dword ptr [schedule_sem], 0
+	call	scheduler_init; dbg_kernel_init$:	# debug symbol
 	OK
 
 

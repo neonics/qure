@@ -66,8 +66,11 @@ COLOR_STACK_SIZE = 2
 	.endif
 .endm
 
-.macro PUSH_SCREENPOS
+.macro PUSH_SCREENPOS newval=-1
 	push	dword ptr [screen_pos]
+	.ifnc -1,\newval
+	mov	dword ptr [screen_pos], \newval
+	.endif
 .endm
 
 .macro POP_SCREENPOS
@@ -79,8 +82,8 @@ COLOR_STACK_SIZE = 2
 # 0  : load ah with screen_color
 # > 0: load ah with constant
 # < 0: skip load ah. Note that ax will still be pushed.
-
 .macro PRINT_START c=0, char=0
+900:MUTEX_LOCK SCREEN, 900b
 	push	ax
 	pushf	# prevent interrupts during es != ds
 	cli
@@ -98,8 +101,8 @@ COLOR_STACK_SIZE = 2
 	mov	ah, \c
 	.endif
 
-	.if \char != 0
-	xor	al, al
+	.if \char
+	mov	al, \char
 	.endif
 #	.if \c > 0
 #	mov	ah, \c
@@ -112,6 +115,7 @@ COLOR_STACK_SIZE = 2
 
 
 .macro PRINT_START_ c=0, char=0
+900:MUTEX_LOCK SCREEN 900b
 	pushf	# prevent interrupts during es != ds
 	cli
 	cld
@@ -121,14 +125,17 @@ COLOR_STACK_SIZE = 2
 	mov	es, edi
 	mov	edi, [screen_pos]
 
-	.if \c == 0
-	mov	ah, [screen_color]
-	mov	al, \char
+	.ifc ah,\c
+		mov	al, \char
+	.elseif \c == 0
+		mov	ah, [screen_color]
+		mov	al, \char
 	.else
-	.if \c < 0
-	.else
-	mov	ax, (\c << 8) | \char
-	.endif
+		.if \c < 0
+		# do not update ax
+		.else
+		mov	ax, (\c << 8) | \char
+		.endif
 	.endif
 .endm
 
@@ -158,6 +165,7 @@ COLOR_STACK_SIZE = 2
 
 	pop	edi
 	pop	es
+MUTEX_UNLOCK SCREEN
 	popf
 .endm
 
@@ -564,12 +572,31 @@ __newline:
 newline:
 	push	ax
 	push	dx
+				push	ecx
 	mov	ax, [screen_pos]
+				movzx	ecx, ax
 	mov	dx, 160
 	div	dl
 	mul	dl
 	add	ax, dx
 	mov	[screen_pos], ax
+				jcxz	2f
+				push	edi
+				push	es
+				mov	edi, [screen_sel]
+				mov	es, edi
+				movzx	edi, cx
+				sub	cx, ax
+				neg	ecx
+				movzx	ecx, cx
+				shr	ecx, 1
+				jz	1f
+				mov	ax, es:[edi-2]
+				xor	al, al
+				rep	stosw
+			1:	pop	es
+				pop	edi
+			2:	pop	ecx
 	pop	dx
 	cmp	ax, 160 * 25 + 2
 	pop	ax
@@ -582,11 +609,12 @@ newline:
 ##### SCROLLBACK BUFFER ######
 SCREEN_BUFFER = 1
 .if SCREEN_BUFFER
-.data SECTION_DATA_BSS
+.data SECTION_DATA_BSS # TODO: objectify: convert to array of struct - multiple buffers.
 SCREEN_BUF_PAGES = 12
 SCREEN_BUF_SIZE = 160 * 25 * SCREEN_BUF_PAGES
-screen_buf_offs: .long 0
-screen_buf: .space SCREEN_BUF_SIZE
+screen_buf_offs:	.long 0
+screen_buf:		.space SCREEN_BUF_SIZE
+screen_scroll_lines:	.long 0	# total count
 .text32
 .endif
 ##############################
@@ -618,6 +646,7 @@ __scroll:
 		# calculate nr of lines
 		mov	ecx, 160
 		div	ecx
+		add	[screen_scroll_lines], eax
 		mul	ecx
 		mov	ecx, eax
 
@@ -672,7 +701,7 @@ __scroll:
 ############################## PRINT ASCII ####################
 
 printspace:
-	PRINT_START 0, 1
+	PRINT_START 0, ' '
 	stosw
 	PRINT_END
 	ret
@@ -747,6 +776,9 @@ nprint:	or	ecx, ecx
 println:call	print
 	jmp	newline
 #println:push	offset newline
+printlnc:
+	call	printc
+	jmp	newline
 
 # in: ah = color
 # in: esi = string

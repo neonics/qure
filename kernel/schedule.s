@@ -1,13 +1,20 @@
 #############################################################################
 # Scheduler and Task Switching
 #
-# The task-switching implemented here replaces cs,ds,es,fs,gs,eflags,
-# esp, and the general purpose registers. Note that only ss is not replaced.
+# Scheduling: keeping track of future tasks.
 #
-# The scheduler distinguishes between two kinds of tasks: legacy, or
-# job tasks, which are unmanaged threads executing on whatever stack
-# was active when the scheduler is invoked,
-# and 'context-switch' tasks, which are implemented by scheduling a
+# Scheduler: responsible for ordering and executing those tasks, aswell as
+# scheduling future execution of the current task.
+#
+# The task-switching implemented here replaces cs,ds,es,fs,gs,ss,eflags,
+# esp, the general purpose registers, and eip.
+#
+# The scheduler distinguishes between two kinds of tasks:
+#
+# legacy/jobs, which are unmanaged threads executing on whatever stack
+# was active when the scheduler is invoked, and
+#
+# 'context-switch' tasks, which are implemented by scheduling a
 # continuation (i.e., schedule the call-stack, discard it, and iret to
 # the context-switch task). The context-switch tasks have their own
 # stack allocated automatically upon schedule (unlike continuations).
@@ -16,21 +23,94 @@
 # are allocated, as ANY executing 'thread' can be interrupted and
 # scheduled. Therefore, only postponed 'threads' are managed in the
 # task schedule queue.
-
+#
+# However, upon initialisation of the scheduler, an initial task is allocated,
+# to store the continuation data. This data is not stored in the task
+# entry, but in the stack it points to.
+#
+# Jobs however, are run from the scheduler, with the scheduler disabled,
+# in kernel context. Jobs then are not meant to be interrupted.
+# When the task within which the job is running is interrupted,
+# its stackpointer gets to be updated to point to the job rather than
+# the task where it was executing. However, since the job runs on that
+# stack, when that task gets continued, the job running on it is activated.
+# Once the job finishes, the task continues, as the stack would be the
+# same as what it was when the task was interrupted and scheduled as
+# a continuation, to run the job.
+#
+# In this implementation however, the task and job running within it are
+# not expressly connected (except by an initial stack distance).
+# Thus, it is possible, if scheduling were enabled when a job is run,
+# that the original task gets continued, which will then destroy the
+# job's stack. To prevent this, a job should be scheduled as a task
+# with its own stack, which makes for only one kind of task.
+#
+# An alternative solution would be to remember the original stack top
+# of the job, and whenever the job gets interrupted, to copy the stack
+# to another context. The idea of a job is that initially all it requires
+# is the kernel selectors, the general purpose registers, and a temporary
+# local stack. This is then a portable (moveable) job, as it's stack
+# requirements are known.
+#
+# Without having interruptable jobs, jobs such as the keyboard handler,
+# which at current includes the screen history, will prevent other jobs
+# and tasks from being continued, as the scheduler is disabled when a
+# job is running.
+#
+# The network handler does send and receive packets in a job, and with
+# scheduling disabled, cannot really wait for packets, since further
+# packet handling for incoming packets can be scheduled but not executed.
+#
+# Jobs are meant to be quickly-run after some IRQ, to execute handling
+# code without blocking interrupts. Interactive jobs require scheduling,
+# and thus, for the scheduler to be enabled. This means that it's stack,
+# and thus, all values on the stack above esp, need to be protected.
+# In a flat address space comparing stack pointers will cause problems,
+# thus, jobs need to link to their parent task, and set a flag to prevent
+# the parent task from being scheduled as long as the job exists.
+#
+# Taking the approach of a possible job-stack within a task, a second
+# array for jobs could be linked to a task, marking which stacks are occupied
+# by child processes (jobs).
+#
+# For an interactive job such as a network service handler, which does I/O,
+# the time between sending and receiving packets may be longer than it is
+# desired that the task be suspended.
+# Such a job may schedule it's own continuation; however, this needs to
+# occur on a neutral stack. Thus, the job needs to return to it's caller.
+# Generally speaking for network jobs, these are automatically created
+# whenever there is inbound traffic. As suchs, jobs needs to follow a pure
+# event-handling architecture. They manage their own state information
+# such as tcp connection lists, which they can use to associate incoming
+# packets to determine the next state in the protocol they implement.
+# Thus, a job should never wait for an event, as it gets triggered by one.
+#
+# At current, the task that got interrupted to execute a job is left marked
+# as running, and thus will not be scheduled (meaning, considered for
+# execution). It then is safe to enable the scheduler for jobs, since
+# only tasks that are not running jobs can be scheduled.
+#
+# Jobs can be enabled or disabled at compile-time. When disabled, all jobs
+# are treated like tasks and receive a 1k stack.
 .intel_syntax noprefix
 
-SCHEDULE_DEBUG = 1
+SCHEDULE_DEBUG		= 0
+SCHEDULE_DEBUG_MUTEX	= 0	# 1=print at cursor, 2=print at topleft
+SCHEDULE_DEBUG_TOP	= 2	# 0..3; default value of env variable "sched.debug"
+SCHEDULE_DEBUG_GRAPH	= 1	# ticker-tape
 
-SCHED_DEBUG_MUTEX = 0	# the 2nd line on the screen
-SCHED_DEBUG_TOP = 0	# the 'top' like output
+SCHEDULE_ROUND_ROBIN	= 1	# the default; has no effect when SCHED.._JOBS=0
+SCHEDULE_JOBS		= 0	#buggy# 0 means jobs are treated like tasks
+SCHEDULE_CLEAN_STACK	= 1	# zeroes the stack for each new job; ovrhd:264 clocks
 
-SCHED_ROUND_ROBIN = 1
-SCHED_MALLOC = 0	# 1: malloc/free schedule_task.ecx,eax; 0: use task_regs for storage.
-TASK_SWITCH = 1	# experimental; set to 0 for legacy.
+JOB_STACK_SIZE		= 1024
 
-TASK_SWITCH_DEBUG = 0
+TASK_SWITCH_INTERVAL	= 0	# nr of timer ticks between scheduling (debug)
+TASK_SWITCH_DEBUG	= 0	# 0..4 very verbose printing of pivoting
+TASK_SWITCH_DEBUG_JOB	= 0	# job completion (no effect when !SCHEDULE_JOBS)
+TASK_SWITCH_DEBUG_TASK	= 0	# task completion
 
-.struct 0
+.struct 0	# stack order
 task_reg_gs:	.long 0
 task_reg_fs:	.long 0
 task_reg_es:	.long 0
@@ -47,131 +127,49 @@ task_reg_eax:	.long 0
 task_reg_eip:	.long 0
 task_reg_cs:	.long 0
 task_reg_eflags:.long 0
+.align 4	# for movsd (future modifications)
 TASK_REG_SIZE = .
-.struct 0
-.if SCHED_MALLOC
-task_addr:	.long 0	# eip of task
-task_arg:	.long 0	# value to be passed in edx
-.endif
+.struct 0	# scheduled task structure
+task_pid:	.long 0
 task_label:	.long 0	# name of task (for debugging)
-task_registrar:	.long 0	# address from which schedule_task was called (for debugging when task_addr=0)
-task_flags:	.long 0
+task_registrar:	.long 0	# debugging: address from which schedule_task was called
+task_flags:	.long 0	# bit 1: 1=task (ctx on task_task);0=job (task_regs)
+	TASK_FLAG_TASK		= 0x0001
+	TASK_FLAG_RESCHEDULE	= 0x0100	# upon completion, sched again
+	TASK_FLAG_RUNNING	= 0x8000 << 8	# do not schedule
+	TASK_FLAG_DONE		= 0x0100 << 8	# (aligned with RESCHEDULE)
+	TASK_FLAG_CHILD_JOB	= 0x0010 << 8	# a job is using this stack
+task_parent:	.long 0
 task_stackbuf:	.long 0	# remembered for mfree
+task_stack:
+task_stack_esp:	.long 0	# 16 byte aligned
+task_stack_ss:	.long 0
+# these values are only used for jobs:
+.align 4	# for movsd (future modifications)
 task_regs:	.space TASK_REG_SIZE
 SCHEDULE_STRUCT_SIZE = .
-.if SCHED_MALLOC
-.else
-.struct task_regs + task_reg_eip
-task_addr: 
-.struct task_regs
-task_arg:
-.endif
 .data
-schedule_sem:	.long -1 # -1: scheduling disabled; locked by: 1=schedule 2=schedule_task
+task_queue_sem:	.long -1	# -1: scheduling disabled
+scheduler_current_task_idx: .long -1
 .data SECTION_DATA_BSS
-current_task:	.space SCHEDULE_STRUCT_SIZE
-screen_pos_bkp: .long 0
-scheduled_tasks: .long 0
-schedule_delay: .long 0
+pid_counter:	.long 0
+task_queue:	.long 0
 .text32
 
-# A fail-fast semaphore lock.
+
+
+################################################################
+# Debug: scheduler 'graph' (ticker-tape)
 #
-# This macro does a single check, leaving the semaphore in a locked state
-# regardless of whether the lock succeeded.
-# When the lock does not succeed, control is transferred to \nolocklabel.
-# out: ZF = 1: have lock
-# out: eax = 0 (have locK), other value: no lock.
-.macro MUTEX_LOCK sem, nolocklabel=0
-	.if 0 # INTEL_ARCHITECTURE > 3	# 486+ - TODO: check
-	push	ebx
-	mov	ebx, 1
-	xor	eax, eax
-	lock	cmpxchg \sem, ebx
-	pop	ebx
-	.else
-	mov	eax, 1
-	xchg	\sem, eax
-	or	eax, eax
-	.endif
-	.ifnc 0,\nolocklabel
-	jnz	\nolocklabel	# task list locked - abort.
-	.endif
-.endm
-
-
-# This is a semi-spinlock, as it does not use CPU time when it fails 
-# to acquire a lock. A lock is typically not going to become free unless
-# an interrupt occurs (unless perhaps on SMP systems).
-# Therefore, when lock acquisition fails, interrupts are enabled and
-# the cpu is halted.
-# Since the timer interrupt is essential for scheduling,
-# and since this is the only way the scheduler is called, 
-# and since on a single-CPU system the scheduler is the only 'process'
-# that can obtain a lock,
-# halting is the most efficient way to wait for a semaphore to become free.
-#
-# On an SMP system, potentially [pit_timer_interval] milliseconds are wasted,
-# in the case where IRQ's are only executed by one CPU at a time,
-# and where two or more CPU's are competing to register a task, where one
-# has obtained a lock, and the other enters halt.
-# I have not researched SMP systems, thus, it is possible that even though
-# any IRQ is only executed on a single CPU at a time, that two different IRQ's,
-# such as the timer and the network, are executed simultaneously. In this case,
-# since all IRQ's (except exceptions), are mapped to the scheduler, it is
-# possible that the scheduler is called concurrently. However, the 'fail-fast'
-# lock mechanism would take care of attempting any task switch.
-#
-# out: CF = ZF (1: no lock; 0: lock)
-# destroys: eax, ecx
-.macro MUTEX_SPINLOCK sem, locklabel=0, nolocklabel=0
-	.ifc 0,\locklabel
-	_LOCKLABEL = 109f
-	.else
-	_LOCKLABEL = \locklabel
-	.endif
-
-	mov	ecx, 0x1000
-100:
-	.if INTEL_ARCHITECTURE > 3
-		push	ebx
-		mov	ebx, 1
-		xor	eax, eax
-		lock	cmpxchg \sem, ebx
-		pop	ebx
-		jz	109f
-	.else
-		xchg	\sem, eax
-		or	eax, eax
-		jz	109f
-	.endif
-	.if 1
-	pushf
-	sti
-	hlt
-	popf
-	.else
-	pause
-	.endif
-	loop	100b
-
-	.ifc 0,\nolocklabel
-		or	eax, eax
-		stc
-	.else
-		jmp \nolocklabel
-	.endif
-109:	
-.endm
 
 # nr: 3 = failed to acquire lock
 # nr: 2 = lock success, executing task
 # nr: 1 = lock success, no task
 # nr: 0 = no data
 .macro SCHED_UPDATE_GRAPH nr
-.if SCHEDULE_DEBUG
+.if SCHEDULE_DEBUG_GRAPH
 	push	eax
-	.ifc al,\nr
+	.ifc bl,\nr
 	movzx	eax, \nr
 	.else
 	mov	eax, \nr
@@ -182,585 +180,976 @@ schedule_delay: .long 0
 .endm
 
 
-schedule_print:
-	mov	eax, [screen_pos]
-	mov	[screen_pos_bkp], eax
-	mov	edi, 160 * 3
-	mov	[screen_pos], edi
-	mov	ecx, 80 * 12
-	push	es
-	mov	eax, SEL_vid_txt
-	mov	es, ax
-	mov	ax, 0x1000
-	rep	stosw
-	pop	es
+# Various other debug macro's in order to keep source readable.
 
-	pushfd
-	pop edx
-	DEBUG_DWORD edx, "FLAGS"
-	DEBUG_DWORD [ebp+task_reg_eflags]
-	call printspace
-
-	call	cmd_tasks		
-	mov	eax, [screen_pos_bkp]
-	mov	[screen_pos], eax
-	ret
+.macro DEBUG_PRINT_HLINE
+.if TASK_SWITCH_DEBUG
+	call	newline
+	mov	ecx, 80
+	mov	ax, 0xe000
+990:	call	printcharc
+	loop	990b
+.endif
+.endm
 
 
-#############################################################################
-# This method is called immediately after an interrupt has handled,
-# and it is the tail part of the irq_proxy.
-.if TASK_SWITCH
-.data SECTION_DATA_BSS
-block_schedule: .long 0
-b_cnt: .long 0
-recur: .long 0
-.text32
-schedule:
-	.if 1#TASK_SWITCH_DEBUG
-		inc	dword ptr [schedule_delay]
-		cmp	dword ptr [schedule_delay], 1#50
-		jae	1f
-		iret
-		1:
-		mov dword ptr [schedule_delay], 0
+
+.macro DO_DEBUG_SCHEDULE_MUTEX
+.if SCHEDULE_DEBUG_MUTEX
+	pushf
+	mov	eax, (0x0c<<8|'x')<<16 | (0x0a<<8|'v')
+
+	.if SCHEDULE_DEBUG_MUTEX == 2	# print at topleft of screen
+		PUSH_SCREENPOS 0
 	.endif
-.if SCHED_DEBUG_MUTEX
-pushad
-push ss
-push ds
-push es
-push fs
-push gs
-mov ebp, esp
-mov eax, SEL_compatDS
-mov ds, eax
 
-PUSH_SCREENPOS
-MUTEX_LOCK [block_schedule]
-#jnz	999f
-or eax, eax
-jz 1f
-	mov [screen_pos], dword ptr 160
-	printcharc 0xc0, 'x'
+	jnc	991f
+	SCHED_UPGRADE_GRAPH 1
+	shr	eax, 16
+991:	call	printcharc
 
-	inc dword ptr [b_cnt]
-	mov edx, [block_schedule]
-	call printhex8
-	DEBUG_DWORD eax
-	call printspace
-	mov edx, [b_cnt]
-	call printhex8
-	call printspace
-	mov edx, [ebp + task_reg_eflags]
-	call printhex8
-	call printspace
-	mov edx, [ebp + task_reg_eip]
-	call printhex8
-	pushad
-	call schedule_print
-	popad
+	.if SCHEDULE_DEBUG_MUTEX == 2
+		DEBUG_DWORD [mutex]
 
-	stc
-	jmp 2f
-1:
-	mov [screen_pos], dword ptr 160
-	printcharc 0xa0, 'v'
-	mov edx, [ebp + task_reg_eflags]
-	call printhex8
-	call printspace
-	mov edx, [ebp + task_reg_eip]
-	call printhex8
-	clc
-2:
-POP_SCREENPOS
-pop gs
-pop gs
-pop es
-pop ds
-pop ss
-popad
-jc 999f
-.else
-push eax
-push ebx
-MUTEX_LOCK [block_schedule]
-pop ebx
-pop eax
-jnz 999f
+		.data SECTION_DATA_BSS
+		b_cnt$:.long 0	# how many times the SCHEDULE mutex failed
+		.text32
+		mov	edx, [b_cnt$]
+		inc	dword ptr [b_cnt$]
+		call	printhex8
+
+		POP_SCREENPOS
+	.endif
+	popf
+.endif
+.endm
+
+
+.macro DO_SCHEDULER_DEBUG_PIVOT
+.if TASK_SWITCH_DEBUG > 2
+	push	ebp
+	lea	ebp, [esp + 4]
+	mov	ecx, [task_queue]
+	DEBUG	"pivot"
+	DEBUGS	[ecx + edx + task_label]
+	push	eax
+	mov	eax, [ecx + edx + task_label]
+	call	strlen
+	neg	eax
+	add	eax, 6
+	jle	101f
+100:	call	printspace
+	dec	eax
+	jg	100b
+101:	pop	eax
+	DEBUG_DWORD ebp,"esp"
+	DEBUG_DWORD [ebp + task_reg_cs],"cs"
+	DEBUG_DWORD [ebp + task_reg_eip],"eip"
+	DEBUG_DWORD [ebp + task_reg_eflags],"eflags"
+	call	newline
+	#mov	ebp, [screen_pos_bkp]
+	#mov	[screen_pos], ebp
+	pop	ebp
+.endif
+.endm
+
+SCHEDULE_PRINT_FREQUENCY = PIT_FREQUENCY	# in Hz
+.data SECTION_DATA_BSS
+schedule_top_delay$: .long 0
+.text32
+
+.macro DO_SCHEDULER_DEBUG_TOP
+
+.if 0 	# print throttling
+	push	eax
+	add	dword ptr [schedule_top_delay$], SCHEDULE_PRINT_FREQUENCY
+	mov	eax, [schedule_top_delay$]
+	sub	eax, [pit_timer_frequency]
+	jb	100f
+	mov	[schedule_top_delay$], eax
+100:	pop	eax
+	jc	101f
 .endif
 
-	# preserve all registers for task switch. eip:cs:eflags already on stack.
-	pushad	# eax, ecx, edx, ebx, esp, ebp, esi, edi
-	push	ss
-	push	ds
-	push	es
-	push	fs
-	push	gs
-	mov	ebp, esp	# ebp + 4*(4+8) = eip:cs:flags/eip
+	push	eax
+	push	edx
+	push	esi
+	mov	bl, [schedule_show$]
 
+	cmp	bl, 1
+	jb	100f
+	call	sched_print_graph
+
+	cmp	bl, 2
+	jb	100f
+	PUSH_SCREENPOS 0
+	mov	eax, [scheduler_current_task_idx]
+	add	eax, [task_queue]
+	# potential concurrency issue
+	DEBUGS [eax + task_label],"task"
+	POP_SCREENPOS
+
+	cmp	bl, 3
+	jb	100f
+	call	schedule_print
+
+100:	pop	esi
+	pop	edx
+	pop	eax
+
+
+101:
+	.if TASK_SWITCH_DEBUG > 1
+		DEBUG "pivot"
+		mov ebp, esp
+		DEBUG_DWORD esp
+		DEBUG_DWORD [ebp + task_reg_cs],"cs"
+		DEBUG_DWORD [ebp + task_reg_eip],"eip"
+		DEBUG_DWORD [ebp + task_reg_eflags],"eflags"
+	.endif
+.endm
+
+
+
+# Not necessarily debug...
+.if TASK_SWITCH_INTERVAL
+.data SECTION_DATA_BSS
+	schedule_delay$: .long 0
+.text32
+.endif
+
+.macro DO_TASK_SWITCH_INTERVAL skiplabel=0
+.if TASK_SWITCH_INTERVAL > 0
+	push	ds
+	push	eax
+	mov	eax, SEL_compatDS
+	mov	ds, eax
+	inc	dword ptr [schedule_delay$]
+	cmp	dword ptr [schedule_delay$], TASK_SWITCH_INTERVAL
+	jae	100f
+	pop	eax
+	pop	ds
+	.ifnc 0,\skiplabel
+	jmp	\skiplabel
+	.else
+	iret
+	.endif
+100:	mov	dword ptr [schedule_delay$], 0
+	pop	eax
+	pop	ds
+.endif
+.endm
+
+#############################################################################
+scheduler_init:
+	# assume scheduler is disabled: [task_queue_sem]==-1
+
+	# allocate a space for the current task:
+	call	task_queue_newentry
+	jc	9f
+
+	mov	[scheduler_current_task_idx], edx
+	LOAD_TXT "kernel"
+	mov	[eax + edx + task_label], esi
+	mov	[eax + edx + task_flags], dword ptr TASK_FLAG_RUNNING|TASK_FLAG_TASK
+	mov	esi, [esp]
+	mov	[eax + edx + task_registrar], esi
+	mov	[eax + edx + task_stack_ss], ss # esp updated in scheduler
+
+		LOAD_TXT "sched.debug"
+		LOAD_TXT "0", edi
+		mov	eax, offset scheduler_debug_var_changed
+		add	eax, [realsegflat]
+		mov	[edi], byte ptr '0' + SCHEDULE_DEBUG_TOP
+		call	shell_variable_set
+
+	mov	dword ptr [task_queue_sem], 0
+	btr	dword ptr [mutex], MUTEX_SCHEDULER
+	ret
+
+9:	printlnc 4, "No more tasks"
+	stc
+	ret
+
+# spinlock
+scheduler_suspend:
+	mov	ecx, 1000
+0:	MUTEX_LOCK SCHEDULER, 1f
+	mov	ecx, 1000
+2:	SEM_SPINLOCK [task_queue_sem], locklabel=3f
+	loop	2b
+3:	ret
+1:	loop	0b
+
+scheduler_resume:
+	mov	ecx, 1000
+	SEM_UNLOCK [task_queue_sem]
+0:	MUTEX_UNLOCK SCHEDULER
+	ret
+
+.data SECTION_DATA_BSS
+schedule_show$: .byte 0
+.text32
+# in: eax = env var struct
+scheduler_debug_var_changed:
+	push	esi
+	printc_ 11, "var changed: "
+	mov	esi, [eax + env_var_label]
+	call	print
+	printcharc 11, '='
+	mov	esi, [eax + env_var_value]
+	call	print
+	call	atoi_
+	jc	9f
+	cmp	eax, 9
+	ja	9f
+	mov	[schedule_show$], al
+	OK
+	pop	esi
+	ret
+9:	printlnc 4, " invalid value: not 0..9"
+	pop	esi
+	ret
+
+#############################################################################
+
+# in: [esp+4] = cs
+# in: [esp+0] = eip
+schedule_far:
+	# shift stack down one word and inject esp
+	sub	esp, 4	# esp+4=eip
+	push	eax	# esp+8=eip
+	mov	eax, [esp+8]	# eip
+	mov	[esp + 4], eax
+	mov	eax, [esp+12]	# cs
+	mov	[esp + 8], eax
+	pushfd
+	pop	dword ptr [esp + 12]
+	pop	eax
+	jmp	schedule_isr
+
+# this is callable as a near call.
+# in: [esp] = eip
+schedule_near:
+	# adjust stack to make it suitable for iret
+	sub	esp, 8
+	push	eax
+	mov	eax, [esp + 4 + 8]	# eip
+	mov	[esp + 4], eax
+	pop	eax
+	mov	[esp + 4], cs
+	pushf
+	pop	dword ptr [esp + 8]
+	#jmp	schedule_isr
+
+
+# This method is called immediately after an interrupt is handled,
+# and it is the tail part of the irq_proxy.
+schedule_isr:
+	.if SCHEDULE_JOBS
+		jmp schedule_isr_TEST
+	.endif
+	DO_TASK_SWITCH_INTERVAL
+	# store the CPU state (eip,cs,eflags already on stack):
+	pushad
+	pushd	ss
+	pushd	ds
+	pushd	es
+	pushd	fs
+	pushd	gs
+	mov	ebp, esp
 	mov	eax, SEL_compatDS
 	mov	ds, eax
 	mov	es, eax
 
-	.if SCHED_DEBUG_TOP
-		call	schedule_print
+	cmp	dword ptr [task_queue_sem], -1
+	jz	10f
+
+	MUTEX_LOCK SCHEDULER #, nolocklabel=9f
+		DO_DEBUG_SCHEDULE_MUTEX
+		jc	9f
+	SEM_LOCK [task_queue_sem], nolocklabel=88f
+
+	call	scheduler_get_task$
+
+	or	dword ptr [eax + edx + task_flags], TASK_FLAG_RUNNING
+	mov	[scheduler_current_task_idx], edx
+	mov	[task_index], edx
+
+	lss	esp, [eax + edx + task_stack]
+	or	[esp + task_reg_eflags], dword ptr 1<<9
+
+
+	SEM_UNLOCK [task_queue_sem]
+8:	MUTEX_UNLOCK SCHEDULER
+9:
+	DO_SCHEDULER_DEBUG_TOP
+10:	popd	gs
+	popd	fs
+	popd	es
+	popd	ds
+	popd	ss # should have same value as ss already has
+	popad	# esp ignored
+	iret
+88:	SCHED_UPDATE_GRAPH 1
+	jmp	8b
+
+# precondition: [task_queue_sem] locked.
+# out: eax + edx = runnable task
+scheduler_get_task$:
+	# update the current task's status
+
+	mov	eax, [task_queue]
+	mov	edx, [scheduler_current_task_idx]
+	mov	[eax + edx + task_stack_esp], ebp
+	.if 1
+		# copy the register state - for debug
+		# NOTE: if this is disabled, EIP doesn't get updated, and thus
+		# tasks may be rejected due to them already being scheduled
+		# (see schedule_task, task_is_queued). Tasks may still
+		# be rejected when their first instruction is HLT under certain
+		# conditions, even when this code is enabled.
+		lea	edi, [eax + edx + task_regs]
+		mov	esi, ebp
+		mov	ecx, TASK_REG_SIZE
+		rep	movsb
 	.endif
 
-	.if TASK_SWITCH_DEBUG > 1
-		DEBUG "sched ret"
-		DEBUG_DWORD esp
-		DEBUG_DWORD [ebp+task_reg_cs],"cs"
-		DEBUG_DWORD [ebp+task_reg_eip],"eip"
-		DEBUG_DWORD [ebp+task_reg_esp],"esp"
-		call newline
+	mov	ecx, [eax + array_index]	# 8 loop check
+
+	test	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE
+	jz	1f
+2:	mov	[eax + edx + task_flags], dword ptr -1
+	jmp	0f
+1:	and	[eax + edx + task_flags], dword ptr ~TASK_FLAG_RUNNING
+
+########
+0:	add	edx, SCHEDULE_STRUCT_SIZE
+	cmp	edx, [eax + array_index]
+	jb	1f
+	xor	edx, edx
+
+1:	sub	ecx, SCHEDULE_STRUCT_SIZE	# 8 loop check
+	js	9f
+
+	test	dword ptr [eax + edx + task_flags], TASK_FLAG_DONE
+	jnz	2b
+	test	dword ptr [eax + edx + task_flags], TASK_FLAG_RUNNING
+	jnz	0b
+
+	.if SCHEDULE_DEBUG_GRAPH
+		mov	bl, 2
+		cmp	edx, [scheduler_current_task_idx]
+		jz	1f
+		inc	bl	# 3 = task switch
+		test	dword ptr [eax + edx + task_flags], TASK_FLAG_TASK
+		jz	1f
+		inc	bl	# 4 = job
+	1:	SCHED_UPDATE_GRAPH bl
 	.endif
 
-	# TODO: lock task queue
-	# task queue is locked/unloacked in get_scheduled_task
-	call	get_scheduled_task$	# out: eax, edx, ebx
-	jc 9f	#no task, return to current task
-
-# in: edx = task args (task_regs)
-# in: ebx = task flags
-	.if TASK_SWITCH_DEBUG
-		printchar 'T'
-		DEBUGS [edx-task_regs+task_label]
-
-		.if TASK_SWITCH_DEBUG > 1 # SCHEDULE_DEBUG==2
-			DEBUG "!!!!!!!!!!!!!!!";DEBUG_DWORD ebx
-			push	eax
-			mov	al, 'a'
-			test	ebx, 1
-			jz	1f
-			mov	al, 'b'
-		1:	call	printchar
-			pop	eax
-		.endif
+	.if TASK_SWITCH_DEBUG > 2
+		or	edx, edx
+		jz	1f
+		DEBUGS [eax + edx + task_label]
+	1:
 	.endif
 
-	test	ebx, 2	# whether this task requires context switch
-	jz	1f	# nope, legacy task (job)
+	ret
+# 8 loop handler
+9:	printlnc 4, "Task queue empty"
+	jmp 	halt
+	int 3
 
-	# impending context switch - schedule continuation:
-	#printchar 'C'
-	#MUTEX_LOCK [schedule_sem], 9f	# abort
+##########################################################################
+1:	pushad
+	DO_SCHEDULER_DEBUG_TOP
+	popad
+	iret
 
-	sub edx, [scheduled_tasks]
+schedule_isr_TEST:
+	DO_TASK_SWITCH_INTERVAL #skiplabel=1b
+#cli
+	# store the CPU state (eip,cs,eflags already on stack):
 	pushad
-	mov	eax, offset task_switch_continuation #debug label
-	mov	ecx, TASK_REG_SIZE
-	mov	ebx, 2
-	LOAD_TXT "continuation"
-	call	schedule_task_LEGACY	# out: eax = task arg buf
-	jc	2f
-	mov	ecx, TASK_REG_SIZE
-	mov	edi, eax
-	mov	esi, ebp
-	rep	movsb
-	# update esp, as it's value points to eip;cs:eflags
-	add	[eax + task_reg_esp], dword ptr 12
-	clc
-	2:popad
-	jnc	2f
-	printc 12, "FAIL SCHED CONT"	
-	jmp 9f
-	2:
-	add edx, [scheduled_tasks]
-	# TODO: unlock
+	pushd	ss
+	pushd	ds
+	pushd	es
+	pushd	fs
+	pushd	gs
+	mov	ebp, esp
+	mov	eax, SEL_compatDS
+	mov	ds, eax
+	mov	es, eax
 
-	# context switch.
-	.if SCHEDULE_IRET
-		# ignore current stack: task is continuation.
-	#	cmp	[edx - task_regs + task_stackbuf], dword ptr 0
-	#	jz 3f
-		mov	edi, [edx + task_reg_esp]
-	#	or	edi, edi
-	#	jnz	2f
-	#	# use current stack
-	#3:	mov	edi, esp
-	2:	sub	edi, TASK_REG_SIZE
-		mov	esp, edi
-		mov	esi, edx
+	# prevent reentrancy
+	MUTEX_LOCK SCHEDULER
+	DO_DEBUG_SCHEDULE_MUTEX
+	jc	9f	# XXX this line appears in exception stack!
+
+	# lock the task queue array, prevent mrealloc and other updates:
+	SEM_LOCK [task_queue_sem], 7f
+
+		mov	ecx, [task_queue]
+		mov	eax, [scheduler_current_task_idx]
+		# update stack
+		mov	[ecx + eax + task_stack_esp], ebp
+
+		# copy the register state
+		lea	edi, [ecx + eax + task_regs]
+		mov	esi, ebp
 		mov	ecx, TASK_REG_SIZE
 		rep	movsb
 
-		# data copied, mark task spot as available:
-		mov	[edx - task_regs + task_flags], dword ptr -1
 
-		mov eax, edx
-		mov ecx, [scheduled_tasks]
-		sub eax, ecx
-		sub eax, offset task_regs
-		# eax is now index to task
-		# check whether task is last, if so, decrease array_index
-		add eax, SCHEDULE_STRUCT_SIZE
-		# if eax was last index, it should now equal array_index:
-		cmp	eax, [ecx + array_index]
-		jnz 2f
-		# XXX NOT LOCKED
-		sub dword ptr [ecx + array_index], SCHEDULE_STRUCT_SIZE
-		2:
+	call	task_queue_get$	# out: ecx+edx
+	jc	6f
 
+	mov	eax, [scheduler_current_task_idx]
 
-
-			mov	edi, offset current_task
-			lea	esi, [edx - task_regs]
-			mov	ecx, SCHEDULE_STRUCT_SIZE
-			rep	movsb
-
-mov	dword ptr [block_schedule], 0
-		pop	gs
-		pop	fs
-		pop	es
-		pop	ds
-		add	esp, 4	# pop sp
-		popad
-		or	word ptr [esp + 8], 1<<9	# enable int
-
-		.if TASK_SWITCH_DEBUG
-			push ebp
-			lea ebp, [esp + 4]
-			DEBUG "r1"
-			DEBUG_DWORD ebp
-			DEBUG_DWORD [ebp+4],"cs"
-			DEBUG_DWORD [ebp+0],"eip"
-			DEBUG_DWORD [ebp+8],"eflags"
-			printchar '*'
-			mov ebp, [screen_pos_bkp]
-			mov [screen_pos], ebp
-			pop ebp
-
-		.endif
-		#DEBUG "HALT"; 0:hlt;jmp 0b
-		iret
-		sched_context_switch$:	# debug symbol
-
-	.else
-	.error "TASK_SWITCH requires SCHEDULE_IRET"
-	.endif #SCHEDULE_IRET
-
-
-1:	# task requires no context switch - treat it like a job
-	call	call_task
-
-		.if SCHED_MALLOC
-		or	eax, eax
-		jz	2f
-		mov	eax, edx
-		call	mfree
-	2:
-		.endif
-
-
-		mov	edi, offset current_task
-		mov	eax, [esp + task_reg_eip]
-		mov	[edi + task_addr], eax
-		mov	eax, [esp + task_reg_esp]
-		mov	[edi + task_regs+task_reg_esp], eax
-		LOAD_TXT "<default>"
-		mov	[edi + task_label], esi
-
-
-
-9:	
-	.if TASK_SWITCH_DEBUG
-		mov ebx, [screen_pos_bkp]
-		mov [screen_pos_bkp], ebx
-	.endif
-
-mov	dword ptr [block_schedule], 0
-	pop	gs
-	pop	fs
-	pop	es
-	pop	ds
-	add	esp, 4	# pop	ss
-	popad
-999:
-.if SCHEDULE_IRET
-	iret
-.else
-	ret
-.endif
-
-
-.else
-
-schedule: # _LEGACY:
-	push	ebp
-	mov	ebp, esp
-	push	offset schedule	# for stack debugging
-	push	ds
-	push	es
-	push	eax
-	push	edx
-
-	mov	eax, SEL_compatDS
-	mov	ds, eax
-	mov	es, eax
-
-	# TODO: lock task queue (it is locked/released in get_scheduled_task$)
-	call	get_scheduled_task$	# out: eax, edx, ebx
-	jc	9f
-	# keep interrupt flag as before IRQ
-	# access EFLAGS: ebp + 4 -> eip:cs:eflags (+12 then ->eflags)
-	# unless SCHEDULE_IRET = 0: a return ptr then preceeds eip on stack.
-	test	word ptr [ebp + 4*(12+SCHEDULE_IRET-1)], 1 << 9 # irq flag;
+	test	[ecx + eax + task_flags], dword ptr TASK_FLAG_DONE
 	jz	1f
-	sti
-1:
-	call	call_task
+	mov	[ecx + eax + task_flags], dword ptr -1 # mark as available
+	jmp	2f
+1:	and	[ecx + eax + task_flags], dword ptr ~TASK_FLAG_RUNNING
+2:
 
-	.if SCHED_MALLOC
-	or	edx, edx
-	jz	9f
-	mov	eax, edx
-	call	mfree
-	.endif
+.if SCHEDULE_JOBS
 
-9:	pop	edx
-	pop	eax
-	pop	es
-	pop	ds
-	add	esp, 4	# pop offset schedule (as iret has no arguments)
-	pop	ebp
-.if SCHEDULE_IRET
+	test	[ecx + edx + task_flags], dword ptr TASK_FLAG_TASK
+	jnz	1f
+
+######## job
+		.if TASK_SWITCH_DEBUG > 2
+			DEBUG "JOB"
+			DEBUGS [ecx+eax +task_label],"continuation"
+			DEBUG_DWORD [ebp + task_reg_eip],"eip"
+			DEBUG_DWORD ebp
+			call newline
+		.endif
+
+
+	# leave current task 'running' so it won't be scheduled.
+	or	dword ptr [ecx + eax + task_flags], TASK_FLAG_CHILD_JOB
+	or	dword ptr [ecx + edx + task_flags], TASK_FLAG_RUNNING
+	mov	[ecx + edx + task_parent], eax
+	# prepare task stack: inject call
+	push	eax # [scheduler_current_task_idx]
+	push	edx
+	push	dword ptr offset job_done	# catch job's "ret"
+	# copy job context to current stack:
+	push	dword ptr [ebp + task_reg_eflags]
+	mov	esi, cs	# doing it this way, otherwise 0x00060030 gets pushed.
+	push	esi
+	push	dword ptr [ecx + edx + task_regs+task_reg_eip]
+
+	mov	[ecx + edx + task_regs + task_reg_esp], esp
+	mov	[ecx + edx + task_regs + task_reg_ss], ss
+
+	lea	esi, [ecx + edx + task_regs]
+	mov	ecx, TASK_REG_SIZE - 12
+	sub	esp, ecx
+	mov	edi, esp
+	rep	movsb
+
+	mov	ecx, [task_queue]
+
+	mov	[ecx + edx + task_stack_esp], esp
+	mov	[ecx + edx + task_stack_ss], ss
+
+		.if TASK_SWITCH_DEBUG > 3
+			pushad
+			mov	ebx, eax
+			mov	eax, ecx
+			printcharc 0xf0, 'P'
+			push	edx
+			call	task_print$
+			pop	edx
+			printcharc 0xf0, 'C'
+			mov	ebx, edx
+			call	task_print$
+			popad
+		.endif
+
+	jmp	2f
+
+.endif
+######## task
+
+1:	lss	esp, [ecx + edx + task_stack]
+
+		.if TASK_SWITCH_DEBUG > 2
+			DEBUG "TASK"
+		.endif
+
+	# update current task's status: (continuation)
+	mov	[ecx + eax + task_stack_esp], ebp
+	mov	[ecx + eax + task_stack_ss], ss
+	# copy eip/esp in job context for easy checking/printing
+	mov	ebx, [ebp + task_reg_eip]
+	mov	[ecx + eax + task_regs + task_reg_eip], ebx
+	lea	ebx, [ebp + task_reg_eip]
+	mov	[ecx + eax + task_regs + task_reg_esp], ebx
+
+	# mark new task as current:
+	or	[ecx + edx + task_flags], dword ptr TASK_FLAG_RUNNING
+
+2:
+
+########
+
+# in: ecx + edx = current task
+# in: ecx + eax = prev task
+# in: esp = task context (TASK_REG...)
+pivot:
+	mov	[scheduler_current_task_idx], edx
+	or	[ecx + edx + task_flags], dword ptr TASK_FLAG_RUNNING
+	or	[esp + task_reg_eflags], dword ptr 1<<9	# 'sti'
+
+	DO_SCHEDULER_DEBUG_PIVOT
+
+
+6:	SEM_UNLOCK [task_queue_sem]
+7:	MUTEX_UNLOCK SCHEDULER
+9:
+	DO_SCHEDULER_DEBUG_TOP
+
+	popd	gs
+	popd	fs
+	popd	es
+	popd	ds
+	popd	ss # should have same value as ss already has
+	popad	# esp ignored
 	iret
-.else
-	ret
-.endif
 
-.endif
+.if SCHEDULE_JOBS
 
-# in: eax = task addr
-# in: edx = task arg (task_regs)
-call_task:
-	pushad		# assume the task does not change segment registers
+# this is called when a scheduled job is done executing - the address
+# is injected onto the stack of the task that will run the job.
+job_done:
+0:	MUTEX_LOCK SCHEDULER, nolocklabel=0b
+0:	SEM_SPINLOCK [task_queue_sem], nolocklabel=0b
 
-		mov	edi, offset current_task
-		lea	esi, [edx - task_regs]
-		mov	ecx, SCHEDULE_STRUCT_SIZE
-		rep	movsb
-
-	push	eax
-	.if SCHEDULE_DEBUG > 1
-		DEBUG_DWORD eax, "call task"
-		DEBUGS [edx + -task_regs + task_label]
-		DEBUG "S"
-		DEBUG_DWORD [edx + task_reg_ebx], "ebx"
-		DEBUG_DWORD [edx + task_reg_esi], "esi"
+	mov	ecx, [task_queue]
+	pop	edx	# job (child)
+	pop	eax	# task (parent)
+	.if TASK_SWITCH_DEBUG_JOB
+		DEBUGS [ecx + edx + task_label], "job done"
 	.endif
-	#pushad	# eax, ecx, edx, ebx, esp, ebp, esi, edi
-	push	dword ptr [edx + task_reg_eax]
-	push	dword ptr [edx + task_reg_ecx]
-	push	dword ptr [edx + task_reg_edx]
-	push	dword ptr [edx + task_reg_ebx]
-	push	dword ptr [edx + task_reg_esp] # ignored
-	push	dword ptr [edx + task_reg_ebp]
-	push	dword ptr [edx + task_reg_esi]
-	push	dword ptr [edx + task_reg_edi]
-	#TODO: release task queue
-		# mark as free
-		mov	[edx - task_regs + task_flags], dword ptr -1
-	# as this is legacy, the task runs on whatever stack, as it returns.
-	popad
-mov	dword ptr [block_schedule], 0
-	sti
-	call	[esp]
-	pop	eax
 
-	popad
-	ret
+	.if TASK_SWITCH_DEBUG_JOB > 1
+		DEBUGS [ecx+edx+task_label]
+		DEBUG "->"
+		DEBUGS [ecx+eax+task_label]
+		DEBUG_DWORD esp
+		DEBUG "->"
+		lea	ebx, [esp + TASK_REG_SIZE - 12]
+		DEBUG_DWORD ebx,"esp"
+	.endif
+
+	or	[ecx + edx + task_flags], dword ptr -1 # TASK_FLAG_DONE # -1
+	and	[ecx + eax + task_flags], dword ptr ~TASK_FLAG_CHILD_JOB
+	mov	edx, eax
+
+	jmp	pivot	# the stack contains the task continuation
+.endif
+
+
+task_done:
+0:	MUTEX_LOCK SCHEDULER, nolocklabel=0b
+0:	SEM_SPINLOCK [task_queue_sem], nolocklabel=0b
+
+	mov	edx, [esp]
+	mov	eax, [task_queue]
+	.if TASK_SWITCH_DEBUG_TASK
+		DEBUGS [eax + edx + task_label], "done"
+	.endif
+	or	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE
+
+	SEM_UNLOCK [task_queue_sem]
+	MUTEX_UNLOCK SCHEDULER
+
+	pushf
+	pushd	cs
+	push	dword ptr offset 0f
+	jmp	schedule_isr
+
+	# in case the scheduler is locked (TASK_SWITCH_INTERVAL>0 for instance)
+task_done_:	# debug label: nice output in task list
+0:	printchar '.'
+	hlt
+	jmp	0b
+
+
+
 
 #############################################################################
+# Task Queue
 
-.if 1# TASK_SWITCH
-# just for label
-task_switch_continuation:
-	ret
+# out: eax + edx
+# out: CF
+task_queue_newentry:
+	# find empty slot
+	ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, eax, edx, 2f
+	cmp	dword ptr [eax + edx + task_flags], -1
+	jz	1f
+	ARRAY_ENDL
+2:	ARRAY_NEWENTRY [task_queue], SCHEDULE_STRUCT_SIZE, 4, 1f
+1:	ret
 
-task_switch_debug_task:
-	pushf
-	cli
-	PUSH_SCREENPOS
-	pushcolor 0xf0
-	mov	[screen_pos], dword ptr 160
-	push	edx
-	print	"clock "
-	mov	edx, [clock]
-	call	printhex8
-	print	" recursion "
-	mov	edx, [recur]
-	call	printdec32
-	print	" esp "
-	mov	edx, esp
-	call	printhex8
-.if SCHED_ROUND_ROBIN
-	print	" task index "
-	mov	edx, [task_index]
-	call	printhex4
-	printchar '/'
-.endif
-	push	eax
-	push	ebx
-	mov	eax, [scheduled_tasks]
-	mov	eax, [eax + array_index]
-	xor 	edx, edx
-	mov	ebx, SCHEDULE_STRUCT_SIZE
-	div	ebx
-	mov	edx, eax
-	call	printdec32
-	pop	ebx
-	pop	eax
-	pop	edx
-	popcolor
-	POP_SCREENPOS
-	#PRINTCHAR '$'
-	popf
-	ret
-.endif
 
-.if SCHED_ROUND_ROBIN
+# in: edx = task index
+task_unqueue:
+	mov	eax, [task_queue]
+	mov	[eax + edx + task_flags], dword ptr -1
+
+	# if it's the last entry, reduce array_index
+	add	edx, SCHEDULE_STRUCT_SIZE
+	cmp	edx, [ecx + array_index]
+	jnz	1f
+	sub	dword ptr [ecx + array_index], SCHEDULE_STRUCT_SIZE
+1:	ret
+
+
+# in: ebx = job eip
+# out: ecx = how many times it is queued
+# out: CF = task is queued
+task_is_queued:
+	xor	ecx, ecx
+	ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, eax, edx, 2f
+	test	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE
+	jnz	1f
+	cmp	[eax + edx + task_regs + task_reg_eip], ebx
+	jnz	1f
+	inc	ecx
+	.if SCHEDULE_DEBUG > 1
+		DEBUG "<< DUP TASK:"
+		DEBUGS [eax + edx + task_label]
+		DEBUG ">>"
+	.endif
+1:	ARRAY_ENDL
+2:	clc
+	jecxz	1f
+	stc
+1:	ret
+
+
+#############################################################################
+.if SCHEDULE_ROUND_ROBIN
 .data SECTION_DATA_BSS
 task_index: .long 0
 .text32
 .endif
 
-# locks scheduled_tasks, finds and removes a task from the queue,
-# and returns a pointer to the task information, leaving the semaphore locked.
-# On return, CF indicates failure/success. When CF is set, either the lock
-# could not obtained, or there are no scheduled tasks. When there are no
-# scheduled tasks, the lock is released.
-# When CF is 0, eax contains the task pointer, and the lock is left intact,
-# so that the caller has 'time' to use the data without any risk of it being
-# overwritten. Typical use is to release this lock as soon as possible,
-# and thus the caller should copy the data on the appropriate stack and
-# then release the lock before calling the task.
+# NOTE: no locking is done - be sure to lock [task_queue_sem] around calling
+# this method and using the pointers it returns!
 #
-# out: eax = task ptr
-# out: edx = task arg
-# out: ebx = task flags (if TASK_SWITCH)
-# out: esi = task label
-# out: CF = 1: no task or cannot lock task list
-get_scheduled_task$:
-	# schedule_task does spinlock, so we don't, as this
-	# method is called regularly.
-	MUTEX_LOCK [schedule_sem], 9f
-	push	ecx
-########
-	# one-shot first-in-list
-	mov	ebx, [scheduled_tasks]
-	or	ebx, ebx
+# out: ecx + edx = task (ecx=[task_queue])
+# out: CF = 1: no task
+task_queue_get$:
+	mov	ecx, [task_queue]
+	or	ecx, ecx
 	jz	1f
-.if SCHED_ROUND_ROBIN
-	mov	ecx, [task_index]
+.if SCHEDULE_ROUND_ROBIN
 	# increment task index for round robin
-	mov	eax, ecx
-	sub	eax, SCHEDULE_STRUCT_SIZE
-	#cmp	eax, [ebx + array_index]
-	jns	2f
-	#xor	eax, eax
-	mov	eax, [ebx + array_index]
-	sub	eax, SCHEDULE_STRUCT_SIZE
+	mov	eax, [task_index]
+	add	eax, SCHEDULE_STRUCT_SIZE
+	cmp	eax, [ecx + array_index]
+	jb	2f
+	xor	eax, eax
+	# sub
+#	jns	2f
+#	mov	eax, [ecx + array_index]
+#	sub	eax, SCHEDULE_STRUCT_SIZE
 2:	mov	[task_index], eax
+	mov	edx, eax
 .else
-	xor	ecx, ecx	# index
+	# one-shot first-in-list
+	xor	edx, edx	# index
 .endif
 ########
-0:
-	mov	eax, [ebx + ecx + task_addr]
-.if SCHED_MALLOC
-	mov	edx, [ebx + ecx + task_arg]	# ptr
-.else
-	lea	edx, [ebx + ecx + task_arg]	# NOTE! requires lock!
-.endif
-	cmp	[ebx + ecx + task_flags], dword ptr -1
-	jnz	0f
+0:	test	[ecx + edx + task_flags], dword ptr TASK_FLAG_RUNNING
+	jz	0f
 ########
-	
-	add	ecx, SCHEDULE_STRUCT_SIZE
-.if SCHED_ROUND_ROBIN
-	cmp	ecx, [task_index]
+
+	add	edx, SCHEDULE_STRUCT_SIZE
+.if SCHEDULE_ROUND_ROBIN
+	cmp	edx, [task_index]
 	jz	1f
 .endif
-	cmp	ecx, [ebx + array_index]
+	cmp	edx, [ecx + array_index]
 	jb	0b
-.if SCHED_ROUND_ROBIN
-	xor	ecx, ecx
-	cmp	ecx, [task_index]
+.if SCHEDULE_ROUND_ROBIN
+	xor	edx, edx
+	cmp	edx, [task_index]
 	jnz	0b
 .endif
 ########
 1:	SCHED_UPDATE_GRAPH 2
 	stc
 	jmp	1f	# no task
-0:	## null check
+
+######## found a job or task
+0:
+.if SCHEDULE_ROUND_ROBIN
+	mov	[task_index], edx
+.endif
+	# null check:
+	mov	eax, [ecx + edx + task_regs + task_reg_eip]
 	or	eax, eax
 	jnz	2f
-	printc 4, "ERROR: scheduled task address NULL: registrar: "
+	printc 4, "ERROR: scheduled task address NULL: "
+	DEBUG_DWORD edx
+	DEBUGS [ecx + edx + task_label]
+
+	printc 4, " registrar: "
 	push	edx
-	mov	edx, [ebx + ecx + task_registrar]
+	mov	edx, [ecx + edx + task_registrar]
 	call	printhex8
 	call	newline
 	pop	edx
-	mov	[ebx + ecx + task_addr], dword ptr -1
-	mov	[ebx + ecx + task_flags], dword ptr -1
-	.if SCHED_MALLOC
-	or	eax, eax
-	jz	3f
-	mov	eax, edx
-	call	mfree
-	3:
-	.endif
+	mov	[ecx + edx + task_regs + task_reg_eip], dword ptr -1
+	mov	[ecx + edx + task_flags], dword ptr -1
 	SCHED_UPDATE_GRAPH 5
 	stc
 	jmp	1f
+########
 2:	##
 	SCHED_UPDATE_GRAPH 3
 	clc
 
 ########
-	add	ecx, ebx
+#	add	edx, ebx
 	#mov	ebx, -1	# mark as free
-	#xchg	ebx, [ecx + task_flags]
-	mov	ebx, [ecx + task_flags]
+	#xchg	ebx, [edx + task_flags]
 	# mark as 'pending'; continuatoin may be scheduled,
 	# using the src stack, so the data cannot be copied yet
 	# over that stack before scheduling continuation.
 	# scheduling continuatio nhwoever can also not overwrite
 	# this task yet.
 	# Set to -1 once data is copied.
-	or	dword ptr [ecx + task_flags], 0x88880000
+#	or	dword ptr [ecx + edx + task_flags], 0x88000000
+	mov	ebx, [ecx + edx + task_flags]
 
 	.if TASK_SWITCH_DEBUG > 1
 		DEBUG "TASK:"
-		DEBUG_DWORD [edx -task_regs + task_flags]
-		DEBUG_DWORD [edx -task_regs + task_addr]
-		DEBUG_DWORD [edx + task_reg_esp]
+		DEBUG_DWORD [ecx + edx + task_flags]
+		DEBUG_DWORD [ecx + edx + tasK_regs + task_reg_eip]
+		DEBUG_DWORD [ecx + edx + task_regs + task_reg_esp]
 		DEBUG_DWORD ebx, "flags"
 	.endif
 	clc
-1:	pop	ecx
-	mov	dword ptr [schedule_sem], 0	# we have lock so we can write.
-	ret
+1:	ret
 
-9:	mov	[schedule_sem], eax	# ok since nonzero (Potential race condition!)
-	SCHED_UPDATE_GRAPH 1
+9:	SCHED_UPDATE_GRAPH 1
 	stc
 	ret
 
 
+#############################################################################
 
-.if SCHEDULE_DEBUG
+
+# This method is typically called in an ISR.
+# Calling convention: stdcall:
+#	PUSH_TXT "task name"
+#	push	dword ptr 0|1	# flags
+#	push	cs
+#	.if [realsegflat] == 0
+#	push	dword ptr offset task
+#	.else
+#		.if eax is arg to task
+#		push	eax
+#		mov	eax, offset task
+#		add	eax, [realsegflat]
+#		xchg	eax, [esp]
+#		.else
+#		mov	eax, offset task
+#		add	eax, [realsegflat]
+#		push	eax
+#		.endif
+#	.endif
+# in: [esp + 4]: eip - address of task
+# in: [esp + 8]: cs - code seg of task
+# in: [esp + 12]: task flags
+# in: [esp + 16]: label for task
+# in: all registers are preserved and offered to the task.
+# calling convention: stdcall [rtl, callee (this method) cleans stack]
+schedule_task:
+	cmp	dword ptr [task_queue_sem], -1
+	jz	8f
+	# copy regs to stack
+	pushad
+	pushd	ss
+	pushd	ds
+	pushd	es
+	pushd	fs
+	pushd	gs
+	mov	ebp, esp
+	# just in case:
+	mov	eax, SEL_compatDS
+	mov	ds, eax
+	mov	es, eax
+
+	SEM_SPINLOCK [task_queue_sem], nolocklabel=99f
+
+	# check whether task/job is already scheduled
+	mov	ebx, [ebp + TASK_REG_SIZE - 12 + 4]	# eip
+	call	task_is_queued	# out: ecx
+	.if 0
+	jc	88f	# already queued
+	.else	# allow one duplicate task
+	jnc	1f
+	# already queued, check if asked for duplicate:
+	test	dword ptr [ebp + TASK_REG_SIZE - 12 + 12], TASK_FLAG_RESCHEDULE
+	jz	88f	# no
+	dec	ecx	# only one duplicate allowed
+	jnz	88f
+1:
+	.endif
+
+	call	task_queue_newentry
+	jc	77f
+
+	mov	ebx, eax	# using lodsd: free eax
+	# copy registers
+	lea	edi, [ebx + edx + task_regs]
+	mov	esi, ebp
+	mov	ecx, TASK_REG_SIZE - 12	# eip, cs, eflags not copied
+	rep	movsb
+	add	esi, 4	# skip method return
+	movsd	# eip
+	movsd	# cs
+	pushfd	# need some eflags
+	pop	eax
+	or	eax, 1 << 9	# sti
+	mov	dword ptr [ebx + edx + task_regs + task_reg_eflags], eax
+
+	lodsd	# task flags
+	mov	[ebx + edx + task_flags], eax
+	lodsd	# task tabel
+	mov	[ebx + edx + task_label], eax
+	mov	eax, [ebp + task_reg_eip]	# method return, conveniently
+	mov	[ebx + edx + task_registrar], eax
+	mov	eax, [pid_counter]
+	inc	dword ptr [pid_counter]
+	mov	[ebx + edx + task_pid], eax
+
+	.if SCHEDULE_JOBS == 0
+	# jobs disabled, alloc stack always
+	or	dword ptr [ebx + edx + task_flags], TASK_FLAG_TASK
+	.else
+	test	dword ptr [ebx + edx + task_flags], TASK_FLAG_TASK
+	jz	7f
+	.endif
+	# check if the entry already has a stack
+	mov	eax, [ebx + edx + task_stackbuf]
+	or	eax, eax
+	jnz	1f
+	# allocate a stack
+	mov	eax, JOB_STACK_SIZE
+	call	malloc
+	jc	66f
+	mov	[ebx + edx + task_stackbuf], eax
+1:
+	.if SCHEDULE_CLEAN_STACK
+	push	eax
+	mov	edi, eax
+	mov	ecx, JOB_STACK_SIZE / 4
+	xor	eax, eax
+	rep	stosd
+	pop	eax
+	.endif
+
+	add	eax, JOB_STACK_SIZE
+	and	eax, ~0xf
+
+	# prepare stack
+	.if SCHEDULE_JOBS == 0
+	sub	eax, 8
+	mov	[eax + 4], edx
+	mov	[eax], dword ptr offset task_done
+	.endif
+
+	sub	eax, TASK_REG_SIZE
+	mov	[ebx + edx + task_stack_esp], eax
+	mov	[ebx + edx + task_stack_ss], ss
+	mov	edi, eax
+	lea	esi, [ebx + edx + task_regs]
+	mov	ecx, TASK_REG_SIZE / 4
+	rep	movsd
+
+	add	eax, TASK_REG_SIZE - 12
+
+	mov	[ebx + edx + task_regs + task_reg_esp], eax
+	mov	[ebx + edx + task_regs + task_reg_ss], ss
+
+	clc
+########
+7:	pushf
+	SEM_UNLOCK [task_queue_sem]
+	popf
+
+9:	popd	gs
+	popd	fs
+	popd	es
+	popd	ds
+	popd	ss
+	popad
+	ret	16
+########
+8:	test	[esp + 12], dword ptr TASK_FLAG_TASK
+	stc
+	jz	1f	# don't print for kernel jobs
+	DEBUG "scheduling disabled: caller="
+	push	edx
+	mov	edx, [esp + 4]
+	call	printhex8
+	pop 	edx
+	call	newline
+1:	ret	16
+######## error messages
+99:	call	0f
+	printlnc_ 4, "can't lock task queue"
+	stc
+	jmp	9b
+
+88:	test	[ebp + TASK_REG_SIZE - 12 + 12], dword ptr TASK_FLAG_TASK
+	stc
+	jz	7b	# don't print for kernel jobs
+	call	0f
+	printlnc_ 4, "task already scheduled"
+	stc
+	jmp	7b
+
+77:	call	0f
+	printlnc_ 4, "can't allocate task entry"
+	stc
+	jmp	7b
+
+66:	call	0f
+	printlnc_ 4, "can't allocate task stack"
+	stc
+	jmp	7b
+
+0:	printc_ 4, "schedule_task: "
+	ret
+
+
+##############################################################################
+##############################################################################
+##############################################################################
+# Debugging methods: 'graph'
+
+.if SCHEDULE_DEBUG_GRAPH
 .data SECTION_DATA_BSS
 sched_graph: .space 80	# scoller
 .data
 sched_graph_symbols:
-	.byte ' ', 0
-	.byte '-', 0x4f
-	.byte '-', 0x3f
-	.byte '+', 0x2f
-	.byte 'S', 0x1f
+	.byte ' ', 0	# 0: no scheduling
+	.byte '-', 0x4f # 1: lock fail
+	.byte '-', 0x3f # 2: no task switch
+	.byte '+', 0x3f # 3: task switch
+	.byte '+', 0x2e # 4: job switch
 	.byte 'x', 0xf4	# 5: fail to schedule
 	.byte 'A', 0x0f
 	.byte '?', 0x0f
@@ -777,12 +1166,30 @@ sched_update_graph:
 	rep	movsb
 #	stosb
 	mov	byte ptr [sched_graph + 79], al
+	pop	edi
+	pop	esi
+	pop	ecx
+	ret
+
+sched_print_graph:
+	push	ecx
+	push	esi
+	push	edi
+	push	eax
 	PUSH_SCREENPOS
 	PRINT_START
-	mov	esi, offset sched_graph
-	xor	edi, edi
 	xor	eax, eax
+
+#	cmp	byte ptr [schedule_show$], 2
+#	jb	1f
+#	mov	esi, offset sched_graph + 18
+#	mov	edi, 18*2
+#	mov	ecx, 80 - 18
+#	jmp	0f
+1:	mov	esi, offset sched_graph
+	xor	edi, edi
 	mov	ecx, 80
+
 0:	lodsb
 	and	al, 7
 	xor	ah, ah
@@ -791,459 +1198,316 @@ sched_update_graph:
 	loop	0b
 	PRINT_END
 	POP_SCREENPOS
+	pop	eax
 	pop	edi
 	pop	esi
 	pop	ecx
 	ret
 .endif
 
-# in: edx = address of mutex/semaphore
-# in: eax = id - value to put in semaphore (debugging: who has lock)
-# out: CF
-spinlock:
-	push	ecx
-	mov	ecx, 0x1000	# timeout
-0:	xchg	[edx], eax
-	or	eax, eax
-	jz	0f	# lock was 0
-	SCHED_UPDATE_GRAPH 4; DEBUG_DWORD eax
-	.if 0
-		pause
-	.else
-		pushf
-		sti
-		hlt
-		popf
-	.endif
-	loop	0b
-	printc 4, "failed to acquire schedule semaphore"
-	DEBUG_DWORD eax
-	call	newline
-	stc
-0:	pop	ecx
-	ret
 
-# NOTE! This method does not lock, so be sure to lock/unlock!
+
+#############################################################################
+# Task/schedule printing (ps, top)
 #
-# in: cs
-# in: eax = offset
-# in: ebx = flags
-# in: ecx = arg len
-schedule_task_internal:
-	cmp	dword ptr [schedule_sem], -1
-	jz	8f
-	push	ebp	# alloc var ptr
+TASK_PRINT_DEAD_JOBS	= 1	# completed tasks/jobs are printed
+TASK_PRINT_SHOW_PARENT	= SCHEDULE_JOBS
+TASK_PRINT_BG_COLOR = 0x10
+
+schedule_print:
 	push	eax
 	push	ebx
 	push	ecx
-	mov	ebp, esp # init var ptr: [+0]=arg ecx, [+4]=arg ebx
 	push	edx
-
-########
-0:
-	mov	ebx, [ebp + 8] # original eax
-	# check whether task is already scheduled
-	ARRAY_LOOP [scheduled_tasks], SCHEDULE_STRUCT_SIZE, eax, edx, 2f
-	cmp	[eax + edx + task_flags], dword ptr -1
-	jz	1f
-	cmp	[eax + edx + task_addr], ebx
-	jnz	1f
-	.if SCHEDULE_DEBUG > 1
-		DEBUG "<< DUP LEGACY TASK:"
-		DEBUGS [eax + edx + task_label]
-		DEBUG ">>"
-	.endif
-	stc
-	jmp	7f
-	1:
-	ARRAY_ENDL
-
-	# find empty slot
-	ARRAY_LOOP [scheduled_tasks], SCHEDULE_STRUCT_SIZE, eax, edx, 2f
-	cmp	dword ptr [eax + edx + task_flags], -1
-	jz	1f
-	ARRAY_ENDL
-2:	ARRAY_NEWENTRY [scheduled_tasks], SCHEDULE_STRUCT_SIZE, 10, 7f
-1:	
-	.if TASK_SWITCH_DEBUG > 1
-		DEBUG_DWORD edx "task idx"
-		DEBUGS esi
-	.endif
+	push	esi
 	push	edi
-	lea	edi, [eax + edx]
-	mov	ecx, SCHEDULE_STRUCT_SIZE
-	push	eax
-	xor	eax, eax
-	rep	stosb
-	pop	eax
-	pop	edi
 
-	mov	[eax + edx + task_addr], ebx
-	mov	[eax + edx + task_label], esi
-	push	dword ptr [ebp + 4]
-	pop	dword ptr [eax + edx + task_flags]
-	push	dword ptr [ebp + 12]
-	pop	dword ptr [eax + edx + task_registrar]
-	.if TASK_SWITCH_DEBUG > 1
-		SCHED_UPDATE_GRAPH 6 # 'A'
-	.endif
-########
-	.if SCHED_MALLOC
-		push	eax
-		mov	eax, [ebp]
-		or	eax, eax
-		jz	1f
-		call	malloc
-	1:	mov	ecx, eax
-		pop	eax
-		jnc	1f
-		# no mem - unschedule task
-		mov	dword ptr [eax + edx], -1
-		jmp	8f
-	########
-	1:
-	.else
-		lea	ecx, [eax + edx + task_regs]
-	.endif
-	mov	[eax + edx + task_arg], ecx
-	mov	eax, ecx
-
-7:
-
-9:	pop	edx
-	pop	ecx
-	pop	ebx
-	add	esp, 4	# pop eax
-	pop	ebp
-	ret
-
-8:	DEBUG "scheduling disabled: caller="
-	push	edx
-	mov	edx, [esp + 4]
-	call	printhex8
-	pop 	edx
-	call	newline
-	ret
-
-
-
-# This method is typically called in an ISR.
-# Calling convention: stdcall:
-#	PUSH_TXT "task name"
-#	push	dword ptr 0|1	# flags
-#	push	cs
-#	.if [realsegflat] != 0
-#		.if eax is arg to task
-#		push	eax
-#		mov	eax, offset task
-#		add	eax, [realsegflat]
-#		xchg	eax, [esp]
-#		.else
-#		mov	eax, offset task
-#		add	eax, [realsegflat]
-#		push	eax
-#		.endif
-#	.else
-#	push	dword ptr offset task
-#	.endif
-# in: [esp + 4]: eip - address of task
-# in: [esp + 8]: cs - code seg of task
-# in: [esp + 12]: task flags: bit 1: 0=call/job/handler; 1=context switch
-# in: [esp + 16]: label for task
-# in: all registers are preserved and offered to the task.
-# calling convention: stdcall [rtl, callee (this method) cleans stack]
-schedule_task:
-	cmp	dword ptr [schedule_sem], -1
-	jz	8f
-	# copy regs to stack
-	pushad
-	push	ss
-	push	ds
+	push	dword ptr [screen_pos]
+	mov	edi, 160 * 1
+	mov	[screen_pos], dword ptr 160
+	mov	ecx, 80 * 10
 	push	es
-	push	fs
-	push	gs
-	mov	ebp, esp
-
-######## spin lock
-	MUTEX_SPINLOCK [schedule_sem], nolocklabel=9f
-########
-	mov	ebx, [ebp + TASK_REG_SIZE - 12 + 4]	# eip
-	# check whether task is already scheduled
-	ARRAY_LOOP [scheduled_tasks], SCHEDULE_STRUCT_SIZE, eax, edx, 2f
-	cmp	[eax + edx + task_flags], dword ptr -1
-	jz	1f
-	cmp	[eax + edx + task_addr], ebx
-	jnz 1f
-	.if TASK_SWITCH_DEBUG
-		DEBUG "<<< DUP TASK >>>"
-	.endif
-	stc
-	jmp	7f
-	1:
-	ARRAY_ENDL
-
-	# find empty slot
-	ARRAY_LOOP [scheduled_tasks], SCHEDULE_STRUCT_SIZE, eax, edx, 2f
-	cmp	dword ptr [eax + edx + task_flags], -1
-	jz	1f
-	ARRAY_ENDL
-2:	ARRAY_NEWENTRY [scheduled_tasks], SCHEDULE_STRUCT_SIZE, 4, 7f
-1:	mov	ebx, eax	# using lodsd
-	lea	edi, [ebx + edx + task_regs]
-	mov	esi, ebp
-	mov	ecx, TASK_REG_SIZE - 12	# eip, cs, eflags not copied
-	rep	movsb
-	add	esi, 4	# skip method return
-	movsd	# eip
-	movsd	# cs
-	pushfd	# need some eflags
-	pop	eax
-	or	eax, 1 << 9	# sti
-	mov	dword ptr [ebx + edx + task_regs + task_reg_eflags], eax
-	# we need a stack...
-	mov	[edi - TASK_REG_SIZE + task_reg_esp], dword ptr 0 # zero stack: alloc
-
-	lodsd	# task flags
-	mov	[ebx + edx + task_flags], eax
-	lodsd	# task tabel
-	mov	[ebx + edx + task_label], eax
-	push	dword ptr [ebp + task_reg_eip]
-	pop	dword ptr [ebx + edx + task_registrar]
-
-	#
-	test	dword ptr [ebx + edx + task_flags], 2
-	jz	7f
-	# allocate a stack
-	mov	eax, 1024
-	call	malloc
-	jc	7f
-	mov	[ebx + edx + task_stackbuf], eax
-	add	eax, 15
-	and	eax, ~0xf
-	mov	[ebx + edx + task_regs + task_reg_esp], eax
-########
-7:	mov	dword ptr [schedule_sem], 0
-
-9:	pop	gs
-	pop	fs
+	mov	eax, SEL_vid_txt
+	mov	es, ax
+	mov	ax, TASK_PRINT_BG_COLOR << 8
+	rep	stosw
 	pop	es
-	pop	ds
-	add	esp, 4	#pop	ss
-	popad
-	ret	16
 
-#10:	SCHED_UPDATE_GRAPH 4; DEBUG_DWORD eax
-#	jmp	9b
+	pushfd
+	pop edx
+	DEBUG_DWORD edx, "FLAGS"
+	DEBUG_DWORD [ebp+task_reg_eflags]
+	call printspace
 
-8:	DEBUG "scheduling disabled: caller="
-	push	edx
-	mov	edx, [esp + 4]
-	call	printhex8
-	pop 	edx
-	call	newline
-	ret	16
+	call	cmd_tasks
 
-
-
-
-# in: cs
-# in: eax = offset
-# in: ebx = flags
-# in: ecx = arg len
-schedule_task_LEGACY:
-	cmp	dword ptr [schedule_sem], -1
-	jz	8f
-	push	ebp	# alloc var ptr
-	push	eax
-	push	ebx
-	push	ecx
-	mov	ebp, esp # init var ptr: [+0]=arg ecx, [+4]=arg ebx
-	push	edx
-
-######## spin lock
-	MUTEX_SPINLOCK [schedule_sem], nolocklabel=9f
-########
-0:
-	mov	ebx, [ebp + 8] # original eax
-	# check whether task is already scheduled
-	ARRAY_LOOP [scheduled_tasks], SCHEDULE_STRUCT_SIZE, eax, edx, 2f
-	cmp	[eax + edx + task_flags], dword ptr -1
-	jz	1f
-	cmp	[eax + edx + task_addr], ebx
-	jnz	1f
-	.if SCHEDULE_DEBUG > 1
-		DEBUG "<< DUP LEGACY TASK:"
-		DEBUGS [eax + edx + task_label]
-		DEBUG ">>"
-	.endif
-	stc
-	jmp	7f
-	1:
-	ARRAY_ENDL
-
-	# find empty slot
-	ARRAY_LOOP [scheduled_tasks], SCHEDULE_STRUCT_SIZE, eax, edx, 2f
-	cmp	dword ptr [eax + edx + task_flags], -1
-	jz	1f
-	ARRAY_ENDL
-2:	ARRAY_NEWENTRY [scheduled_tasks], SCHEDULE_STRUCT_SIZE, 4, 7f
-1:	
-	.if TASK_SWITCH_DEBUG > 1
-		DEBUG_DWORD edx "task idx"
-		DEBUGS esi
-	.endif
-	push	edi
-	lea	edi, [eax + edx]
-	mov	ecx, SCHEDULE_STRUCT_SIZE
-	push	eax
-	xor	eax, eax
-	rep	stosb
-	pop	eax
+	pop	dword ptr [screen_pos]
 	pop	edi
-
-	mov	[eax + edx + task_addr], ebx
-	mov	[eax + edx + task_label], esi
-	push	dword ptr [ebp + 4]
-	pop	dword ptr [eax + edx + task_flags]
-	push	dword ptr [ebp + 12]
-	pop	dword ptr [eax + edx + task_registrar]
-	.if TASK_SWITCH_DEBUG > 1
-		SCHED_UPDATE_GRAPH 6 # 'A'
-	.endif
-########
-	.if SCHED_MALLOC
-		push	eax
-		mov	eax, [ebp]
-		or	eax, eax
-		jz	1f
-		call	malloc
-	1:	mov	ecx, eax
-		pop	eax
-		jnc	1f
-		# no mem - unschedule task
-		mov	dword ptr [eax + edx], -1
-		jmp	8f
-	########
-	1:
-	.else
-		lea	ecx, [eax + edx + task_regs]
-	.endif
-	mov	[eax + edx + task_arg], ecx
-	mov	eax, ecx
-
-7:	mov	dword ptr [schedule_sem], 0
-
-9:	pop	edx
+	pop	esi
+	pop	edx
 	pop	ecx
 	pop	ebx
-	add	esp, 4	# pop eax
-	pop	ebp
+	pop	eax
 	ret
-
-8:	DEBUG "scheduling disabled: caller="
-	push	edx
-	mov	edx, [esp + 4]
-	call	printhex8
-	pop 	edx
-	call	newline
-	ret
-
 
 #############################################################################
 
 cmd_tasks:
-	xor	ecx, ecx
-	print "Tasks: "
-	mov	edx, [scheduled_tasks]
-	or	edx, edx
+	pushcolor TASK_PRINT_BG_COLOR | 7
+	print_ "Tasks: "
+	mov	ecx, [task_queue]
+	or	ecx, ecx
 	jz	9f
-.if SCHED_ROUND_ROBIN
-	push	edx
-	mov	edx, [task_index]
-	call	printhex8
-	pop	edx
+	mov	ebx, SCHEDULE_STRUCT_SIZE
+	xor	edx, edx
+	mov	eax, [scheduler_current_task_idx]
+	div	ebx
+	mov	edx, eax
+	call	printdec32
 	printchar_ '/'
+	xor	edx, edx
+	mov	eax, [ecx + array_index]
+	div	ebx
+	mov	edx, eax
+	call	printdec32
+.if SCHEDULE_JOBS
+.if SCHEDULE_ROUND_ROBIN
+	print_ " sched idx: "
+	mov	eax, [task_index]
+	xor	edx, edx
+	div	ebx
+	call	printdec32
 .endif
-	mov	edx, [edx + array_index]
-	call	printhex8
+.endif
 	call	newline
 
 	call	task_print_h$
 
-	xor	ebx, ebx
-	mov	eax, offset current_task
-	printc 0x0f, "C "
+	printc_ TASK_PRINT_BG_COLOR | 15, "C "	# for current, see
+	mov	eax, [task_queue]
+	mov	ebx, [scheduler_current_task_idx]
 	call	task_print$
 	call	newline
 
-	xor	ecx, ecx
-	ARRAY_LOOP [scheduled_tasks], SCHEDULE_STRUCT_SIZE, eax, ebx, 9f
-	pushcolor 7
-	#	cmp	[eax + ebx + task_flags], dword ptr -1
-	#	jz	3f
-
+	xor	ecx, ecx # index counter, saves dividing ebx by SCHED_STR_SIZE
+	ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, eax, ebx, 9f
+	.if TASK_PRINT_DEAD_JOBS == 0	# default, to keep an eye on array reuse
+	cmp	[eax + ebx + task_flags], dword ptr -1
+	jz	3f
+	.endif
 	mov	edx, ecx
-	call	printdec32
+	cmp	ebx, [task_index]
+	jnz	1f
+	color	TASK_PRINT_BG_COLOR | 15
+1:	call	printdec32
+	color	TASK_PRINT_BG_COLOR | 7
 	call	printspace
 
-	mov	edx, [eax + ebx + task_addr]
-	cmp	edx, [current_task + task_addr]
+	cmp	ebx, [scheduler_current_task_idx]
 	jnz	1f
-	color 15 # 0xf0
+	color	TASK_PRINT_BG_COLOR | 15
 	jmp	2f
 
 1:	cmp	[eax + ebx + task_flags], dword ptr -1
 	jnz	2f
-	color 8
+	color	TASK_PRINT_BG_COLOR | 8
 
 2:	call	task_print$
 3:	inc	ecx
-	popcolor
 	ARRAY_ENDL
-9:	ret
-
-task_print_h$:
-	printlnc 11, "  addr.... stack... flags.... registr eflags.. label, symbol"
+9:	popcolor
 	ret
 
+
+
+task_print_h$:
+.data SECTION_DATA_STRINGS	# a little kludge to keep the string from wrappi
+200:
+.if TASK_PRINT_SHOW_PARENT
+.asciz " idx pid. addr.... stack... flags... registrr parent.. label, symbol"
+.else
+.asciz " idx pid. addr.... stack... flags... registrr eflags.. label, symbol"
+.endif
+.text32
+	mov	ah, TASK_PRINT_BG_COLOR | 11
+	mov	esi, offset 200b
+	call	printlnc
+	ret
+
+# in: eax + ebx = task
 task_print$:
-	mov	edx, [eax + ebx + task_addr]
+	pushad
+
+	xor	edx, edx
+	push	eax
+	push	ecx
+	mov	ecx, SCHEDULE_STRUCT_SIZE
+	mov	eax, ebx
+	div	ecx
+	mov	edx, eax
+	pop	ecx
+	pop	eax
+	call	printhex2
+	call	printspace
+
+	mov	edx, [eax + ebx + task_pid]
+	call	printhex4
+	call	printspace
+	mov	edx, [eax + ebx + task_regs + task_reg_eip]
 	call	printhex8
 	call	printspace
-	mov	edx, [eax + ebx + task_regs + task_reg_esp]
+	mov	edx, [eax + ebx + task_stack_esp]#task_regs + task_reg_esp]
 	call	printhex8
 	call	printspace
 	mov	edx, [eax + ebx + task_flags]
+	.if 1 # SCHEDULE_JOBS
+	cmp	edx, -1
+	jnz	1f
+	print "........"
+	jmp	2f
+1:	PRINTFLAG edx, TASK_FLAG_RUNNING,	"R", " "
+	PRINTFLAG edx, TASK_FLAG_DONE,		"D", " "
+	PRINTFLAG edx, TASK_FLAG_CHILD_JOB,	"C", " "
+	PRINT "  "
+	PRINTFLAG edx, TASK_FLAG_RESCHEDULE,	"r", " "
+	PRINTFLAG edx, TASK_FLAG_TASK,		" T", "J "
+2:
+	.else
 	call	printhex8
+	.endif
 	call	printspace
 	mov	edx, [eax + ebx + task_registrar]
 	call	printhex8
 	call	printspace
-	mov	edx, [eax + ebx + task_regs + task_reg_eflags]
-	call printhex8
+	.if TASK_PRINT_SHOW_PARENT
+		.if 1
+			mov	edx, [eax + ebx + task_parent]
+			mov	edx, [eax + edx + task_pid]
+			call 	printhex8
+		.else
+			push	eax
+			push	ebx
+			mov	eax, [eax + ebx + task_parent]
+			xor	edx, edx
+			mov	ebx, SCHEDULE_STRUCT_SIZE
+			div	ebx
+			mov	edx, eax
+			call	printhex8
+			pop	ebx
+			pop	eax
+		.endif
+	.else
+		mov	edx, [eax + ebx + task_regs + task_reg_eflags]
+		call	printhex8
+	.endif
 	call	printspace
-#call newline
 	mov	esi, [eax + ebx + task_label]
 	call	print
 	call	printspace
-	mov	edx, [eax + ebx + task_addr]
-#	call	debug_printsymbol
+	# print address symbols: calculate space
+	call	strlen_
+	neg	ecx
+	add	ecx, 17+7-1	# space + label
+
+	mov	edx, [eax + ebx + task_regs + task_reg_eip]
 	call	debug_getsymbol
 	jc	1f
-	pushcolor 14
-	call	println
+	pushcolor TASK_PRINT_BG_COLOR | 14
+	call	nprint
+	call	newline
 	popcolor
-	ret
-1:	pushad
+	jmp	9f
+1:	# no exact match, also print offset
 	call	debug_get_preceeding_symbol
 	jc	1f
-	pushcolor 13
-	call	print
-	print " + "
+	pushcolor TASK_PRINT_BG_COLOR | 13
+	call	nprint
+	push	edx
+	mov	edx, ecx
+	call	strlen_
+	sub	edx, ecx
+	cmp	edx, 3+4
+	pop	edx
+	jb	2f
+	print_ " + "
 	sub	edx, eax
-	call	printhex8
-	popcolor
+	call	printhex4	# meaningful relative offsets are usually < 64k
+2:	popcolor
 1:	call	newline
-	popad
 
+9:	popad
+	ret
+
+#############################################################################
+cmd_top:
+	mov	al, [schedule_show$]
+	push	eax
+	call	cls
+	mov	byte ptr [schedule_show$], 3
+
+0:	#call	cls
+	#call	newline
+	#call	schedule_print
+	#hlt
+	#mov	ah, KB_PEEK
+	#call	keyboard
+	#jc	0b
+	xor	ax, ax
+	call	keyboard
+	cmp	ax, K_ESC
+	jz	0f
+	cmp	ax, K_ENTER
+	jnz	0b
+0:	pop	eax
+	mov	byte ptr [schedule_show$], al
+	ret
+#############################################################################
+cmd_kill:
+	lodsd
+	lodsd	# CMD_EXPECTARG 9f
+	or	eax, eax
+	jz	9f
+	mov	edx, [eax]
+	lodsd
+	and	edx, 0x00ffffff
+	cmp	edx, '-'|'p'<<8
+	jnz	1f
+	call	htoi
+	jc	9f
+	mov	edx, eax
+
+#	SEM_SPINLOCK [task_queue_sem], 8f	# destroys eax, ecx
+	ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, ebx, ecx, 1f
+	cmp	[ebx + ecx + task_pid], edx
+	jz	2f
+	ARRAY_ENDL
+	jmp	1f
+
+1:	cmp	edx, '-'|'i'<<8
+	jnz	9f
+	call	atoi
+	jc	9f
+
+	mov	ecx, SCHEDULE_STRUCT_SIZE
+	imul	ecx, eax
+#	SEM_SPINLOCK [task_queue_sem], 8f	# destroys eax, ecx
+	mov	ebx, [task_queue]
+	cmp	ecx, [ebx + array_index]
+	jae	7f
+
+2:	printc_ 11, "killing pid "
+	mov	edx, [ebx + ecx + task_pid]
+	call	printhex8
+	printc_ 11, " '"
+	mov	esi, [ebx + ecx + task_label]
+	call	print
+	printlnc_ 11, "'"
+	or	[ebx + ecx + task_flags], dword ptr TASK_FLAG_DONE
+1:#	SEM_UNLOCK [task_queue_sem]
+	ret
+7:	printlnc 4, "no such task"
+	jmp	1b
+8:	printlnc 4, "cannot lock task queue"
+	ret
+9:	printlnc_ 12, "usage: kill [-i <idx> | -p <hex pid>]"
 	ret

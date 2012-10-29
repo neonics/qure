@@ -28,7 +28,7 @@ debug_regstore$:
 
 .macro DEBUG_REGDIFF0 nr, reg
 	cmp	[debug_registers$ + 4 * \nr], \reg
-	jz	88f
+	jz	188f
 	print	"\reg: "
 	push	edx
 	mov	edx, [debug_registers$ + 4 * \nr]
@@ -43,7 +43,7 @@ debug_regstore$:
 	call	printhex8
 	pop	edx
 	call	newline
-88:
+188:
 .endm
 
 .macro DEBUG_REGDIFF1 nr, reg
@@ -404,13 +404,13 @@ debug_printsymbol:
 	call	print
 	print	" + "
 	sub	edx, eax
-	call	printhex8
+	call	printhex4
 
 	printc 7, " | "
 	add	edx, eax
 	sub	edx, ebx
 	neg	edx
-	call	printhex8
+	call	printhex4
 	print	" - "
 	mov	esi, edi
 	call	print
@@ -543,27 +543,63 @@ printflags$:
 	ret
 
 
+.data SECTION_DATA_BSS
+debugger_stack_print_lines$:	.long 0
+debugger_cmdline_pos$:		.long 0
+.text32
 # task
 debugger:
 	PIC_GET_MASK
 	push	eax
+	push	dword ptr [mutex]
+	push	dword ptr [task_queue_sem]
 	push	edx
-	push	edi
+	push	dword ptr 0	# local storage
+	push	esi	# orig stack offset
+	push	edi	# stack offset
+
+	mov	eax, [screen_scroll_lines]
+	mov	[debugger_stack_print_lines$], eax
+
 	# enabling timer allows keyboard job: page up etc.
-	call	scheduler_suspend
-	DEBUG_DWORD [mutex]
+	#call	scheduler_suspend
+	#DEBUG_DWORD [mutex]
+
+	mov	dword ptr [mutex], MUTEX_SCHEDULER # 0#~MUTEX_SCREEN # -1
+	mov	dword ptr [task_queue_sem], -1
 
 	PIC_SET_MASK ~(1<<IRQ_KEYBOARD)# | 1<<IRQ_TIMER)
 	sti	# for keyboard. Todo: mask other interrupts.
 
+#call cmd_tasks
 
-1:	printc_ 0xb8, "Debugger: h=help c=continue p=printregisters"
+1:	printlnc_ 0xb8, "Debugger: h=help c=continue p=printregisters s=sched m=mode"
 
-0:	printc_ 0xb8, "> "
+0:	printcharc_ 0xb0, ' '	# force scroll
+	mov	eax, [screen_pos]
+	mov	[debugger_cmdline_pos$], eax
+
+4:	mov	eax, [debugger_cmdline_pos$]
+	mov	[screen_pos], eax
+
+	mov	al, [esp + 8]
+	and	al, 7
+	LOAD_TXT "stack"
+	jz	2f
+	LOAD_TXT "sched"
+	cmp	al, 1
+	jz	2f
+	LOAD_TXT "?????"
+2:	printc 0xb8, "(mode:"
+	movzx	edx, al
+	call	printdec32
+	mov	ah, 0xb0
+	call	printc
+	printc_ 0xb8, ") > "
+
 6:	xor	ax, ax
 	call	keyboard
-	mov dx, ax
-	call printhex4
+
 	# use offset as symbols arent defined yet - gas bug
 	cmp	ax, offset K_PGUP
 	jz	66f
@@ -573,36 +609,72 @@ debugger:
 	jz	59f
 	cmp	ax, offset K_ESC
 	jz	10f
+	test	eax, K_KEY_CONTROL | K_KEY_ALT
+	jnz	6b
 	cmp	al, 'c'
 	jz	9f
 	cmp	al, 'p'
 	jz	2f
 	cmp	al, 'h'
 	jz	1b
-	jmp	0b
+	cmp	al, 's'
+	jz	55f
+	cmp	al, 'm'
+	jz	13f
+	jmp	6b
 
 10:	mov	edi, [esp]
 	jmp	62f
 59:	add	edi, 4
 	jmp	62f
 56:	sub	edi, 4
-62:	printchar 's'
-	mov	edx, [stack_print_pos$]
-	DEBUG_DWORD edx
-	sub	[screen_pos], edx
+62:	mov	esi, [esp + 4]
+		# calculate where stack is printed on screen
+		mov	eax, [screen_scroll_lines]
+		sub	eax, [debugger_stack_print_lines$]
+		add	[debugger_stack_print_lines$], eax
+		mov	edx, 160
+		imul	eax, edx
+		mov	edx, [stack_print_pos$]
+		sub	edx, eax
+		jns	1f
+		call	debug_print_stack$
+		mov	eax, [screen_scroll_lines]
+		mov	[debugger_stack_print_lines$], eax
+		jmp	0b
+		1:
+	PUSH_SCREENPOS edx
 	call	debug_print_stack$
+	POP_SCREENPOS
+#		mov	eax, [stack_print_lines$]
+#		mov	[debugger_stack_print_lines$], eax
 	jmp	6b
 
-66:	call	scroll
-	jmp	6b
+66:	call	scroll	# doesn't flush last line
+	jmp	4b
 
+55:	call	cmd_tasks
+	jmp	0b
+
+13:	mov	al, [esp + 8]	# update low 3 bits (8 modes max)
+	mov	dl, al
+	and	al, 0xf8
+	inc	dl
+	and	dl, 7
+	or	al, dl
+	mov	[esp + 8], al
+	jmp	4b
 
 9:	call	scheduler_resume
-	pop	ebp
+	pop	edi
+	pop	esi
+	add	esp, 4	# local storage
 	pop	edx
+	pop	dword ptr [task_queue_sem]
+	pop	dword ptr [mutex]
 	pop	eax
 	PIC_SET_MASK
 	ret
 
-2:	call	printregisters
+2:	call	debug_print_exception_registers$# printregisters
 	jmp	0b
