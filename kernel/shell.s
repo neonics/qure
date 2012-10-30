@@ -17,21 +17,18 @@ xcmdline_prompt_len:	.long 0 # "the_prefix> ".length
 xcmdline_cwd:		.space MAX_PATH_LEN
 xcmdline_cwd_handle:	.long 0
 xcmdline_cd_cwd:	.space MAX_PATH_LEN
-CMDLINE_STRUCT_SIZE = .
-
-.data
-shell_instance:	.long 0
-
-.data SECTION_DATA_BSS
-
-
-cmdline_tokens_end: .long 0
-cmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
 
 MAX_CMDLINE_ARGS = 256
-cmdline_argdata:.space MAX_CMDLINE_LEN + MAX_CMDLINE_ARGS
-cmdline_args:	.space MAX_CMDLINE_ARGS * 4
+xcmdline_argdata:	.space MAX_CMDLINE_LEN + MAX_CMDLINE_ARGS
+xcmdline_args:		.space MAX_CMDLINE_ARGS * 4
 
+xcmdline_tokens_end:	.long 0
+xcmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
+
+CMDLINE_STRUCT_SIZE = .
+
+.data SECTION_DATA_BSS
+shell_instance:	.long 0
 
 ############################################################################
 .struct 0
@@ -628,48 +625,51 @@ cmdline_execute$:
 		call	newline
 	.endif
 
-	push	ecx
-	mov	edi, offset cmdline_tokens
+	mov	eax, [shell_instance]
+	lea	edi, [eax + xcmdline_tokens]
 	#mov	esi, offset cmdline
 	##mov	ecx, [cmdlinelen]
 	call	tokenize
-	mov	[cmdline_tokens_end], edi
+	mov	eax, [shell_instance]
+	mov	[eax + xcmdline_tokens_end], edi
 	.if DEBUG_TOKENS
 		mov	ebx, edi
-		mov	esi, offset cmdline_tokens
+		lea	esi, [eax + xcmdline_tokens]
 		call	printtokens
+		mov	eax, [shell_instance]
 	.endif
-	pop	ecx
-
 
 	# create an argument list:
-	mov	ebx, offset cmdline_args
-	mov	edi, offset cmdline_argdata
-	mov	edx, offset cmdline_tokens
-	mov	ecx, [cmdline_tokens_end]	# unused
+	lea	ebx, [eax + xcmdline_args]
+	lea	edi, [eax + xcmdline_argdata]
+	lea	edx, [eax + xcmdline_tokens]
+	lea	ecx, [eax + xcmdline_tokens_end]	# unused
 	call	tokens_merge
 
 	########################
+	mov	eax, [shell_instance]
 
 	# debug the arguments:
 	.if DEBUG_TOKENS && CMDLINE_DEBUG
+		lea	esi, [eax + xcmdline_args]
 		call	cmdline_print_args$
 	.endif
 
 	# Find the command.
 
-	mov	edi, [cmdline_args + 0]
+	mov	edi, [eax + xcmdline_args + 0]
 	or	edi, edi
-	jz	0f
+	jz	2f
 
 	mov	ebx, offset SHELL_COMMANDS
 0:	cmp	[ebx + shell_command_code], dword ptr 0
-	jz	0f
+	jz	2f
 
 	mov	esi, [ebx + shell_command_string]
 	or	esi, esi
-	jz	0f
+	jz	2f
 	movzx	ecx, word ptr [ebx + shell_command_length]
+	# TODO: compare lengths to avoid prefix match
 	push	edi
 	repz	cmpsb
 	pop	edi
@@ -678,13 +678,13 @@ cmdline_execute$:
 	add	ebx, SHELL_COMMAND_STRUCT_SIZE
 	jmp	0b
 
-0:	PRINTLNc 4, "Unknown command"
+2:	PRINTLNc 4, "Unknown command"
 	jmp	shell_exec_return$
 
 	# call the command
 
 1:	mov	edx, [ebx + shell_command_code]
-	mov	esi, offset cmdline_args
+	lea	esi, [eax + xcmdline_args]
 
 	add	edx, [realsegflat]
 	jz	9f
