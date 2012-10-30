@@ -83,7 +83,7 @@ COLOR_STACK_SIZE = 2
 # > 0: load ah with constant
 # < 0: skip load ah. Note that ax will still be pushed.
 .macro PRINT_START c=0, char=0
-900:MUTEX_LOCK SCREEN, 900b
+#900:MUTEX_LOCK SCREEN, 900b
 	push	ax
 	pushf	# prevent interrupts during es != ds
 	cli
@@ -115,7 +115,7 @@ COLOR_STACK_SIZE = 2
 
 
 .macro PRINT_START_ c=0, char=0
-900:MUTEX_LOCK SCREEN 900b
+#900:MUTEX_LOCK SCREEN 900b
 	pushf	# prevent interrupts during es != ds
 	cli
 	cld
@@ -165,7 +165,7 @@ COLOR_STACK_SIZE = 2
 
 	pop	edi
 	pop	es
-MUTEX_UNLOCK SCREEN
+#MUTEX_UNLOCK SCREEN
 	popf
 .endm
 
