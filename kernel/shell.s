@@ -18,6 +18,9 @@ xcmdline_cwd:		.space MAX_PATH_LEN
 xcmdline_cwd_handle:	.long 0
 xcmdline_cd_cwd:	.space MAX_PATH_LEN
 
+xcmdline_history:	.long 0	# list/array/linked list.
+xcmdline_history_current:.long 0 # the current array item offset (up/down keys)
+
 MAX_CMDLINE_ARGS = 256
 xcmdline_argdata:	.space MAX_CMDLINE_LEN + MAX_CMDLINE_ARGS
 xcmdline_args:		.space MAX_CMDLINE_ARGS * 4
@@ -298,10 +301,11 @@ cursor_toggle$:
 
 ##########################################################################
 ## Keyboard handler for the shell
+#
+# in: ebx = cmdline / shell instance
 	
 # Shell and History key handler
 key_enter$:	
-	mov	ebx, [shell_instance]
 	call	cursor_toggle$
 		0:MUTEX_LOCK SCREEN 0b
 		mov	eax, [ebx + xcmdline_prompt_len]
@@ -312,12 +316,9 @@ key_enter$:
 	call	newline
 
 	call	cmdline_history_add
-#	jc	1f
-	mov	eax, [cmdline_history]
+	mov	eax, [ebx + xcmdline_history]
 	mov	edx, [eax + buf_index]
-1:	mov	[cmdline_history_current], edx
-
-	mov	ebx, [shell_instance]
+	mov	[ebx + xcmdline_history_current], edx
 
 	xor	ecx, ecx
 	mov	[ebx + xcmdline_cursorpos], ecx
@@ -335,7 +336,6 @@ key_enter$:
 
 # in: edi = cmdline + cursorpos
 key_delete$:
-	mov	ebx, [shell_instance]
 	mov	edi, [ebx + xcmdline_cursorpos]
 	mov	ecx, [ebx + xcmdline_len]
 	sub	ecx, edi
@@ -348,8 +348,6 @@ key_delete$:
 	jmp	start1$
 
 key_backspace$:	
-	mov	ebx, [shell_instance]
-
 	mov	edi, [ebx + xcmdline_cursorpos]
 	cmp	edi, 0
 	jbe	start1$
@@ -375,14 +373,12 @@ key_backspace$:
 1:	jmp	start1$
 
 key_left$:
-	mov	ebx, [shell_instance]
 	dec	dword ptr [ebx + xcmdline_cursorpos]
 	jns	start1$
 	inc	dword ptr [ebx + xcmdline_cursorpos]
 	jmp	start1$
 
 key_right$:
-	mov	ebx, [shell_instance]
 	mov	eax, [ebx + xcmdline_cursorpos]
 	cmp	eax, [ebx + xcmdline_len]
 	jae	start1$
@@ -390,12 +386,10 @@ key_right$:
 	jmp	start1$
 
 key_insert$:
-	mov	eax, [shell_instance]
 	xor	byte ptr [eax + xcmdline_insertmode], 1
 	jmp	start1$
 
 key_escape$:
-	mov	ebx, [shell_instance]
 	call	cmdline_clear$
 	jmp	start1$
 
@@ -412,18 +406,18 @@ key_pgdown:
 ## History key handlers
 
 key_up$:
-	mov	eax, [cmdline_history]
+	mov	eax, [ebx + xcmdline_history]
 	cmp	[eax + buf_index], dword ptr 0
 	jz	start0$
-	mov	edx, [cmdline_history_current]
+	mov	edx, [ebx + xcmdline_history_current]
 	sub	edx, 4
 	jns	0f
 	xor	edx, edx
 	jmp	0f
 
 key_down$:
-	mov	eax, [cmdline_history]
-	mov	edx, [cmdline_history_current]
+	mov	eax, [ebx + xcmdline_history]
+	mov	edx, [ebx + xcmdline_history_current]
 	add	edx, 4
 	cmp	edx, [eax + buf_index]
 	jb	0f
@@ -431,9 +425,7 @@ key_down$:
 	sub	edx, 4
 	js	start0$	# empty
 
-0:	mov	[cmdline_history_current], edx
-
-	mov	ebx, [shell_instance]
+0:	mov	[ebx + xcmdline_history_current], edx
 
 	call	cursor_toggle$
 
@@ -501,13 +493,13 @@ cmdline_print$:
 	mov	al, ':'
 	stosw
 
-	mov	ah, 7
-	mov	edx, [cmdline_history_current]
+	mov	esi, [shell_instance]
+	mov	edx, [esi + xcmdline_history_current]
 	shr	edx, 2
+	mov	ah, 7
 	call	__printdec32
 	mov	ah, 15
 	stosw
-	mov	esi, [shell_instance]
 	mov	edx, [esi + xcmdline_cursorpos]
 	mov	ah, 7
 	call	__printdec32
@@ -686,6 +678,8 @@ cmdline_execute$:
 1:	mov	edx, [ebx + shell_command_code]
 	lea	esi, [eax + xcmdline_args]
 
+	mov	ebx, eax	# shell instance
+
 	add	edx, [realsegflat]
 	jz	9f
 	call	edx
@@ -702,19 +696,14 @@ shell_exec_return$:	# debug symbol
 #
 # uses buf_*
 #
-# singleton
-
-.data
 CMDLINE_HISTORY_MAX_ITEMS = 16
-CMDLINE_HISTORY_SHARE = 1
-cmdline_history: .long 0	# list/array/linked list.
+CMDLINE_HISTORY_SHARE = 1	# 0 = singleton
 
-cmdline_history_current: .long 0 # the current array item offset (up/down keys)
-.text32
-
-# static constructor
+# in: edx = pointer to 2 longs: buffer and current index:
+# in: [edx + 0] = [cmdline_history]
+# in: [edx + 4] = [cmdline_history_current]
 cmdline_history_new:	
-	mov	eax, [cmdline_history]
+	mov	eax, [ebx + xcmdline_history]
 	or	eax, eax
 	.if CMDLINE_HISTORY_SHARE
 	jnz	1f
@@ -723,24 +712,25 @@ cmdline_history_new:
 	.endif
 	mov	eax, CMDLINE_HISTORY_MAX_ITEMS * 4
 	call	buf_new
-	mov	[cmdline_history], eax
-1:	ret
+	mov	[ebx + xcmdline_history], eax
+1:	mov	[ebx + xcmdline_history_current], dword ptr 0
+	ret
 
-# static destructor
+# in: edx = pointer to history (see _new)
 cmdline_history_delete:
 	xor	eax, eax
-	xchg	eax, [cmdline_history]
+	xchg	eax, [edx]
 	call	buf_free
 	ret
 
+# in: ebx = cmdline / shell instance
 # out: edx = current index (if !CF)
 # out: CF: not added
 cmdline_history_add:
 	# check whether this history item is the same as the previous
-	mov	ebx, [shell_instance]
 	mov	ecx, [ebx + xcmdline_len]
 	jecxz	2f
-	mov	eax, [cmdline_history]
+	mov	eax, [ebx + xcmdline_history]
 	mov	esi, [eax + buf_index]
 	sub	esi, 4
 	js	1f	# hist empty
@@ -763,7 +753,7 @@ cmdline_history_add:
 
 	# append a pointer to the appended data to the array
 
-	mov	edi, [cmdline_history]
+	mov	edi, [ebx + xcmdline_history]
 	mov	esi, [edi + buf_index]
 	cmp	esi, [edi + buf_capacity]
 	jae	0f	# if below, assume 4 bytes available
@@ -804,7 +794,7 @@ cmdline_history_add:
 
 
 cmdline_history_print:
-	mov	eax, [cmdline_history]
+	mov	eax, [ebx + xcmdline_history]
 	mov	ecx, [eax + buf_index]
 	shr	ecx, 2
 	jz	1f
