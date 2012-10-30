@@ -9,7 +9,7 @@ MAX_CMDLINE_LEN = 1024
 MAX_PATH_LEN = 1024
 
 .struct 0
-#xcmdline_buf:		.space MAX_CMDLINE_LEN
+xcmdline_buf:		.space MAX_CMDLINE_LEN
 xcmdline_len:		.long 0
 xcmdline_cursorpos:	.long 0
 xcmdline_insertmode:	.byte 0
@@ -24,7 +24,6 @@ shell_instance:	.long 0
 
 .data SECTION_DATA_BSS
 
-cmdline:	.space MAX_CMDLINE_LEN
 
 cmdline_tokens_end: .long 0
 cmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
@@ -196,7 +195,7 @@ start1$:
 
 	mov	ebx, [shell_instance]
 
-	mov	edi, offset cmdline
+	lea	edi, [ebx + xcmdline_buf]
 	add	edi, [ebx + xcmdline_cursorpos]
 
 	xor	ax, ax
@@ -272,7 +271,8 @@ start1$:
 	mov	esi, [ebx + xcmdline_len]
 	mov	ecx, esi
 	sub	ecx, [ebx + xcmdline_cursorpos]
-	add	esi, offset cmdline
+	lea	edx, [ebx + xcmdline_buf]
+	add	esi, edx
 	mov	edi, esi
 	dec	esi
 	std
@@ -328,7 +328,7 @@ key_enter$:
 	or	ecx, ecx
 	jz	start$
 
-	mov	esi, offset cmdline
+	lea	esi, [ebx + xcmdline_buf]
 	call	cmdline_execute$
 	
 	jmp	start$
@@ -336,14 +336,16 @@ key_enter$:
 ############################################
 ## Line Editor key handlers
 
+# in: edi = cmdline + cursorpos
 key_delete$:
 	mov	ebx, [shell_instance]
+	mov	edi, [ebx + xcmdline_cursorpos]
 	mov	ecx, [ebx + xcmdline_len]
 	sub	ecx, edi
-	add	ecx, offset cmdline
 	jle	start1$
-	mov	esi, edi
-	inc	esi
+	lea	edx, [ebx + xcmdline_buf]
+	add	edi, edx
+	lea	esi, [edi + 1]
 	rep	movsb
 	dec	dword ptr [ebx + xcmdline_len]
 	jmp	start1$
@@ -351,15 +353,19 @@ key_delete$:
 key_backspace$:	
 	mov	ebx, [shell_instance]
 
-	cmp	edi, offset cmdline 
+	mov	edi, [ebx + xcmdline_cursorpos]
+	cmp	edi, 0
 	jbe	start1$
 	cmp	edi, [ebx + xcmdline_len]
 	jz	1f
 	mov	esi, edi
 	dec	edi
-	mov	ecx, 1024 + offset cmdline
+	mov	ecx, MAX_CMDLINE_LEN
 	sub	ecx, esi
 	jz	1f
+	lea	edx, [ebx + xcmdline_buf]
+	add	esi, edx
+	add	edi, edx
 	rep	movsb
 
 1:	dec	dword ptr [ebx + xcmdline_cursorpos]
@@ -438,13 +444,14 @@ key_down$:
 
 	# copy history entry to commandline buffer
 
-	mov	edi, offset cmdline
-	mov	esi, [eax+edx]
+	mov	esi, [eax + edx]
+	lea	edx, [ebx + xcmdline_buf]
+	mov	edi, edx
 0:	lodsb
 	stosb
 	or	al, al
 	jnz	0b
-	sub	edi, offset cmdline
+	sub	edi, edx #offset cmdline
 	dec	edi
 	mov	[ebx + xcmdline_cursorpos], edi
 	mov	[ebx + xcmdline_len], edi
@@ -527,7 +534,7 @@ cmdline_print$:
 
 	mov	ecx, [edx + xcmdline_len]
 	jecxz	2f
-	mov	esi, offset cmdline
+	lea	esi, [edx + xcmdline_buf]
 
 1:	lodsb
 	stosw
@@ -744,7 +751,7 @@ cmdline_history_add:
 	jae	1f
 	mov	esi, [eax + edx]
 	add	edx, 4
-	mov	edi, offset cmdline
+	lea	edi, [ebx + xcmdline_buf]
 	call	strlen_
 	cmp	ecx, [ebx + xcmdline_len]
 	jnz	0b
@@ -764,8 +771,8 @@ cmdline_history_add:
 	add	[edi + buf_index], dword ptr 4
 
 1:	mov	eax, [ebx + xcmdline_len]
-	mov	[cmdline + eax], byte ptr 0
-	mov	eax, offset cmdline
+	mov	[ebx + xcmdline_buf + eax], byte ptr 0
+	lea	eax, [ebx + xcmdline_buf]
 	call	strdup
 	mov	[edi + esi], eax
 
@@ -846,9 +853,8 @@ cmd_quit$:
 
 
 cmd_pwd$:
-#	mov	esi, offset cwd$
-mov esi, [shell_instance]
-lea esi, [esi + xcmdline_cwd]
+	mov	esi, [shell_instance]
+	lea	esi, [esi + xcmdline_cwd]
 	call	println
 	ret
 
