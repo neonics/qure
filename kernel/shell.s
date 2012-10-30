@@ -6,27 +6,41 @@ SHELL_DEBUG_FS = 0
 
 MAX_CMDLINE_LEN = 1024
 
-.data
-insertmode: .byte 1
-.data SECTION_DATA_BSS
-cursorpos: .long 0
+MAX_PATH_LEN = 1024
 
-cmdlinelen: .long 0
-cmdline: .space MAX_CMDLINE_LEN
+.struct 0
+#xcmdline_buf:		.space MAX_CMDLINE_LEN
+#xcmdline_len:		.long 0
+#xcmdline_cursorpos:	.long 0
+xcmdline_insertmode:	.byte 0
+
+xcmdline_cwd:		.space MAX_PATH_LEN
+xcmdline_cwd_handle:	.long 0
+xcmdline_cd_cwd:	.space MAX_PATH_LEN
+CMDLINE_STRUCT_SIZE = .
+
+.data
+shell_instance:	.long 0
+#insertmode:	.byte 1
+
+.data SECTION_DATA_BSS
+cursorpos:	.long 0
+
+cmdlinelen:	.long 0
+cmdline:	.space MAX_CMDLINE_LEN
+
 cmdline_tokens_end: .long 0
-cmdline_tokens: .space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
+cmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
 
 MAX_CMDLINE_ARGS = 256
-cmdline_argdata: .space MAX_CMDLINE_LEN + MAX_CMDLINE_ARGS
+cmdline_argdata:.space MAX_CMDLINE_LEN + MAX_CMDLINE_ARGS
 cmdline_args:	.space MAX_CMDLINE_ARGS * 4
 
 cmdline_prompt_label_length: .long 0 # "the_prefix> ".length
 
-MAX_PATH_LEN = 1024
-
-cwd$:	.space MAX_PATH_LEN
-cd_cwd$:	.space MAX_PATH_LEN
-cwd_handle$: .long 0
+#cwd$:		.space MAX_PATH_LEN
+#cd_cwd$:	.space MAX_PATH_LEN
+#cwd_handle$:	.long 0
 
 
 ############################################################################
@@ -34,7 +48,7 @@ cwd_handle$: .long 0
 shell_command_code: .long 0
 shell_command_string: .long 0
 shell_command_length: .word 0
-SHELL_COMMAND_STRUCT_SIZE: 
+SHELL_COMMAND_STRUCT_SIZE = .
 .data
 
 .macro SHELL_COMMAND string, addr
@@ -48,6 +62,7 @@ SHELL_COMMAND_STRUCT_SIZE:
 	.text32
 .endm
 
+############################################################################
 ### Shell Command list
 .align 4
 SHELL_COMMANDS:
@@ -136,20 +151,40 @@ SHELL_COMMAND "kill"		cmd_kill
 .text32	
 .code32
 
+########################################################
+# do not call: call shell.
+shell_init$:
+	mov	eax, CMDLINE_STRUCT_SIZE
+	call	mallocz
+	jc	9f
+	mov	[shell_instance], eax
+	mov	ebx, eax
+	mov	[ebx + xcmdline_insertmode], byte ptr 1
+	mov	[ebx + xcmdline_cwd], word ptr '/'
+
+	call	cmdline_history_new
+	jc	9f
+
+	ret
+
+9:	printlnc 4, "shell: out of memory"
+	add	esp, 4
+	ret
+
+########################################################
+
 shell:	push	ds
 	pop	es
 
+	call	shell_init$
+
 	PRINTLNc 10, "Press ^D or type 'quit' to exit shell"
-	call	cmdline_history_new
 
 	#
 
-	mov	[cwd$], word ptr '/'
-	mov	[insertmode], byte ptr 1
-
-	mov	eax, offset cwd$
+	lea	eax, [ebx + xcmdline_cwd]
 	call	fs_opendir
-	mov	[cwd_handle$], eax
+	mov	[ebx + xcmdline_cwd_handle], eax
 
 start$:
 	call	newline_if
@@ -163,20 +198,6 @@ start$:
 	mov	dword ptr [cmdlinelen], 0
 
 start0$:
-	.if 0
-	#PUSH_SCREENPOS
-	mov	esi, offset cwd$
-	call	print
-	printcharc 15, ':'
-
-	mov	edx, [cmdline_history_current]
-	call	printdec32
-	printc 15, "> "
-	#POP_SCREENPOS
-	.endif
-
-
-
 start1$:
 	call	cmdline_print$
 
@@ -249,7 +270,8 @@ start1$:
 	# beep
 	jmp	start1$
 1:	
-	cmp	byte ptr [insertmode], 0
+	mov	esi, [shell_instance]
+	cmp	byte ptr [esi + xcmdline_insertmode], 0
 	jz	1f
 	# insert
 	mov	esi, [cmdlinelen]
@@ -273,7 +295,12 @@ cursor_toggle$:
 	PRINT_START
 	mov	ecx, [cursorpos]
 	add	ecx, [cmdline_prompt_label_length]
-	xor	es:[edi + ecx * 2 + 1], byte ptr 0xff
+	mov	eax, [shell_instance]
+	mov	al, [eax + xcmdline_insertmode]
+	xor	al, 1
+	shl	al, 4
+	not	al
+	xor	es:[edi + ecx * 2 + 1], al # byte ptr 0xff
 	PRINT_END
 	ret
 
@@ -357,8 +384,9 @@ key_right$:
 	jmp	start1$
 
 key_insert$:
-	xor	byte ptr [insertmode], 1
-	jmp	start$
+	mov	eax, [shell_instance]
+	xor	byte ptr [eax + xcmdline_insertmode], 1
+	jmp	start1$
 
 key_escape$:
 	call	cmdline_clear$
@@ -454,7 +482,8 @@ cmdline_print$:
 	mov	ebx, edi
 
 	mov	ah, 7
-	mov	esi, offset cwd$
+	mov	esi, [shell_instance]
+	lea	esi, [esi + xcmdline_cwd]
 	call	__print
 
 	mov	ah, 15
@@ -500,7 +529,12 @@ cmdline_print$:
 
 	add	ebx, [cursorpos]
 	add	ebx, [cursorpos]
-	xor	es:[ebx + 1], byte ptr 0xff
+	mov	eax, [shell_instance]
+	mov	al, [eax + xcmdline_insertmode]
+	xor	al, 1
+	shl	al, 4
+	not	al
+	xor	es:[ebx + 1], al # byte ptr 0xff
 
 	pop	edi
 	PRINT_END
@@ -804,7 +838,9 @@ cmd_quit$:
 
 
 cmd_pwd$:
-	mov	esi, offset cwd$
+#	mov	esi, offset cwd$
+mov esi, [shell_instance]
+lea esi, [esi + xcmdline_cwd]
 	call	println
 	ret
 
@@ -976,33 +1012,30 @@ cmd_cd$:
 	call	println
 1:
 
-#	call	cd_apply$
-#	print " -> "
-#	call	println
-
+	mov	ebx, [shell_instance]
 	push	esi
-	mov	esi, offset cwd$
-	mov	edi, offset cd_cwd$
+	lea	esi, [ebx + xcmdline_cwd]
+	lea	edi, [ebx + xcmdline_cd_cwd]
 	mov	ecx, MAX_PATH_LEN
 	rep	movsb
 	pop	esi
-	mov	edi, offset cd_cwd$
+	lea	edi, [ebx + xcmdline_cd_cwd]
 	call	fs_update_path
 ##############################################################################
 		cmp	byte ptr [esp], 0
 		jz	1f
 		printc 10, "chdir "
-		mov	esi, offset cd_cwd$
+		lea	esi, [ebx + xcmdline_cd_cwd]
 		call	println
 	1:
 
-	mov	eax, [cwd_handle$]
+	mov	eax, [ebx + xcmdline_cwd_handle]
 	call	fs_close
 
-	mov	eax, offset cd_cwd$
+	lea	eax, [ebx + xcmdline_cd_cwd]
 	call	fs_opendir
 	jc	6f
-	mov	[cwd_handle$], eax
+	mov	[ebx + xcmdline_cwd_handle], eax
 
 	.if SHELL_DEBUG_FS
 	call	fs_handle_printinfo
@@ -1011,10 +1044,20 @@ cmd_cd$:
 
 	# copy path:
 	mov	ecx, edi
-	mov	edi, offset cwd$
-	mov	esi, offset cd_cwd$
-	sub	ecx, edi
+	lea	esi, [ebx + xcmdline_cd_cwd]
+	sub	ecx, esi
+	lea	edi, [ebx + xcmdline_cwd]
 	rep	movsb
+
+	# make sure path ends with /, and also make sure it's zero terminated
+	cmp	byte ptr [edi-1], 0
+	jnz	1f
+	dec	edi
+1:	xor	ax, ax
+	cmp	byte ptr [edi-1], '/'
+	jz	1f
+	mov	al, '/'
+1:	stosw
 
 6:	pop	eax
 	ret
@@ -1037,19 +1080,20 @@ cmd_ls$:
 	lodsd
 	lodsd
 
-	mov	esi, offset cwd$
-	mov	edi, offset cd_cwd$
+	mov	ebx, [shell_instance]
+	lea	esi, [ebx + xcmdline_cwd]
+	lea	edi, [ebx + xcmdline_cd_cwd]
 	mov	ecx, MAX_PATH_LEN
 	rep	movsb
 
 	or	eax, eax
 	jz	0f
 	mov	esi, eax
-	mov	edi, offset cd_cwd$
+	lea	edi, [ebx + xcmdline_cd_cwd]
 	call	fs_update_path
 0:
-	mov	eax, offset cd_cwd$
-	mov	esi, eax
+	lea	eax, [ebx + xcmdline_cd_cwd]
+	mov	esi, eax	# for print (twice) below
 
 	.if SHELL_DEBUG_FS
 		printc	11, "ls "
@@ -1137,7 +1181,8 @@ cmd_cat$:
 	88: .space MAX_PATH_LEN
 	.text32
 	push	esi
-	mov	esi, offset cwd$
+	mov	esi, [shell_instance]
+	lea	esi, [esi + xcmdline_cwd]
 	mov	edi, offset 88b
 	mov	ecx, MAX_PATH_LEN
 	rep	movsb
