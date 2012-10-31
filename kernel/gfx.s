@@ -938,7 +938,7 @@ vesa_scan_pmid:
 9:	pop	es
 	ret
 
-.data
+.data SECTION_DATA_FONTS
 fonts4k:
 .if 0
 .incbin "../fonts/4k/standard.fnt"

@@ -85,32 +85,7 @@ COLOR_STACK_SIZE = 2
 .macro PRINT_START c=0, char=0
 #900:MUTEX_LOCK SCREEN, 900b
 	push	ax
-	pushf	# prevent interrupts during es != ds
-	cli
-	cld
-	push	es
-	push	edi
-	movzx	edi, word ptr [screen_sel]
-	mov	es, edi
-	mov	edi, [screen_pos]
-
-	.ifc ah,\c
-	.elseif \c == 0
-	mov	ah, [screen_color]
-	.else
-	mov	ah, \c
-	.endif
-
-	.if \char
-	mov	al, \char
-	.endif
-#	.if \c > 0
-#	mov	ah, \c
-#	.else
-#	.if \c == 0
-#	mov	ah, [screen_color]
-#	.endif
-#	.endif
+	PRINT_START_ \c, \char
 .endm
 
 
@@ -129,7 +104,9 @@ COLOR_STACK_SIZE = 2
 		mov	al, \char
 	.elseif \c == 0
 		mov	ah, [screen_color]
+		.ifnc 0,\char
 		mov	al, \char
+		.endif
 	.else
 		.if \c < 0
 		# do not update ax
@@ -182,40 +159,21 @@ COLOR_STACK_SIZE = 2
 	call	printspace
 .endm
 
-.macro PRINTHEX r
-	.if \r eq dx
-	call	printhex
-	.else
-	push	dx
-	mov	dx, \r
-	call	printhex
-	pop	dx
-	.endif
-.endm
-
 .macro PRINTCHAR c
-	.if 1
 	push	ax
-	mov	al, \c
-	call	printchar
+	PRINTCHAR_ \c
 	pop	ax
-	.else
-	PRINT_START
-	mov	al, \c
-	stosw
-	PRINT_END
-	.endif
-.endm
-
-.macro sPRINTCHAR c
-	mov	[edi], byte ptr \c
-	inc	edi
 .endm
 
 # does not preserve ax
 .macro PRINTCHAR_ c
 	mov	al, \c
 	call	printchar
+.endm
+
+.macro sPRINTCHAR c
+	mov	[edi], byte ptr \c
+	inc	edi
 .endm
 
 .macro GET_INDEX name, values:vararg
@@ -238,14 +196,7 @@ COLOR_STACK_SIZE = 2
 
 .macro PRINTCHARc col, c
 	push	ax
-	IS_REG8 _IS_REG8, \c
-	.if _IS_REG8
-	mov	ah, \col
-	mov	al, \c
-	.else
-	mov	ax, (\col<<8) | \c
-	.endif
-	call	printcharc
+	PRINTCHARc_ \col, \c
 	pop	ax
 .endm
 
@@ -313,14 +264,6 @@ COLOR_STACK_SIZE = 2
 	call	print_
 .endm
 
-.macro PRINTS_
-	call	print_
-.endm
-
-.macro PRINTLNS_
-	call	println_
-.endm
-
 
 .macro PRINTSKIP_
 91:	lodsb
@@ -346,9 +289,10 @@ COLOR_STACK_SIZE = 2
 .endm
 
 
-
-.macro PRINTLN_ msg
+.macro PRINTLN_ msg=esi
+	.ifnc esi,\msg
 	LOAD_TXT "\msg"
+	.endif
 	call	println
 .endm
 
@@ -408,22 +352,6 @@ COLOR_STACK_SIZE = 2
 ####################
 
 
-.macro PH8 m, r
-	.if \r != edx
-	push	edx
-	mov	edx, \r
-	.endif
-	PRINT "\m" 
-	call	printhex8
-.if HEX_END_SPACE
-	add	di, 2
-.endif
-	.if \r != edx
-	pop	edx
-	.endif
-.endm
-
-
 .macro PRINTFLAG reg, bit, msg, altmsg=""
 	test	\reg, \bit
 	jz	111f
@@ -434,25 +362,6 @@ COLOR_STACK_SIZE = 2
 112:
 .endm
 
-
-
-############################## debug ####################
-.macro DBGSO16 msg, seg, offs
-	mov	ah, 0xf0
-	PRINT	"\msg"
-	mov	dx, \seg
-	call	printhex
-	mov	es:[di-2], byte ptr ':'
-	mov	dx, \offs
-	call	printhex
-.endm
-
-.macro DBGSTACK16 msg, offs
-	PRINT	"\msg"
-	mov	bp, sp
-	mov	dx, [bp + offs]
-	call	printhex
-.endm
 
 
 .endif
@@ -1037,13 +946,18 @@ print_fixedpoint_32_32:
 	ret
 
 ###########################################
-# in: bl = digits
+# in: bl = [7:4 flags} [3:0 digits]; flags: 1<<4=print .000
 sprint_fixedpoint_32_32$:
 	push	eax
 	push	edx
 
 	call	sprintdec32
+	test	bl, 1 << 4
+	jnz	0f
 	or	eax, eax
+	jz	1f
+
+0:	and	bl, 15
 	jz	1f
 
 	sprintchar '.'	# i18n
@@ -1155,6 +1069,25 @@ sprint_size:
 	pop	eax
 	ret
 
+# in: edx:eax = size in bytes
+# in: edi = buf ptr
+# in: bl = [flags][digits] (see sprint_fixedpoint_32_32$)
+sprint_size_:
+	push	eax
+	push	ecx
+	push	edx
+	push	esi
+	call	calc_size
+	cmp	word ptr [esi], 'b'
+	jnz	1f
+	and	bl, 15
+1:	call	sprint_fixedpoint_32_32$
+	call	sprint
+	pop	esi
+	pop	edx
+	pop	ecx
+	pop	eax
+	ret
 
 ############################ PRINT FORMATTED STRING ###########
 PRINTF_DEBUG = 0

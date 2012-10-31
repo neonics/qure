@@ -9,24 +9,24 @@ MAX_CMDLINE_LEN = 1024
 MAX_PATH_LEN = 1024
 
 .struct 0
-xcmdline_buf:		.space MAX_CMDLINE_LEN
-xcmdline_len:		.long 0
-xcmdline_cursorpos:	.long 0
-xcmdline_insertmode:	.byte 0
-xcmdline_prompt_len:	.long 0 # "the_prefix> ".length
-xcmdline_cwd:		.space MAX_PATH_LEN
-xcmdline_cwd_handle:	.long 0
-xcmdline_cd_cwd:	.space MAX_PATH_LEN
+cmdline_buf:		.space MAX_CMDLINE_LEN
+cmdline_len:		.long 0
+cmdline_cursorpos:	.long 0
+cmdline_insertmode:	.byte 0
+cmdline_prompt_len:	.long 0 # "the_prefix> ".length
+cmdline_cwd:		.space MAX_PATH_LEN
+cmdline_cwd_handle:	.long 0
+cmdline_cd_cwd:	.space MAX_PATH_LEN
 
-xcmdline_history:	.long 0	# list/array/linked list.
-xcmdline_history_current:.long 0 # the current array item offset (up/down keys)
+cmdline_history:	.long 0	# list/array/linked list.
+cmdline_history_current:.long 0 # the current array item offset (up/down keys)
 
 MAX_CMDLINE_ARGS = 256
-xcmdline_argdata:	.space MAX_CMDLINE_LEN + MAX_CMDLINE_ARGS
-xcmdline_args:		.space MAX_CMDLINE_ARGS * 4
+cmdline_argdata:	.space MAX_CMDLINE_LEN + MAX_CMDLINE_ARGS
+cmdline_args:		.space MAX_CMDLINE_ARGS * 4
 
-xcmdline_tokens_end:	.long 0
-xcmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
+cmdline_tokens_end:	.long 0
+cmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
 
 CMDLINE_STRUCT_SIZE = .
 
@@ -146,8 +146,8 @@ shell_init$:
 	call	mallocz
 	jc	9f
 	mov	ebx, eax
-	mov	[ebx + xcmdline_insertmode], byte ptr 1
-	mov	[ebx + xcmdline_cwd], word ptr '/'
+	mov	[ebx + cmdline_insertmode], byte ptr 1
+	mov	[ebx + cmdline_cwd], word ptr '/'
 
 	call	cmdline_history_new
 	jc	9f
@@ -173,9 +173,9 @@ shell:	push	ds
 
 	#
 
-	lea	eax, [ebx + xcmdline_cwd]
+	lea	eax, [ebx + cmdline_cwd]
 	call	fs_opendir
-	mov	[ebx + xcmdline_cwd_handle], eax
+	mov	[ebx + cmdline_cwd_handle], eax
 
 start$:
 	call	newline_if
@@ -187,16 +187,16 @@ start$:
 
 	mov	ebx, [ebp]
 
-	mov	dword ptr [ebx + xcmdline_cursorpos], 0
-	mov	dword ptr [ebx + xcmdline_len], 0
+	mov	dword ptr [ebx + cmdline_cursorpos], 0
+	mov	dword ptr [ebx + cmdline_len], 0
 
 start1$:
 	call	cmdline_print$
 
 	mov	ebx, [ebp] # shell_instance
 
-	lea	edi, [ebx + xcmdline_buf]
-	add	edi, [ebx + xcmdline_cursorpos]
+	lea	edi, [ebx + cmdline_buf]
+	add	edi, [ebx + cmdline_cursorpos]
 
 	xor	ax, ax
 	call	keyboard
@@ -255,19 +255,19 @@ start1$:
 	# inject character into commandline:
 
 	# overwrite
-	cmp	[ebx + xcmdline_len], dword ptr MAX_CMDLINE_LEN-1 # check insert
+	cmp	[ebx + cmdline_len], dword ptr MAX_CMDLINE_LEN-1 # check insert
 	# beep
 	jb	1f	
 	# beep
 	jmp	start1$
 1:	
-	cmp	byte ptr [ebx + xcmdline_insertmode], 0
+	cmp	byte ptr [ebx + cmdline_insertmode], 0
 	jz	1f
 	# insert
-	mov	esi, [ebx + xcmdline_len]
+	mov	esi, [ebx + cmdline_len]
 	mov	ecx, esi
-	sub	ecx, [ebx + xcmdline_cursorpos]
-	lea	edx, [ebx + xcmdline_buf]
+	sub	ecx, [ebx + cmdline_cursorpos]
+	lea	edx, [ebx + cmdline_buf]
 	add	esi, edx
 	mov	edi, esi
 	dec	esi
@@ -276,8 +276,8 @@ start1$:
 	cld
 1:	# overwrite
 	stosb
-	inc	dword ptr [ebx + xcmdline_cursorpos]
-	inc	dword ptr [ebx + xcmdline_len]
+	inc	dword ptr [ebx + cmdline_cursorpos]
+	inc	dword ptr [ebx + cmdline_len]
 
 	jmp	start1$
 
@@ -285,9 +285,9 @@ start1$:
 # in: ebx = shell_instance
 cursor_toggle$:
 	PRINT_START
-	mov	ecx, [ebx + xcmdline_cursorpos]
-	add	ecx, [ebx + xcmdline_prompt_len]
-	mov	al, [ebx + xcmdline_insertmode]
+	mov	ecx, [ebx + cmdline_cursorpos]
+	add	ecx, [ebx + cmdline_prompt_len]
+	mov	al, [ebx + cmdline_insertmode]
 	xor	al, 1
 	shl	al, 4
 	not	al
@@ -304,25 +304,25 @@ cursor_toggle$:
 key_enter$:	
 	call	cursor_toggle$
 		0:MUTEX_LOCK SCREEN 0b
-		mov	eax, [ebx + xcmdline_prompt_len]
-		add	eax, [ebx + xcmdline_len]
+		mov	eax, [ebx + cmdline_prompt_len]
+		add	eax, [ebx + cmdline_len]
 		add	eax, eax
 		add	[screen_pos], eax
 		MUTEX_UNLOCK SCREEN
 	call	newline
 
 	call	cmdline_history_add
-	mov	eax, [ebx + xcmdline_history]
+	mov	eax, [ebx + cmdline_history]
 	mov	edx, [eax + buf_index]
-	mov	[ebx + xcmdline_history_current], edx
+	mov	[ebx + cmdline_history_current], edx
 
 	xor	ecx, ecx
-	mov	[ebx + xcmdline_cursorpos], ecx
-	xchg	ecx, [ebx + xcmdline_len]
+	mov	[ebx + cmdline_cursorpos], ecx
+	xchg	ecx, [ebx + cmdline_len]
 	or	ecx, ecx
 	jz	start$
 
-	lea	esi, [ebx + xcmdline_buf]
+	lea	esi, [ebx + cmdline_buf]
 	call	cmdline_execute$
 	
 	jmp	start$
@@ -332,57 +332,57 @@ key_enter$:
 
 # in: edi = cmdline + cursorpos
 key_delete$:
-	mov	edi, [ebx + xcmdline_cursorpos]
-	mov	ecx, [ebx + xcmdline_len]
+	mov	edi, [ebx + cmdline_cursorpos]
+	mov	ecx, [ebx + cmdline_len]
 	sub	ecx, edi
 	jle	start1$
-	lea	edx, [ebx + xcmdline_buf]
+	lea	edx, [ebx + cmdline_buf]
 	add	edi, edx
 	lea	esi, [edi + 1]
 	rep	movsb
-	dec	dword ptr [ebx + xcmdline_len]
+	dec	dword ptr [ebx + cmdline_len]
 	jmp	start1$
 
 key_backspace$:	
-	mov	edi, [ebx + xcmdline_cursorpos]
+	mov	edi, [ebx + cmdline_cursorpos]
 	cmp	edi, 0
 	jbe	start1$
-	cmp	edi, [ebx + xcmdline_len]
+	cmp	edi, [ebx + cmdline_len]
 	jz	1f
 	mov	esi, edi
 	dec	edi
 	mov	ecx, MAX_CMDLINE_LEN
 	sub	ecx, esi
 	jz	1f
-	lea	edx, [ebx + xcmdline_buf]
+	lea	edx, [ebx + cmdline_buf]
 	add	esi, edx
 	add	edi, edx
 	rep	movsb
 
-1:	dec	dword ptr [ebx + xcmdline_cursorpos]
+1:	dec	dword ptr [ebx + cmdline_cursorpos]
 	jns	1f
 	printc 4, "Error: cursorpos < 0"
 1:
-	dec	dword ptr [ebx + xcmdline_len]
+	dec	dword ptr [ebx + cmdline_len]
 	jns	1f
 	PRINTlnc 4, "Error: cmdlinelen < 0"
 1:	jmp	start1$
 
 key_left$:
-	dec	dword ptr [ebx + xcmdline_cursorpos]
+	dec	dword ptr [ebx + cmdline_cursorpos]
 	jns	start1$
-	inc	dword ptr [ebx + xcmdline_cursorpos]
+	inc	dword ptr [ebx + cmdline_cursorpos]
 	jmp	start1$
 
 key_right$:
-	mov	eax, [ebx + xcmdline_cursorpos]
-	cmp	eax, [ebx + xcmdline_len]
+	mov	eax, [ebx + cmdline_cursorpos]
+	cmp	eax, [ebx + cmdline_len]
 	jae	start1$
-	inc	dword ptr [ebx + xcmdline_cursorpos]
+	inc	dword ptr [ebx + cmdline_cursorpos]
 	jmp	start1$
 
 key_insert$:
-	xor	byte ptr [eax + xcmdline_insertmode], 1
+	xor	byte ptr [eax + cmdline_insertmode], 1
 	jmp	start1$
 
 key_escape$:
@@ -402,18 +402,18 @@ key_pgdown:
 ## History key handlers
 
 key_up$:
-	mov	eax, [ebx + xcmdline_history]
+	mov	eax, [ebx + cmdline_history]
 	cmp	[eax + buf_index], dword ptr 0
 	jz	start1$
-	mov	edx, [ebx + xcmdline_history_current]
+	mov	edx, [ebx + cmdline_history_current]
 	sub	edx, 4
 	jns	0f
 	xor	edx, edx
 	jmp	0f
 
 key_down$:
-	mov	eax, [ebx + xcmdline_history]
-	mov	edx, [ebx + xcmdline_history_current]
+	mov	eax, [ebx + cmdline_history]
+	mov	edx, [ebx + cmdline_history_current]
 	add	edx, 4
 	cmp	edx, [eax + buf_index]
 	jb	0f
@@ -421,7 +421,7 @@ key_down$:
 	sub	edx, 4
 	js	start1$	# empty
 
-0:	mov	[ebx + xcmdline_history_current], edx
+0:	mov	[ebx + cmdline_history_current], edx
 
 	call	cursor_toggle$
 
@@ -430,7 +430,7 @@ key_down$:
 	# copy history entry to commandline buffer
 
 	mov	esi, [eax + edx]
-	lea	edx, [ebx + xcmdline_buf]
+	lea	edx, [ebx + cmdline_buf]
 	mov	edi, edx
 0:	lodsb
 	stosb
@@ -438,8 +438,8 @@ key_down$:
 	jnz	0b
 	sub	edi, edx #offset cmdline
 	dec	edi
-	mov	[ebx + xcmdline_cursorpos], edi
-	mov	[ebx + xcmdline_len], edi
+	mov	[ebx + cmdline_cursorpos], edi
+	mov	[ebx + cmdline_len], edi
 
 	jmp	start1$
 
@@ -453,9 +453,9 @@ cmdline_clear$:
 	push	ecx
 	mov	ax,(7<<8)| ' '
 	xor	ecx, ecx
-	mov	[ebx + xcmdline_cursorpos], ecx
-	xchg	ecx, [ebx + xcmdline_len]
-	add	ecx, [ebx + xcmdline_prompt_len]
+	mov	[ebx + cmdline_cursorpos], ecx
+	xchg	ecx, [ebx + cmdline_len]
+	add	ecx, [ebx + cmdline_prompt_len]
 	jecxz	2f	# used to jump to start$
 	PRINT_START
 	push	edi
@@ -482,7 +482,7 @@ cmdline_print$:
 
 	mov	ah, 7
 	mov	esi, [ebp] # shell_instance
-	lea	esi, [esi + xcmdline_cwd]
+	lea	esi, [esi + cmdline_cwd]
 	call	__print
 
 	mov	ah, 15
@@ -490,13 +490,13 @@ cmdline_print$:
 	stosw
 
 	mov	esi, [ebp] # shell_instance
-	mov	edx, [esi + xcmdline_history_current]
+	mov	edx, [esi + cmdline_history_current]
 	shr	edx, 2
 	mov	ah, 7
 	call	__printdec32
 	mov	ah, 15
 	stosw
-	mov	edx, [esi + xcmdline_cursorpos]
+	mov	edx, [esi + cmdline_cursorpos]
 	mov	ah, 7
 	call	__printdec32
 
@@ -511,15 +511,15 @@ cmdline_print$:
 	neg	ebx
 	shr	ebx, 1
 	mov	edx, [ebp] # shell_instance
-	mov	[edx + xcmdline_prompt_len], ebx
+	mov	[edx + cmdline_prompt_len], ebx
 
 	# print the line editor contents
 
 	mov	ebx, edi
 
-	mov	ecx, [edx + xcmdline_len]
+	mov	ecx, [edx + cmdline_len]
 	jecxz	2f
-	lea	esi, [edx + xcmdline_buf]
+	lea	esi, [edx + cmdline_buf]
 
 1:	lodsb
 	stosw
@@ -529,9 +529,9 @@ cmdline_print$:
 	stosw
 	stosw
 
-	add	ebx, [edx + xcmdline_cursorpos]
-	add	ebx, [edx + xcmdline_cursorpos]
-	mov	al, [edx + xcmdline_insertmode]
+	add	ebx, [edx + cmdline_cursorpos]
+	add	ebx, [edx + cmdline_cursorpos]
+	mov	al, [edx + cmdline_insertmode]
 	xor	al, 1
 	shl	al, 4
 	not	al
@@ -614,17 +614,17 @@ cmdline_execute$:
 		call	newline
 	.endif
 
-	lea	edi, [ebx + xcmdline_tokens]
+	lea	edi, [ebx + cmdline_tokens]
 	#mov	esi, offset cmdline
 	##mov	ecx, [cmdlinelen]
 	push	ebx
 	call	tokenize
 	pop	ebx
-	mov	[ebx + xcmdline_tokens_end], edi
+	mov	[ebx + cmdline_tokens_end], edi
 	.if DEBUG_TOKENS
 		push	ebx
 		mov	ebx, edi
-		lea	esi, [eax + xcmdline_tokens]
+		lea	esi, [eax + cmdline_tokens]
 		call	printtokens
 		pop	ebx
 	.endif
@@ -632,10 +632,10 @@ cmdline_execute$:
 	# create an argument list:
 	push	ebx
 	mov	eax, ebx
-	lea	ebx, [eax + xcmdline_args]
-	lea	edi, [eax + xcmdline_argdata]
-	lea	edx, [eax + xcmdline_tokens]
-	lea	ecx, [eax + xcmdline_tokens_end]	# unused
+	lea	ebx, [eax + cmdline_args]
+	lea	edi, [eax + cmdline_argdata]
+	lea	edx, [eax + cmdline_tokens]
+	lea	ecx, [eax + cmdline_tokens_end]	# unused
 	call	tokens_merge
 	pop	ebx
 
@@ -643,13 +643,13 @@ cmdline_execute$:
 
 	# debug the arguments:
 	.if DEBUG_TOKENS && CMDLINE_DEBUG
-		lea	esi, [ebx + xcmdline_args]
+		lea	esi, [ebx + cmdline_args]
 		call	cmdline_print_args$
 	.endif
 
 	# Find the command.
 
-	mov	edi, [ebx + xcmdline_args + 0]
+	mov	edi, [ebx + cmdline_args + 0]
 	or	edi, edi
 	jz	2f
 
@@ -676,7 +676,7 @@ cmdline_execute$:
 	# call the command
 
 1:	mov	edx, [edx + shell_command_code]
-	lea	esi, [ebx + xcmdline_args]
+	lea	esi, [ebx + cmdline_args]
 
 	add	edx, [realsegflat]
 	jz	9f
@@ -699,7 +699,7 @@ CMDLINE_HISTORY_SHARE = 1	# 0 = singleton
 
 # in: ebx = shell instance
 cmdline_history_new:	
-	mov	eax, [ebx + xcmdline_history]
+	mov	eax, [ebx + cmdline_history]
 	or	eax, eax
 	.if CMDLINE_HISTORY_SHARE
 	jnz	1f
@@ -708,20 +708,20 @@ cmdline_history_new:
 	.endif
 	mov	eax, CMDLINE_HISTORY_MAX_ITEMS * 4
 	call	buf_new
-	mov	[ebx + xcmdline_history], eax
-1:	mov	[ebx + xcmdline_history_current], dword ptr 0
+	mov	[ebx + cmdline_history], eax
+1:	mov	[ebx + cmdline_history_current], dword ptr 0
 	ret
 
 # in: ebx = shell instance
 cmdline_history_delete:
-	ARRAY_LOOP [ebx + xcmdline_history], 4, ecx, edx, 9f
+	ARRAY_LOOP [ebx + cmdline_history], 4, ecx, edx, 9f
 	mov	eax, [ecx + edx]
 	or	eax, eax
 	jz	1f
 	call	mfree
 1:	ARRAY_ENDL
 9:	xor	eax, eax
-	xchg	eax, [ebx + xcmdline_history]
+	xchg	eax, [ebx + cmdline_history]
 	call	buf_free
 	ret
 
@@ -730,9 +730,9 @@ cmdline_history_delete:
 # out: CF: not added
 cmdline_history_add:
 	# check whether this history item is the same as the previous
-	mov	ecx, [ebx + xcmdline_len]
+	mov	ecx, [ebx + cmdline_len]
 	jecxz	2f
-	mov	eax, [ebx + xcmdline_history]
+	mov	eax, [ebx + cmdline_history]
 	mov	esi, [eax + buf_index]
 	sub	esi, 4
 	js	1f	# hist empty
@@ -743,9 +743,9 @@ cmdline_history_add:
 	jae	1f
 	mov	esi, [eax + edx]
 	add	edx, 4
-	lea	edi, [ebx + xcmdline_buf]
+	lea	edi, [ebx + cmdline_buf]
 	call	strlen_
-	cmp	ecx, [ebx + xcmdline_len]
+	cmp	ecx, [ebx + cmdline_len]
 	jnz	0b
 	repz	cmpsb
 	jnz	0b
@@ -755,16 +755,16 @@ cmdline_history_add:
 
 	# append a pointer to the appended data to the array
 
-	mov	edi, [ebx + xcmdline_history]
+	mov	edi, [ebx + cmdline_history]
 	mov	esi, [edi + buf_index]
 	cmp	esi, [edi + buf_capacity]
 	jae	0f	# if below, assume 4 bytes available
 
 	add	[edi + buf_index], dword ptr 4
 
-1:	mov	eax, [ebx + xcmdline_len]
-	mov	[ebx + xcmdline_buf + eax], byte ptr 0
-	lea	eax, [ebx + xcmdline_buf]
+1:	mov	eax, [ebx + cmdline_len]
+	mov	[ebx + cmdline_buf + eax], byte ptr 0
+	lea	eax, [ebx + cmdline_buf]
 	call	strdup
 	mov	[edi + esi], eax
 
@@ -796,7 +796,7 @@ cmdline_history_add:
 
 
 cmdline_history_print:
-	mov	eax, [ebx + xcmdline_history]
+	mov	eax, [ebx + cmdline_history]
 	mov	ecx, [eax + buf_index]
 	shr	ecx, 2
 	jz	1f
@@ -850,7 +850,7 @@ cmd_quit$:
 	pop	ebx	# shell instance
 	call	cmdline_history_delete
 
-	mov	eax, [ebx + xcmdline_cwd_handle]
+	mov	eax, [ebx + cmdline_cwd_handle]
 	call	fs_close
 
 	mov	eax, ebx
@@ -860,7 +860,7 @@ cmd_quit$:
 	ret
 
 cmd_pwd$:
-	lea	esi, [ebx + xcmdline_cwd]
+	lea	esi, [ebx + cmdline_cwd]
 	call	println
 	ret
 
@@ -1027,28 +1027,28 @@ cmd_cd$:
 1:
 
 	push	esi
-	lea	esi, [ebx + xcmdline_cwd]
-	lea	edi, [ebx + xcmdline_cd_cwd]
+	lea	esi, [ebx + cmdline_cwd]
+	lea	edi, [ebx + cmdline_cd_cwd]
 	mov	ecx, MAX_PATH_LEN
 	rep	movsb
 	pop	esi
-	lea	edi, [ebx + xcmdline_cd_cwd]
+	lea	edi, [ebx + cmdline_cd_cwd]
 	call	fs_update_path
 ##############################################################################
 		cmp	byte ptr [esp], 0
 		jz	1f
 		printc 10, "chdir "
-		lea	esi, [ebx + xcmdline_cd_cwd]
+		lea	esi, [ebx + cmdline_cd_cwd]
 		call	println
 	1:
 
-	mov	eax, [ebx + xcmdline_cwd_handle]
+	mov	eax, [ebx + cmdline_cwd_handle]
 	call	fs_close
 
-	lea	eax, [ebx + xcmdline_cd_cwd]
+	lea	eax, [ebx + cmdline_cd_cwd]
 	call	fs_opendir
 	jc	6f
-	mov	[ebx + xcmdline_cwd_handle], eax
+	mov	[ebx + cmdline_cwd_handle], eax
 
 	.if SHELL_DEBUG_FS
 	call	fs_handle_printinfo
@@ -1057,9 +1057,9 @@ cmd_cd$:
 
 	# copy path:
 	mov	ecx, edi
-	lea	esi, [ebx + xcmdline_cd_cwd]
+	lea	esi, [ebx + cmdline_cd_cwd]
 	sub	ecx, esi
-	lea	edi, [ebx + xcmdline_cwd]
+	lea	edi, [ebx + cmdline_cwd]
 	rep	movsb
 
 	# make sure path ends with /, and also make sure it's zero terminated
@@ -1095,18 +1095,18 @@ cmd_ls$:
 	lodsd
 	lodsd
 
-	lea	esi, [ebx + xcmdline_cwd]
-	lea	edi, [ebx + xcmdline_cd_cwd]
+	lea	esi, [ebx + cmdline_cwd]
+	lea	edi, [ebx + cmdline_cd_cwd]
 	mov	ecx, MAX_PATH_LEN
 	rep	movsb
 
 	or	eax, eax
 	jz	0f
 	mov	esi, eax
-	lea	edi, [ebx + xcmdline_cd_cwd]
+	lea	edi, [ebx + cmdline_cd_cwd]
 	call	fs_update_path
 0:
-	lea	eax, [ebx + xcmdline_cd_cwd]
+	lea	eax, [ebx + cmdline_cd_cwd]
 	mov	esi, eax	# for print (twice) below
 
 	.if SHELL_DEBUG_FS
@@ -1195,7 +1195,7 @@ cmd_cat$:
 	88: .space MAX_PATH_LEN
 	.text32
 	push	esi
-	lea	esi, [ebx + xcmdline_cwd]
+	lea	esi, [ebx + cmdline_cwd]
 	mov	edi, offset 88b
 	mov	ecx, MAX_PATH_LEN
 	rep	movsb

@@ -375,8 +375,9 @@ pmode_entry$:
 	.if DEBUG_PM > 2
 		OK
 		COLOR 8
+		PRINT	"  Return address: "
 		mov	edx, [esp]
-		PH8	"  Return address: ", edx
+		call	printhex8
 		call	newline
 	.endif
 

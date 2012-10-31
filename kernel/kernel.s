@@ -7,6 +7,7 @@ SECTION_DATA		= 0
 SECTION_DATA_CONCAT	= 1
 SECTION_DATA_STRINGS	= 2
 SECTION_DATA_PCI_NIC	= 3
+SECTION_DATA_FONTS	= 4
 SECTION_DATA_BSS	= 10
 SECTION_DATA_SIGNATURE	= SECTION_DATA_BSS -1
 
@@ -47,6 +48,8 @@ data_pci_nic:
 # .long driver_constructor
 # .long name
 # .long 0	# alignment - total size: 16 bytes
+.data SECTION_DATA_FONTS
+data_fonts_start:
 .data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
 data_signature_start:
 .data SECTION_DATA_BSS
@@ -61,49 +64,62 @@ kernel_pm_code_start:
 kernel_start:
 ###################################
 DEFINE = 1
+
+.macro INCLUDE file, name=0
+.ifnc 0,\name
+code_\name\()_start:
+.endif
+.include "\file"
+.ifnc 0,\name
+code_\name\()_end:
+.endif
+.endm
+
 .include "debug.s"
 .include "mutex.s"
-.include "print.s"
-.include "pmode.s"
-.include "debugger.s"
-.include "pit.s"
-.include "keyboard.s"
+include "print.s", print
+include "pmode.s", pmode
+include "debugger.s", debugger
+include "pit.s", pit
+include "keyboard.s", keyboard
 
-.include "mem.s"
-.include "hash.s"
-.include "string.s"
+include "mem.s", mem
+include "hash.s", hash
+include "string.s", string
 
-.include "schedule.s"
+include "schedule.s", scheduler
 
-.include "token.s"
-.include "shell.s"
+include "token.s", tokenizer
+include "shell.s", shell
 
-.include "dev.s"
-.include "pci.s"
-.include "bios.s"
-.include "cmos.s"
-.include "ata.s"
+include "dev.s", dev
+include "pci.s", pci
+include "bios.s", bios
+include "cmos.s", cmos
+include "ata.s", ata
 
-.include "fs.s"
-.include "partition.s"
-.include "fat.s"
-.include "sfs.s"
+include "fs.s", fs
+include "partition.s", partition
+include "fat.s", fat
+include "sfs.s", sfs
+include "iso9660.s", iso9660
 
-.include "iso9660.s"
+code_nic_start:
+include "nic.s"
+include "rtl8139.s"
+include "i8254.s"
+include "am79c971.s"
+code_nic_end:
+include "net.s", net
 
-.include "nic.s"
-.include "rtl8139.s"
-.include "i8254.s"
-.include "am79c971.s"
-.include "net.s"
-
-.include "gfx.s"
-.include "hwdebug.s"
-.include "vmware.s"
+include "gfx.s", gfx
+include "hwdebug.s", hwdebug
+include "vmware.s", vmware
 ###################################
 
 .text32
 .code32
+code_kernel_start:
 kmain:
 
 	# we're in flat mode, so set ds so we can use our data..
@@ -411,6 +427,7 @@ kernel_task:
 	PRINTLNc 0x0b "Kernel Task"
 	retf
 kernel_code_end:
+code_kernel_end:
 # initialize section end labels
 .text32
 kernel_pm_code_end:
@@ -427,6 +444,8 @@ data_0_end:
 data_str_end:
 .data SECTION_DATA_PCI_NIC
 data_pci_nic_end:
+.data SECTION_DATA_FONTS
+data_fonts_end:
 .data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
 #kernel_signature:.long 0x1337c0de # when bss is no longer stored in .data, enable this
 data_signature_end:

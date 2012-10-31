@@ -1002,7 +1002,7 @@ fs_close:	# fs_free_handle
 		push esi
 		PRINT_ "fs_close: "
 		mov	esi, eax
-		PRINTLNS_
+		PRINTLN_
 		pop esi
 	.endif
 

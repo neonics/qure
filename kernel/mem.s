@@ -2495,6 +2495,12 @@ malloc_optimized:
 
 ##############################################################################
 # Commandline utility
+CMD_MEM_OPT_HANDLES	= 1 << 0
+CMD_MEM_OPT_KERNELSIZES	= 1 << 1	# kernel pm/rm code,data,symbols,stack
+CMD_MEM_OPT_ADDRESSES	= 1 << 2	# start/end addresses of kernelsizes
+CMD_MEM_OPT_MEMMAP	= 1 << 3	# verbose memory map of all sections
+CMD_MEM_OPT_CODESIZES	= 1 << 8	# verbose subsystem code sizes
+CMD_MEM_OPT_GRAPH	= 1 << 16	# experimental
 
 cmd_mem$:
 	push	ebp
@@ -2508,24 +2514,28 @@ cmd_mem$:
 	and	eax, 0x00ffffff
 	cmp	eax, '-' | ('h'<<8)
 	jnz	1f
-	or	dword ptr [ebp], 1	# print handles
+	or	dword ptr [ebp], CMD_MEM_OPT_HANDLES
 	jmp	2f
 1:	cmp	eax, '-' | ('k'<<8)
 	jnz	1f
-	or	dword ptr [ebp], 2	# print kernel sizes
+	or	dword ptr [ebp], CMD_MEM_OPT_KERNELSIZES
 	jmp	2f
 1:	cmp	eax, '-' | ('a'<<8)
 	jnz	1f
-	or	dword ptr [ebp], 4	# print addresses
+	or	dword ptr [ebp], CMD_MEM_OPT_ADDRESSES
 	jmp	2f
 1:	cmp	eax, '-' | ('s'<<8)
 	jnz	1f
-	or	dword ptr [ebp], 8	# print sections/memory map
+	or	dword ptr [ebp], CMD_MEM_OPT_MEMMAP # print sections/memory map
+	jmp	2f
+1:	cmp	eax, '-' | ('c'<<8)	# print verbose
+	jnz	1f
+	or	dword ptr [ebp], CMD_MEM_OPT_CODESIZES
 	jmp	2f
 	# experimental options:
 1:	cmp	eax, '-' | ('g'<<8)
 	jnz	1f
-	or	dword ptr [ebp], 128	# print graph
+	or	dword ptr [ebp], CMD_MEM_OPT_GRAPH	# print graph
 	jmp	2f
 	###
 1:	jmp	9f
@@ -2562,7 +2572,7 @@ cmd_mem$:
 	call	newline
 	
 ######## print kernel sizes
-1:	test	dword ptr [ebp], 2
+1:	test	dword ptr [ebp], CMD_MEM_OPT_KERNELSIZES
 	jz	1f
 
 	printc 15, "Kernel: "
@@ -2666,21 +2676,24 @@ cmd_mem$:
 	call	newline
 
 ######## print handles
-1:	test	dword ptr [ebp], 1
+1:	test	dword ptr [ebp], CMD_MEM_OPT_HANDLES
 	jz	1f
 	call	print_handles$
 
 ######## print memory map
-1:	test	dword ptr [ebp], 8
+1:	test	dword ptr [ebp], CMD_MEM_OPT_MEMMAP
 	jz	1f
 
+	.data SECTION_DATA_BSS
+	mem_size_str_buf$: .space 3 + 1 + 3 + 2 + 1
+	.text32
 	# in: (besides arguments): ecx = end address of last section/memory range,
 	#   to be compared with the start of this one, for misalignment/overlap error detection.
 	# out: ecx updated
 	# out: (side-effect) ebx = start
 	# out: (side-effect) edi = end (same as ecx)
 	# destroys: eax, edx. (eax=range size, edx=0)
-	.macro PRINT_MEMRANGE label, st=0, nd=0, sz=0
+	.macro PRINT_MEMRANGE label, st=0, nd=0, sz=0, indent=""
 		.ifnc 0,\st
 		_PR_S = \st
 		.else
@@ -2692,7 +2705,7 @@ cmd_mem$:
 		_PR_E = offset \label\()_end
 		.endif
 		.data
-		99: .ascii "\label: "
+		99: .ascii "\indent\label: "
 		88: .space 20-(88b-99b), ' '
 		.byte 0
 		.text32
@@ -2749,7 +2762,23 @@ cmd_mem$:
 		jns	77f
 		neg	eax
 		printcharc 12, '-'
-	77:	call	print_size
+	77:	
+		push	edi
+		mov	edi, offset mem_size_str_buf$
+		mov	bl, 1<<4 | 3
+		call	sprint_size_
+		mov	byte ptr [edi], 0
+		pop	edi
+
+		push	ecx
+		mov	esi, offset mem_size_str_buf$
+		call	strlen_
+		neg	ecx
+		add	ecx, 3 + 1 + 3 + 2 +1
+	77:	call	printspace
+		loop	77b
+		call	print
+		pop	ecx
 
 		call	newline
 	.endm
@@ -2758,10 +2787,20 @@ cmd_mem$:
 	PRINT_MEMRANGE kernel_rm_code
 	PRINT_MEMRANGE data16
 	PRINT_MEMRANGE kernel_pm_code
-	PRINT_MEMRANGE data_0
+
+	test	dword ptr [ebp], CMD_MEM_OPT_CODESIZES
+	jz	2f
+
+	mov	ecx, offset code_print_start
+	.irp _, print,pmode,debugger,pit,keyboard,mem,hash,string,scheduler,tokenizer,shell,dev,pci,bios,cmos,ata,fs,partition,fat,sfs,iso9660,nic,net,gfx,hwdebug,vmware,kernel
+	PRINT_MEMRANGE code_\_\(), indent="  "
+	.endr
+
+2:	PRINT_MEMRANGE data_0
 	#PRINT_MEMRANGE data_concat within data0's range
 	PRINT_MEMRANGE data_str
 	PRINT_MEMRANGE data_pci_nic
+	PRINT_MEMRANGE data_fonts
 	PRINT_MEMRANGE data_signature
 	PRINT_MEMRANGE data_bss
 	mov	edi, [kernel_load_end_flat]
@@ -2773,7 +2812,7 @@ cmd_mem$:
 
 
 ######## print graph
-1:	test	dword ptr [ebp], 128
+1:	test	dword ptr [ebp], CMD_MEM_OPT_GRAPH
 	jz	1f
 	call	cmd_mem_print_graph$
 
@@ -2781,11 +2820,12 @@ cmd_mem$:
 	pop	ebp
 	ret
 
-9:	printlnc 12, "usage: mem [-hk]"
-	printlnc 12, "  -k   print kernel sizes"
-	printlnc 12, "  -a   print physical addresses"
-	printlnc 12, "  -h   print malloc handles"
-	printlnc 12, "  -s   print code/data sections/images/memory map"
+9:	printlnc_ 12, "usage: mem [-k [-a]] [-h] [-s [-c]]"
+	printlnc_ 12, "  -k   print kernel sizes"
+	printlnc_ 12, "    -a print physical addresses"
+	printlnc_ 12, "  -h   print malloc handles"
+	printlnc_ 12, "  -s   print code/data sections/images/memory map"
+	printlnc_ 12, "    -c print detailed code sections"
 	jmp	1b
 
 
@@ -2794,7 +2834,7 @@ cmd_mem$:
 # in: ecx = selector
 # in: [ebp]:2 = whether to print or not
 cmd_mem_print_addr_range$:
-	test	dword ptr [ebp], 4
+	test	dword ptr [ebp], CMD_MEM_OPT_ADDRESSES
 	jnz	1f
 	ret
 1:	GDT_GET_BASE ebx, ecx
