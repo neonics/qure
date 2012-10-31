@@ -263,15 +263,21 @@ COLOR_STACK_SIZE = 2
 
 ###### Load String Pointer
 .macro LOAD_TXT txt, reg = esi
+	_CODE_OFFS = .
 	.data SECTION_DATA_STRINGS
 		99: .asciz "\txt"
+	.section .strtab
+		.long 99b, _CODE_OFFS + 1
 	.text32
 	mov	\reg, offset 99b
 .endm
 
 .macro PUSH_TXT txt
+	_CODE_OFFS = .
 	.data SECTION_DATA_STRINGS
 		99: .asciz "\txt"
+	.section .strtab
+		.long 99b, _CODE_OFFS + 1
 	.text32
 	push	dword ptr offset 99b
 .endm
@@ -286,8 +292,10 @@ COLOR_STACK_SIZE = 2
 .macro STRINGPTR n
 	.data SECTION_DATA_STRINGS
 	99: .asciz "\n"
+	.section .strtab
+		.long 99b, 98f
 	.data
-	.long 99b
+	98: .long 99b
 .endm
 
 # call from .data

@@ -349,14 +349,14 @@ TODO: use cld in IRQ proxies (and the core IRQ handler), as this is assumed,
 
 
 TODO: Multitasking: shell.
-  - Make shell multi-instantiable, i.e. object.
+  v Make shell multi-instantiable, i.e. object.
   - Have 'alt-2' open another console shell
   - contextualize print routines: have an array/pointer to a struct
     containing the pointer to the buffer and screenpos.
     (alternate approach: have a print-object layer that can also be used
     to print to files etc).
-  - create method to allocate a task/process context: object + stack.
-  - implement process array - reserve first N for console windows (or use
+  v create method to allocate a task/process context: object + stack.
+  v implement process array - reserve first N for console windows (or use
     second array). Alt-NR activates (creates if nonexistent).
   - update kernel context/IP pointer to a hlt loop, checking how many
     processes are running. Add this context as the 0th context.
@@ -391,3 +391,32 @@ TODO: Multitasking: shell.
 
 TODO: Multitasking: ring 3.
   - update exe (elf) loader to allocate stack.
+  update: use schedule_task; depends todo: - suspend parent scheduling
+  while child process runs; implement ^Z to suspend child and schedule parent.
+  implement job stack.
+
+TODO: implement I/O pipes for IPC: chaining commandline processes.
+ 
+TODO: string data optimizer:
+  works on .o file (perhaps conversion to ELF and back).
+  works on data between symbol locations section_data_str_(start|end).
+  removes duplicate strings (saves 2k); uses matching suffix strings.
+  Requires symbols to be stored in the .o to find the string references.
+
+  Approach: declare a section .strtab (as a .data area takes about 10kb).
+  This area contains fields of 2 dwords: the string data offset, and the
+  code offset (within the instruction opcode).
+  Also declare the string subsection to be the last one (just before bss).
+  During build, manipulate the .o file: pad the unused space in the .strtab,
+  and update the start of the bss section and all references to the bss section.
+  All .bss data uses labels, which may not be exported if they end with $,
+  so, need to find an option to have those present in the object file, and then
+  removed from the final object file.
+  Another approach is to have objcopy shrink the data section and do the .bss 
+  relocation.
+
+
+TODO: implement .bss
+  declare bss start/size constants, and use those in pm kernel to memzero
+  and update kernel end and calculate stack. Saves about 51k disk storage
+  (even though the 1.44 floppy image still takes 1.44 mb in the iso).

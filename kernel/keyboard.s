@@ -503,6 +503,13 @@ kb_task:
 scrolling$: .byte 0
 .text32
 scroll:
+	mov	ah, KB_POLL	# remove the keystroke
+	call	keyboard
+	# TODO: flush screen to buffer - last line not always copied.
+
+	# TODO: lock keyboard or use jobs so that interrupted process
+	# doesn't also respond to the key strokes
+
 	inc	byte ptr [scrolling$]
 	PRINTc 0xe2, "^"
 .if SCREEN_BUFFER

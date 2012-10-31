@@ -9,7 +9,7 @@ AS = /bin/as -R -n --warn --fatal-warnings --gstabs
 kernel.bin: kernel.o
 	@../util/checksymbols $<
 	@echo "   OBJ  $@"
-	@objcopy -O binary $< $@
+	@objcopy -O binary -R .strtab $< $@
 
 KERNEL_SRC = kernel.s macros.s debug.s debugger.s realmode.s print.s \
 	pmode.s pic.s gdt.s idt.s tss.s \

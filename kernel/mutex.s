@@ -12,9 +12,9 @@
 mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 	MUTEX_SCHEDULER	= 1
 	MUTEX_SCREEN	= 2
-	MUTEX_NET	= 4
-	MUTEX_TCP_CONN	= 8
-
+	MUTEX_KB	= 4
+	MUTEX_NET	= 8
+	MUTEX_TCP_CONN	= 16
 
 
 .text32
