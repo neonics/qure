@@ -35,6 +35,7 @@ alias vmwscreenshot 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player captureScr
 # qemu-img create -f raw hdd0.raw 32M
 #alias qemu "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -no-reboot -cdrom os.iso" -hda fat:root/ -boot d
 alias qemu "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -hda hdd0.raw -hdb hdd-dos.raw -cdrom os.iso" -boot d -net nic,model=rtl8139  -net tap,ifname=tap-bridge # -no-reboot
+alias qemu-2 "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -drive file=os.iso,if=ide,index=3,media=cdrom" -boot d -net nic,model=rtl8139  -net tap,ifname=tap-qemu # -no-reboot
 alias qemu2 "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -hda hdd0.raw -hdb hdd-dos.raw -drive file=os.iso,if=ide,index=3,media=cdrom" -boot d -net nic,model=rtl8139  -net tap,ifname=tap-bridge # -no-reboot
 alias qemu-pcnet "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -hda hdd0.raw -hdb hdd-dos.raw -cdrom os.iso" -boot d -net nic,model=pcnet  -net tap,ifname=tap-bridge # -no-reboot
 alias qemu-dos "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -no-reboot -hda hdd-dos.raw -hdb hdd0.raw"

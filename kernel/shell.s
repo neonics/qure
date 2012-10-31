@@ -30,9 +30,6 @@ xcmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
 
 CMDLINE_STRUCT_SIZE = .
 
-.data SECTION_DATA_BSS
-shell_instance:	.long 0
-
 ############################################################################
 .struct 0
 shell_command_code: .long 0
@@ -133,6 +130,7 @@ SHELL_COMMAND "traceroute"	cmd_traceroute
 SHELL_COMMAND "top"		cmd_top
 SHELL_COMMAND "ps"		cmd_tasks
 SHELL_COMMAND "kill"		cmd_kill
+SHELL_COMMAND "shell"		cmd_shell
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -147,7 +145,6 @@ shell_init$:
 	mov	eax, CMDLINE_STRUCT_SIZE
 	call	mallocz
 	jc	9f
-	mov	[shell_instance], eax
 	mov	ebx, eax
 	mov	[ebx + xcmdline_insertmode], byte ptr 1
 	mov	[ebx + xcmdline_cwd], word ptr '/'
@@ -166,7 +163,11 @@ shell_init$:
 shell:	push	ds
 	pop	es
 
-	call	shell_init$
+	call	shell_init$	# out: ebx
+
+	push	ebp
+	push	ebx
+	mov	ebp, esp
 
 	PRINTLNc 10, "Press ^D or type 'quit' to exit shell"
 
@@ -184,16 +185,15 @@ start$:
 	sub	dword ptr [esp], 2
 	POP_SCREENPOS
 
-	mov	ebx, [shell_instance]
+	mov	ebx, [ebp]
 
 	mov	dword ptr [ebx + xcmdline_cursorpos], 0
 	mov	dword ptr [ebx + xcmdline_len], 0
 
-start0$:
 start1$:
 	call	cmdline_print$
 
-	mov	ebx, [shell_instance]
+	mov	ebx, [ebp] # shell_instance
 
 	lea	edi, [ebx + xcmdline_buf]
 	add	edi, [ebx + xcmdline_cursorpos]
@@ -252,12 +252,8 @@ start1$:
 	test	eax, K_KEY_CONTROL | K_KEY_ALT
 	jnz	start1$	# ignore control/alt + common keys.
 
-	
-1:	#cmp	byte ptr [insertmode], 0
-	#jz	insert$
-	# overwrite
-#insert$:
-	mov	ebx, [shell_instance]
+	# inject character into commandline:
+
 	# overwrite
 	cmp	[ebx + xcmdline_len], dword ptr MAX_CMDLINE_LEN-1 # check insert
 	# beep
@@ -408,7 +404,7 @@ key_pgdown:
 key_up$:
 	mov	eax, [ebx + xcmdline_history]
 	cmp	[eax + buf_index], dword ptr 0
-	jz	start0$
+	jz	start1$
 	mov	edx, [ebx + xcmdline_history_current]
 	sub	edx, 4
 	jns	0f
@@ -423,7 +419,7 @@ key_down$:
 	jb	0f
 	mov	edx, [eax + buf_index]
 	sub	edx, 4
-	js	start0$	# empty
+	js	start1$	# empty
 
 0:	mov	[ebx + xcmdline_history_current], edx
 
@@ -445,7 +441,7 @@ key_down$:
 	mov	[ebx + xcmdline_cursorpos], edi
 	mov	[ebx + xcmdline_len], edi
 
-	jmp	start0$
+	jmp	start1$
 
 
 ##########################################################################
@@ -485,7 +481,7 @@ cmdline_print$:
 	mov	ebx, edi
 
 	mov	ah, 7
-	mov	esi, [shell_instance]
+	mov	esi, [ebp] # shell_instance
 	lea	esi, [esi + xcmdline_cwd]
 	call	__print
 
@@ -493,7 +489,7 @@ cmdline_print$:
 	mov	al, ':'
 	stosw
 
-	mov	esi, [shell_instance]
+	mov	esi, [ebp] # shell_instance
 	mov	edx, [esi + xcmdline_history_current]
 	shr	edx, 2
 	mov	ah, 7
@@ -514,7 +510,7 @@ cmdline_print$:
 	sub	ebx, edi
 	neg	ebx
 	shr	ebx, 1
-	mov	edx, [shell_instance]
+	mov	edx, [ebp] # shell_instance
 	mov	[edx + xcmdline_prompt_len], ebx
 
 	# print the line editor contents
@@ -601,6 +597,7 @@ newline_if:
 ## Commandline execution
 
 # parses the commandline and executes the command(s)
+# in: ebx = cmdline / shell instance
 # in: esi = pointer to commandline (zero terminated)
 # in: ecx = cmdlinelen
 cmdline_execute$:
@@ -617,57 +614,60 @@ cmdline_execute$:
 		call	newline
 	.endif
 
-	mov	eax, [shell_instance]
-	lea	edi, [eax + xcmdline_tokens]
+	lea	edi, [ebx + xcmdline_tokens]
 	#mov	esi, offset cmdline
 	##mov	ecx, [cmdlinelen]
+	push	ebx
 	call	tokenize
-	mov	eax, [shell_instance]
-	mov	[eax + xcmdline_tokens_end], edi
+	pop	ebx
+	mov	[ebx + xcmdline_tokens_end], edi
 	.if DEBUG_TOKENS
+		push	ebx
 		mov	ebx, edi
 		lea	esi, [eax + xcmdline_tokens]
 		call	printtokens
-		mov	eax, [shell_instance]
+		pop	ebx
 	.endif
 
 	# create an argument list:
+	push	ebx
+	mov	eax, ebx
 	lea	ebx, [eax + xcmdline_args]
 	lea	edi, [eax + xcmdline_argdata]
 	lea	edx, [eax + xcmdline_tokens]
 	lea	ecx, [eax + xcmdline_tokens_end]	# unused
 	call	tokens_merge
+	pop	ebx
 
 	########################
-	mov	eax, [shell_instance]
 
 	# debug the arguments:
 	.if DEBUG_TOKENS && CMDLINE_DEBUG
-		lea	esi, [eax + xcmdline_args]
+		lea	esi, [ebx + xcmdline_args]
 		call	cmdline_print_args$
 	.endif
 
 	# Find the command.
 
-	mov	edi, [eax + xcmdline_args + 0]
+	mov	edi, [ebx + xcmdline_args + 0]
 	or	edi, edi
 	jz	2f
 
-	mov	ebx, offset SHELL_COMMANDS
-0:	cmp	[ebx + shell_command_code], dword ptr 0
+	mov	edx, offset SHELL_COMMANDS
+0:	cmp	[edx + shell_command_code], dword ptr 0
 	jz	2f
 
-	mov	esi, [ebx + shell_command_string]
+	mov	esi, [edx + shell_command_string]
 	or	esi, esi
 	jz	2f
-	movzx	ecx, word ptr [ebx + shell_command_length]
+	movzx	ecx, word ptr [edx + shell_command_length]
 	# TODO: compare lengths to avoid prefix match
 	push	edi
 	repz	cmpsb
 	pop	edi
 	jz	1f
 
-	add	ebx, SHELL_COMMAND_STRUCT_SIZE
+	add	edx, SHELL_COMMAND_STRUCT_SIZE
 	jmp	0b
 
 2:	PRINTLNc 4, "Unknown command"
@@ -675,14 +675,12 @@ cmdline_execute$:
 
 	# call the command
 
-1:	mov	edx, [ebx + shell_command_code]
-	lea	esi, [eax + xcmdline_args]
-
-	mov	ebx, eax	# shell instance
+1:	mov	edx, [edx + shell_command_code]
+	lea	esi, [ebx + xcmdline_args]
 
 	add	edx, [realsegflat]
 	jz	9f
-	call	edx
+	call	edx	# in: esi = args, ebx = shell instance
 shell_exec_return$:	# debug symbol
 
 	ret
@@ -699,9 +697,7 @@ shell_exec_return$:	# debug symbol
 CMDLINE_HISTORY_MAX_ITEMS = 16
 CMDLINE_HISTORY_SHARE = 1	# 0 = singleton
 
-# in: edx = pointer to 2 longs: buffer and current index:
-# in: [edx + 0] = [cmdline_history]
-# in: [edx + 4] = [cmdline_history_current]
+# in: ebx = shell instance
 cmdline_history_new:	
 	mov	eax, [ebx + xcmdline_history]
 	or	eax, eax
@@ -716,10 +712,16 @@ cmdline_history_new:
 1:	mov	[ebx + xcmdline_history_current], dword ptr 0
 	ret
 
-# in: edx = pointer to history (see _new)
+# in: ebx = shell instance
 cmdline_history_delete:
-	xor	eax, eax
-	xchg	eax, [edx]
+	ARRAY_LOOP [ebx + xcmdline_history], 4, ecx, edx, 9f
+	mov	eax, [ecx + edx]
+	or	eax, eax
+	jz	1f
+	call	mfree
+1:	ARRAY_ENDL
+9:	xor	eax, eax
+	xchg	eax, [ebx + xcmdline_history]
 	call	buf_free
 	ret
 
@@ -835,16 +837,30 @@ getopt:
 
 #############################################################################
 ## Builtin Shell commands
+#
+# meant to be called from the shell: ebx = shell instance
 
 cmd_quit$:
 	printlnc 12, "Terminating shell."
-	add	esp, 8	# skip returning to the shell loop and return from it.
+
+	# [esp] = shell_exec_return
+	# [esp+4] = return of cmdline_execute call
+	add	esp, 8 # skip returning to the shell loop and return from it.
+
+	pop	ebx	# shell instance
+	call	cmdline_history_delete
+
+	mov	eax, [ebx + xcmdline_cwd_handle]
+	call	fs_close
+
+	mov	eax, ebx
+	call	mfree
+
+	pop	ebp
 	ret
 
-
 cmd_pwd$:
-	mov	esi, [shell_instance]
-	lea	esi, [esi + xcmdline_cwd]
+	lea	esi, [ebx + xcmdline_cwd]
 	call	println
 	ret
 
@@ -862,6 +878,12 @@ cmd_help$:
 	jmp	0b
 0:	call	newline
 	ret
+
+
+# end of core commands: < 2kb code
+##############################################
+
+
 
 cmd_strlen$:
 	mov	eax, [esi+4]
@@ -956,20 +978,8 @@ cmd_echo$:
 
 ######################################################
 
-_tmp_init$:
-	.data
-	8: .asciz "hdb0"
-	9: .long 0, 8b
-	tmp_drv$: .long 1
-	.text32
-	.text32
-	mov	esi, offset 9b
-	call	cmd_partinfo$
-	ret
-
-######################################
-
-cmd_cd$:	
+cmd_cd$:
+	push	ebp
 	push	dword ptr 0
 	mov	ebp, esp
 
@@ -1016,7 +1026,6 @@ cmd_cd$:
 	call	println
 1:
 
-	mov	ebx, [shell_instance]
 	push	esi
 	lea	esi, [ebx + xcmdline_cwd]
 	lea	edi, [ebx + xcmdline_cd_cwd]
@@ -1063,12 +1072,14 @@ cmd_cd$:
 	mov	al, '/'
 1:	stosw
 
-6:	pop	eax
+6:	add	esp, 4
+	pop	ebp
 	ret
 
 5:	printlnc 10, "usage: cd [<directory>]"
 
-	pop	eax
+	add	esp, 4
+	pop	ebp
 	ret
 
 
@@ -1084,7 +1095,6 @@ cmd_ls$:
 	lodsd
 	lodsd
 
-	mov	ebx, [shell_instance]
 	lea	esi, [ebx + xcmdline_cwd]
 	lea	edi, [ebx + xcmdline_cd_cwd]
 	mov	ecx, MAX_PATH_LEN
@@ -1185,8 +1195,7 @@ cmd_cat$:
 	88: .space MAX_PATH_LEN
 	.text32
 	push	esi
-	mov	esi, [shell_instance]
-	lea	esi, [esi + xcmdline_cwd]
+	lea	esi, [ebx + xcmdline_cwd]
 	mov	edi, offset 88b
 	mov	ecx, MAX_PATH_LEN
 	rep	movsb
@@ -1513,6 +1522,8 @@ cmd_gpf:
 #	mov	ds, eax	# just in case...
 
 #	pushad
+	push	ebp
+
 	mov	eax, -1
 	mov	ebx, 0xbbbbbbbb
 	mov	ecx, 0xcccccccc
@@ -1520,9 +1531,9 @@ cmd_gpf:
 	mov	esi, 0x0e510e51
 	mov	edi, 0x0ed10ed1
 	mov	ebp, 0x0eb90eb9
-#	mov	ds, eax
 	int	0x0d
-#	popad
+
+	pop	ebp
 	ret
 
 cmd_colors:
@@ -1842,4 +1853,10 @@ dbg_clk_1:	# debug label
 	pop	eax
 	popcolor
 	POP_SCREENPOS
+	ret
+
+
+cmd_shell:
+	call	shell
+	printlnc 11, "returned from nested shell."
 	ret

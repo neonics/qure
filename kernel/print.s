@@ -148,7 +148,7 @@ COLOR_STACK_SIZE = 2
 	
 	.if \noscroll
 	.else
-	cmp	edi, 160 * 25 + 2
+	cmp	edi, 160 * 25
 	jb	99f
 	call	__scroll
 	99:	
@@ -598,7 +598,7 @@ newline:
 				pop	edi
 			2:	pop	ecx
 	pop	dx
-	cmp	ax, 160 * 25 + 2
+	cmp	ax, 160 * 25
 	pop	ax
 	jb	0f
 	PRINT_START -1
@@ -618,11 +618,33 @@ screen_scroll_lines:	.long 0	# total count
 .text32
 .endif
 ##############################
-# this method is only to be called when edi > 160 * 25
+# this method is only to be called when edi >= 160 * 25
 __scroll:
 	push	esi
 	push	ecx
 	push	ds
+
+	push eax
+	push edx
+
+	# calc nr lines
+	# edi = # (left)
+	xor	edx, edx
+	mov	eax, edi
+	sub	eax, 160 * 25
+	jle	1f
+	add	eax, 159
+
+	# eax = len(abc)
+	# calculate nr of lines
+	mov	ecx, 160
+	div	ecx
+	add	[screen_scroll_lines], eax
+	mul	ecx
+	mov	ecx, eax
+
+	# eax: nr lines
+	# ecx: nr lines * cols = data
 
 	.if SCREEN_BUFFER
 	# |bufA  |      |bufB_|
@@ -633,70 +655,53 @@ __scroll:
 	# |C____|	|D____|
 	# |D____|abc#	|abc#_|
 
-		# edi = # (left)
-		push eax
-		push edx
-		xor	edx, edx
-		mov	eax, edi
-		sub	eax, 160 * 25
-		jle	1f
-		add	eax, 159
-
-		# eax = len(abc)
-		# calculate nr of lines
-		mov	ecx, 160
-		div	ecx
-		add	[screen_scroll_lines], eax
-		mul	ecx
-		mov	ecx, eax
-
 		# shift the buffer
 		push	esi
 		push	edi
 		push	es
+		mov	edx, es
 		mov	esi, ds
-		mov	eax, es
 		mov	es, esi
 		mov	edi, offset screen_buf
 		lea	esi, [edi + 160]
-		push	ecx
 		neg	ecx
 		add	ecx, SCREEN_BUF_SIZE
 		rep	movsb
-		pop	ecx
+		mov	ecx, eax
 		# es:edi = ok
 		# ecx = ok
 		# ds:esi:
-		mov	ds, eax	# no need to restore - is altered right below
+		mov	ds, edx	# no need to restore - is altered right below
 		mov	esi, 160 * 24
 		sub	edi, ecx
 		rep	movsb
+		mov	ecx, eax
 		pop	es
 		pop	edi
 		pop	esi
-	1:
-		pop edx
-		pop eax
+	.else
+	mov	eax, es
+	mov	ds, eax
 	.endif
 
+	mov     esi, ecx # 160
+	mov     ecx, edi
+	sub     ecx, esi
+	xor     edi, edi
 
-	mov	esi, es
-	mov	ds, esi
-
-	mov	ecx, edi
-	mov	esi, 160
-	xor	edi, edi
-	sub	ecx, esi
 	push	ecx
 	shr	ecx, 1
 	rep	movsd
 	pop	edi
 
+1:	pop	edx
+	pop	eax
+
 	pop	ds
 	pop	ecx
 	pop	esi
 
-0:	ret
+	ret
 
 ############################## PRINT ASCII ####################
 
