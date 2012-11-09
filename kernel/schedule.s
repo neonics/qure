@@ -96,7 +96,7 @@
 
 SCHEDULE_DEBUG		= 0
 SCHEDULE_DEBUG_MUTEX	= 0	# 1=print at cursor, 2=print at topleft
-SCHEDULE_DEBUG_TOP	= 2	# 0..3; default value of env variable "sched.debug"
+SCHEDULE_DEBUG_TOP	= 0	# 0..3; default value of env variable "sched.debug"
 SCHEDULE_DEBUG_GRAPH	= 1	# ticker-tape
 
 SCHEDULE_ROUND_ROBIN	= 1	# the default; has no effect when SCHED.._JOBS=0
@@ -105,7 +105,7 @@ SCHEDULE_CLEAN_STACK	= 1	# zeroes the stack for each new job; ovrhd:264 clocks
 
 JOB_STACK_SIZE		= 1024
 
-TASK_SWITCH_INTERVAL	= 0	# nr of timer ticks between scheduling (debug)
+TASK_SWITCH_INTERVAL	= 1	# nr of timer ticks between scheduling (debug)
 TASK_SWITCH_DEBUG	= 0	# 0..4 very verbose printing of pivoting
 TASK_SWITCH_DEBUG_JOB	= 0	# job completion (no effect when !SCHEDULE_JOBS)
 TASK_SWITCH_DEBUG_TASK	= 0	# task completion
@@ -136,10 +136,12 @@ task_registrar:	.long 0	# debugging: address from which schedule_task was called
 task_flags:	.long 0	# bit 1: 1=task (ctx on task_task);0=job (task_regs)
 	TASK_FLAG_TASK		= 0x0001
 	TASK_FLAG_RESCHEDULE	= 0x0100	# upon completion, sched again
-	TASK_FLAG_RUNNING	= 0x8000 << 8	# do not schedule
-	TASK_FLAG_DONE		= 0x0100 << 8	# (aligned with RESCHEDULE)
-	TASK_FLAG_CHILD_JOB	= 0x0010 << 8	# a job is using this stack
+	TASK_FLAG_RUNNING	= 0x8000 << 16	# do not schedule
+	TASK_FLAG_SUSPENDED	= 0x4000 << 16
+	TASK_FLAG_DONE		= 0x0100 << 16	# (aligned with RESCHEDULE)
+	TASK_FLAG_CHILD_JOB	= 0x0010 << 16	# a job is using this stack
 task_parent:	.long 0
+task_tls:	.long 0
 task_stackbuf:	.long 0	# remembered for mfree
 task_stack:
 task_stack_esp:	.long 0	# 16 byte aligned
@@ -154,9 +156,12 @@ scheduler_current_task_idx: .long -1
 .data SECTION_DATA_BSS
 pid_counter:	.long 0
 task_queue:	.long 0
+tls:		.long 0 # task/thread local storage (not SMP friendly perhaps?)
+.tdata
+tls_pid:	.long 0	# not used - no tls setup in this file.
+tls_task_idx:	.long 0	# not used - no tls setup in this file.
+.tdata_end
 .text32
-
-
 
 ################################################################
 # Debug: scheduler 'graph' (ticker-tape)
@@ -247,8 +252,6 @@ task_queue:	.long 0
 	DEBUG_DWORD [ebp + task_reg_eip],"eip"
 	DEBUG_DWORD [ebp + task_reg_eflags],"eflags"
 	call	newline
-	#mov	ebp, [screen_pos_bkp]
-	#mov	[screen_pos], ebp
 	pop	ebp
 .endif
 .endm
@@ -479,6 +482,8 @@ schedule_isr:
 	lss	esp, [eax + edx + task_stack]
 	or	[esp + task_reg_eflags], dword ptr 1<<9
 
+	mov	ebx, [eax + edx + task_tls]
+	mov	[tls], ebx
 
 	SEM_UNLOCK [task_queue_sem]
 8:	MUTEX_UNLOCK SCHEDULER
@@ -502,6 +507,8 @@ scheduler_get_task$:
 	mov	eax, [task_queue]
 	mov	edx, [scheduler_current_task_idx]
 	mov	[eax + edx + task_stack_esp], ebp
+	mov	ebx, [tls]
+	mov	[eax + edx + task_tls], ebx
 	.if 1
 		# copy the register state - for debug
 		# NOTE: if this is disabled, EIP doesn't get updated, and thus
@@ -517,7 +524,7 @@ scheduler_get_task$:
 
 	mov	ecx, [eax + array_index]	# 8 loop check
 
-	test	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE
+	test	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE | TASK_FLAG_SUSPENDED
 	jz	1f
 2:	mov	[eax + edx + task_flags], dword ptr -1
 	jmp	0f
@@ -534,6 +541,8 @@ scheduler_get_task$:
 
 	test	dword ptr [eax + edx + task_flags], TASK_FLAG_DONE
 	jnz	2b
+	test	dword ptr [eax + edx + task_flags], TASK_FLAG_SUSPENDED
+	jnz	0b
 	test	dword ptr [eax + edx + task_flags], TASK_FLAG_RUNNING
 	jnz	0b
 
@@ -541,6 +550,21 @@ scheduler_get_task$:
 		mov	bl, 2
 		cmp	edx, [scheduler_current_task_idx]
 		jz	1f
+
+		push eax
+		mov eax, [eax + edx + task_label]
+		mov eax, [eax]
+		cmp eax, 'n'|'e'<<8|'t'<<16
+		jnz 2f
+		mov bl, 7
+		pop eax; jmp 1f
+		2: and eax, 0x00ffffff
+		cmp eax, 'k'|'b'<<8
+		jnz 2f
+		mov bl, 6
+		pop eax; jmp 1f
+		2:pop eax
+
 		inc	bl	# 3 = task switch
 		test	dword ptr [eax + edx + task_flags], TASK_FLAG_TASK
 		jz	1f
@@ -558,8 +582,9 @@ scheduler_get_task$:
 	ret
 # 8 loop handler
 9:	printlnc 4, "Task queue empty"
-	jmp 	halt
+	call	cmd_tasks
 	int 3
+	jmp 	halt
 
 ##########################################################################
 1:	pushad
@@ -590,13 +615,16 @@ schedule_isr_TEST:
 	# lock the task queue array, prevent mrealloc and other updates:
 	SEM_LOCK [task_queue_sem], 7f
 
-		mov	ecx, [task_queue]
-		mov	eax, [scheduler_current_task_idx]
+		mov	eax, [task_queue]
+		mov	edx, [scheduler_current_task_idx]
 		# update stack
-		mov	[ecx + eax + task_stack_esp], ebp
+		mov	[eax + edx + task_stack_esp], ebp
+
+		mov	ebx, [tls]
+		mov	[eax + edx + task_tls], ebx
 
 		# copy the register state
-		lea	edi, [ecx + eax + task_regs]
+		lea	edi, [eax + edx + task_regs]
 		mov	esi, ebp
 		mov	ecx, TASK_REG_SIZE
 		rep	movsb
@@ -677,6 +705,9 @@ schedule_isr_TEST:
 ######## task
 
 1:	lss	esp, [ecx + edx + task_stack]
+
+	mov	ebx, [eax + edx + task_tls]
+	mov	[tls], ebx
 
 		.if TASK_SWITCH_DEBUG > 2
 			DEBUG "TASK"
@@ -973,6 +1004,7 @@ task_queue_get$:
 # in: [esp + 12]: task flags
 # in: [esp + 16]: label for task
 # in: all registers are preserved and offered to the task.
+# out: eax = pid
 # calling convention: stdcall [rtl, callee (this method) cleans stack]
 schedule_task:
 	cmp	dword ptr [task_queue_sem], -1
@@ -992,7 +1024,10 @@ schedule_task:
 
 	SEM_SPINLOCK [task_queue_sem], nolocklabel=99f
 
-	# check whether task/job is already scheduled
+	# duplicate schedule check: allow multiple instances of same task
+	test	dword ptr [ebp + TASK_REG_SIZE - 12 + 12], TASK_FLAG_TASK
+	jnz	1f	# no
+	# check whether job is already scheduled
 	mov	ebx, [ebp + TASK_REG_SIZE - 12 + 4]	# eip
 	call	task_is_queued	# out: ecx
 	.if 0
@@ -1004,8 +1039,8 @@ schedule_task:
 	jz	88f	# no
 	dec	ecx	# only one duplicate allowed
 	jnz	88f
-1:
 	.endif
+1:
 
 	call	task_queue_newentry
 	jc	77f
@@ -1025,6 +1060,7 @@ schedule_task:
 	mov	dword ptr [ebx + edx + task_regs + task_reg_eflags], eax
 
 	lodsd	# task flags
+	and	eax, TASK_FLAG_TASK
 	mov	[ebx + edx + task_flags], eax
 	lodsd	# task tabel
 	mov	[ebx + edx + task_label], eax
@@ -1083,6 +1119,9 @@ schedule_task:
 	mov	[ebx + edx + task_regs + task_reg_esp], eax
 	mov	[ebx + edx + task_regs + task_reg_ss], ss
 
+	mov	eax, [ebx + edx + task_pid]
+	mov	[ebp + task_reg_eax], eax
+
 	clc
 ########
 7:	pushf
@@ -1135,6 +1174,35 @@ schedule_task:
 	ret
 
 
+task_get_by_pid:
+	ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, ebx, ecx, 9f
+	cmp	eax, [ebx + ecx + task_pid]
+	jz	1f
+	ARRAY_ENDL
+	stc
+1:	ret
+
+# in: eax = pid
+suspend_task:
+	push	ebx
+	push	ecx
+	call	task_get_by_pid
+	jc	9f
+	or	dword ptr [ebx + ecx + task_flags], TASK_FLAG_SUSPENDED
+9:	pop	ecx
+	pop	ebx
+	ret
+
+# in: eax = pid
+continue_task:
+	push	ebx
+	push	ecx
+	call	task_get_by_pid
+	jc	9f
+	and	dword ptr [ebx + ecx + task_flags], ~TASK_FLAG_SUSPENDED
+9:	pop	ecx
+	pop	ebx
+
 ##############################################################################
 ##############################################################################
 ##############################################################################
@@ -1151,8 +1219,8 @@ sched_graph_symbols:
 	.byte '+', 0x3f # 3: task switch
 	.byte '+', 0x2e # 4: job switch
 	.byte 'x', 0xf4	# 5: fail to schedule
-	.byte 'A', 0x0f
-	.byte '?', 0x0f
+	.byte 'k', 0x0f # 6: keyboard
+	.byte 'n', 0x0f # 7: net
 .text32
 # in: al = nr
 # destroys: eax
@@ -1176,7 +1244,7 @@ sched_print_graph:
 	push	esi
 	push	edi
 	push	eax
-	PUSH_SCREENPOS
+	PUSH_SCREENPOS 0
 	PRINT_START
 	xor	eax, eax
 
@@ -1187,7 +1255,6 @@ sched_print_graph:
 #	mov	ecx, 80 - 18
 #	jmp	0f
 1:	mov	esi, offset sched_graph
-	xor	edi, edi
 	mov	ecx, 80
 
 0:	lodsb
@@ -1211,7 +1278,9 @@ sched_print_graph:
 # Task/schedule printing (ps, top)
 #
 TASK_PRINT_DEAD_JOBS	= 1	# completed tasks/jobs are printed
-TASK_PRINT_SHOW_PARENT	= SCHEDULE_JOBS
+TASK_PRINT_RAW_FLAGS	= 0
+TASK_PRINT_PARENT	= SCHEDULE_JOBS
+TASK_PRINT_TLS		= 1
 TASK_PRINT_BG_COLOR = 0x10
 
 schedule_print:
@@ -1222,17 +1291,14 @@ schedule_print:
 	push	esi
 	push	edi
 
-	push	dword ptr [screen_pos]
-	mov	edi, 160 * 1
-	mov	[screen_pos], dword ptr 160
+	PUSH_SCREENPOS 160*1
 	mov	ecx, 80 * 10
-	push	es
-	mov	eax, SEL_vid_txt
-	mov	es, ax
-	mov	ax, TASK_PRINT_BG_COLOR << 8
+	PRINT_START TASK_PRINT_BG_COLOR, ' '
 	rep	stosw
-	pop	es
+	PRINT_END
+	POP_SCREENPOS
 
+	PUSH_SCREENPOS 160*1
 	pushfd
 	pop edx
 	DEBUG_DWORD edx, "FLAGS"
@@ -1241,7 +1307,7 @@ schedule_print:
 
 	call	cmd_tasks
 
-	pop	dword ptr [screen_pos]
+	POP_SCREENPOS
 	pop	edi
 	pop	esi
 	pop	edx
@@ -1287,6 +1353,12 @@ cmd_tasks:
 	mov	eax, [task_queue]
 	mov	ebx, [scheduler_current_task_idx]
 	call	task_print$
+	DEBUG_DWORD eax
+	DEBUG_DWORD ebx
+	push edx
+	lea edx, [eax + ebx + task_flags]
+	DEBUG_DWORD edx
+	pop edx
 	call	newline
 
 	xor	ecx, ecx # index counter, saves dividing ebx by SCHED_STR_SIZE
@@ -1323,11 +1395,10 @@ cmd_tasks:
 task_print_h$:
 .data SECTION_DATA_STRINGS	# a little kludge to keep the string from wrappi
 200:
-.if TASK_PRINT_SHOW_PARENT
-.asciz " idx pid. addr.... stack... flags... registrr parent.. label, symbol"
-.else
-.asciz " idx pid. addr.... stack... flags... registrr eflags.. label, symbol"
-.endif
+.ascii " idx pid. addr.... stack... flags... "
+.if TASK_PRINT_TLS;	.ascii "tls..... "; .else; .ascii "registrr "; .endif
+.if TASK_PRINT_PARENT;	.ascii "parent.. "; .else; .ascii "eflags.. "; .endif
+.asciz "label, symbol"
 .text32
 	mov	ah, TASK_PRINT_BG_COLOR | 11
 	mov	esi, offset 200b
@@ -1360,15 +1431,16 @@ task_print$:
 	call	printhex8
 	call	printspace
 	mov	edx, [eax + ebx + task_flags]
-	.if 1 # SCHEDULE_JOBS
+	.if TASK_PRINT_RAW_FLAGS
 	cmp	edx, -1
 	jnz	1f
 	print "........"
 	jmp	2f
 1:	PRINTFLAG edx, TASK_FLAG_RUNNING,	"R", " "
+	PRINTFLAG edx, TASK_FLAG_SUSPENDED,	"S", " "
 	PRINTFLAG edx, TASK_FLAG_DONE,		"D", " "
 	PRINTFLAG edx, TASK_FLAG_CHILD_JOB,	"C", " "
-	PRINT "  "
+	PRINT " "
 	PRINTFLAG edx, TASK_FLAG_RESCHEDULE,	"r", " "
 	PRINTFLAG edx, TASK_FLAG_TASK,		" T", "J "
 2:
@@ -1376,10 +1448,14 @@ task_print$:
 	call	printhex8
 	.endif
 	call	printspace
+	.if TASK_PRINT_TLS
+	mov	edx, [eax + ebx + task_tls]
+	.else
 	mov	edx, [eax + ebx + task_registrar]
+	.endif
 	call	printhex8
 	call	printspace
-	.if TASK_PRINT_SHOW_PARENT
+	.if TASK_PRINT_PARENT
 		.if 1
 			mov	edx, [eax + ebx + task_parent]
 			mov	edx, [eax + edx + task_pid]

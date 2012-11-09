@@ -21,41 +21,130 @@ PRINT_32_DECLARED = 1
 HEX_END_SPACE = 0	# whether to follow hex print with a space 
 			# transitional - temporary!
 
+# The screen buffer keeps track of what is printed to the screen.
+# It offers the page-up scrollback history, aswell as support needed
+# for multiple virtual consoles. Without it, printing is done only
+# directly to the screen.
+SCREEN_BUFFER	= 1
+.if SCREEN_BUFFER
+	SCREEN_BUF_PAGES = 12
+	SCREEN_BUF_SIZE = 160 * 25 * SCREEN_BUF_PAGES
+
+	SCREEN_BUFFER_FIRST	= 1
+
+# This flag indicates whether to first print to the screen buffer and then
+# copy the data to the screen, or to first print to the screen and then
+# copy the data from the screen to the buffer.
+# 0 is the legacy mode: print to screen directly, and then copy what was
+# printed into the history buffer when the screen is scrolled.
+# When this flag is 1, printing is done first to the buffer, and
+# secondly the changed data is copied to the screen.
+# This flags needs to be 1 in order to support off-screen printing
+# in virtual consoles.
+	VIRTUAL_CONSOLES	= 1
+.else
+	VIRTUAL_CONSOLES	= 0	# required to be 0
+	SCREEN_BUFFER_FIRST	= 0	# required to be 0
+.endif
+
+.if VIRTUAL_CONSOLES
+.if !SCREEN_BUFFER_FIRST
+.error "VIRTUAL_CONSOLES requires SCREEN_BUFFER_FIRST"
+.endif
+.if !SCREEN_BUFFER
+.error "VIRTUAL_CONSOLES requires SCREEN_BUFFER"
+.endif
+.endif
+
+##############################################
+
+.macro GET_INDEX name, values:vararg
+	_INDEX=-1
+	_I=0
+
+	.irp r,\values
+		.ifc \r,\name
+		_INDEX=_I
+		.exitm
+		.endif
+		_I=_I+1
+	.endr
+.endm
+
+.macro IS_REG8 var, val
+	GET_INDEX \val, al,ah,bl,bh,cl,ch,dl,dh
+	\var=_INDEX >=0
+.endm
+
 
 ################# Colors ###############
 
 .macro COLOR c
+	.if VIRTUAL_CONSOLES
+	IS_REG8 _ISREG, \c
+	.if _ISREG
+	push	word ptr 0
+	mov	[esp], \c
+	.else
+	push	word ptr \c
+	.endif
+	call	_s_setcolor
+	.else
 	mov	byte ptr [screen_color], \c
+	.endif
 .endm
 
 COLOR_STACK_SIZE = 2
 
 .macro PUSHCOLOR c
-	.if COLOR_STACK_SIZE == 2
-	push	word ptr [screen_color]
+	.if VIRTUAL_CONSOLES
+		.if COLOR_STACK_SIZE == 2
+		push	bx
+		push	eax
+		call	console_get
+		mov	bx, \c
+		xchg	bx, [eax + console_screen_color]
+		pop	eax
+		xchg	bx, [esp]
+		.else
+		.error "COLOR_STACK_SIZE unknown value"
+		.endif
 	.else
-	.error "COLOR_STACK_SIZE unknown value"
+		.if COLOR_STACK_SIZE == 2
+		push	word ptr [screen_color]
+		.else
+		.error "COLOR_STACK_SIZE unknown value"
+		.endif
+		mov	byte ptr [screen_color], \c
 	.endif
-	mov	byte ptr [screen_color], \c
 .endm
 
-.macro POPCOLOR c=0
-	.if COLOR_STACK_SIZE == 2
-	pop	word ptr [screen_color]
+.macro POPCOLOR
+	.if VIRTUAL_CONSOLES
+		.if COLOR_STACK_SIZE == 2
+		push	bx
+		mov	bx, [esp + 2]
+		push	eax
+		call	console_get
+		mov	[eax + console_screen_color], bx
+		pop	eax
+		pop	bx
+		add	esp, 2
+		.else
+		.error "COLOR_STACK_SIZE unknown value"
+		.endif
 	.else
-	.error "COLOR_STACK_SIZE unknown value"
+		.if COLOR_STACK_SIZE == 2
+		pop	word ptr [screen_color]
+		.else
+		.error "COLOR_STACK_SIZE unknown value"
+		.endif
 	.endif
 .endm
 
 
 
 #################### Position ####################
-
-.macro SCREEN_INIT
-	mov	di, SEL_vid_txt
-	mov	es, di
-	xor	edi, edi
-.endm
 
 .macro SCREEN_OFFS x, y
 	o =  2 * ( \x + 80 * \y )
@@ -67,16 +156,89 @@ COLOR_STACK_SIZE = 2
 .endm
 
 .macro PUSH_SCREENPOS newval=-1
-	push	dword ptr [screen_pos]
-	.ifnc -1,\newval
-	mov	dword ptr [screen_pos], \newval
+	.if VIRTUAL_CONSOLES
+		push	edx
+		push	eax
+		call	console_get
+		.ifnc -1,\newval
+		mov	edx, \newval
+		xchg	edx, [eax + console_screen_pos]
+		.else
+		mov	edx, [eax + console_screen_pos]
+		.endif
+		pop	eax
+		xchg	edx, [esp]
+	.else
+		push	dword ptr [screen_pos]
+		.ifnc -1,\newval
+		mov	dword ptr [screen_pos], \newval
+		.endif
 	.endif
 .endm
 
 .macro POP_SCREENPOS
+	.if VIRTUAL_CONSOLES
+	push	edx
+	push	eax
+	call	console_get
+	mov	edx, [esp + 8]
+	mov	[eax + console_screen_pos], edx
+	pop	eax
+	pop	edx
+	add	esp, 4
+	.else
 	pop	dword ptr [screen_pos]
+	.endif
 .endm
 
+# Sets the screen position
+# in: pos = 2 * ( x + 80 * y )
+# in: pos==edi : edi is taken as offset into the screen buffer, if one is used.
+#   in this case the start of the current screen buffer's drawing area is
+#   subtracted from pos to obtain a zero-relative coordinate.
+.macro SET_SCREENPOS pos
+	_HANDLED = 0
+
+	.if SCREEN_BUFFER_FIRST
+	.ifc edi,\pos
+		push	edi
+			.if VIRTUAL_CONSOLES
+				push	eax
+				call	console_get
+				sub	edi, [eax + console_screen_buf]
+				sub	edi, SCREEN_BUF_SIZE - 160*25
+				mov	dword ptr [eax + console_screen_pos], edi
+				pop	eax
+			.else
+				sub	edi, [screen_buf]
+				sub	edi, SCREEN_BUF_SIZE - 160*25
+				mov	dword ptr [screen_pos], edi
+			.endif
+		_HANDLED = 1
+		pop	edi
+	.endif
+	.endif
+
+	.if !_HANDLED
+	mov	dword ptr [screen_pos], \pos
+	.endif
+.endm
+
+.macro GET_SCREENPOS target
+	.if VIRTUAL_CONSOLES
+		.ifc eax,\target
+		call	console_get
+		mov	eax, [eax + console_screen_pos]
+		.else
+		push	eax
+		call	console_get
+		mov	\target, [eax + console_screen_pos]
+		pop	eax
+		.endif
+	.else
+		mov	\target, [screen_pos]
+	.endif
+.endm
 
 # c:
 # 0  : load ah with screen_color
@@ -96,23 +258,50 @@ COLOR_STACK_SIZE = 2
 	cld
 	push	es
 	push	edi
-	movzx	edi, word ptr [screen_sel]
-	mov	es, edi
-	mov	edi, [screen_pos]
+	.if VIRTUAL_CONSOLES
+		mov	edi, ds
+		mov	es, edi
+		push	ebx
+		push	eax
+		call	console_get
+		mov	ebx, eax
+		pop	eax
+		mov	edi, [ebx + console_screen_pos]
+		mov	[ebx + console_screen_buf_pos], edi	# mark begin of change
+		add	edi, [ebx + console_screen_buf]
+		add	edi, SCREEN_BUF_SIZE - 160*25
+	.elseif SCREEN_BUFFER_FIRST
+		mov	edi, ds
+		mov	es, edi
+		mov	edi, [screen_pos]
+		mov	[screen_buf_pos], edi	# mark begin of change
+		add	edi, [screen_buf]
+		add	edi, SCREEN_BUF_SIZE - 160*25
+	.else
+		movzx	edi, word ptr [screen_sel]
+		mov	es, edi
+		mov	edi, [screen_pos]
+	.endif
 
 	.ifc ah,\c
 		mov	al, \char
 	.elseif \c == 0
-		mov	ah, [screen_color]
+		.if VIRTUAL_CONSOLES
+			mov	ah, [ebx + console_screen_color]
+		.else
+			mov	ah, [screen_color]
+		.endif
 		.ifnc 0,\char
 		mov	al, \char
 		.endif
-	.else
-		.if \c < 0
+	.elseif \c < 0
 		# do not update ax
-		.else
+	.else
 		mov	ax, (\c << 8) | \char
-		.endif
+	.endif
+
+	.if VIRTUAL_CONSOLES
+		pop	ebx
 	.endif
 .endm
 
@@ -120,18 +309,35 @@ COLOR_STACK_SIZE = 2
 # 01: do not store position
 # 10: do not perform scroll check - only applies when flags & 01 = 00
 .macro PRINT_END_ ignorepos=0 noscroll=0
-	.if \ignorepos
-	.else
-	
-	.if \noscroll
-	.else
-	cmp	edi, 160 * 25
-	jb	99f
-	call	__scroll
-	99:	
+	.if VIRTUAL_CONSOLES
+	push	eax
+	call	console_get
+	sub	edi, [eax + console_screen_buf]
+	sub	edi, SCREEN_BUF_SIZE - 160*25
+	.elseif SCREEN_BUFFER_FIRST
+	sub	edi, [screen_buf]
+	sub	edi, SCREEN_BUF_SIZE - 160*25
 	.endif
 
-	mov	[screen_pos], edi
+	.if \ignorepos
+	.else
+		.if \noscroll
+		.else
+			cmp	edi, 160 * 25
+			jb	99f
+			call	__scroll
+			99:
+		.endif
+
+		.if VIRTUAL_CONSOLES
+			mov	[eax + console_screen_pos], edi
+		.else
+			mov	[screen_pos], edi
+		.endif
+	.endif
+
+	.if SCREEN_BUFFER_FIRST # applies to VIRTUAL_CONSOLES too
+	call	screen_buf_flush
 	.endif
 
 	.if 1 # NEW!
@@ -140,6 +346,12 @@ COLOR_STACK_SIZE = 2
 		call	edi
 	.endif
 
+	.if VIRTUAL_CONSOLES
+	pop	eax
+	.endif
+	#.if !SCREEN_BUFFER_FIRST
+	#pop	es
+	#.endif
 	pop	edi
 	pop	es
 #MUTEX_UNLOCK SCREEN
@@ -174,24 +386,6 @@ COLOR_STACK_SIZE = 2
 .macro sPRINTCHAR c
 	mov	[edi], byte ptr \c
 	inc	edi
-.endm
-
-.macro GET_INDEX name, values:vararg
-	_INDEX=-1
-	_I=0
-
-	.irp r,\values
-		.ifc \r,\name
-		_INDEX=_I
-		.exitm
-		.endif
-		_I=_I+1
-	.endr
-.endm
-
-.macro IS_REG8 var, val
-	GET_INDEX \val, al,ah,bl,bh,cl,ch,dl,dh
-	\var=_INDEX >=0
 .endm
 
 .macro PRINTCHARc col, c
@@ -257,9 +451,11 @@ COLOR_STACK_SIZE = 2
 
 
 # prints esi, not preserving it.
-.macro PRINT_ msg
+.macro PRINT_ msg=esi
 	.ifnes "\msg", ""
+	.ifnc esi,\msg
 	LOAD_TXT "\msg"
+	.endif
 	.endif
 	call	print_
 .endm
@@ -297,11 +493,15 @@ COLOR_STACK_SIZE = 2
 .endm
 
 
-.macro PRINT msg
+.macro PRINT msg=esi
+	.ifnc esi,\msg
 	push	esi
 	LOAD_TXT "\msg"
 	call	print_
 	pop	esi
+	.else
+	call	print_
+	.endif
 .endm
 
 .macro SPRINT msg
@@ -311,24 +511,21 @@ COLOR_STACK_SIZE = 2
 	pop	esi
 .endm
 
-.macro PRINTLN msg
+.macro PRINTLN msg=esi
+	.ifc esi,\msg
+	call	println_
+	.else
 	push	esi
 	LOAD_TXT "\msg"
 	call	println_
 	pop	esi
+	.endif
 .endm
 
-.macro PRINTc_ color, str
-  .if 0
-  	DEBUG_DWORD esp
-  	push	word ptr \color # 
-	PUSH_TXT "\str"
-	call	_s_printc
-  .else
+.macro PRINTc_ color, str=esi
 	pushcolor \color
 	PRINT_ "\str"
 	popcolor
-  .endif
 .endm
 
 .macro PRINTLNc_ color, str
@@ -337,28 +534,64 @@ COLOR_STACK_SIZE = 2
 	popcolor
 .endm
 
-.macro PRINTc color, str
+.macro PRINTc color, str=esi
+.if 1
+	.ifc esi,\str
+		push	esi
+	.else
+		PUSH_TXT "\str"
+	.endif
+
+	.if COLOR_STACK_SIZE == 2
+	push	word ptr \color
+	.else
+	.error "COLOR_STACK_SIZE unknown value"
+	.endif
+
+	call	_s_printc
+.else
 	pushcolor \color
 	PRINT "\str"
 	popcolor
+.endif
 .endm
 
-.macro PRINTLNc color, str
+.macro PRINTLNc color, str=esi
+.if 1
+	.ifc esi,\str
+		push	esi
+	.else
+		PUSH_TXT "\str"
+	.endif
+
+	.if COLOR_STACK_SIZE == 2
+	push	word ptr \color
+	.else
+	.error "COLOR_STACK_SIZE unknown value"
+	.endif
+
+	call	_s_printlnc
+	#call	_s_printc
+	#call newline
+.else
 	pushcolor \color
 	PRINTLN "\str"
 	popcolor
+.endif
 .endm
 
 ####################
 
 
-.macro PRINTFLAG reg, bit, msg, altmsg=""
+.macro PRINTFLAG reg, bit, msg, altmsg=0
 	test	\reg, \bit
 	jz	111f
 	PRINT	"\msg"
 	jmp	112f
 111:
+	.ifnc 0,\altmsg
 	PRINT	"\altmsg"
+	.endif
 112:
 .endm
 
@@ -373,11 +606,41 @@ COLOR_STACK_SIZE = 2
 ###############################################################################
 .ifdef DEFINE
 
+.if VIRTUAL_CONSOLES
+.tdata
+tls_console_cur_ptr:	.long 0
+.tdata_end
+.struct 0
+console_screen_color:		.word 0
+console_screen_pos:		.long 0
+console_screen_buf:		.long 0
+console_screen_buf_pos:		.long 0
+console_screen_scroll_lines:	.long 0
+console_pid:			.long 0
+CONSOLE_STRUCT_SIZE = .
+.data SECTION_DATA_BSS
+console_cur:	.byte 0
+console_cur_ptr:.long consoles	# initialize to first console
+.data16
+consoles:	# 10 CONSOLE_STRUCTs: the first being the screen_ (default)
+.endif	# keep with next:
 
 .data16	# realmode access, keep within 64k
+	# the first console:
 	screen_color:	.word 0x0f	# is a byte, but word for push/pop
 	screen_pos:	.long 0
-	screen_sel:	.word 0
+	.if SCREEN_BUFFER
+	screen_buf:		.long screen_buf0
+	screen_buf_pos:		.long 0	# screen_buf_flush argument; -1=scrolled;-2=cls
+	.endif
+	screen_scroll_lines:	.long 0	# total count
+	.long 0	# the pid
+
+.if VIRTUAL_CONSOLES
+	.space 9* CONSOLE_STRUCT_SIZE
+.endif
+
+	screen_sel:	.long 0
 	screen_update:	.long default_screen_update
 .text32
 default_screen_update:	# 16 and 32 bit
@@ -440,6 +703,7 @@ __printhex4:
 __printhex8:
 	push	ecx
 	mov	ecx, 8
+0:	push	ax
 0:	rol	edx, 4
 	mov	al, dl
 	and	al, 0x0f
@@ -449,6 +713,7 @@ __printhex8:
 1:	add	al, '0'
 	stosw
 	loop	0b
+	pop	ax
 .if HEX_END_SPACE
 	add	edi, 2
 .endif
@@ -459,87 +724,64 @@ __printhex8:
 ########################### CLEAR SCREEN, NEW LINE, SCROLL ##########
 
 .global cls
-cls:	PRINT_START
+cls:	SET_SCREENPOS 0
+	PRINT_START
 	push	ecx
-	xor	edi, edi
+	#xor	edi, edi
 	xor	al, al
-	mov	[screen_pos], edi
+	#mov	[screen_pos], edi
 	mov	ecx, 80 * 25 # 7f0
 	rep	stosw
 	pop	ecx
+	.if SCREEN_BUFFER
+	mov	[screen_buf_pos], dword ptr -2
+	.endif
 	PRINT_END 1
 	ret
 
-__newline:
-	push	ax
-	push	dx
-	mov	ax, di
-	mov	dx, 160
-	div	dl
-	mul	dl
-	add	ax, dx
-	mov	di, ax
-	pop	dx
-	pop	ax
-	PRINT_START -1
-	PRINT_END
-	ret
 
 .global newline
 newline:
-	push	ax
-	push	dx
-				push	ecx
-	mov	ax, [screen_pos]
-				movzx	ecx, ax
+	push	ecx
+	push	eax
+	push	edx
+	GET_SCREENPOS eax
+	mov	ecx, eax
 	mov	dx, 160
 	div	dl
 	mul	dl
 	add	ax, dx
-	mov	[screen_pos], ax
-				jcxz	2f
-				push	edi
-				push	es
-				mov	edi, [screen_sel]
-				mov	es, edi
-				movzx	edi, cx
-				sub	cx, ax
-				neg	ecx
-				movzx	ecx, cx
-				shr	ecx, 1
-				jz	1f
-				mov	ax, es:[edi-2]
-				xor	al, al
-				rep	stosw
-			1:	pop	es
-				pop	edi
-			2:	pop	ecx
-	pop	dx
-	cmp	ax, 160 * 25
-	pop	ax
-	jb	0f
-	PRINT_START -1
+	sub	ecx, eax
+	neg	ecx
+	PRINT_START
+	add	ecx, 160	# clear next line too
+	xor	al, al
+	shr	ecx, 1
+	rep	stosw
+	sub	edi, 160
 	PRINT_END
-0:	ret
+	pop	edx
+	pop	eax
+	pop	ecx
+	ret
 
 
 ##### SCROLLBACK BUFFER ######
-SCREEN_BUFFER = 1
 .if SCREEN_BUFFER
-.data SECTION_DATA_BSS # TODO: objectify: convert to array of struct - multiple buffers.
-SCREEN_BUF_PAGES = 12
-SCREEN_BUF_SIZE = 160 * 25 * SCREEN_BUF_PAGES
-screen_buf_offs:	.long 0
-screen_buf:		.space SCREEN_BUF_SIZE
-screen_scroll_lines:	.long 0	# total count
+.data SECTION_DATA_BSS
+# pre-allocated buffer for the first screen, as it is accessed before
+# memory management is initialized.
+screen_buf0:	.space SCREEN_BUF_SIZE + 1024	# a little print overflow space
 .text32
 .endif
 ##############################
 # this method is only to be called when edi >= 160 * 25
+# in: edi = [screen_pos]
+# out: edi = updated screenpos
 __scroll:
+	push	ds
 	push	esi
 	push	ecx
-	push	ds
 
 	push eax
 	push edx
@@ -548,6 +790,11 @@ __scroll:
 	# edi = # (left)
 	xor	edx, edx
 	mov	eax, edi
+	# check if screen pos is exactly at end of screen:
+	cmp	eax, 160*25
+	jnz	1f
+	inc	eax
+1:
 	sub	eax, 160 * 25
 	jle	1f
 	add	eax, 159
@@ -556,13 +803,21 @@ __scroll:
 	# calculate nr of lines
 	mov	ecx, 160
 	div	ecx
+	.if VIRTUAL_CONSOLES
+	push	ebx
+	push	eax
+	call	console_get
+	mov	ebx, eax
+	pop	eax
+	add	[ebx + console_screen_scroll_lines], eax
+	.else
 	add	[screen_scroll_lines], eax
+	.endif
 	mul	ecx
-	mov	ecx, eax
-
-	# eax: nr lines
+2:	mov	ecx, eax
 	# ecx: nr lines * cols = data
 
+	.if !SCREEN_BUFFER_FIRST
 	.if SCREEN_BUFFER
 	# |bufA  |      |bufB_|
 	# |bufB__|	|A____|
@@ -579,11 +834,11 @@ __scroll:
 		mov	edx, es
 		mov	esi, ds
 		mov	es, esi
-		mov	edi, offset screen_buf
-		lea	esi, [edi + 160]
+		mov	edi, [screen_buf]
+		lea	esi, [edi + 160]	# FIXME [edi + ecx] ?
 		neg	ecx
 		add	ecx, SCREEN_BUF_SIZE
-		rep	movsb
+		rep	movsb	# buf->buf
 		mov	ecx, eax
 		# es:edi = ok
 		# ecx = ok
@@ -591,34 +846,205 @@ __scroll:
 		mov	ds, edx	# no need to restore - is altered right below
 		mov	esi, 160 * 24
 		sub	edi, ecx
-		rep	movsb
+		rep	movsb	# vid->buf
 		mov	ecx, eax
 		pop	es
 		pop	edi
 		pop	esi
 	.else
-	mov	eax, es
-	mov	ds, eax
+		mov	eax, es
+		mov	ds, eax
+	.endif
 	.endif
 
-	mov     esi, ecx # 160
-	mov     ecx, edi
-	sub     ecx, esi
-	xor     edi, edi
+.if SCREEN_BUFFER_FIRST
+sub edi, ecx
+push edi
 
+xor edi, edi	# target = start of screen buf
+mov esi, ecx	# source = discard start..screen_scroll lines
+mov ecx, SCREEN_BUF_SIZE	# total buf size
+sub ecx, esi	# minus screen_scroll_lines
+.else
+	mov     esi, ecx # scroll lines * 160
+	mov     ecx, edi # screenpos
+	sub     ecx, esi #
+	xor     edi, edi
 	push	ecx
+.endif
+	add	ecx, 160	# copy beyond buffer - without this: eol dup
+	.if SCREEN_BUFFER_FIRST
+	.if VIRTUAL_CONSOLES
+	mov	eax, [ebx + console_screen_buf]
+	mov	[ebx + console_screen_buf_pos], dword ptr -1
+	.else
+	mov	eax, [screen_buf]
+	mov	[screen_buf_pos], dword ptr -1
+	.endif
+	add	edi, eax	# add buffer offset
+	add	esi, eax	# add buffer offset
+#	add	edi, SCREEN_BUF_SIZE -160*25	# this enabled: only scroll
+#	add	esi, SCREEN_BUF_SIZE -160*25	# within last page of buffer
+	.endif
+
 	shr	ecx, 1
-	rep	movsd
+	rep	movsw	# buf->buf | vid->vid
 	pop	edi
+
+	.if VIRTUAL_CONSOLES
+	pop	ebx
+	.endif
 
 1:	pop	edx
 	pop	eax
 
-	pop	ds
 	pop	ecx
 	pop	esi
-
+	pop	ds
 	ret
+
+
+.if SCREEN_BUFFER_FIRST
+
+DEBUG_SCREEN_FLUSH = 0
+
+screen_buf_flush:
+	push	edi
+	push	esi
+	push	ecx
+		push edx
+	push	es
+	mov	edi, [screen_sel]
+	mov	es, edi
+	.if VIRTUAL_CONSOLES
+	push	ebx
+	push	eax
+	call	console_get
+	mov	ebx, eax
+	pop	eax
+	cmp	ebx, [console_cur_ptr]
+	jnz	8f	# console not active, don't flush
+	mov	esi, [ebx + console_screen_buf]
+	.else
+	mov	esi, [screen_buf]
+	.endif
+	add	esi, SCREEN_BUF_SIZE - 160*25
+	.if DEBUG_SCREEN_FLUSH > 1
+		# clear bg color for debug a bit below
+		push esi
+		mov	ecx, 80*25 / 2 #movsw->movsd
+		xor	edi, edi
+		rep	movsd
+		pop esi
+	.endif
+
+	.if VIRTUAL_CONSOLES
+	mov	ecx, [ebx + console_screen_pos]
+	mov	edi, [ebx + console_screen_buf_pos]
+	.else
+	mov	ecx, [screen_pos]	# fa0
+	mov	edi, [screen_buf_pos]
+	.endif
+
+	or	edi, edi
+	jns	1f		# -1 means scrolled, screen_pos will be before
+	inc	edi		# end of screen - on the last line, so we need
+	jz	2f		# -2 (now -1) means cls.
+	inc	edi
+3:	mov	ecx, 160*25-160
+2:
+	add	ecx, 160	# to copy the last line too.
+1:
+	add	esi, edi
+	sub	ecx, edi
+	jg	1f	# screen_pos < screen_buf_pos
+	neg	ecx
+1:	shr	ecx, 1
+		mov edx, ecx
+	jz	2f
+
+	rep	movsw
+2:
+	.if DEBUG_SCREEN_FLUSH
+	pushad
+		# print offsets etc at top row
+		push	esi
+		push edi
+		push edx
+		xor edi, edi
+		mov ax, 0x8f << 8
+#		mov edx, ebx
+		call __printhex8
+		.if VIRTUAL_CONSOLES
+			mov edx, [ebx + console_screen_pos]
+		.else
+			mov edx, [screen_pos]
+		.endif
+		LOAD_TXT " screenpos "
+		call __print
+		call __printhex8
+		stosw
+		mov ecx, edx
+		.if VIRTUAL_CONSOLES
+			mov edx, [eax + console_screen_buf_pos]
+		.else
+			mov edx, [screen_buf_pos]
+		.endif
+		sub ecx, edx
+		LOAD_TXT "bufpos "
+		call __print
+		call __printhex8
+		mov edx, ecx
+		stosw
+		LOAD_TXT "len "
+		call __print
+		call __printhex8
+		stosw
+		LOAD_TXT "tls "
+		call __print
+		mov	edx, [tls]
+		call __printhex8
+
+		.if DEBUG_SCREEN_FLUSH > 1
+			# change background color of newly printed
+			.if VIRTUAL_CONSOLES
+				mov edi, [ebx + console_screen_buf_pos]
+				mov ecx, [ebx + console_screen_pos]
+			.else
+				mov edi, [screen_buf_pos]
+				mov ecx, [screen_pos]
+			.endif
+			or edi, edi
+			jns 1f
+			xor edi, edi
+			1:
+			sub ecx, edi
+			jle 2f
+			shr ecx, 1
+			0:xor es:[edi + 1], byte ptr 0xff
+			add edi, 2
+			loop 0b
+			2:
+		.endif
+		pop edx
+		pop edi
+		pop	esi
+	popad
+	.endif
+
+	.if VIRTUAL_CONSOLES
+	mov	[ebx + console_screen_buf_pos], edi
+8:	pop	ebx
+	.else
+	mov	[screen_buf_pos], edi
+	.endif
+	pop	es
+		pop	edx
+	pop	ecx
+	pop	esi
+	pop	edi
+9:	ret
+.endif
 
 ############################## PRINT ASCII ####################
 
@@ -645,25 +1071,48 @@ printchar_:
 	ret
 .endif
 
-.if 0
-# in: [esp] = offset
-# in: [esp + 4] = color (word)
+# Stack-arg methods '_s_'-prefix:
+
+_s_printlnc:
+	push	esi
+	push	eax
+	mov	esi, [esp + 12 + COLOR_STACK_SIZE]
+	mov	ah, [esp + 12]
+	call	printlnc
+	pop	eax
+	pop	esi
+	ret	4 + COLOR_STACK_SIZE
+
+# in: [esp + COLOR_STACK_SIZE] = offset
+# in: [esp] = color (word)
 # out: clear stack arguments
 _s_printc:
 	push	esi
 	push	eax
-	mov	esi, [esp + 8 + 4 + 0]
-	mov	ah, [esp + 8 + 4 + 4]
+	mov	esi, [esp + 8 + 4 + COLOR_STACK_SIZE]
+	mov	ah, [esp + 8 + 4 + 0]
 	call	printc
 	pop	eax
 	pop	esi
 	ret	4 + COLOR_STACK_SIZE
 
+# in: [esp] = color<<8 | char
 _s_printcharc:
 	push	eax
-	mov	ah, [esp + 4 + 4 + 0]
+	mov	ax, [esp + 4 + 4 + 0]
 	call	printcharc
 	pop	eax
+	ret	COLOR_STACK_SIZE
+
+.if VIRTUAL_CONSOLES
+_s_setcolor:
+	push	dx
+	mov	dx, [esp + 6]
+	push	eax
+	call	console_get
+	mov	[eax + console_screen_color], dx
+	pop	eax
+	pop	dx
 	ret	COLOR_STACK_SIZE
 .endif
 
@@ -744,10 +1193,6 @@ print_:
 println_:
 	call	print_
 	jmp	newline
-
-__println:
-	call	__print
-	jmp	__newline
 
 0:	stosw
 __print:	
@@ -1384,4 +1829,100 @@ print_spaces:
 #	PRINT_END
 9:	pop	ecx
 	ret
+
+#############################################################################
+screen_get_scroll_lines:
+.if VIRTUAL_CONSOLES
+	call	console_get
+	mov	eax, [eax + console_screen_scroll_lines]
+.else
+	mov	eax, [screen_scroll_lines]
 .endif
+	ret
+
+screen_get_pos:
+	GET_SCREENPOS eax
+	ret
+
+screen_set_pos:
+	SET_SCREENPOS eax
+	ret
+
+.if VIRTUAL_CONSOLES
+console_get:
+	mov	eax, [tls]
+	or	eax, eax
+	jz	1f
+	mov	eax, [eax + tls_console_cur_ptr]
+	or	eax, eax
+	jz	1f
+	ret
+
+1:	mov	eax, [console_cur_ptr]
+	ret
+.endif
+
+##############################################################################
+# Console - multiple screens
+.if VIRTUAL_CONSOLES
+# in: al = console nr (0..9)
+console_set:
+	cmp	al, [console_cur]
+	jz	10f
+
+	push	eax
+	push	edx
+	push	esi
+
+	movzx	edx, al
+	mov	[console_cur], dl
+	mov	eax, CONSOLE_STRUCT_SIZE
+	imul	edx, eax
+	add	edx, offset consoles
+	mov	[console_cur_ptr], edx
+
+	mov	esi, [edx + console_screen_buf]
+	or	esi, esi
+	jnz	1f
+
+
+	mov	eax, SCREEN_BUF_SIZE + 1024
+	call	malloc
+	jc	9f
+	mov	esi, eax
+	mov	[edx + console_screen_buf], eax
+	mov	[edx + console_screen_color], word ptr 7
+
+	cmp	edx, offset consoles
+	jz	1f
+	mov	[edx + console_pid], dword ptr -1
+1:
+	#mov	[edx + console_screen_buf_pos], dword ptr -2
+	#call	screen_buf_flush
+	push es
+	push edi
+	push ecx
+	mov edi, [screen_sel]
+	mov es, edi
+	xor edi, edi
+	mov ecx, 160*25/4
+	add esi, SCREEN_BUF_SIZE - 160*25
+	rep movsd
+	pop ecx
+#		xor edi, edi
+#		mov eax, edx
+#		mov edx, [eax + console_screen_pos]
+#		call __printhex8
+	pop edi
+	pop es
+
+9:
+	pop	esi
+	pop	edx
+	pop	eax
+10:	ret
+
+.endif
+
+
+.endif	# DEFINE

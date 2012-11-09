@@ -3,13 +3,15 @@
 KERNEL_MIN_STACK_SIZE	= 0x1000	# needs to be power of 2!
 
 # .data layout
-SECTION_DATA		= 0
-SECTION_DATA_CONCAT	= 1
-SECTION_DATA_STRINGS	= 2
-SECTION_DATA_PCI_NIC	= 3
-SECTION_DATA_FONTS	= 4
+SECTION_DATA		= 0	# leave at 0 as there is still .data used.
+SECTION_DATA_SEMAPHORES	= 1
+SECTION_DATA_TLS	= 2
+SECTION_DATA_CONCAT	= 3
+SECTION_DATA_STRINGS	= 4
+SECTION_DATA_PCI_NIC	= 8
+SECTION_DATA_FONTS	= 9
 SECTION_DATA_BSS	= 10
-SECTION_DATA_SIGNATURE	= SECTION_DATA_BSS -1
+SECTION_DATA_SIGNATURE	= SECTION_DATA_BSS +1
 
 # .text layout
 SECTION_CODE_TEXT16	= 0
@@ -37,6 +39,10 @@ kernel_rm_code_start:
 data16_start:
 .data
 data_0_start:
+.data SECTION_DATA_SEMAPHORES
+data_sem_start:
+.data SECTION_DATA_TLS
+data_tls_start:
 .data SECTION_DATA_CONCAT
 data_concat_start:
 .data SECTION_DATA_STRINGS
@@ -82,6 +88,7 @@ include "pmode.s", pmode
 include "debugger.s", debugger
 include "pit.s", pit
 include "keyboard.s", keyboard
+include "console.s", console
 
 include "mem.s", mem
 include "hash.s", hash
@@ -135,18 +142,25 @@ kmain:
 	push	ecx
 	push	esi
 	push	edi
+	mov	edi, [screen_buf]
 	mov	ecx, [screen_pos] # 160 * 25
 	add	ecx, 160
 	mov	esi, SEL_vid_txt
 	mov	ds, esi
 	xor	esi, esi
-	mov	edi, offset screen_buf + SCREEN_BUF_SIZE
+	add	edi, SCREEN_BUF_SIZE
 	sub	edi, ecx
 	rep	movsb
 	pop	edi
 	pop	esi
 	pop	ecx
 	mov	ds, ax
+	xor	eax, eax
+	.if VIRTUAL_CONSOLES
+	call	console_set
+	call	tls_get
+	mov	[eax + tls_console_kb_cur_ptr], dword ptr offset consoles_kb
+	.endif
 	.endif
 
 	call	debug_load_symboltable	# a simple reference check and pointer calculation.
@@ -426,6 +440,37 @@ halt:	call	newline
 kernel_task:
 	PRINTLNc 0x0b "Kernel Task"
 	retf
+
+#############################################################################
+# TLS initialisation
+
+tls_get:
+	mov	eax, [tls]
+	or	eax, eax
+	jnz	1f
+	cmp	[task_queue_sem], dword ptr -1
+	jz	0f
+	mov	eax, _TLS_SIZE
+	call	mallocz
+	jnc	2f
+	printlnc 4, "error allocating tls"
+	ret
+	mov	[tls], eax
+1:	ret
+0:	mov	eax, offset tls_default
+2:	mov	[tls], eax
+	.if VIRTUAL_CONSOLES
+	push	edx
+	mov	edx, [console_cur_ptr]
+	mov	[eax + tls_console_cur_ptr], edx
+	mov	edx, [console_kb_cur]
+	mov	[eax + tls_console_kb_cur_ptr], edx
+	pop	edx
+	.endif
+	ret
+
+#############################################################################
+
 kernel_code_end:
 code_kernel_end:
 # initialize section end labels
@@ -435,22 +480,27 @@ kernel_pm_code_end:
 kernel_rm_code_end:
 .data16
 data16_end:
+.data
+data_0_end:
+.data SECTION_DATA_SEMAPHORES
+data_sem_end:
+.data SECTION_DATA_TLS
+tls_default:
+.space _TLS_SIZE
+tls_size: .long _TLS_SIZE
+data_tls_end:
 .data SECTION_DATA_CONCAT
 data_concat_end:
-.data SECTION_DATA_STRINGS - 1
-data_0_end:
 .data SECTION_DATA_STRINGS
-.byte 0
 data_str_end:
 .data SECTION_DATA_PCI_NIC
 data_pci_nic_end:
 .data SECTION_DATA_FONTS
 data_fonts_end:
-.data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
-#kernel_signature:.long 0x1337c0de # when bss is no longer stored in .data, enable this
-data_signature_end:
 .data SECTION_DATA_BSS
-kernel_signature:.long 0x1337c0de # enabled this to check bootloader ramdisk overwrite
 data_bss_end:
+.data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
+kernel_signature:.long 0x1337c0de
+data_signature_end:
 .data 99
 kernel_end:

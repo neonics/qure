@@ -7,7 +7,7 @@
 ################################################################
 # Mutex - mutual exclusion
 #
-.data
+.data SECTION_DATA_SEMAPHORES
 .align 4
 mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 	MUTEX_SCHEDULER	= 1
@@ -20,7 +20,7 @@ mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 .text32
 
 # out: CF = 1: fail, mutex was already locked.
-.macro MUTEX_LOCK name, nolocklabel=0, debug=0
+.macro MUTEX_LOCK name, nolocklabel=0, locklabel=0, debug=0
 	lock bts dword ptr [mutex], MUTEX_\name
 	.if \debug
 		jnc	100f
@@ -30,6 +30,9 @@ mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 	.endif
 	.ifnc 0,\nolocklabel
 	jc	\nolocklabel
+	.endif
+	.ifnc 0,\locklabel
+	jnc	\locklabel
 	.endif
 .endm
 

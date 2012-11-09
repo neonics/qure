@@ -1104,13 +1104,15 @@ print_handle_2h$:
 print_handle_2$:
 	# if the screenis full, force a scroll, to get positive delta-screen_pos
 	call	printspace
-	mov	eax, [screen_pos]
+	call	screen_get_pos
 	call	printdec32
 .if 1
-	sub	eax, [screen_pos]
-	sar	eax, 1
 	push	ecx
-	mov	ecx, 6
+	mov	ecx, eax
+	call	screen_get_pos
+	sub	ecx, eax
+	sar	ecx, 1
+	mov	eax, 6
 	add	ecx, eax
 	js	1f
 0:	call	printspace
@@ -1468,7 +1470,7 @@ find_handle_linear$:
 		call	printdec32
 		printchar ' '
 		pop	edx
-		popcolor 2
+		popcolor
 
 	test	[ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	jnz	2f
@@ -2792,24 +2794,31 @@ cmd_mem$:
 	jz	2f
 
 	mov	ecx, offset code_print_start
-	.irp _, print,pmode,debugger,pit,keyboard,mem,hash,string,scheduler,tokenizer,shell,dev,pci,bios,cmos,ata,fs,partition,fat,sfs,iso9660,nic,net,gfx,hwdebug,vmware,kernel
+	.irp _, print,pmode,debugger,pit,keyboard,console,mem,hash,string,scheduler,tokenizer,shell,dev,pci,bios,cmos,ata,fs,partition,fat,sfs,iso9660,nic,net,gfx,hwdebug,vmware,kernel
 	PRINT_MEMRANGE code_\_\(), indent="  "
 	.endr
 
 2:	PRINT_MEMRANGE data_0
+	PRINT_MEMRANGE data_sem
+	PRINT_MEMRANGE data_tls
+	PRINT_MEMRANGE data_concat
 	#PRINT_MEMRANGE data_concat within data0's range
 	PRINT_MEMRANGE data_str
 	PRINT_MEMRANGE data_pci_nic
 	PRINT_MEMRANGE data_fonts
+	.if SECTION_DATA_SIGNATURE < SECTION_DATA_BSS
 	PRINT_MEMRANGE data_signature
 	PRINT_MEMRANGE data_bss
+	.else
+	PRINT_MEMRANGE data_bss
+	PRINT_MEMRANGE data_signature
+	.endif
 	mov	edi, [kernel_load_end_flat]
 	sub	edi, [database]
-	PRINT_MEMRANGE "<slack>", (offset data_bss_end), edi # [kernel_load_end_flat]
+	PRINT_MEMRANGE "<slack>", ecx, edi
 	PRINT_MEMRANGE "symbol table", [kernel_symtab], [kernel_symtab_size], sz=1
 	PRINT_MEMRANGE "stabs", [kernel_stabs], [kernel_stabs_size], sz=1
 	PRINT_MEMRANGE "stack", [ramdisk_load_end], [kernel_stack_top]
-
 
 ######## print graph
 1:	test	dword ptr [ebp], CMD_MEM_OPT_GRAPH

@@ -429,18 +429,20 @@ isr_keyboard:
 	ror	eax, 16
 	call	kb_get_mutators$
 	ror	eax, 16
-	call	buf_putkey
-2:
 
-	# schedule keyboard task
-	.if 1
+	cmp	byte ptr [task_queue_sem], -1
+	jnz	1f
+	call	buf_putkey
+	jmp	2f
+
+1:	# schedule keyboard task
 	PUSH_TXT "kb"
 	push	dword ptr 0	# legacy task (job)
 	push	cs
 	push	eax
 	mov	eax, offset kb_task
 	add	eax, [realsegflat]
-	xchg	eax, [esp]
+	xchg	eax, [esp]	# restore eax - the key (arg to kb_task)
 	call	schedule_task	# caller cleanup
 	.if 0
 	jnc 1f
@@ -450,21 +452,7 @@ isr_keyboard:
 	DEBUG "%%%% KB SCHED %%%%%"
 	2:
 	.endif
-	.else
-	push	ebx
-	push	ecx
-	push	esi
-	mov	ecx, 8
-	LOAD_TXT "kb"
-	mov	eax, offset kb_task
-	add	eax, [realsegflat]
-	xor	ebx, ebx # flags
-	call	schedule_task_LEGACY
-	pop	esi
-	pop	ecx
-	pop	ebx
-	.endif
-
+2:
 	PIC_SEND_EOI IRQ_KEYBOARD
 	pop	edx
 	pop	eax
@@ -472,104 +460,6 @@ isr_keyboard:
 	pop	ds
 	iret
 
-
-# 'root override' if you will...
-kb_task:
-	mov	ah, KB_PEEK
-	call	keyboard
-	jz	9f
-	cmp	eax, K_KEY_CONTROL | K_KEY_ALT | K_DELETE
-	jz	1f
-	mov	ebx, eax
-	xor	bh, bh
-	cmp	ebx, K_KEY_CONTROL | 'c'
-	jz	2f
-	cmp	byte ptr [scrolling$], 0
-	jnz	9f
-	cmp	eax, K_PGUP
-	jz	scroll
-9:	ret
-
-
-1:	PRINTc 0xe2, "Ctrl-Alt-Delete"
-	ret
-
-2:	PRINTc 0xe2, "^C"
-	printlnc 0xb8, " Stack dump: (nothing's broken! - press enter)"
-	call	debug_printstack$
-	ret
-
-.data SECTION_DATA_BSS
-scrolling$: .byte 0
-.text32
-scroll:
-	mov	ah, KB_POLL	# remove the keystroke
-	call	keyboard
-	# TODO: flush screen to buffer - last line not always copied.
-
-	# TODO: lock keyboard or use jobs so that interrupted process
-	# doesn't also respond to the key strokes
-
-	inc	byte ptr [scrolling$]
-	PRINTc 0xe2, "^"
-.if SCREEN_BUFFER
-	# test the buffer using more
-	SCROLL_DISPLAY_LINES = 25
-	SCREENBUF_DISPLAY_END = SCREEN_BUF_SIZE - SCROLL_DISPLAY_LINES * 160
-
-	mov	esi, SCREENBUF_DISPLAY_END - SCROLL_DISPLAY_LINES * 160
-0:	xor	edi, edi
-	mov	ecx, 160 * SCROLL_DISPLAY_LINES
-	push	es
-	mov	ax, SEL_vid_txt
-	mov	es, ax
-	push	esi
-	add	esi, offset screen_buf
-	rep	movsb
-	pop	esi
-	pop	es
-
-	cmp	esi, SCREENBUF_DISPLAY_END
-	jb	1f
-	dec	byte ptr [scrolling$]
-	ret
-
-1:	xor	ax, ax
-	call	keyboard
-	cmp	ax, K_UP
-	jz	2f
-	cmp	ax, K_DOWN
-	jz	3f
-	cmp	ax, K_ENTER
-	jz	3f
-	cmp	al, ' ' #K_SPACE
-	jz	4f
-	cmp	ax, K_PGDN
-	jz	4f
-	cmp	ax, K_PGUP
-	jz	5f
-	jmp	1b
-3: # down 1 line
-	add	esi, 160
-
-19:	# check end
-	cmp	esi, SCREENBUF_DISPLAY_END
-	jb	0b
-	mov	esi, SCREENBUF_DISPLAY_END
-	jmp	0b
-2: # up
-	sub	esi, 160
-11:	# check start
-	jns	0b
-	xor	esi, esi
-	jmp	0b
-4: # page down
-	add	esi, 160 * (SCROLL_DISPLAY_LINES - 4)
-	jmp	19b
-5: # page up
-	sub	esi, 160 * (SCROLL_DISPLAY_LINES - 4)
-	jmp	11b
-.endif
 
 debug_printstack$:
 	push	ebp
@@ -747,7 +637,9 @@ keyboard_init:
 	call	newline
 	call	newline
 	call	newline
-	sub	[screen_pos], dword ptr 4 * 160
+	call	screen_get_pos
+	sub	eax, 4 * 160
+	SET_SCREENPOS eax
 	ret
 
 9:	printc	12, ": not ack: 0x"
@@ -795,44 +687,59 @@ keyboard_print_command_reg:
 ############################################################################
 # Keyboard buffer
 
-.data SECTION_DATA_BSS
 KB_BUF_KEYSIZE	= 3
 KB_BUF_NUMKEYS	= 16
 KB_BUF_SIZE	= KB_BUF_NUMKEYS * KB_BUF_KEYSIZE
 # circular buffer, hardware-software thread safe due to separate read/write
 # variables. The read offset is however not software-software thread safe.
+.if !VIRTUAL_CONSOLES	# see console.s for alternative
+.data SECTION_DATA_BSS
 keyboard_buffer:	.space KB_BUF_SIZE
 keyboard_buffer_ro:	.long 0	# write offset
 keyboard_buffer_wo:	.long 0 # read offset
-kb_count$: .long 0
+.endif
 .text32
 
 buf_err$:
 	pushf
-	push	es
-	push	edi
 	push	edx
 	mov	edx, eax
-	mov	ah, 0xf4
-	SCREEN_INIT
-	PRINT "Buffer Assertion Error: avail: "
+	PRINTc	0xf4, "Keyboard buffer Assertion Error: avail: "
 	call	printhex8
-	PRINT " R="
+	PRINTc 0xf4, " R="
+.if VIRTUAL_CONSOLES
+	push	ebx
+	call	console_kb_get
+	mov	edx, [ebx + console_kb_buf_ro]
+.else
 	mov	edx, [keyboard_buffer_ro]
+.endif
 	call	printhex
-	PRINT " W="
+	PRINTc 0xf4, " W="
+.if VIRTUAL_CONSOLES
+	mov	edx, [ebx + console_kb_buf_wo]
+	pop	ebx
+.else
 	mov	edx, [keyboard_buffer_wo]
+.endif
 	call	printhex
 	pop	edx
-	pop	edi
-	pop	es
+	call	newline
 	popf
 	ret
 
 buf_avail:
 	# shift view: wo = origin.
+.if VIRTUAL_CONSOLES
+	push	ebx
+	mov	ebx, [console_kb_cur]
+	mov	eax, [ebx + console_kb_buf_ro]
+	sub	eax, [ebx + console_kb_buf_wo]
+	pop	ebx
+.else
 	mov	eax, [keyboard_buffer_ro]
 	sub	eax, [keyboard_buffer_wo]
+.endif
 	dec	eax
 	jge	0f
 	# wo < 0, so ad KB_BUF_SIZE
@@ -841,23 +748,37 @@ buf_avail:
 0:	ret
 
 buf_putkey:
+	push	esi
+.if VIRTUAL_CONSOLES
 	push	ebx
-	mov	ebx, [keyboard_buffer_wo]
-	mov	[keyboard_buffer + ebx], ax
+	mov	ebx, [console_kb_cur]
+	mov	esi, [ebx + console_kb_buf_wo]
+	mov	[ebx + console_kb_buf + esi], ax
+.else
+	mov	esi, [keyboard_buffer_wo]
+	mov	[keyboard_buffer + esi], ax
+.endif
 	.if KB_BUF_KEYSIZE == 3
 	ror	eax, 16
-	mov	[keyboard_buffer + ebx + 2], ah
+.if VIRTUAL_CONSOLES
+	mov	[ebx + console_kb_buf + esi + 2], ah
+.else
+	mov	[keyboard_buffer + esi + 2], ah
+.endif
 	ror	eax, 16
 	.endif
-	add	ebx, KB_BUF_KEYSIZE
-	# fallthrough
-
-buf_put_$:
-	cmp	ebx, KB_BUF_SIZE-1
+	add	esi, KB_BUF_KEYSIZE
+	cmp	esi, KB_BUF_SIZE-1
 	jb	0f
-	xor	ebx, ebx
-0:	mov	[keyboard_buffer_wo], ebx
+	xor	esi, esi
+0:
+.if VIRTUAL_CONSOLES
+	mov	[ebx + console_kb_buf_wo], esi
 	pop	ebx
+.else
+	mov	[keyboard_buffer_wo], esi
+.endif
+	pop	esi
 	ret
 
 
@@ -872,8 +793,8 @@ buf_put_$:
 #Int 16/AH=12h - KEYBOARD - GET EXTENDED SHIFT STATES (enh kbd support only)
 
 KB_GET		= 0	# out: eax>>16: mutators; ax: keycode (ah=scancode,al=translation)
-KB_PEEK		= 1
-KB_POLL		= 2
+KB_PEEK		= 1	# out: ZF = 1: no keystroke; ZF=0: eax=key, not removed
+KB_POLL		= 2	# out: ZF = 1: no keystroke; ZF=0: eax=key, removed
 KB_GET_MUTATORS	= 10	# out: al=shift, ah:2=alt, ah:1=control, ah:0=shift
 KB_GETCHAR	= 20
 KB_SETSPEED	= 50
@@ -891,6 +812,10 @@ keyboard:
 	push	esi
 	mov	esi, SEL_compatDS
 	mov	ds, esi
+.if VIRTUAL_CONSOLES
+	push	ebx
+	call	console_kb_get
+.endif
 
 	or	ah, ah
 	jz	k_get$
@@ -904,58 +829,106 @@ keyboard:
 	jz	k_setspeed$
 	cmp	ah, KB_GETCHAR
 	jz	k_getchar$
-0:	pop	esi
+0:
+.if VIRTUAL_CONSOLES
+	pop	ebx
+.endif
+	pop	esi
 	pop	ds
 	ret
 
+.macro KB_LOCK
+.if !VIRTUAL_CONSOLES
+990:	MUTEX_LOCK KB debug=1#locklabel=999f
+	jnc	999f
+	hlt
+	jmp	990b
+999:
+.endif
+.endm
+
+.macro KB_UNLOCK
+.if !VIRTUAL_CONSOLES
+	pushf
+	MUTEX_UNLOCK KB debug=1
+	popf
+.endif
+.endm
+
+.macro KB_BUF_AVAIL avail=0, empty=0
+	.if VIRTUAL_CONSOLES
+		mov	esi, [ebx + console_kb_buf_ro]
+		cmp	esi, [ebx + console_kb_buf_wo]
+	.else
+		mov	esi, [keyboard_buffer_ro]
+		cmp	esi, [keyboard_buffer_wo]
+	.endif
+	.ifnc 0,\empty
+	jz	\empty
+	.endif
+	.ifnc 0,\avail
+	jnz	\avail
+	.endif
+.endm
+
+.macro KB_BUF_GET
+	.if KB_BUF_KEYSIZE < 3
+		call	kb_get_mutators$
+	.elseif KB_BUF_KEYSIZE == 3
+		.if VIRTUAL_CONSOLES
+			mov	ah, [ebx + console_kb_buf + esi + 2]
+		.else
+			mov	ah, [keyboard_buffer + esi + 2]
+		.endif
+		mov	al, ah
+		and	al, 1
+	.endif
+	shl	eax, 16
+	.if VIRTUAL_CONSOLES
+		mov	ax, [ebx + console_kb_buf + esi]
+	.else
+		mov	ax, [keyboard_buffer + esi]
+	.endif
+.endm
+
+.macro KB_BUF_REMOVE
+		add	esi, KB_BUF_KEYSIZE
+		cmp	esi, KB_BUF_SIZE
+		jl	199f
+		sub	esi, KB_BUF_SIZE
+	199:
+	.if VIRTUAL_CONSOLES
+		mov	[ebx + console_kb_buf_ro], esi
+	.else
+		mov	[keyboard_buffer_ro], esi
+	.endif
+.endm
+
+
 k_get$:
-	mov	esi, [keyboard_buffer_ro]
-1:	cmp	esi, [keyboard_buffer_wo]
-	jnz	1f
+1:	KB_LOCK
+	KB_BUF_AVAIL avail=kb_remove$
+	KB_UNLOCK
 	hlt		# wait for interrupt
 	jmp	1b	# check again
-k_remove$:
-1:	.if KB_BUF_KEYSIZE == 3
-	mov	ah, [keyboard_buffer + esi + 2]
-	mov	al, ah
-	and	al, 1
-	shl	eax, 16
-	.endif
-	mov	ax, [keyboard_buffer + esi]
-	add	esi, KB_BUF_KEYSIZE
-	cmp	esi, KB_BUF_SIZE
-	jl	1f
-	sub	esi, KB_BUF_SIZE
-1:	mov	[keyboard_buffer_ro], esi
-	.if KB_BUF_KEYSIZE < 3
-	ror	eax, 16
-	call	kb_get_mutators$
-	ror	eax, 16
-	.endif
+kb_remove$: # KB_LOCKED!
+	KB_BUF_GET
+	KB_BUF_REMOVE
+	KB_UNLOCK
+	or	ax, ax # ZF = 0
 	jmp	0b
 k_peek$:
-	mov	esi, [keyboard_buffer_ro]
-	cmp	esi, [keyboard_buffer_wo]
-	jz	0b
-	.if KB_BUF_KEYSIZE == 3
-	mov	ah, [keyboard_buffer + esi + 2]
-	mov	al, ah
-	and	al, 1
-	shl	eax, 16
-	.endif
-	mov	ax, [keyboard_buffer + esi]
-	.if KB_BUF_KEYSIZE < 3
-	ror	eax, 16
-	call	kb_get_mutators$
-	ror	eax, 16
-	.endif
-	or	ax, ax # ZF = 1
+	KB_LOCK
+	KB_BUF_AVAIL empty=1f
+	KB_BUF_GET
+	or	ax, ax # ZF = 0
+1:	KB_UNLOCK
 	jmp	0b
 k_poll$:
-	mov	esi, [keyboard_buffer_ro]
-	cmp	esi, [keyboard_buffer_wo]
-	jz	0b
-	jmp	k_remove$
+	KB_LOCK
+	KB_BUF_AVAIL avail=kb_remove$
+	KB_UNLOCK
+	jmp	0b
 k_getmutators$:
 	call	kb_get_mutators$
 	jmp	0b

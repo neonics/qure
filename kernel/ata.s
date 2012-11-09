@@ -800,7 +800,7 @@ read$:	call	print
 		stosw
 		cmp	al, ' '	# if current char is not space, update pos
 		je	1f
-		mov	[screen_pos], edi
+		SET_SCREENPOS edi
 	1:	loop	0b
 		PRINT_END ignorepos=1	# effectively trim space
 	.endm
@@ -1011,9 +1011,7 @@ ata_timeout$:
 	jmp	1f
 nodrive$:
 	LOAD_TXT "None"
-1:	PRINT_START 12
-	call	__println
-	PRINT_END
+1:	PRINTLNc 12
 	stc
 	jmp	done$
 

@@ -337,8 +337,9 @@ pit_isr:
 	xor	al, al		# read channel 0 (bits 6,7 = channel)
 	out	0x43, al	# PIT port
 
-	mov	dx, SEL_compatDS	# required for PRINT_START, PRINT
-	mov	ds, dx
+	mov	edx, SEL_compatDS	# required for PRINT_START, PRINT
+	mov	ds, edx
+	mov	es, edx
 
 	in	al, 0x40
 	mov	dl, al

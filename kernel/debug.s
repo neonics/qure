@@ -29,14 +29,12 @@
 
 
 .macro MORE
-.if 1
 	pushf
 	sti
 	push	eax
 	call	newline
-	call	newline
-	sub	[screen_pos], dword ptr 160
 	PUSH_SCREENPOS
+	#sub	[esp], dword ptr 160
 	PRINTc 0xf1, " --- More ---"
 0:	xor	ah, ah
 	call	keyboard
@@ -48,20 +46,6 @@
 	POP_SCREENPOS
 	pop	eax
 	popf
-.else
-	call	newline
-	PRINT_START 0xf1
-	LOAD_TXT " --- More --- "
-	call	__println
-	PRINT_END -1
-	xor	ah, ah
-	call	keyboard
-	PRINT_START
-	LOAD_TXT "              "
-	call	__print
-	PRINT_END -1
-
-.endif
 .endm
 
 

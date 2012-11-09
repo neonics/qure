@@ -396,6 +396,12 @@ jmp_table_target:
 	# reserved: 1
 	PRINTFLAGc_ dx, 1 << 0, 'C'	# carry
 
+	call	printspace
+	mov	edx, [scheduler_current_task_idx]
+	add	edx, [task_queue]
+	mov	edx, [edx + task_pid]
+	printc 7, "task "
+	call	printdec32
 	call	newline
 
 0:	COLOR 8
@@ -612,12 +618,10 @@ debug_print_stack$:
 		stack_print_lines$:.long 0
 		stack_print_pos$:.long 0
 	.text32
-	mov	edx, [screen_scroll_lines]
-	#DEBUG_DWORD edx, "ssl"
-	mov	[stack_print_lines$], edx
-	mov	edx, [screen_pos]
-	#DEBUG_DWORD edx, "sp,spp"
-	mov	[stack_print_pos$], edx
+	call	screen_get_scroll_lines
+	mov	[stack_print_lines$], eax
+	call	screen_get_pos
+	mov	[stack_print_pos$], eax
 
 	printc 11, " STACK: "
 	mov	dx, ss
@@ -676,10 +680,10 @@ debug_print_stack$:
 	pop	ebp
 
 	# calculate stack print screenpos
-	mov	edx, [screen_scroll_lines]
-	sub	edx, [stack_print_lines$]
-	mov	[stack_print_lines$], edx
-	mov	eax, 160
+	call	screen_get_scroll_lines
+	sub	eax, [stack_print_lines$]
+	mov	[stack_print_lines$], eax
+	mov	edx, 160
 	imul	eax, edx
 	mov	edx, [stack_print_pos$]
 	sub	edx, eax

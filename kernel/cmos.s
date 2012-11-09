@@ -51,7 +51,7 @@ cmos_list:
 	.endm
 
 
-0:	mov	edi, [screen_pos]
+0:	GET_SCREENPOS edi
 
 	# 0x0a: Read/Write
 	PRINTc	9, "Status A: "
@@ -196,10 +196,10 @@ cmos_list:
 	cmp	ax, K_ESC
 	je	0f
 
-	mov	ecx, [screen_pos]
+	GET_SCREENPOS ecx
 	sub	ecx, edi
 	shr	ecx, 1
-	mov	[screen_pos], edi
+	SET_SCREENPOS edi
 	PRINT_START -1
 	mov	ax, 0x0f00
 	rep	stosw

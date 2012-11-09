@@ -131,6 +131,9 @@ SHELL_COMMAND "top"		cmd_top
 SHELL_COMMAND "ps"		cmd_tasks
 SHELL_COMMAND "kill"		cmd_kill
 SHELL_COMMAND "shell"		cmd_shell
+.if VIRTUAL_CONSOLES
+SHELL_COMMAND "consoles"	cmd_consoles
+.endif
 .data
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -284,6 +287,7 @@ start1$:
 
 # in: ebx = shell_instance
 cursor_toggle$:
+	PUSH_SCREENPOS	# flush: save pos; updated to trigger flush
 	PRINT_START
 	mov	ecx, [ebx + cmdline_cursorpos]
 	add	ecx, [ebx + cmdline_prompt_len]
@@ -292,7 +296,9 @@ cursor_toggle$:
 	shl	al, 4
 	not	al
 	xor	es:[edi + ecx * 2 + 1], al # byte ptr 0xff
+	lea	edi, [edi + ecx * 2 + 2] # flush: update pos for flush if buf
 	PRINT_END
+	POP_SCREENPOS	# flush: restore pos
 	ret
 
 ##########################################################################
@@ -304,10 +310,12 @@ cursor_toggle$:
 key_enter$:	
 	call	cursor_toggle$
 		0:MUTEX_LOCK SCREEN 0b
+		PUSH_SCREENPOS
 		mov	eax, [ebx + cmdline_prompt_len]
 		add	eax, [ebx + cmdline_len]
 		add	eax, eax
-		add	[screen_pos], eax
+		add	[esp], eax
+		POP_SCREENPOS
 		MUTEX_UNLOCK SCREEN
 	call	newline
 
@@ -473,8 +481,10 @@ cmdline_print$:
 	push	ecx
 	push	ebx
 
-	PRINT_START
-	push	edi
+	PUSH_SCREENPOS
+	call	screen_get_scroll_lines
+	push	eax
+	PRINT_START_
 
 	# print the prompt
 
@@ -500,12 +510,34 @@ cmdline_print$:
 	mov	ah, 7
 	call	__printdec32
 
-	mov	al, '>'
-	stosw
+	.if VIRTUAL_CONSOLES
 	mov	al, ' '
 	stosw
+	movzx edx, byte ptr [console_cur]
+	call __printdec32
+	stosw
 
-	mov	ah, 7
+	mov	esi, [tls]
+	mov	esi, [esi + tls_console_cur_ptr]
+	mov	edx, [esi + console_pid]
+	LOAD_TXT "?"
+	mov eax, edx
+	push ebx
+	push ecx
+	call task_get_by_pid
+	jc 1f
+	mov esi, [ebx + ecx + task_label]
+	1:
+	mov ah, 9
+	pop ecx
+	pop ebx
+	call __print
+	.endif
+
+	mov	ax, 15<<8|'>'
+	stosw
+	mov	ax, 7<<8|' '
+	stosw
 
 	sub	ebx, edi
 	neg	ebx
@@ -537,13 +569,18 @@ cmdline_print$:
 	not	al
 	xor	es:[ebx + 1], al # byte ptr 0xff
 
-	pop	edi
-	PRINT_END
+	PRINT_END_
+	call	screen_get_scroll_lines
+	pop	ebx	# screen scroll lines
+	sub	eax, ebx
+	mov	ebx, 160
+	imul	eax, ebx
+	sub	[esp], eax
+	POP_SCREENPOS
 
 	pop	ebx
 	pop	ecx
 	pop	esi
-
 	ret
 
 .if CMDLINE_DEBUG
@@ -581,7 +618,7 @@ newline_if:
 	push	edx
 	push	ecx
 	xor	edx, edx
-	mov	eax, [screen_pos]
+	call	screen_get_pos
 	mov	ecx, 160
 	div	ecx
 	or	edx, edx
@@ -1151,7 +1188,7 @@ cmd_ls$:
 	pushcolor 8
 	mov	dl, [esi + fs_dirent_attr]
 	call	printhex2
-	popcolor 8
+	popcolor
 	call	printspace
 	LOAD_TXT "RHSVDA78", ebx
 	mov	ecx, 8
@@ -1831,9 +1868,8 @@ dbg_clk_0:	# debug label
 dbg_clk_1:	# debug label
 	jmp	0b
 
-0:	PUSH_SCREENPOS
+0:	PUSH_SCREENPOS ebx
 	pushcolor 0xa0
-	mov	[screen_pos], ebx # dword ptr 320
 	print "CLK "
 	push	edx
 	mov	edx, eax

@@ -455,7 +455,7 @@ disk_ptables_print$:
 	pop	ecx
 	pop	edx
 	pop	esi
-	POPCOLOR 7
+	POPCOLOR
 	ret
 
 

@@ -551,36 +551,34 @@ debugger_cmdline_pos$:		.long 0
 debugger:
 	PIC_GET_MASK
 	push	eax
-	push	dword ptr [mutex]
+	#push	dword ptr [mutex]
 	push	dword ptr [task_queue_sem]
 	push	edx
 	push	dword ptr 0	# local storage
 	push	esi	# orig stack offset
 	push	edi	# stack offset
 
-	mov	eax, [screen_scroll_lines]
+	call	screen_get_scroll_lines
 	mov	[debugger_stack_print_lines$], eax
 
 	# enabling timer allows keyboard job: page up etc.
 	#call	scheduler_suspend
 	#DEBUG_DWORD [mutex]
 
-	mov	dword ptr [mutex], MUTEX_SCHEDULER # 0#~MUTEX_SCREEN # -1
+	#mov	dword ptr [mutex], MUTEX_SCHEDULER # 0#~MUTEX_SCREEN # -1
 	mov	dword ptr [task_queue_sem], -1
 
 	PIC_SET_MASK ~(1<<IRQ_KEYBOARD)# | 1<<IRQ_TIMER)
 	sti	# for keyboard. Todo: mask other interrupts.
 
-#call cmd_tasks
-
 1:	printlnc_ 0xb8, "Debugger: h=help c=continue p=printregisters s=sched m=mode"
 
 0:	printcharc_ 0xb0, ' '	# force scroll
-	mov	eax, [screen_pos]
+	call	screen_get_pos
 	mov	[debugger_cmdline_pos$], eax
 
 4:	mov	eax, [debugger_cmdline_pos$]
-	mov	[screen_pos], eax
+	call	screen_set_pos
 
 	mov	al, [esp + 8]
 	and	al, 7
@@ -601,8 +599,10 @@ debugger:
 	call	keyboard
 
 	# use offset as symbols arent defined yet - gas bug
+	.if SCREEN_BUFFER
 	cmp	ax, offset K_PGUP
 	jz	66f
+	.endif
 	cmp	ax, offset K_UP
 	jz	56f
 	cmp	ax, offset K_DOWN
@@ -630,7 +630,7 @@ debugger:
 56:	sub	edi, 4
 62:	mov	esi, [esp + 4]
 		# calculate where stack is printed on screen
-		mov	eax, [screen_scroll_lines]
+		call	screen_get_scroll_lines
 		sub	eax, [debugger_stack_print_lines$]
 		add	[debugger_stack_print_lines$], eax
 		mov	edx, 160
@@ -639,7 +639,7 @@ debugger:
 		sub	edx, eax
 		jns	1f
 		call	debug_print_stack$
-		mov	eax, [screen_scroll_lines]
+		call	screen_get_scroll_lines
 		mov	[debugger_stack_print_lines$], eax
 		jmp	0b
 		1:
@@ -650,8 +650,10 @@ debugger:
 #		mov	[debugger_stack_print_lines$], eax
 	jmp	6b
 
+.if SCREEN_BUFFER
 66:	call	scroll	# doesn't flush last line
 	jmp	4b
+.endif
 
 55:	call	cmd_tasks
 	jmp	0b
@@ -671,7 +673,7 @@ debugger:
 	add	esp, 4	# local storage
 	pop	edx
 	pop	dword ptr [task_queue_sem]
-	pop	dword ptr [mutex]
+	#pop	dword ptr [mutex]
 	pop	eax
 	PIC_SET_MASK
 	ret

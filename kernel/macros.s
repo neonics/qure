@@ -32,6 +32,17 @@
 	.code32
 .endm
 
+
+_TLS_SIZE = 0
+.macro .tdata
+.struct _TLS_SIZE
+.endm
+
+.macro .tdata_end
+_TLS_SIZE = .
+.text32
+.endm
+
 .macro .previous
 	.if TEXTSUBSECTION == 0
 		.text16
