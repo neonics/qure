@@ -11,7 +11,7 @@
 .align 4
 mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 	MUTEX_SCHEDULER	= 1
-	MUTEX_SCREEN	= 2
+#	MUTEX_SCREEN	= 2
 	MUTEX_KB	= 4
 	MUTEX_NET	= 8
 	MUTEX_TCP_CONN	= 16
@@ -48,6 +48,24 @@ mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 .endm
 
 
+.macro MUTEX_SPINLOCK name, nolocklabel=0, locklabel=0, debug=0
+	push	ecx
+	mov	ecx, 1000
+101:	MUTEX_LOCK \name, locklabel=102f
+	hlt
+	loop	101b
+102:	pop	ecx
+	.ifnc 0,\locklabel
+	jnc	\locklabel
+	.endif
+	.if \debug
+	printc 5, "MUTEX_SPINLOCK \name: fail"
+	stc
+	.endif
+	.ifnc 0,\nolocklabel
+	jc	\nolocklabel
+	.endif
+.endm
 
 
 #####################################################################

@@ -309,14 +309,14 @@ cursor_toggle$:
 # Shell and History key handler
 key_enter$:	
 	call	cursor_toggle$
-		0:MUTEX_LOCK SCREEN 0b
+#		0:MUTEX_LOCK SCREEN 0b
 		PUSH_SCREENPOS
 		mov	eax, [ebx + cmdline_prompt_len]
 		add	eax, [ebx + cmdline_len]
 		add	eax, eax
 		add	[esp], eax
 		POP_SCREENPOS
-		MUTEX_UNLOCK SCREEN
+#		MUTEX_UNLOCK SCREEN
 	call	newline
 
 	call	cmdline_history_add

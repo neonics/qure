@@ -329,11 +329,8 @@ DECL_PROTO_STRUCT_END eth, ETHERNET
 proto_struct_idx2offs:
 	# multiply by the protocol structure size
 	push	eax
-	push	edx
 	mov	eax, PROTO_STRUCT_SIZE
-	mul	edi
-	mov	edi, eax
-	pop	edx
+	imul	edi, eax
 	pop	eax
 	ret
 
@@ -693,6 +690,7 @@ net_arp_handle:
 	mov	eax, [ebx + nic_ip]
 	call	net_print_ip
 	call	newline
+	call	net_arp_print
 	stc
 	jmp	0f
 3:
@@ -1766,7 +1764,7 @@ net_handle_packet:
 	push	esi
 	mov	ax, [esi + eth_type]
 	call	net_eth_protocol_get_handler$	# out: edi
-	jc	1f
+	jc	2f
 	# non-promiscuous mode: check target mac
 	cmp	[esi + eth_dst], dword ptr -1
 	jnz	2f
@@ -1781,6 +1779,7 @@ net_handle_packet:
 0:	mov	edx, [eth_proto_struct$ + proto_struct_handler + edi]
 	or	edx, edx
 	jz	1f
+
 	add	edx, [realsegflat]
 	add	esi, ETH_HEADER_SIZE
 	sub	ecx, ETH_HEADER_SIZE
@@ -1792,6 +1791,13 @@ net_handle_packet:
 	mov	ebx, eax	# restore receiving nic
 	jmp	0b		# go ahead anyway
 ###
+2:	printc 4, "net_handle_packet: dropped packet: unknown protocol: "
+	jmp	2f
+	mov	dx, [esi + eth_type]
+	call	printhex4
+	stc
+	ret
+
 1:	printc 4, "net_handle_packet: dropped packet: "
 	pushcolor 4
 	cmp	ebx, -1
@@ -1804,7 +1810,7 @@ net_handle_packet:
 	call	printspace
 	jmp	2f
 1:	print	"unknown "
-2:	mov	dx, ax
+2:	mov	dx, [esi + eth_type]
 	call	printhex4
 	call	newline
 	call	net_print_protocol
@@ -2010,7 +2016,9 @@ net_ipv4_tcp_print:
 ############################################
 # TCP Connection management
 #
+TCP_CONN_REUSE_TIMEOUT	= 30 * 1000	# 30 seconds
 .struct 0
+tcp_conn_timestamp:	.long 0	# [clock_ms]
 tcp_conn_local_addr:	.long 0
 tcp_conn_remote_addr:	.long 0	# ipv4 addr
 tcp_conn_local_port:	.word 0
@@ -2115,26 +2123,37 @@ net_tcp_conn_newentry:
 
 	mov	ecx, edx	# ip frame
 	.if NET_TCP_CONN_DEBUG > 1
-		DEBUG "(NewConn)"
+		DEBUG "(tcp NewConn)"
 	.endif
+
+	push	edi
+	mov	edi, [clock_ms]
+	sub	edi, TCP_CONN_REUSE_TIMEOUT
 
 	# find free entry (use status flag)
 	ARRAY_LOOP	[tcp_connections], TCP_CONN_STRUCT_SIZE, eax, edx, 9f
 	cmp	byte ptr [eax + edx + tcp_conn_state], -1
 	jz	1f
-	ARRAY_ENDL
+	cmp	byte ptr [eax + edx + tcp_conn_state], 0b01111111
+	jnz	2f
+	cmp	edi, [eax + edx + tcp_conn_timestamp]
+	jnb	1f
+2:	ARRAY_ENDL
 9:
 	push	ecx
 	ARRAY_NEWENTRY [tcp_connections], TCP_CONN_STRUCT_SIZE, 4, 9f
 	jmp	2f
 9:	pop	ecx
+
+	pop	edi
 	pop	edx
 	pop	ecx
 	ret
 
 2:	pop	ecx
 
-1:	push	edx	# retval eax
+1:	pop	edi
+	push	edx	# retval eax
 
 0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
 	mov	eax, [tcp_connections]
@@ -2205,6 +2224,10 @@ net_tcp_conn_update:
 	push	ebx
 
 	add	eax, [tcp_connections]
+
+	mov	ebx, [clock_ms]
+	mov	[eax + tcp_conn_timestamp], ebx
+
 	mov	ebx, [esi + tcp_seq]
 	bswap	ebx
 	mov	[eax + tcp_conn_remote_seq], ebx
@@ -2273,8 +2296,13 @@ net_tcp_conn_list:
 	call	tcp_conn_print_state$
 	pop	esi
 
+	print	" last comm: "
+	mov	edx, [clock_ms]
+	sub	edx, [esi + ebx + tcp_conn_timestamp]
+	call	printdec32
+	print	" ms ago"
+
 	call	newline
-	call	printspace
 	call	printspace
 
 	printc 13, "local"
@@ -2297,7 +2325,7 @@ net_tcp_conn_list:
 	mov	edx, [esi + ebx + tcp_conn_handler]
 	call	printhex8
 
-	call	newline
+	#call	newline	# already at eol
 
 	ARRAY_ENDL
 9:
@@ -2599,7 +2627,7 @@ net_tcp_conn_send_ack:
 net_tcp_service_get:
 	.data
 	tcp_service_ports: .word 80
-	TCP_NUMSERVICES = (tcp_service_ports - .)/2
+	TCP_NUMSERVICES = (. - tcp_service_ports)/2
 	tcp_service_handlers: .long net_service_tcp_http
 	.text32
 	push	eax
@@ -2614,10 +2642,7 @@ net_tcp_service_get:
 	stc
 	jnz	9f
 	sub	edi, offset tcp_service_ports + 2
-DEBUG "net_tcp_service_get";
-DEBUG_DWORD edi,"index"
 	mov	edi, [tcp_service_handlers + edi * 4]
-DEBUG_DWORD edi,"handler"
 	clc
 9:	ret
 
@@ -4829,7 +4854,9 @@ net_ipv6_print:
 
 ##############################################################################
 
-NET_RX_QUEUE = 0
+NET_RX_QUEUE = 1
+NET_RX_QUEUE_ITER_RESCHEDULE = 0	# 0=task loop, 1=task reschedule
+NET_RX_QUEUE_DEBUG = 0
 
 .if NET_RX_QUEUE == 0
 
@@ -4877,7 +4904,7 @@ net_rx_queue_newentry:
 # in: ecx = packet len
 net_rx_packet:
 	pushad
-0:	MUTEX_LOCK NET, 0b
+0:	MUTEX_SPINLOCK NET, nolocklabel=0b
 	call	net_rx_queue_newentry	# out: eax + edx
 	jnc	1f
 	MUTEX_UNLOCK NET
@@ -4888,6 +4915,8 @@ net_rx_packet:
 	mov	esi, esp
 	mov	ecx, 8
 	rep	movsd
+	mov	[edi-4], eax
+	mov	[edi-12], edx
 	popad
 	MUTEX_UNLOCK NET
 
@@ -4901,7 +4930,9 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 	xchg	eax, [esp]
 	call	schedule_task
 	setc	al
-	DEBUG_BYTE al
+	.if NET_RX_QUEUE_DEBUG
+		DEBUG_BYTE al
+	.endif
 
 # have queue
 #	jc	9f	# lock fail, already scheduled, ...
@@ -4911,7 +4942,7 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 
 
 net_rx_queue_handler:
-0:	MUTEX_LOCK NET, 0b
+0:	MUTEX_SPINLOCK NET, nolocklabel=0b
 	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
 	cmp	[eax + edx + net_rx_queue_status], dword ptr 1
 	jz	1f
@@ -4928,33 +4959,25 @@ net_rx_queue_handler:
 
 	mov	eax, [net_rx_queue]
 	mov	[eax + edx + net_rx_queue_status], dword ptr 0
-
 	MUTEX_UNLOCK NET
-DEBUG "rx"
-	call	net_rx_packet_task
-DEBUG "done"
-DEBUG_DWORD [mutex]
 
+	call	net_rx_packet_task
+
+.if NET_RX_QUEUE_ITER_RESCHEDULE
 	# check if the queue is empty, if not, schedule job again
-0:	MUTEX_LOCK NET, 0b
-DEBUG "locked"
-DEBUG_DWORD [mutex]
+0:	MUTEX_SPINLOCK NET, nolocklabel=0b
 	xor	ecx, ecx
 	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
 	add	ecx, [eax + edx + net_rx_queue_status]
 	ARRAY_ENDL
-9:
-DEBUG_DWORD [net_rx_queue]
-DEBUG_DWORD eax
-DEBUG_DWORD [eax + array_index]
-DEBUG_DWORD ecx
-	MUTEX_UNLOCK NET
-	DEBUG "unlocked"
+9:	MUTEX_UNLOCK NET
+
 	jecxz	9f
-	DEBUG "net again"; call newline
 	jmp	net_rx_queue_schedule
-#	jmp	net_rx_queue_handler
-9:	DEBUG "net done"; call newline
+9:
+.else
+	jmp	net_rx_queue_handler
+.endif
 	ret
 
 
@@ -4964,26 +4987,10 @@ net_rx_queue_print:
 	xor	ecx, ecx
 	xor	ebx, ebx
 	# count packets
-0:	MUTEX_LOCK NET, 0b
-
-	.if 0
-		DEBUG_WORD ds
-		DEBUG_DWORD [net_rx_queue]
-		mov	eax, [net_rx_queue]
-		or	eax, eax
-		jz	1f
-		DEBUG_DWORD [eax + array_index]
-	1:	call	newline
-	.endif
-
+0:	MUTEX_SPINLOCK NET, nolocklabel=0b
 	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
-		DEBUG_DWORD eax
-		DEBUG_DWORD edx
-		DEBUG_DWORD [eax + edx + net_rx_queue_status], "st"
-		call newline
 	add	ecx, [eax + edx + net_rx_queue_status]	# 1 indicates pkt in q
 	inc	ebx
-
 	ARRAY_ENDL
 9:	MUTEX_UNLOCK NET
 
@@ -4994,7 +5001,7 @@ net_rx_queue_print:
 	call	printdec32
 	printlnc 11, " packets"
 
-
+	ret
 .endif
 
 # in: ebx = nic
