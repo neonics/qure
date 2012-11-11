@@ -36,13 +36,13 @@ shell_command_code: .long 0
 shell_command_string: .long 0
 shell_command_length: .word 0
 SHELL_COMMAND_STRUCT_SIZE = .
-.data
+.data SECTION_DATA_SHELL_CMDS
 
 .macro SHELL_COMMAND string, addr
 	.data SECTION_DATA_STRINGS
 		9: .asciz "\string"
 		8:
-	.data
+	.data SECTION_DATA_SHELL_CMDS
 		.long \addr
 		.long 9b
 		.word 8b - 9b
@@ -134,7 +134,10 @@ SHELL_COMMAND "shell"		cmd_shell
 .if VIRTUAL_CONSOLES
 SHELL_COMMAND "consoles"	cmd_consoles
 .endif
-.data
+# Debugger:
+SHELL_COMMAND "sline",		cmd_sline
+SHELL_COMMAND "sym",		cmd_sym
+.data SECTION_DATA_SHELL_CMDS
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
 ############################################################################
@@ -1895,4 +1898,47 @@ dbg_clk_1:	# debug label
 cmd_shell:
 	call	shell
 	printlnc 11, "returned from nested shell."
+	ret
+
+# Debugger commands:
+cmd_sline:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	9f
+	call	htoi
+	jc	9f
+	mov	edx, eax
+	call	printhex8
+	call	printspace
+
+	call	debug_getsource
+	jc	1f
+	call	print
+	mov	edx, eax
+	printchar_ ':'
+	call	printdec32
+	call	newline
+	ret
+
+1:	printlnc 12, "no source line found"
+	ret
+
+9:	printlnc 4, "usage: sline hex_address"
+	ret
+
+cmd_sym:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	9f
+	call	htoi
+	jc	9f
+	mov	edx, eax
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+	call	newline
+	ret
+9:	printlnc 4, "usage: sym hex_address"
 	ret

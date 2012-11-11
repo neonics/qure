@@ -613,6 +613,7 @@ debug_print_exception_registers$:
 
 # in: edi = stack pointer
 # in: esi = original stack pointer (points to eip,cs,eflags)
+# destroys: eax, edx
 debug_print_stack$:
 	.data SECTION_DATA_BSS
 		stack_print_lines$:.long 0
@@ -650,6 +651,7 @@ debug_print_stack$:
 	call	printspace
 
 	# check if stack address points to eip,cs or eflags
+	push	edx
 	push	esi
 	mov	eax, esi
 	mov	dl, 1
@@ -667,6 +669,7 @@ debug_print_stack$:
 	call	printc
 	dec	dl
 2:	pop	esi
+	pop	edx
 	jnz	1f	# don't print symbol for cs, eflags
 
 	call	debug_printsymbol

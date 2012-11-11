@@ -1279,8 +1279,11 @@ sched_print_graph:
 #
 TASK_PRINT_DEAD_JOBS	= 1	# completed tasks/jobs are printed
 TASK_PRINT_RAW_FLAGS	= 0
+TASK_PRINT_2		= 0	# PARENT|EFLAGS, TLS|REGISTRAR
 TASK_PRINT_PARENT	= SCHEDULE_JOBS
 TASK_PRINT_TLS		= 1
+
+TASK_PRINT_SOURCE_LINE	= 1
 TASK_PRINT_BG_COLOR = 0x10
 
 schedule_print:
@@ -1353,12 +1356,6 @@ cmd_tasks:
 	mov	eax, [task_queue]
 	mov	ebx, [scheduler_current_task_idx]
 	call	task_print$
-	DEBUG_DWORD eax
-	DEBUG_DWORD ebx
-	push edx
-	lea edx, [eax + ebx + task_flags]
-	DEBUG_DWORD edx
-	pop edx
 	call	newline
 
 	xor	ecx, ecx # index counter, saves dividing ebx by SCHED_STR_SIZE
@@ -1396,9 +1393,13 @@ task_print_h$:
 .data SECTION_DATA_STRINGS	# a little kludge to keep the string from wrappi
 200:
 .ascii " idx pid. addr.... stack... flags... "
+.if TASK_PRINT_2
 .if TASK_PRINT_TLS;	.ascii "tls..... "; .else; .ascii "registrr "; .endif
 .if TASK_PRINT_PARENT;	.ascii "parent.. "; .else; .ascii "eflags.. "; .endif
 .asciz "label, symbol"
+.else
+.asciz "label... symbol"
+.endif
 .text32
 	mov	ah, TASK_PRINT_BG_COLOR | 11
 	mov	esi, offset 200b
@@ -1432,6 +1433,8 @@ task_print$:
 	call	printspace
 	mov	edx, [eax + ebx + task_flags]
 	.if TASK_PRINT_RAW_FLAGS
+	call	printhex8
+	.else
 	cmp	edx, -1
 	jnz	1f
 	print "........"
@@ -1444,10 +1447,9 @@ task_print$:
 	PRINTFLAG edx, TASK_FLAG_RESCHEDULE,	"r", " "
 	PRINTFLAG edx, TASK_FLAG_TASK,		" T", "J "
 2:
-	.else
-	call	printhex8
 	.endif
 	call	printspace
+.if TASK_PRINT_2
 	.if TASK_PRINT_TLS
 	mov	edx, [eax + ebx + task_tls]
 	.else
@@ -1477,15 +1479,44 @@ task_print$:
 		call	printhex8
 	.endif
 	call	printspace
+.endif
 	mov	esi, [eax + ebx + task_label]
 	call	print
 	call	printspace
 	# print address symbols: calculate space
 	call	strlen_
 	neg	ecx
+.if TASK_PRINT_2
 	add	ecx, 17+7-1	# space + label
+.else
+	add	ecx, 8
+	jle	1f
+0:	call	printspace
+	loop	0b
+1:	add	ecx, 80-37-8
+.endif
 
 	mov	edx, [eax + ebx + task_regs + task_reg_eip]
+
+	.if TASK_PRINT_SOURCE_LINE
+	call	debug_getsource
+	jc	1f
+	pushcolor TASK_PRINT_BG_COLOR | 14
+	PUSHCOLOR TASK_PRINT_BG_COLOR | 9
+	call	nprint
+	push	edx
+	mov	edx, eax
+	printchar_ ':'
+	call	printdec32
+	pop	edx
+	POPCOLOR
+	call	printspace
+#	call	newline
+#	jmp	9f
+	popcolor
+1:
+	.endif
+
 	call	debug_getsymbol
 	jc	1f
 	pushcolor TASK_PRINT_BG_COLOR | 14
@@ -1502,11 +1533,11 @@ task_print$:
 	mov	edx, ecx
 	call	strlen_
 	sub	edx, ecx
-	cmp	edx, 3+4
+	cmp	edx, 1+4
 	pop	edx
 	jb	2f
-	print_ " + "
 	sub	edx, eax
+	printchar_ '+'
 	call	printhex4	# meaningful relative offsets are usually < 64k
 2:	popcolor
 1:	call	newline
