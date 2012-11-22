@@ -600,8 +600,11 @@ debugger:
 
 	# use offset as symbols arent defined yet - gas bug
 	.if SCREEN_BUFFER
+	cmp	[scrolling$], byte ptr 0
+	jnz	66f
 	cmp	ax, offset K_PGUP
 	jz	66f
+7:	# continue checking keys if not scroll key
 	.endif
 	cmp	ax, offset K_UP
 	jz	56f
@@ -652,6 +655,7 @@ debugger:
 
 .if SCREEN_BUFFER
 66:	call	scroll	# doesn't flush last line
+	jc	7b	# key not handled (not scroll key)
 	jmp	4b
 .endif
 

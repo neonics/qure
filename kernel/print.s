@@ -56,27 +56,6 @@ SCREEN_BUFFER	= 1
 .endif
 .endif
 
-##############################################
-
-.macro GET_INDEX name, values:vararg
-	_INDEX=-1
-	_I=0
-
-	.irp r,\values
-		.ifc \r,\name
-		_INDEX=_I
-		.exitm
-		.endif
-		_I=_I+1
-	.endr
-.endm
-
-.macro IS_REG8 var, val
-	GET_INDEX \val, al,ah,bl,bh,cl,ch,dl,dh
-	\var=_INDEX >=0
-.endm
-
-
 ################# Colors ###############
 
 .macro COLOR c
@@ -495,10 +474,8 @@ COLOR_STACK_SIZE = 2
 
 .macro PRINT msg=esi
 	.ifnc esi,\msg
-	push	esi
-	LOAD_TXT "\msg"
-	call	print_
-	pop	esi
+	PUSH_TXT "\msg"
+	call	_s_print
 	.else
 	call	print_
 	.endif
@@ -1082,6 +1059,21 @@ _s_printlnc:
 	pop	eax
 	pop	esi
 	ret	4 + COLOR_STACK_SIZE
+
+_s_print:
+	push	eax
+	push	esi
+.if VIRTUAL_CONSOLES
+	call	console_get
+	mov	ah, [eax + console_screen_color]
+.else
+	mov	ah, [screen_color]
+.endif
+	mov	esi, [esp + 12]
+	call	print
+	pop	esi
+	pop	eax
+	ret	4
 
 # in: [esp + COLOR_STACK_SIZE] = offset
 # in: [esp] = color (word)

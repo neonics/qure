@@ -112,7 +112,7 @@ GDT_tss:	DEFGDT 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 GDT_vid_txt:	DEFGDT 0xb8000, 0x00ffff, ACCESS_DATA, FLAGS_16
 GDT_vid_gfx:	DEFGDT 0xa0000, 0x00ffff, ACCESS_DATA, FLAGS_16
 
-GDT_compatCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, FLAGS_32 #ffff 0000 00 9a 00 00
+GDT_compatCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, (FL_32|FL_GR1b) #FLAGS_TSS #ffff 0000 00 9a 00 00
 GDT_compatSS:	DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 9a 00 00
 GDT_compatDS:	DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 9a 00 00
 
@@ -124,6 +124,9 @@ GDT_realmodeFS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 GDT_realmodeGS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 
 GDT_biosCS:	DEFGDT 0xf0000, 0x00ffff, ACCESS_CODE, FLAGS_16 #ffff 0000 00 92 00 00
+
+GDT_taskCS:	DEFGDT 0, 0x000000, ACCESS_CODE, FLAGS_32
+GDT_taskDS:	DEFGDT 0, 0x000000, ACCESS_DATA, FLAGS_32
 
 pm_gdtr:.word . - GDT -1
 	.long GDT
@@ -152,94 +155,10 @@ rm_gdtr:.word 0
 .equ SEL_realmodeFS, 	8 * 13	# 68
 .equ SEL_realmodeGS, 	8 * 14	# 70
 .equ SEL_biosCS,	8 * 15	# 78 # origin F000:0000
-.equ SEL_MAX, SEL_biosCS + 0b11	# ring level 3
+.equ SEL_taskCS,	8 * 16	# 80
+.equ SEL_taskDS,	8 * 17	# 88
+.equ SEL_MAX, SEL_taskDS + 0b11	# ring level 3
 
-
-
-.macro R8H r
-	.if \r == eax
-		_R8H = ah
-	.endif
-	.if \r == ebx
-		_R8H = bh
-	.endif
-	.if \r == ecx
-		_R8H = ch
-	.endif
-	.if \r == edx
-		_R8H = dh
-	.endif
-.endm
-
-.macro R8L r
-	.if \r == eax
-		_R8L = al
-	.endif
-	.if \r == ebx
-		_R8L = bl
-	.endif
-	.if \r == ecx
-		_R8L = cl
-	.endif
-	.if \r == edx
-		_R8L = dl
-	.endif
-.endm
-
-.macro R16 r
-	.if \r == eax
-		_R16 = ax
-	.endif
-	.if \r == ebx
-		_R16 = bx
-	.endif
-	.if \r == ecx
-		_R16 = cx
-	.endif
-	.if \r == edx
-		_R16 = dx
-	.endif
-.endm
-
-.macro REG_IS_SEGMENT flag, sel
-	\flag=0
-	.ifc cs,\sel
-		\flag=1
-	.endif
-	.ifc ds,\sel
-		\flag=1
-	.endif
-	.ifc es,\sel
-		\flag=1
-	.endif
-	.ifc ss,\sel
-		\flag=1
-	.endif
-	.ifc fs,\sel
-		\flag=1
-	.endif
-	.ifc gs,\sel
-		\flag=1
-	.endif
-.endm
-
-
-# assigns to var a register that is not r1 or r2, from eax, ebx, ecx.
-.macro REG_GET_FREE var, r1, r2
-	.if eax==\r1
-		.if ebx==\r2
-			\var = ecx
-		.else
-			\var = ebx
-		.endif
-	.elseif eax==\r2
-		.if ebx==\r1
-			\var = ecx
-		.else
-			\var = ebx
-		.endif
-	.endif
-.endm
 
 .macro GDT_STORE_SEG seg
 	mov	[\seg + 2], ax
@@ -247,6 +166,7 @@ rm_gdtr:.word 0
 	mov	[\seg + 4], al
 	# ignore ah as realmode addresses are 20 bits
 .endm
+
 
 .macro GDT_STORE_LIMIT GDT
 	mov	[\GDT + 0], ax
@@ -256,6 +176,37 @@ rm_gdtr:.word 0
 	or	al, ah
 	mov	[\GDT + 6], al
 	# ignore ah as realmode addresses are 20 bits
+.endm
+
+.macro GDT_GET_FLAGS target, sel
+.print "GET_FLAGS"
+	IS_REG8 _, \target
+	.if !_
+	.error "\target must be 8 bit register"
+	.endif
+
+	IS_SEGREG _, \sel
+	.if _
+	.print "\sel is segment register"
+	GET_REG32 _R32, \target
+xor	_R32, _R32
+xor \target,\target
+	.if eax==_R32
+	_R = ebx
+	.else
+	_R = eax
+	.endif
+	push	_R
+	mov	_R, \sel
+	mov	\target, byte ptr [GDT + _R + 6]
+	shr	\target, 4
+	pop	_R
+	.else
+	.print "\sel is NOT segment reg"
+	mov	\target, byte ptr [GDT + \sel + 6]
+	shr	\target, 4
+	.endif
+.print "GET FLAGS done"
 .endm
 
 .macro GDT_GET_BASE target, sel
@@ -273,12 +224,64 @@ rm_gdtr:.word 0
 	pop	esi
 .endm
 
+.macro GDT_SET_BASE sel, reg
+	R16 \reg
+	R8L \reg
+	R8H \reg
+	mov	[GDT + \sel + 2], _R16
+	ror	\reg, 16
+	mov	[GDT + \sel + 4], _R8L
+	mov	[GDT + \sel + 7], _R8H
+	ror	\reg, 16
+.endm
+
+.macro GDT_SET_LIMIT sel, reg
+	IS_REG32 _, \reg
+DEBUG_BYTE [GDT+\sel+6]
+	and	byte ptr [GDT + \sel + 6], ((~(FL_GR4kb<<4)) & 0xf0)
+DEBUG_BYTE [GDT+\sel+6]
+
+	.if _
+	R16 \reg
+	R8H \reg
+	R8L \reg
+	push	\reg
+	test	\reg, 0xfff00000
+	jz	100f
+	add	\reg, 4095
+	shr	\reg, 12
+	mov	[GDT + \sel + 0], _R16
+	shr	\reg, 16
+	or	_R8L, FL_GR4kb
+	or	[GDT + \sel + 6], _R8L
+	jmp	101f
+
+100:	mov	[GDT + \sel + 0], _R16
+	shr	\reg, 16
+	or	[GDT + \sel + 6], _R8L
+101:	pop	\reg
+
+	.else
+
+	.if \reg > 0x000fffff
+	_TMP = (\reg + 4095) >> 12
+	mov	[GDT + \sel + 0], word ptr (_TMP & 0xffff)
+#	or	[GDT + \sel + 6], byte ptr ((_TMP >> 16) & 0x0f)|(FL_GR4kb<<4)
+	.else
+	.print "FOO \sel \reg"
+	mov	[GDT + \sel + 0], word ptr \reg & 0xffff
+	or	[GDT + \sel + 6], byte ptr (\reg >> 16) & 0x0f
+	.print "BAR"
+	.endif
+
+	.endif
+.endm
 
 .macro GDT_GET_LIMIT target, sel
 	.if 0
 		# The lsl instruction does not work for segment registers
-		REG_IS_SEGMENT _TMP_SEL_X, \sel
-		.if _TMP_SEL_X
+		IS_SEGREG _, \sel
+		.if _
 			REG_GET_FREE _TMP_REG, \target, \sel
 
 			push	_TMP_REG
@@ -386,8 +389,9 @@ init_gdt_16:
 	GDT_STORE_SEG GDT_compatCS
 
 	# find len
-	mov	eax, (offset kernel_code_end - offset kernel_code_start+4095)>> 12
-	mov eax, 0xffff
+	mov	eax, kernel_code_end - kernel_code_start
+	#mov	eax, (offset kernel_code_end - offset kernel_code_start + 4095)>> 12
+	#mov eax, 0xffff
 	GDT_STORE_LIMIT GDT_compatCS
 
 	xor	eax, eax
@@ -463,9 +467,15 @@ init_gdt_16:
 		call	printhex8_16
 	.endif
 
-	# align with ss for easier debugging
-	add	edx, KERNEL_MIN_STACK_SIZE * 2 -1
-	and	edx, ~(KERNEL_MIN_STACK_SIZE - 1)
+	# align the stack top with 4kb physical page:
+	add	edx, [database]
+	add	edx, KERNEL_MIN_STACK_SIZE + 4095
+	and	edx, ~4095
+	.if DEBUG
+		print_16 "stack top physical: "
+		call printhex8_16
+	.endif
+	sub	edx, [database]
 	mov	[kernel_stack_top], edx
 
 	.if DEBUG

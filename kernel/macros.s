@@ -67,6 +67,130 @@ _TLS_SIZE = .
 .endm
 
 ##############################################################################
+# Register macros
+
+.macro GET_INDEX name, values:vararg
+	_INDEX=-1
+	_I=0
+
+	.irp r,\values
+		.ifc \r,\name
+		_INDEX=_I
+		.exitm
+		.endif
+		_I=_I+1
+	.endr
+.endm
+
+.macro R8H r
+	.if \r == eax
+		_R8H = ah
+	.endif
+	.if \r == ebx
+		_R8H = bh
+	.endif
+	.if \r == ecx
+		_R8H = ch
+	.endif
+	.if \r == edx
+		_R8H = dh
+	.endif
+.endm
+
+.macro R8L r
+	.if \r == eax
+		_R8L = al
+	.endif
+	.if \r == ebx
+		_R8L = bl
+	.endif
+	.if \r == ecx
+		_R8L = cl
+	.endif
+	.if \r == edx
+		_R8L = dl
+	.endif
+.endm
+
+.macro R16 r
+	.if \r == eax
+		_R16 = ax
+	.endif
+	.if \r == ebx
+		_R16 = bx
+	.endif
+	.if \r == ecx
+		_R16 = cx
+	.endif
+	.if \r == edx
+		_R16 = dx
+	.endif
+.endm
+
+
+# assigns to var a register that is not r1 or r2, from eax, ebx, ecx.
+.macro REG_GET_FREE var, r1, r2
+	.if eax==\r1
+		.if ebx==\r2
+			\var = ecx
+		.else
+			\var = ebx
+		.endif
+	.elseif eax==\r2
+		.if ebx==\r1
+			\var = ecx
+		.else
+			\var = ebx
+		.endif
+	.endif
+.endm
+
+.macro IS_REG8 var, val
+	GET_INDEX \val, al,ah,bl,bh,cl,ch,dl,dh
+	\var = _INDEX >= 0
+.endm
+
+.macro IS_SEGREG var, val
+	GET_INDEX \val, cs,ds,es,ss,fs,gs
+	\var = _INDEX >= 0
+.endm
+
+.macro IS_REG32 var, val
+	GET_INDEX \val, eax,ebx,ecx,edx,esi,edi,ebp,esp,cs,ds,es,fs,gs,ss
+	\var = _INDEX >= 0
+.endm
+
+# gets the 32 bit register name for the 8 or 16 bit 'val' name
+.macro GET_REG32 var, val
+	GET_INDEX \val, al,ah,bl,bh,cl,ch,dl,dh
+	.if _INDEX >=0
+		_INDEX = _INDEX / 2
+	.else
+	GET_INDEX \val, ax,bx,cx,dx,si,di,bp,sp
+	.endif
+
+	.if _INDEX >= 0
+	_COUNT = 0
+.print "looping regs for \val"
+	.irp \var, eax,ebx,ecx,edx,esi,edi,ebp,esp
+		.if _COUNT == _INDEX
+.print "Match \var, \val"
+		.exitm 3 # doesn't exit the entire macro, only .irp
+		.endif
+		_COUNT = _COUNT + 1
+.print "next"
+	.endr
+.print "loop done"
+	.endif
+
+	# ... hence this check:
+	.if _COUNT != _INDEX
+	.error "\val: must be reg8 or reg16 and not segment register"
+	.endif
+.endm
+
+
+##############################################################################
 # opcodes
 
 INTEL_ARCHITECTURE = 6	# 386 (32 bit)
