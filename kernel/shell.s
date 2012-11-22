@@ -137,6 +137,8 @@ SHELL_COMMAND "consoles"	cmd_consoles
 # Debugger:
 SHELL_COMMAND "sline",		cmd_sline
 SHELL_COMMAND "sym",		cmd_sym
+SHELL_COMMAND "cr",		cmd_cr
+SHELL_COMMAND "paging"		paging_show_usage
 .data SECTION_DATA_SHELL_CMDS
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -1520,8 +1522,8 @@ cmd_netdump:
 .endm
 
 cmd_print_gdt:
-
 	.macro PRINT_GDT seg
+
 		printc	11, "\seg: "
 		mov	edx, \seg
 		call	printhex8
@@ -1531,9 +1533,11 @@ cmd_print_gdt:
 		GDT_GET_LIMIT edx, \seg
 		printc	15, " limit "
 		call	printhex8
+		printc 15, " flags "
+		GDT_GET_FLAGS dl, \seg
+		call	printhex2
 		call	newline
 	.endm
-
 	PRINT_GDT cs
 	PRINT_GDT ds
 	PRINT_GDT es
@@ -1730,7 +1734,9 @@ cmd_ramdisk:
 
 cmd_exe:
 	#LOAD_TXT "/c/A.EXE", eax
-	LOAD_TXT "/c/A.ELF", eax
+	LOAD_TXT "/a/A.ELF", eax
+	mov	bl, [boot_drive]
+	add	[eax + 1], bl
 	call	fs_openfile
 	jc	9f
 	call	fs_handle_read
@@ -1941,4 +1947,32 @@ cmd_sym:
 	call	newline
 	ret
 9:	printlnc 4, "usage: sym hex_address"
+	ret
+
+cmd_cr:
+	printc 11, "cr0: "
+	mov	edx, cr0
+	call	printhex8
+	call	newline
+
+	# cr1 N/A
+
+	printc 11, "cr2: "
+	mov	edx, cr2
+	call	printhex8
+	call	newline
+
+	printc 11, "cr3: "
+	mov	edx, cr3
+	call	printhex8
+	call	newline
+
+	printc 11, "cr4: "
+	mov	edx, cr4
+	call	printhex8
+	call	newline
+
+	# cr5, cr6, cr7 N/A
+
+	# cr8 and further wrap to 0 etc
 	ret

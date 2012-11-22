@@ -424,6 +424,7 @@ HANDLE_STRUCT_SIZE = 32
 
 ALLOC_HANDLES = 32 # 1024
 .data
+mem_phys_total:	.long 0, 0	# total physical memory size
 mem_handles: .long 0
 mem_numhandles: .long 0
 mem_maxhandles: .long 0
@@ -461,11 +462,22 @@ mem_init:
 	jz	0f
 	
 	mov	edx, [esi + 4 ] #memory_map_base + 4 ]
+mov eax, edx
 	call	printhex8
 	mov	edx, [esi + 0 ] #memory_map_base + 0 ]
 	call	printhex8
 	PRINT	" | "
-
+# compare start addresses:
+cmp	eax, [mem_phys_total + 4]
+jb	1f
+cmp	edx, [mem_phys_total + 0]
+jb	1f
+# entry has highest memory start address. Add size:
+add	edx, [esi + 8]
+adc	eax, [esi + 12]
+mov	[mem_phys_total + 4], eax
+mov	[mem_phys_total + 0], edx
+1:
 	mov	edx, [esi + 12 ] #memory_map_length + 4 ]
 	mov	eax, edx
 	call	printhex8
@@ -492,7 +504,11 @@ mem_init:
 	add	esi, 24 # memory_map_struct_size
 	jmp	0b
 0:
-
+	print "Total physical memory: "
+	mov	edx, [mem_phys_total + 4]
+	mov	eax, [mem_phys_total + 0]
+	call	print_size
+	call	newline
 
 	print "Max: address: "
 	mov	edx, [edi+4]
@@ -2677,6 +2693,17 @@ cmd_mem$:
 	call	cmd_mem_print_addr_range$
 	call	newline
 
+	xor	edx, edx
+	printc 15, " Paging tables: "
+	mov	eax, [page_tables_phys_end]
+	sub	eax, [page_directory_phys]
+	call	print_size
+	mov	ecx, ds
+	mov	eax, [page_directory_phys]
+	mov	edx, [page_tables_phys_end]
+	call	cmd_mem_print_addr_range$
+	call	newline
+
 ######## print handles
 1:	test	dword ptr [ebp], CMD_MEM_OPT_HANDLES
 	jz	1f
@@ -2691,11 +2718,15 @@ cmd_mem$:
 	.text32
 	# in: (besides arguments): ecx = end address of last section/memory range,
 	#   to be compared with the start of this one, for misalignment/overlap error detection.
+	# in: st = start address
+	# in: nd = end address
+	# in: sz = size (instead of nd)
+	# in: fl = 1 = st/nd = flat addresses, 0=ds/kernel relative
 	# out: ecx updated
 	# out: (side-effect) ebx = start
 	# out: (side-effect) edi = end (same as ecx)
 	# destroys: eax, edx. (eax=range size, edx=0)
-	.macro PRINT_MEMRANGE label, st=0, nd=0, sz=0, indent=""
+	.macro PRINT_MEMRANGE label, st=0, nd=0, sz=0, indent="", fl=0
 		.ifnc 0,\st
 		_PR_S = \st
 		.else
@@ -2718,6 +2749,9 @@ cmd_mem$:
 
 		# print cs/ds relative:
 		mov	edx, _PR_S # offset \label\()_start
+		.ifnc 0,\fl
+		sub	edx, [database]
+		.endif
 		mov	ebx, edx	# remember start
 		push	edx
 		call	printhex8
@@ -2726,6 +2760,9 @@ cmd_mem$:
 		add	edx, _PR_E #offset \label\()_end
 		.else
 		mov	edx, _PR_E #offset \label\()_end
+		.ifnc 0,\fl
+		sub	edx, [database]
+		.endif
 		.endif
 		mov	edi, edx	# remember end
 		call	printhex8
@@ -2794,7 +2831,7 @@ cmd_mem$:
 	jz	2f
 
 	mov	ecx, offset code_print_start
-	.irp _, print,pmode,debugger,pit,keyboard,console,mem,hash,string,scheduler,tokenizer,shell,dev,pci,bios,cmos,ata,fs,partition,fat,sfs,iso9660,nic,net,gfx,hwdebug,vmware,kernel
+	.irp _, print,pmode,paging,debugger,pit,keyboard,console,mem,hash,string,scheduler,tokenizer,shell,dev,pci,bios,cmos,ata,fs,partition,fat,sfs,iso9660,nic,net,gfx,hwdebug,vmware,kernel
 	PRINT_MEMRANGE code_\_\(), indent="  "
 	.endr
 
@@ -2804,6 +2841,7 @@ cmd_mem$:
 	PRINT_MEMRANGE data_concat
 	#PRINT_MEMRANGE data_concat within data0's range
 	PRINT_MEMRANGE data_str
+	PRINT_MEMRANGE data_shell_cmds
 	PRINT_MEMRANGE data_pci_nic
 	PRINT_MEMRANGE data_fonts
 	.if SECTION_DATA_SIGNATURE < SECTION_DATA_BSS
@@ -2819,6 +2857,7 @@ cmd_mem$:
 	PRINT_MEMRANGE "symbol table", [kernel_symtab], [kernel_symtab_size], sz=1
 	PRINT_MEMRANGE "stabs", [kernel_stabs], [kernel_stabs_size], sz=1
 	PRINT_MEMRANGE "stack", [ramdisk_load_end], [kernel_stack_top]
+	PRINT_MEMRANGE "paging", [page_directory_phys], [page_tables_phys_end],fl=1
 
 ######## print graph
 1:	test	dword ptr [ebp], CMD_MEM_OPT_GRAPH

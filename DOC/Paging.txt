@@ -1,0 +1,101 @@
+Paging
+
+Essentially, paging allows to create an arbitrary mapping between linear
+or virtual addresses, and physical addresses. An address is a reference
+to something on the bus, such as memory or I/O (memory mapped IO).
+
+This mapping can be used to limit the accessible memory, by having a
+smaller usable linear address space than is physically available.
+
+Conversely, paging allows to have a virtual address space that is larger than
+the physical memory available. This means that these addresses can be used to
+point to something other than memory, such as permanent storage, which can then
+be transparently loaded and stored.
+
+Obviously for a linear address to be used it will have to be mapped to
+physical memory. Assuming the entire physical memory is mapped, there will
+then be duplicate mappings - two or more linear addresses referring to the
+same physical memory.
+
+Swapping
+
+Assuming the starting condition that a single region of physical memory
+is accessible using two virtual addresses, giving different meaning to 
+these addresses can be done by disabling the one that is not currently
+accessed. This is possible since the linear address can be obtained in
+page fault exceptions in the CR2 register.
+
+Other Uses
+
+* Reserved Linear Addresses
+
+virtual consoles may write to the same linear address, which is either
+mapped to video memory or not, depending on whether the console is active.
+
+* Unique address Space
+
+It is possible to offer each process/task its own view of physical memory.
+This allows to decide exactly what is visible for any given process. A mapping
+can be constructed for each process that makes it appear it is the only process.
+
+Since the paging architecture is hierarchical, there are several levels on
+which this can be accomplished. At the top level, the pointer to the paging
+directory may be changed for each process. The downside is that this results
+in an invalid cache, where the processor will need to access physical memory
+to retrieve the needed parts of the paging structure in order to translate
+memory references, both for instructions and data. This cache is commonly
+called a 'translation-lookaside-buffer' or TLB.
+
+As of this writing, modern processors only support about the same amount
+of TLB entries as its number of visible registers. Common is about 8 to 12
+registers for 4kb pages, and another 8 or so for 4MB pages. This means
+that the range of memory that can be referenced without cache misses
+is about 32MB, relatively small compared to the current physical limitations
+of several TB.
+
+The overhead of switching the entire paging structure, and thus invalidating
+the cache, is said to be from 10 to 100 clock cycles per cacheable page.
+Using 4MB pages, only a handful of these at most will be needed, about half
+of the TLB size.
+Using 4kb pages, likely the cache will be reduced to two code pages (in the
+case of code that loops across a page boundary), one or two stack pages,
+and three data pages (one static, two heap). It is said the cache is reduced,
+as obviously there will be code references to shared libraries in different
+pages, and even methods within the same code segment will generally be further
+than a page (4kb) apart. Software generally is hierarchical, and uses layers
+of abstraction, where each layer's code is generally organized together.
+Thus, an API call through three layers of logical abstraction will likely
+cause three page faults. Further, only a handful of methods are generally
+in the same page, even within a single layer of abstraction, and thus
+the envisioned single TLB entry responsible for caching the address translations
+required to satisfy the abstraction is seen to change, whereby it's use as
+cache is nullified.
+Using 4MB pages, the same amount of TLB entries is likely to be used, however,
+the page fault interval is larger, first because stack use is generally
+within 4Mb and thus won't cross page boundary. Second, because code will not
+generally cross page boundaries on loops. Further, abstraction layers
+will generally fit within one page.
+
+As such, it appears that even when the paging structure is not modified on
+a context switch, it is highly likely that the TLB will need to be replaced
+regardless. Each context switch represents a switch to a different application,
+using its own architecture and possibly it's own libraries with its own
+abstractions.
+
+In a virtual execution environment there will be VMX exits on many occasions,
+such as I/O or screen updates. On such a context switch the cache is also
+invalidated entirely.
+
+The main purpose for cache invalidation is the different semantics for
+identical linear addresses. Operating systems that compile their code to
+use a common address, such as 0x00401000, will need to invalidate the TLB
+on any context switch between processes. Only when switching between threads
+within the same process can this be prevented.
+
+An operating system may improve on TLB performance by locating tasks at
+different linear addresses. 
+
+UPDATE: the number of TLB cache entries for code or data of the current machine
+(an octa-core (quad core with hyperthreading)) is several 64 or 128.
+In this case it would have a serious impact to reset CR3 on a task switch.
+

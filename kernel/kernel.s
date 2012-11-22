@@ -48,6 +48,8 @@ data_tls_start:
 data_concat_start:
 .data SECTION_DATA_STRINGS
 data_str_start:
+.data SECTION_DATA_SHELL_CMDS
+data_shell_cmds_start:
 .data SECTION_DATA_PCI_NIC
 data_pci_nic_start:
 data_pci_nic:
@@ -86,6 +88,7 @@ code_\name\()_end:
 .include "mutex.s"
 include "print.s", print
 include "pmode.s", pmode
+include "paging.s", paging
 include "debugger.s", debugger
 include "pit.s", pit
 include "keyboard.s", keyboard
@@ -145,7 +148,7 @@ kmain:
 	push	edi
 	mov	edi, [screen_buf]
 	mov	ecx, [screen_pos] # 160 * 25
-	add	ecx, 160
+	add	ecx, 160 * 10	# FIXME: find out why 10 lines mismatch!
 	mov	esi, SEL_vid_txt
 	mov	ds, esi
 	xor	esi, esi
@@ -163,6 +166,9 @@ kmain:
 	mov	[eax + tls_console_kb_cur_ptr], dword ptr offset consoles_kb
 	.endif
 	.endif
+
+	call	paging_init
+
 
 	call	debug_load_symboltable	# a simple reference check and pointer calculation.
 
@@ -494,6 +500,8 @@ data_tls_end:
 data_concat_end:
 .data SECTION_DATA_STRINGS
 data_str_end:
+.data SECTION_DATA_SHELL_CMDS
+data_shell_cmds_end:
 .data SECTION_DATA_PCI_NIC
 data_pci_nic_end:
 .data SECTION_DATA_FONTS
