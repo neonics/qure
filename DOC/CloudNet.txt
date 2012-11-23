@@ -1,0 +1,41 @@
+Distributed Architecture
+
+
+Setup with 2 instances on a LAN:
+
+The internet gateway is configured to forward certain ports to a fixed ip.
+Running two instances on a LAN then will have only one of them respond to
+packets for the IP. The IP is (pre)configured in the os.
+
+Initialisation routine on a LAN then involves pinging the fixed IP to
+determine whether it is available. If so, the NIC is configured with the IP.
+If not, another IP is chosen.
+
+The machine that is not using the gateway's forward IP regularly pings the IP,
+and when there is no response, reconfigures itself with the IP.
+
+'Master/Slave'
+
+In this setup, only one instance on the lan has the ip, and is called the
+'master'. It may be aware of other instances using some protocol, and could
+forward packets to load balance within a LAN.
+
+[the above is a todo, there is no checks as yet to count the LAN instances]
+
+
+
+WAN: .cloud
+
+subdomain: cloud.neonics.com
+subdomain DNS: cloudns.neonics.com (DYNA record).
+
+The OS currently implements a DNS proxy for cloud.neonics.com,
+returning the address for cloudns.neonics.com, which is the public ip
+of the (so far) only instance running the OS.
+
+The model can serve other domains aswell, and illustrates how updates
+can propagate.
+
+All cloud machines will check the main DNS server and register themselves
+by using the DNS update mechanism. 
+

@@ -11,11 +11,12 @@ NET_IPV4_DEBUG = NET_DEBUG
 NET_ICMP_DEBUG = NET_DEBUG
 NET_TCP_DEBUG = NET_DEBUG
 NET_DHCP_DEBUG = NET_DEBUG
+NET_DNS_DEBUG = 1#NET_DEBUG
 
 NET_TCP_CONN_DEBUG = 0
 NET_TCP_OPT_DEBUG = 0
 
-NET_HTTP_DEBUG = 1
+NET_HTTP_DEBUG = 3
 
 CPU_FLAG_I = (1 << 9)
 CPU_FLAG_I_BITS = 9
@@ -1310,7 +1311,6 @@ net_ipv4_handle:
 		DEBUG_DWORD ebx
 1:
 
-
 	# forward to ipv4 sub-protocol handler
 	mov	al, [esi + ipv4_protocol]
 	call	ipv4_get_protocol_handler	# out: edi
@@ -2331,6 +2331,23 @@ net_tcp_conn_list:
 9:
 	ret
 
+# out: ax
+net_tcp_port_get:
+	.data
+	TCP_FIRST_PORT = 48000
+	tcp_port_counter: .word TCP_FIRST_PORT
+	.text32
+	mov	ax, [tcp_port_counter]
+	push	eax
+	inc	ax
+	cmp	ax, 0xff00
+	jb	0f
+	mov	ax, TCP_FIRST_PORT
+0:	mov	[tcp_port_counter], ax
+	pop	eax
+	ret
+
+
 
 TCP_DEBUG_COL_RX = 0xf9
 TCP_DEBUG_COL_TX = 0xfd
@@ -2544,6 +2561,7 @@ net_tcp_handle:
 
 
 # in: eax = tcp_conn array index
+# in: edx = ipv4 frame
 # in: esi = tcp frame
 # in: ecx = tcp frame len
 net_tcp_handle_psh:
@@ -2566,6 +2584,16 @@ net_tcp_handle_psh:
 	push	eax
 	call	net_tcp_conn_send_ack
 	pop	eax
+
+		# UNTESTED
+		# in: eax = ip
+		# in: edx = [proto] [port]
+		# in: esi, ecx: packet
+		#mov	dx, [esi + ipv4_protocol]
+		#shl	edx, 16	# no port known yet
+		#mov	eax, [esp + 4] # edx
+		#mov	eax, [eax + ipv4_dst]
+		#call	net_socket_deliver
 
 	# call handler
 
@@ -3717,9 +3745,9 @@ net_ipv4_udp_print:
 # in: esi = payload (udp frame)
 # in: ecx = payload len (incl udp header)
 ph_ipv4_udp:
+.if 0	# verify checksum
 	cmp	[esi + udp_checksum], word ptr 0
 	jz	1f	# no checksum
-.if 0	# verify checksum
 	push	edx
 	push	esi
 	push	ecx
@@ -3754,10 +3782,29 @@ ph_ipv4_udp:
 	LOAD_TXT "checksum error", eax
 	pop	edx
 	jnz	9f
+1:
 .endif
+		# in: eax = ip
+		# in: edx = [proto] [port]
+		# in: esi, ecx: packet
+		push	edx
+		mov	eax, [edx + ipv4_dst]
+		mov	edx, IP_PROTOCOL_UDP << 16
+		mov	dx, [esi + udp_dport]
+		xchg	dl, dh
+		push	ecx
+		# esi: udp frame
+		sub	ecx, UDP_HEADER_SIZE
+		call	net_socket_deliver
+		pop	ecx
+		pop	edx
 
-1:	cmp	[esi + udp_sport], word ptr 53 << 8	# DNS
-	jz	net_dns_print
+	# call handler
+
+	cmp	[esi + udp_sport], word ptr 53 << 8	# DNS
+	jz	1f	#net_dns_print
+	cmp	[esi + udp_dport], word ptr 53 << 8	# DNS
+	jz	net_dns_service
 	cmp	[esi + udp_sport], dword ptr ( (67 << 8) | (68 << 24))
 	jz	ph_ipv4_udp_dhcp_s2c
 	cmp	[esi + udp_sport], dword ptr ( (68 << 8) | (67 << 24))
@@ -3769,7 +3816,7 @@ ph_ipv4_udp:
 	mov	esi, eax
 	call	println
 	pop	esi
-	ret
+1:	ret
 
 
 net_udp_port_get:
@@ -3791,24 +3838,104 @@ net_udp_port_get:
 ###############################################################################
 # DNS
 #
-.struct 0
+# RFC 1035
+#
+# Messages over UDP follow the below format.
+# Messages over TCP are prefixed with a word indicating the message length,
+# not counting the word.
+
+.struct 0	# max UDP payload len: 512 bytes
 dns_tid:	.word 0	# transaction id
-dns_flags:	.word 0	# 1 = standard query
+dns_flags:	.word 0	# 0001 = standard query (0100)
+	DNS_FLAG_QR		= 1 << 15	# 0=query, 1=response
+	DNS_OPCODE_SHIFT	= 11
+	DNS_OPCODE_MASK 	= 0b1111 << DNS_OPCODE_SHIFT
+	DNS_OPCODE_STDQ		= 0 << DNS_OPCODE_SHIFT	# std query
+	DNS_OPCODE_IQUERY	= 1 << DNS_OPCODE_SHIFT	# inverse query
+	DNS_OPCODE_STATUS	= 2 << DNS_OPCODE_SHIFT	# server status request
+	DNS_FLAG_AA		= 1 << 10	# (R) authoritative answer
+	DNS_FLAG_TC		= 1 << 9	# (Q,R) truncation
+	DNS_FLAG_RD		= 1 << 8	# (Q->R) recursion desired
+	DNS_FLAG_RA		= 1 << 7	# (A) recursion avail
+	DNS_FLAG_Z		= 0b110 << 4	# reserved
+	DNS_FLAG_NO_AUTH_ACCEPT	= 1 << 4 # non-authenticated data: 0=unacceptbl
+	DNS_RCODE_SHIFT		= 0
+	DNS_RCODE_MASK		= 0b1111	# (R)
+	DNS_RCODE_OK		= 0		# no error
+	DNS_RCODE_FORMAT_ERR	= 1		# server unable to interpret
+	DNS_RCODE_SERVER_FAIL	= 2		# problem with name server
+	DNS_RCODE_NAME_ERR	= 3		# (auth ns): name doesn't exist
+	DNS_RCODE_NOT_IMPL	= 4		# query kind not implemented
+	DNS_RCODE_REFUSED	= 5		# policy restriction
+
+
 dns_questions:	.word 0	# nr of questions
 dns_answer_rr:	.word 0	# answer RRs
 dns_auth_rr:	.word 0	# authorit RRs
 dns_add_rr:	.word 0	# additional RRs
-dns_queries:
-DNS_HEADER_SIZE = .
+dns_queries:	# questions, answers, ...
 
-# .rept
-	# dns_len: .byte 0
-	# ascii
-# .endr
-# 'host google.nl':
-# 06 google 02 nl 00
-# TYPE A (00 01)
-# CLASS IN (00 01)
+# Question format:
+# QNAME: seq of labels (pascal style), zero label term
+# QTYPE: word; QCLASS: word
+#
+# Example: format for 'foo.nl' IN A request:
+# .byte 3 'foo' 2 'nl' 0
+# .word type	# 0001 = A
+# .word class	# 0001 = IN
+
+# RR (resource record) format: answer, authority, additional:
+# NAME: domain name to which this record pertains
+# TYPE: word: DNS_TYPE_..
+# CLASS: word: DNS_CLASS_..
+# TTL: dword: seconds
+# RDLEN: word: length in bytes of RDATA
+# RDATA: resource data depending on TYPE and CLASS; for IN A, 4 byte IPv4 addr.
+#
+# Compression: word [11 | OFFSET ]
+# domain name labels can be compressed: a word, high 2 bits 1,
+# refers to a prior occurrence.
+# Since labels must be < 64 len, 01xxxxxx/10xxxxxxxx (reserved), 11xxxxxx
+# indicates reference.
+# The offset is relative to the DNS payload frame (i.e. offset 0 is first
+# byte of dns_tid).
+# Valid names:
+# - sequence of labels, zero octet terminated (root: no labels, zero octet)
+# - a pointer
+# - sequence of labels ending with pointer
+
+DNS_TYPE_A	= 1	# host address
+DNS_TYPE_NS	= 2	# authoritative name server
+# MD=3, mail destination; MF = 4, mail forwarder: both obsolete, use MX
+DNS_TYPE_CNAME	= 5	# canonical name for alias
+DNS_TYPE_SOA	= 6	# start of zone of authority
+# experimental: MB=7, mailbox domain
+# experimental: MG=8, mail group member
+# experimental: MR=9, mail rename domain
+# experimental: NULL = 10 - null RR
+DNS_TYPE_WKS	= 11	# well-known service description
+DNS_TYPE_PTR	= 12	# domain name pointer
+DNS_TYPE_HINFO	= 13	# host information
+DNS_TYPE_MINFO	= 14	# mailbox or mail list information
+DNS_TYPE_MX	= 15	# mail exchange
+DNS_TYPE_TXT	= 16	# text strings
+
+# QTYPE is superset of TYPE: query type, in question part of query:
+DNS_QTYPE_AXFR	= 252	# request for transfer of entire zone
+DNS_QTYPE_MAILB	= 253	# request for mailbox related records (MB, MG, MR)
+DNS_QTYPE_MAILA	= 254	# request for mail agent RRs (obsolete, use MX)
+DNS_QTYPE_ALL	= 255	# request for all records
+
+# resource record class identifiers:
+DNS_CLASS_IN	= 1	# internet
+DNS_CLASS_CS	= 2	# CSNET class - obsolete
+DNS_CLASS_CH	= 3	# CHAOS class
+DNS_CLASS_HS	= 4	# Hesiod
+
+# QCLASS, superset of CLASS: appear in question section of query
+DNS_QCLASS_ALL	= 255	# any QCLASS
+
+DNS_HEADER_SIZE = .
 .text32
 
 # in: ebx = nic
@@ -3816,21 +3943,111 @@ DNS_HEADER_SIZE = .
 # in: esi = payload (udp frame)
 # in: ecx = payload len
 net_dns_print:
-	DEBUG "DNS"
-	add	esi, offset UDP_HEADER_SIZE
-	test	byte ptr [esi + dns_flags], 0x80
-	jz	1f
-	DEBUG "Response"
-	# check pending requests
+	push	edi
+	push	esi
+	push	edx
+	push	ecx
 
-	mov	ax, [esi + dns_questions]
-	mov	bx, [esi + dns_answer_rr]
-	cmp	ax, bx
+	add	esi, offset UDP_HEADER_SIZE
+#	test	byte ptr [esi + dns_flags], 0x80
+#	jz	1f
+#	DEBUG "Response"
+#	# check pending requests
+
+6:
+	printc COLOR_PROTO, "   DNS "
+	printc COLOR_PROTO_LOC, "tid "
+	mov	dx, [esi + dns_tid]
+	call	printhex4
+	printc COLOR_PROTO_LOC, " flags "
+	mov	dx, [esi + dns_flags]
+	xchg	dl, dh
+	call	printhex4
+	call	printspace
+	PRINTFLAG dx, DNS_FLAG_QR, "Q", "R"
+	PRINTFLAG dx, DNS_FLAG_TC, "T", " "
+	PRINTFLAG dx, DNS_FLAG_RD, "r", " "
+	PRINTFLAG dx, DNS_FLAG_NO_AUTH_ACCEPT, "A", "U"
+	and	dx, DNS_OPCODE_MASK
+	shr	dx, DNS_OPCODE_SHIFT
+	printc COLOR_PROTO_LOC, " op "
+	call	printhex2
+
+	printc COLOR_PROTO_LOC, " #Q "
+	movzx	edx, word ptr [esi + dns_questions]
+	xchg	dl, dh
+	call	printdec32
+
+	printc COLOR_PROTO_LOC, " #Ans RR "
+	mov	dx, [esi + dns_answer_rr]
+	xchg	dl, dh
+	call	printdec32
+
+	printc COLOR_PROTO_LOC, " #Auth RR "
+	mov	dx, [esi + dns_auth_rr]
+	xchg	dl, dh
+	call	printdec32
+
+	printc COLOR_PROTO_LOC, " #Addt RR "
+	mov	dx, [esi + dns_add_rr]
+	xchg	dl, dh
+	call	printdec32
+	call	newline
+
+#	mov	ax, [esi + dns_questions]
+#	mov	bx, [esi + dns_answer_rr]
+#	cmp	ax, bx
 #	jnz	2f
 
+	mov	edi, esi	# remember dns frame
 	add	esi, DNS_HEADER_SIZE
-	# print the question
-	lodsb
+
+	mov	eax, ecx
+	add	eax, edi
+	push	eax	# end of packet
+########
+	movzx	ecx, word ptr [edi + dns_questions]
+	xchg	cl, ch
+
+0:	cmp	esi, [esp]	# sanity check
+	jae	1f
+	dec	ecx
+	jl	1f
+	push	ecx
+	printc COLOR_PROTO_LOC, "    Question "
+	call	dns_print_question$
+	pop	ecx
+	jmp	0b
+1:
+########
+	movzx	ecx, word ptr [edi + dns_answer_rr]
+	xchg	cl, ch
+
+0:	cmp	esi, [esp]	# sanity check
+	jae	1f
+	dec	ecx
+	jl	1f
+	push	ecx
+	printc COLOR_PROTO_LOC, "    Answer "
+	call	dns_print_answer$
+	pop	ecx
+	jmp	0b
+1:
+########
+	pop	eax
+
+	pop	ecx
+	pop	edx
+	pop	esi
+	pop	edi
+	ret
+
+2:	printlnc 4, "dns: questions != answers"
+	ret
+
+
+dns_print_question$:
+	lodsb	# length of text segment (domain name part)
 3:	movzx	ecx, al
 0:	lodsb
 	call	printchar
@@ -3850,56 +4067,415 @@ net_dns_print:
 	lodsw
 	mov	dx, ax
 	call	printhex4
+	call	newline
+	ret
 
-	# print the answer
-	print ": "
-	lodsw
+dns_print_answer$:
+	lodsw	# c0 0c: reference to name
 	mov	dx, ax
-	call	printhex4	# c0 0c ... reference to name?
+	call	printhex4
+
 	print " type "
 	lodsw
 	mov	dx, ax
+	xchg	dl, dh
 	call	printhex4
+
 	print " class "
 	lodsw
 	mov	dx, ax
+	xchg	dl, dh
 	call	printhex4
 
-	lodsd
-	mov	edx, eax
-	bswap	edx
 	print " ttl "
+	lodsd
+	bswap	eax
+	mov	edx, eax
 	call	printdec32
 
+	print " len "
+	xor	eax, eax
 	lodsw
 	xchg	al, ah
-	movzx	edx, ax
-	print " len "
-	call	printdec32
-	call	printspace
-
-
+	cmp	ax, 4	# ipv4
+	jnz	1f
 	lodsd
 	call	net_print_ip
 	call	newline
-
 	ret
 
-1:	DEBUG "Request"
+1:	mov	ecx, eax
+0:	lodsb
+	movzx	edx, al
+	call	printdec32
+	mov	al, ':'
+	call	printchar
+	loop	0b
+	call	newline
 	ret
 
-2:	printlnc 4, "dns: questions != answers"
+# in: esi: RR ptr in DNS message - label
+# in: edi: ptr to buffer to contain domain name
+# in: ebp: end of buffer
+dns_parse_name$:
+	push	eax
+	push	ecx
+0:	lodsb
+	movzx	ecx, al
+	jecxz	1f
+
+	# stack verify:
+	lea	eax, [ecx + edi]
+	cmp	eax, ebp
+	mov	al, DNS_RCODE_SERVER_FAIL
+	jae	9f
+
+	rep	movsb
+	mov	al, '.'
+	stosb
+	jmp	0b
+1:	stosb
+	clc
+9:	pop	ecx
+	pop	eax
 	ret
-
-
 # in: ebx = nic
+# in: edx = ipv4 frame
+# in: esi = payload (udp frame)
+# in: ecx = payload len
+net_dns_service:
+	.if 1#NET_DNS_DEBUG
+		PRINTLN "Servicing DNS request"
+		call	net_dns_print
+	.endif
+
+	add	esi, UDP_HEADER_SIZE
+
+	push	esi
+	lea	eax, [esi + ecx]
+	push	eax	# for sanity check
+	push	edx
+	push	ebp
+	mov	ebp, esp
+	push	dword ptr 0	# question size
+	sub	esp, 80	# max domain name len
+	mov	edi, esp
+	mov	edx, edi
+	mov	ax, [esi + dns_flags]
+	xchg	al, ah
+	and	ax, DNS_FLAG_QR | DNS_OPCODE_MASK
+	mov	al, DNS_RCODE_FORMAT_ERR
+	jnz	9f
+
+	movzx	ecx, word ptr [esi + dns_questions]
+	xchg	cl, ch
+
+	add	esi, DNS_HEADER_SIZE
+	mov	[ebp - 4], esi	# question size
+
+	# check domain
+	call	dns_parse_name$
+	jc	9f
+
+	lodsd		# type, class
+
+	sub	[ebp -4], esi		# update question len
+	neg	dword ptr [ebp -4]
+
+	bswap	eax	# [class][type]
+	cmp	eax, 0x00010001
+	mov	al, DNS_RCODE_NOT_IMPL
+	jnz	9f
+
+		mov	esi, edx
+
+		LOAD_TXT "cloud.neonics.com"
+		call	strlen_
+		mov	edi, edx
+		repz	cmpsb
+		mov	al, DNS_RCODE_NAME_ERR
+		jnz	9f
+
+			xor	al, al
+			cmp	dword ptr [internet_ip], 0
+			jnz	1f
+			push	esi
+			LOAD_TXT "cloudns.neonics.com"
+			call	dns_resolve_name
+			pop	esi
+			or	eax, eax
+			mov	[internet_ip], eax
+			mov	al, 0
+			jnz	9f
+			.if NET_DNS_DEBUG
+				printlnc 4, "dns: cannot resolve"
+			.endif
+			mov	al, DNS_RCODE_SERVER_FAIL
+	1:
+
+# in: al = DNS_RCODE_*. 0 means, no error; otherwise no payload after DNS_HEADER
+# in: [ebp + 12]: incoming DNS frame
+# in: [ebp + 4]: incoming IPv4 frame
+# in: ebx: nic
+9:	NET_BUFFER_GET
+	push	edi
+debug_byte al
+	# calculate payload len:
+	mov	ecx, [ebp - 4]	# question size
+	or	al, al
+	jnz	1f		# on error, no answers
+	# add answer len:
+	add	ecx, 16		# label:2 type:2 class:2 ttl:4 len:2 addr:4
+1:
+	# ETH, IP frame
+
+	add	ecx, UDP_HEADER_SIZE + DNS_HEADER_SIZE
+	mov	dx, IP_PROTOCOL_UDP
+	push	eax
+	mov	eax, [ebp + 4]	# ipv4 frame
+	mov	eax, [eax + ipv4_src]
+	push	esi
+	call	net_ipv4_header_put
+	pop	esi
+	pop	eax
+	jc	9f
+# XXXX
+	mov	esi, [ebp + 12]	# incoming dns frame
+	# UDP frame
+
+	push	eax
+	mov	eax, [esi - UDP_HEADER_SIZE + udp_sport]
+	bswap	eax
+	ror	eax, 16
+	push	ecx
+	sub	ecx, UDP_HEADER_SIZE
+	call	net_udp_header_put
+	pop	ecx
+	pop	eax
+
+	# DNS frame
+
+	# al & 0xf is response code:
+	mov	ah, al
+	and	ah, 0b1111	# response code
+	mov	al, 1 << 7	# response
+
+	mov	[edi + dns_flags], ax
+	# put the DNS header:
+	mov	dx, [esi + dns_tid]
+	mov	[edi + dns_tid], dx
+	mov	[edi + dns_questions], word ptr 1 << 8
+	mov	[edi + dns_answer_rr], word ptr 0
+	jnz	1f	# from and, see above
+	mov	[edi + dns_answer_rr], word ptr 1 << 8
+1:	mov	[edi + dns_auth_rr], word ptr 0
+	mov	[edi + dns_add_rr], word ptr 0
+	add	edi, DNS_HEADER_SIZE
+
+	# offset of answer relative to DNS frame, which begins with label
+	mov	edx, DNS_HEADER_SIZE
+
+	# copy the question:
+	add	esi, DNS_HEADER_SIZE
+	mov	ecx, [ebp - 4]	# question label size
+	rep	movsb
+
+	or	ah, ah
+	jnz	1f
+	# copy answer:
+	mov	ax, dx
+	or	ah, 0b11000000
+	xchg	al, ah
+	stosw	# label ptr
+	mov	eax, 0x01000100
+	stosd	# type, class
+	mov	eax, 3600	# 1 hour
+	bswap	eax
+	stosd	# ttl
+	mov	ax, 0x0400
+	stosw	# data len
+
+	.data SECTION_DATA_BSS
+	internet_ip: .long 0
+	.text32
+	mov	eax, [internet_ip]
+	stosd
+1:
+	pop	esi
+	NET_BUFFER_SEND	# uses edi-esi for ecx
+	jmp	1f
+9:	pop	edi
+	printlnc 4, "error constructing response packet"
+	# TODO: net_buffer_release
+1:
+	mov	esp, ebp
+	pop	ebp
+	pop	edx
+	pop	eax
+	pop	esi
+	ret
+
+# in: esi = domain name
+# out: eax = ipv4 address
+dns_resolve_name:
+	# receives all dns packets....
+	push	ebx
+	mov	ebx, IP_PROTOCOL_UDP << 16
+	call	net_udp_port_get
+	mov	bx, dx
+	xor	eax, eax	# ip
+	call	socket_open
+	pop	ebx
+	jc	9f
+
+	push	edi
+	push	edx
+	push	ecx
+	push	ebx
+	mov	edi, esi
+
+	call	strlen_
+	mov	edx, ecx
+	call	net_dns_request
+
+	mov	ecx, 2 * 1000
+	call	socket_read	# in: eax, ecx; out: esi, ecx
+	jc	8f
+
+#	printlnc 11, "socket UDP read:"
+	push	eax
+#	call	net_dns_print
+
+		add	esi, UDP_HEADER_SIZE
+
+		mov	ebx, esi	# for compressed rr ref
+
+	#	push	esi
+
+		# verify flag
+		mov	ax, [esi + dns_flags]
+		xchg	al, ah
+		and	ax, DNS_FLAG_QR | DNS_RCODE_MASK
+		cmp	ax, DNS_FLAG_QR
+		jnz	1f
+
+		# verify question/answer:
+		cmp	dword ptr [esi + dns_questions], 0x01000100
+		jnz	1f
+
+
+		push	ecx
+		mov	ecx, edx
+		add	esi, DNS_HEADER_SIZE
+		mov	edx, esi	# remember for compressed names
+		# validate question
+		push	edi
+		push	ebp
+		mov	ebp, esp
+		sub	esp, 80
+		mov	edi, esp
+
+		push	edi
+		call	dns_parse_name$	# in: edi, ebp; in: esi
+		pop	edi
+		jc	2f
+
+
+		push	esi
+		mov	esi, [ebp + 4]	# edi on stack=orig esi backup=name
+		repz	cmpsb
+		pop	esi
+		stc
+		jnz	2f
+		cmp	word ptr [edi], '.'
+		stc
+		jnz	2f
+		clc
+
+	2:	mov	esp, ebp
+		pop	ebp
+		pop	edi
+		pop	ecx
+		jc	1f
+		lodsd	# load type/class
+		cmp	eax, 0x01000100
+		jnz	1f
+
+		# parse answer
+
+	######## compare answer rr name, type, class
+		xor	eax, eax
+		lodsb
+		cmp	al, 0b11000000
+		jb	2f
+		mov	ah, al
+		and	ah, 0b00111111
+		lodsb
+		add	eax, ebx
+		cmp	eax, edx	# question rr
+		jnz	1f
+		lodsd
+		cmp	eax, 0x01000100	# type, class
+		jnz	1f
+		jmp	3f
+	2:	# noncompressed name: compare label, type, class
+		push	edi
+		push	ecx
+		dec	esi	# unread byte
+		mov	ecx, esi
+		sub	ecx, edx	# start of question rr
+		mov	edi, edx
+		repz	cmpsb
+		pop	ecx
+		pop	edi
+		jnz	1f
+	3:
+	########
+		lodsd	# ttl - ignore
+		lodsw	# addr len
+		cmp	ax, 0x0400
+		jnz	1f
+		lodsd	# ip
+		mov	edx, eax
+
+		jmp	7f
+	1:	printlnc 4, "DNS error: wrong response"
+		xor	edx, edx
+7:
+	pop	eax
+
+0:	call	socket_close
+	mov	eax, edx
+	.if NET_DNS_DEBUG
+		DEBUG_DWORD eax, "resolve: ip"
+	.endif
+	pop	ebx
+	pop	ecx
+	pop	edx
+	pop	edi
+	ret
+
+8:	printlnc 4, "socket read timeout"
+	xor	edx, edx
+	jmp	0b
+
+9:	printlnc 4, "failed to open UDP socket"
+	xor	eax, eax
+	ret
+
+# in: eax = socket
 # in: esi = name to resolve
 # in: ecx = length of name
 net_dns_request:
-
 	.data
 	dns_server_ip: .byte 192, 168, 1, 1
 	.text32
+	push	edi
+	push	esi
+	push	eax
+	push	ebx
+	push	ecx
+	push	edx
 
 	NET_BUFFER_GET
 	push	edi
@@ -3914,6 +4490,7 @@ net_dns_request:
 	#mov	ecx, 27
 
 	push	ecx
+	push	eax
 	# in: cx = payload length (without ethernet/ip frame)
 	add	ecx, UDP_HEADER_SIZE
 	# in: eax = destination ip
@@ -3925,10 +4502,13 @@ net_dns_request:
 	push	esi
 	call	net_ipv4_header_put
 	pop	esi
+	pop	eax
 	pop	ecx
 	jc	9f
 
-	call	net_udp_port_get
+#	call	net_udp_port_get
+	call	socket_get_lport	# in: eax; out: edx=dx
+	mov	ax, dx
 	shl	eax, 16
 	mov	ax, 0x35 	# DNS port 53
 	push	ecx
@@ -3981,7 +4561,14 @@ net_dns_request:
 	pop	esi
 	NET_BUFFER_SEND
 
-9:	ret
+9:
+	pop	edx
+	pop	ecx
+	pop	ebx
+	pop	eax
+	pop	esi
+	pop	edi
+	ret
 
 ####################################
 cmd_host:
@@ -5617,7 +6204,7 @@ cmd_netstat:
 #############################################################################
 # Sockets
 .struct 0
-sock_ip:	.long 0
+sock_addr:	.long 0
 sock_port:	.word 0
 sock_proto:	.word 0
 sock_in:	.long 0	# updated by net_rx_packet's packet handlers if
@@ -5639,7 +6226,7 @@ socket_open:
 	jz	1f
 	ARRAY_ENDL
 9:	ARRAY_NEWENTRY [socket_array], SOCK_STRUCT_SIZE, 4, 9f
-1:	mov	[eax + edx + sock_ip], esi
+1:	mov	[eax + edx + sock_addr], esi
 	mov	[eax + edx + sock_port], ebx
 	mov	eax, edx
 9:	pop	ecx
@@ -5648,6 +6235,7 @@ socket_open:
 	ret
 
 socket_close:
+	push	edx
 	mov	edx, [socket_array]
 		cmp	eax, [edx + array_index]
 		ja	9f
@@ -5656,11 +6244,13 @@ socket_close:
 	cmp	eax, [edx + array_index]
 	jnz	1f
 	sub	[edx + array_index], dword ptr SOCK_STRUCT_SIZE
-1:	ret
+1:	pop	edx
+	ret
 9:	printc 12, "invalid socket: "
 	mov	edx, eax
 	call	printhex8
 	call	newline
+	pop	edx
 	stc
 	ret
 
@@ -5670,7 +6260,7 @@ socket_list:
 	mov	edx, ecx
 	call	printhex4
 	printc 11, " ip "
-	mov	eax, [ebx + ecx + sock_ip]
+	mov	eax, [ebx + ecx + sock_addr]
 	call	net_print_ip
 	printcharc 11, ':'
 	movzx	edx, word ptr [ebx + ecx + sock_port]
@@ -5684,6 +6274,35 @@ socket_list:
 	call	newline
 	ARRAY_ENDL
 9:	ret
+
+socket_get_lport:
+	mov	edx, [socket_array]
+	movzx	edx, word ptr [edx + sock_port]
+	or	edx, edx
+	jz	1f
+	ret
+
+1:	push	ebx
+	push	eax
+	mov	ebx, [socket_array]
+	cmp	word ptr [edx + sock_proto], IP_PROTOCOL_UDP
+	jz	1f
+	cmp	word ptr [edx + sock_proto], IP_PROTOCOL_TCP
+	jz	2f
+	pop	eax
+	stc
+	jmp	9f	# no change
+
+1:	call	net_udp_port_get
+	jmp	3f
+2:	call	net_tcp_port_get
+3:	movzx	edx, ax
+	clc
+
+	pop	eax
+	mov	[ebx + eax + sock_port], dx
+9:	pop	ebx
+	ret
 
 # Blocking read: waits for packet
 #
@@ -5717,18 +6336,42 @@ socket_read:
 	pop	eax
 	ret
 
+
+#in: esi, ecx
 net_sock_deliver_icmp:
-	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, eax, edi, 9f
-	cmp	[eax + edi + sock_proto], word ptr IP_PROTOCOL_ICMP
-	jnz	1f
-#	cmp	[eax + edi + sock_addr], 
+	push	eax
+	push	edx
+	mov	eax, [esi - IPV4_HEADER_SIZE + ipv4_dst]
+	mov	edx, IP_PROTOCOL_ICMP << 16	# no port for icmp
+	call	net_socket_deliver
+	pop	edx
+	pop	eax
+	ret
+
+# in: eax = ip
+# in: edx = [proto] [port]
+# in: esi, ecx: packet
+net_socket_deliver:
+	push	ebx
+	push	ebp
+	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, ebx, edi, 9f
+	mov	ebp, [ebx + edi + sock_addr]
+	or	ebp, ebp
+	jz	1f
+	cmp	ebp, -1
+	jz	1f
+	cmp	ebp, eax
+	jnz	3f
+1:	cmp	[ebx + edi + sock_port], edx	# compare proto and port
 	jz	2f
-1:	ARRAY_ENDL
-9:	ret
+3:	ARRAY_ENDL
+9:	pop	ebp
+	pop	ebx
+	ret
 ########
 2:	# got a match
 	# TODO: copy packet (though that should've been done in net_rx_packet).
-	mov	[eax + edi + sock_in], esi
-	mov	[eax + edi + sock_inlen], ecx
-9:	ret
+	mov	[ebx + edi + sock_in], esi
+	mov	[ebx + edi + sock_inlen], ecx
+	jmp	9b
 
