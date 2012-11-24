@@ -233,7 +233,7 @@ COLOR_STACK_SIZE = 2
 .macro PRINT_START_ c=0, char=0
 #900:MUTEX_LOCK SCREEN 900b
 	pushf	# prevent interrupts during es != ds
-	cli
+#	cli
 	cld
 	push	es
 	push	edi
@@ -1095,6 +1095,13 @@ _s_printcharc:
 	call	printcharc
 	pop	eax
 	ret	COLOR_STACK_SIZE
+
+_s_printhex8:
+	push	edx
+	mov	edx, [esp + 8]
+	call	printhex8
+	pop	edx
+	ret	4
 
 .if VIRTUAL_CONSOLES
 _s_setcolor:

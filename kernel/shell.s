@@ -1736,17 +1736,23 @@ cmd_exe:
 	#LOAD_TXT "/c/A.EXE", eax
 	LOAD_TXT "/a/A.ELF", eax
 	mov	bl, [boot_drive]
-	add	[eax + 1], bl
+	add	bl, 'a'
+	mov	[eax + 1], bl
 	call	fs_openfile
 	jc	9f
 	call	fs_handle_read
 	jc	10f
+		# HACK
+		push	eax
+		call	fs_validate_handle	# out: edx + eax
+		mov	[eax + edx + fs_handle_buf], dword ptr 0
+		pop	eax
 ########
 	cmp	[esi], word ptr 'M' | 'Z' << 8
 	jz	1f
 
 	cmp	[esi], dword ptr 0x7f | 'E' <<8 | 'L' <<16 | 'F' << 24
-	jz	exe_elf
+	jz	2f
 
 	printlnc 4, "unknown file format"
 	jmp	10f
@@ -1754,6 +1760,8 @@ cmd_exe:
 ######## EXE
 1:	println "EXE/PE32 not supported yet"
 	jmp	10f
+######## ELF
+2:	call	exe_elf
 ########
 10:	call	fs_close
 	jc	9f

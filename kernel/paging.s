@@ -172,15 +172,15 @@ paging_init:
 	rep	stosd
 
 	# first page table 4k after page directory:
-	lea	eax, [ebx + 4096 | PDE_FLAG_R | PDE_FLAG_P]
+	lea	eax, [ebx + 4096 | PDE_FLAG_R | PDE_FLAG_U | PDE_FLAG_P]
 	mov	[edi - 4096], eax	# set first PDE
 	DEBUG_DWORD eax, "first page table phys"
 
 	lea	eax, [ebx + 8192]
 	mov	[page_tables_phys_end], eax
 
-	# initialze the first page table: identity mapping
-	mov	eax, PDE_FLAG_R | PDE_FLAG_P	# start at physical address 0
+	# initialze the first page table: identity mapping, start at phys addr 0
+	mov	eax, PTE_FLAG_R | PTE_FLAG_U | PTE_FLAG_P
 	mov	ecx, 1024
 0:	stosd
 	add	eax, 4096

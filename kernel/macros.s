@@ -171,16 +171,12 @@ _TLS_SIZE = .
 
 	.if _INDEX >= 0
 	_COUNT = 0
-.print "looping regs for \val"
 	.irp \var, eax,ebx,ecx,edx,esi,edi,ebp,esp
 		.if _COUNT == _INDEX
-.print "Match \var, \val"
 		.exitm 3 # doesn't exit the entire macro, only .irp
 		.endif
 		_COUNT = _COUNT + 1
-.print "next"
 	.endr
-.print "loop done"
 	.endif
 
 	# ... hence this check:
