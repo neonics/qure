@@ -52,7 +52,13 @@ elf_symtab_shndx: 		.word 0
 elf_base:	.long 0
 elf_vaddr_base:	.long 0	# virtual load address: phent[0].vaddr-phent[0].offset
 elf_img_size:	.long 0
+elf_stack_top:	.long 0
 elf_main:	.long 0
+# image layout:
+# [elf_base] code/data start
+# [elf_base]+[elf_img_size] code/data end, stack start
+# ([eld_base]+[elf_img_size]+ELF_STACK_SIZE)&~0xf = [elf_stack_top]
+ELF_STACK_SIZE = 4096
 
 ##########################################################################
 
@@ -101,6 +107,7 @@ elf_main:	.long 0
 .text32
 # in: esi, ecx: elf image
 exe_elf:
+	push	eax
 	# note: singleton access (for now)
 	mov	[elf_main], dword ptr -1
 	mov	[elf_vaddr_base], dword ptr 0
@@ -108,18 +115,19 @@ exe_elf:
 	mov	[elf_img_size], ecx
 	mov	ebx, esi
 
-	.if ELF_DEBUG > 1
+	.if ELF_DEBUG
 		println "ELF"
 		DEBUG_DWORD esi
 		DEBUG_DWORD ecx
 		DEBUG_DWORD [ebx+elf_entry]
 	.endif
 
-	.if ELF_DEBUG
+	.if ELF_DEBUG > 1
 		call	elf_sh_print
 	.endif
 
 	# iterate sections
+	push	ebp
 	push	esi
 	push	ecx
 
@@ -135,29 +143,125 @@ exe_elf:
 	cmp	dword ptr [elf_main], -1
 	jz	8f
 
-	add	ebx, [elf_main]
 	.if ELF_DEBUG
 		call	newline
 		DEBUG "About to execute"
-		DEBUG_DWORD [elf_base]
+		call	newline
+		DEBUG_DWORD [elf_main],"main"
+		DEBUG_DWORD [elf_base],"base"
+		DEBUG_DWORD [elf_vaddr_base],"vaddr"
+		DEBUG_DWORD [elf_img_size],"size"
+		call	newline
 		DEBUG_DWORD ebx
+		mov	eax, ebx
+		add	eax, [elf_main]
+		DEBUG_DWORD eax,"main abs"
+		mov	eax, [eax]
+		DEBUG_DWORD eax, "first opc"
 		call	more
 	.endif
 
+ELF_REL_KERNEL = 1
+
+.if 1
+	GDT_GET_BASE eax, ds
+.if ELF_REL_KERNEL
+.else
+	add	eax, [elf_base]
+.endif
+	GDT_SET_BASE SEL_taskCS, eax
+	GDT_SET_LIMIT SEL_taskCS, 0x001fffff
+	GDT_SET_BASE SEL_taskDS, eax
+	GDT_SET_LIMIT SEL_taskDS, 0x001fffff
+
+	.if ELF_DEBUG
+		call	newline
+		pushad
+		PRINT_GDT SEL_taskCS
+		PRINT_GDT SEL_taskDS
+		popad
+	.endif
+
+	mov	edx, [elf_main]
+
+		mov	eax, SEL_taskDS
+		mov	gs, eax
+.if ELF_REL_KERNEL
+mov ecx, [elf_base]
+.else
+xor ecx, ecx
+.endif
+	.if ELF_DEBUG
+		DEBUG_DWORD edx,"main"
+		DEBUG_DWORD gs:[ecx + edx],"first opc"
+		call newline
+		DEBUG_DWORD gs:[ecx+0x115f],"call"
+		DEBUG_DWORD gs:[ecx+0x1160],"proxy"
+		DEBUG_DWORD gs:[ecx+0x1e76],"maddr"
+		DEBUG_DWORD gs:[ecx+0x6050],"ref"
+		call	newline
+		call	more
+		DEBUG_DWORD esp, "PRE CALL ESP"
+	.endif
+	add edx, ecx
+.endif
+	push	ds
+	push	es
 	mov	ebp, esp
+
+	mov	eax, SEL_taskDS | 3
+	mov	ds, eax
+	mov	es, eax
+
 	.data
 	proc_args$:
 	STRINGPTR "a.elf"
 	.text32
-	push	dword ptr offset proc_args$
-	push	dword ptr 1
-	call	ebx
-	DEBUG "returned!"
+
+	mov	edi, [elf_stack_top]
+	.if ELF_DEBUG
+		DEBUG_DWORD edi,"elf_stack_top"
+	.endif
+	# push the args on the new stack:
+	sub	edi, 12
+	mov	[edi + 8], dword ptr offset proc_args$	# argv
+	mov	[edi + 4], dword ptr 1			# argc
+	mov	[edi + 0], dword ptr offset 1f		# ret
+
+	# the ss:esp are used when there is privilege level change
+	push	eax	# ss
+	push	edi	# dword ptr [elf_stack_top] - 12
+	push	dword ptr SEL_taskCS | 3
+	push	edx
+	retf
+
+1:	mov	edx, cs
+	cmp	edx, SEL_compatCS
+	jz	1f
+	call	SEL_kernelCall:0
+1:
 	mov	esp, ebp
+	pop	es
+	pop	ds
+	mov	edx, eax
+	printc 11, "exit code "
+	call	printdec32
+
+	.if ELF_DEBUG
+		mov	dx, cs
+		DEBUG_WORD dx, "cs"
+		DEBUG_DWORD esp, "POST CALL ESP"
+	.endif
 
 	clc
-10:	pop	ecx
+10:	pushf
+	mov	eax, [elf_base]
+	call	mfree
+	popf
+	pop	ecx
 	pop	esi
+	pop	ebp
+	pop	eax
 	ret
 9:	printlnc 4, "can't resolve symbols"
 	stc
@@ -617,7 +721,6 @@ elf_ph_process:
 	.endif
 
 	call	elf_ph_calc_addr
-	jz	1f
 
 	.if ELF_DEBUG
 		DEBUG_DWORD eax
@@ -636,11 +739,18 @@ elf_ph_process:
 	.endif
 
 	mov	edx, [elf_img_size]
+	add	edx, ELF_STACK_SIZE + 16	# align
 	mov	eax, [elf_base]
 	call	mrealloc	# expand: double copy optimization
 	jc	9f
 	mov	[elf_base], eax
 	mov	ebx, eax
+
+	add	eax, [elf_img_size]
+	add	eax, ELF_STACK_SIZE + 16
+	and	eax, ~0xf
+	mov	[elf_stack_top], eax
+
 
 	.if ELF_DEBUG
 		DEBUG "MREALLOC:"
@@ -811,6 +921,7 @@ elf_relocation:
 	mov	esi, [esi + elf_sh_offset]
 	add	esi, ebx
 
+	# take first entry as base
 	mov	edx, [esi]
 	mov	eax, edx
 	.if ELF_DEBUG
@@ -849,12 +960,12 @@ elf_relocation:
 
 
 
-
+# in: eax = prog base
 elf_relocate_ptr:
 	pushad
 	and	dh, 15	# low 12 bits only
 	add	edx, eax
-	.if ELF_DEBUG > 1
+	.if ELF_DEBUG > 2
 		call	printhex8
 	.endif
 
@@ -888,7 +999,7 @@ elf_relocate_ptr:
 	pop	esi
 	pop	edx
 	# edi = vaddr
-	.if ELF_DEBUG > 1
+	.if ELF_DEBUG > 2
 		DEBUG_DWORD edi
 	.endif
 
@@ -897,7 +1008,6 @@ elf_relocate_ptr:
 #	jnz	3f
 #	print	"HILO "
 #3:
-
 	.if ELF_DEBUG
 		print " ["
 	.endif
@@ -909,12 +1019,15 @@ elf_relocate_ptr:
 		call	printhex8
 		call	printspace
 	.endif
-	sub	edx, edi
-	.if ELF_DEBUG > 1
+	sub	edx, edi	# - ph_vaddr
+	.if ELF_DEBUG
 		DEBUG_DWORD edx
 	.endif
 		sub	edx, [elf_vaddr_base]
-		add	edx, [elf_base]
+# comment out to use separate cs; leave here to have app cs relative
+	.if ELF_REL_KERNEL
+	add	edx, [elf_base]
+	.endif
 		add	edx, eax # prog base
 	.if ELF_DEBUG
 		call	printhex8
@@ -925,7 +1038,6 @@ elf_relocate_ptr:
 	.if ELF_DEBUG
 		print "]"
 	.endif
-
 	pop	edi
 	popad	
 	ret

@@ -74,6 +74,9 @@
 .equ ACC_NRM,	1 << 4	# 0b00010000 S
 .equ ACC_SYS,	0 << 4
 
+# this applies for ACC_SYS: for other gates, see idt.s
+.equ ACC_GATE_CALL, ACC_SYS | 0b1100
+
 .equ ACC_CODE,	1 << 3
 .equ ACC_DATA,	0 << 3
 .equ ACC_DC,	1 << 2
@@ -125,8 +128,21 @@ GDT_realmodeGS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 
 GDT_biosCS:	DEFGDT 0xf0000, 0x00ffff, ACCESS_CODE, FLAGS_16 #ffff 0000 00 92 00 00
 
-GDT_taskCS:	DEFGDT 0, 0x000000, ACCESS_CODE, FLAGS_32
-GDT_taskDS:	DEFGDT 0, 0x000000, ACCESS_DATA, FLAGS_32
+GDT_taskCS:	DEFGDT 0, 0x000000, ACCESS_CODE|ACC_RING3, FLAGS_32
+GDT_taskDS:	DEFGDT 0, 0x000000, ACCESS_DATA|ACC_RING3, FLAGS_32
+
+
+.macro DEFCALLGATE sel, offs, dpl, pc
+# DPL field of selector must be 0
+.word \offs & 0xffff
+.word \sel
+.byte \pc & 0b11111	# param count, upper 3 bits must be 0
+.byte ACC_PR | ((\dpl & 3) << 5) | ACC_GATE_CALL
+.word \offs >> 16
+.endm
+
+# the first 0 is the offset, but can't do math due to GAS limitations
+GDT_kernelCall:	DEFCALLGATE SEL_compatCS, 0, 3, 0
 
 pm_gdtr:.word . - GDT -1
 	.long GDT
@@ -157,7 +173,8 @@ rm_gdtr:.word 0
 .equ SEL_biosCS,	8 * 15	# 78 # origin F000:0000
 .equ SEL_taskCS,	8 * 16	# 80
 .equ SEL_taskDS,	8 * 17	# 88
-.equ SEL_MAX, SEL_taskDS + 0b11	# ring level 3
+.equ SEL_kernelCall,	8 * 18	# 90
+.equ SEL_MAX, SEL_kernelCall + 0b11	# ring level 3
 
 
 .macro GDT_STORE_SEG seg
@@ -179,7 +196,6 @@ rm_gdtr:.word 0
 .endm
 
 .macro GDT_GET_FLAGS target, sel
-.print "GET_FLAGS"
 	IS_REG8 _, \target
 	.if !_
 	.error "\target must be 8 bit register"
@@ -187,7 +203,6 @@ rm_gdtr:.word 0
 
 	IS_SEGREG _, \sel
 	.if _
-	.print "\sel is segment register"
 	GET_REG32 _R32, \target
 xor	_R32, _R32
 xor \target,\target
@@ -202,11 +217,9 @@ xor \target,\target
 	shr	\target, 4
 	pop	_R
 	.else
-	.print "\sel is NOT segment reg"
 	mov	\target, byte ptr [GDT + \sel + 6]
 	shr	\target, 4
 	.endif
-.print "GET FLAGS done"
 .endm
 
 .macro GDT_GET_BASE target, sel
@@ -237,9 +250,7 @@ xor \target,\target
 
 .macro GDT_SET_LIMIT sel, reg
 	IS_REG32 _, \reg
-DEBUG_BYTE [GDT+\sel+6]
 	and	byte ptr [GDT + \sel + 6], ((~(FL_GR4kb<<4)) & 0xf0)
-DEBUG_BYTE [GDT+\sel+6]
 
 	.if _
 	R16 \reg
@@ -264,14 +275,12 @@ DEBUG_BYTE [GDT+\sel+6]
 	.else
 
 	.if \reg > 0x000fffff
-	_TMP = (\reg + 4095) >> 12
+	_TMP = (\reg + 0xfff) >> 12
 	mov	[GDT + \sel + 0], word ptr (_TMP & 0xffff)
-#	or	[GDT + \sel + 6], byte ptr ((_TMP >> 16) & 0x0f)|(FL_GR4kb<<4)
+	or	[GDT + \sel + 6], byte ptr ((_TMP >> 16) & 0x0f)|(FL_GR4kb<<4)
 	.else
-	.print "FOO \sel \reg"
 	mov	[GDT + \sel + 0], word ptr \reg & 0xffff
 	or	[GDT + \sel + 6], byte ptr (\reg >> 16) & 0x0f
-	.print "BAR"
 	.endif
 
 	.endif
@@ -301,6 +310,7 @@ DEBUG_BYTE [GDT+\sel+6]
 .macro GDT_READ_LIMIT_b target, sel
 	push	esi
 	mov	esi, \sel
+	and	esi, ~7
 	_R32 = \target
 	R16 \target
 	R8H \target
@@ -314,7 +324,6 @@ DEBUG_BYTE [GDT+\sel+6]
 	pop	esi
 	jz	99f
 	shl	\target, 12
-	or	\target, 0xfff
 99:
 .endm
 
@@ -512,6 +521,11 @@ init_gdt_16:
 
 	GDT_STORE_SEG GDT_realmodeGS
 
+	# set the call gate
+	mov	eax, offset kernel_callgate
+	mov	[GDT_kernelCall + 0], ax
+	shr	eax, 16
+	mov	[GDT_kernelCall + 6], ax
 
 	# Load GDT
 
@@ -525,3 +539,86 @@ init_gdt_16:
 	pop	ebx
 	pop	eax
 	ret
+
+.text32
+# This method at current can be called from anywhere, using:
+# 	call SEL_kernelCall:whatever
+# and it will return with cs in kernel mode. The stack will be modified
+# so that a ret will return to this method which then exits back to CPL3
+# (or whatever CPL it was called from).
+kernel_callgate:
+# This method is implemented as a minor context-switch.
+# Once here, the ss:esp is according to the TSS, and cs is
+# according to the call gate descriptor.
+.if 0
+	printc 11, "KERNEL CALLGATE: cs="
+	push	edx
+	mov	edx, cs
+	call	printhex4
+	printc 11, " ss:esp="
+	mov	edx, ss
+	call	printhex8
+	printchar ':'
+	mov	edx, esp
+	call	printhex8
+	printc 11, " ret: "
+	mov	edx, [esp + 8]
+	call	printhex4
+	printchar ':'
+	mov	edx, [esp + 12]
+	call	printhex8
+
+	printc 11, " usermode ret: "
+	mov	edx, [edx]
+	call	printhex8
+	call	newline
+	pop	edx
+.endif
+
+## a CPL3 user function:
+# user_app:
+# 	call lib	
+# user_ret:
+#
+# lib:
+## user esp = [user_ret][...
+#	call SEL_kernelCall:0
+# 1:
+## kernel esp = [1][user cs][user esp][user ss]
+#
+.data SECTION_DATA_BSS
+_callgate_stack: .long 0
+_callgate_cont: .long 0
+.text32
+.if 0
+	push	ebp
+## esp = [ebp][1][user cs][user esp][user ss]
+	mov	ebp, [esp + 4 + 8]	# orig stack ptr
+## ebp = [user ret]
+	push	[esp+4]
+## esp = [1][ebp][1][user cs][user esp][user ss]
+	xchg	ebp, esp		# remember new stack, load orig stack
+## ebp = [1][ebp][1][user cs][user esp][user ss]
+## esp = [user_ret][...
+	pop	[ebp + 8]	# remove caller ret and replace our retf eip
+## esp = [...
+## ebp = [1][ebp][user_ret][user cs][user esp][user ss]
+	call	[ebp]
+	lea	esp, [ebp + 4]
+	pop	ebp
+.else
+	push	ebp
+	mov	ebp, [esp + 4 + 8]	# orig stack ptr
+	mov	[_callgate_stack], ebp
+	mov	ebp, [ebp]	# user ret
+	xchg	ebp, [esp + 4] # replace retf eip
+	mov	[_callgate_cont], ebp
+	pop	ebp
+	xchg	esp, [_callgate_stack]
+	add	esp, 4
+
+	call	[_callgate_cont]
+
+	mov	esp, [_callgate_stack]
+.endif
+	retf
