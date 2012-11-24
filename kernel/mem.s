@@ -1625,6 +1625,8 @@ _mallocz_malloc_ret$:
 	printc 4, " called from "
 	mov	edx, [esp + 2*4]	# edx+ecx
 	call	printhex8
+	call	printspace
+	call	debug_printsymbol
 	call	newline
 	pop	edx
 	jmp	1b
@@ -1738,6 +1740,8 @@ malloc:
 	printc 4, ": called from: "
 	mov	edx, [esp + 4*4]	# eax+edx+esi+ebx
 	call	printhex8
+	call	printspace
+	call	debug_printsymbol
 	call	newline
 2:	pop	eax
 	pop	edx
@@ -1817,6 +1821,8 @@ get_handle_by_base$:
 	printc 4, " called from: "
 	mov	edx, [esp + 5*4]
 	call	printhex8
+	call	printspace
+	call	debug_printsymbol
 	call	newline
 	pop	edx
 	
@@ -1980,6 +1986,8 @@ mfree:
 	print " called from "
 	mov	edx, [esp + 4*4 + COLOR_STACK_SIZE]
 	call	printhex8
+	call	printspace
+	call	debug_printsymbol
 		.if 0
 		print " ecx="
 		mov	edx, ecx
