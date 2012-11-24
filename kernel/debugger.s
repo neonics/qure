@@ -549,6 +549,7 @@ debugger_cmdline_pos$:		.long 0
 .text32
 # task
 debugger:
+	push	ebp
 	PIC_GET_MASK
 	push	eax
 	#push	dword ptr [mutex]
@@ -557,6 +558,8 @@ debugger:
 	push	dword ptr 0	# local storage
 	push	esi	# orig stack offset
 	push	edi	# stack offset
+	mov	ebp, esp
+	push	ebx	# stack segment
 
 	call	screen_get_scroll_lines
 	mov	[debugger_stack_print_lines$], eax
@@ -626,12 +629,12 @@ debugger:
 	jz	13f
 	jmp	6b
 
-10:	mov	edi, [esp]
+10:	mov	edi, [ebp]
 	jmp	62f
 59:	add	edi, 4
 	jmp	62f
 56:	sub	edi, 4
-62:	mov	esi, [esp + 4]
+62:	mov	esi, [ebp + 4]
 		# calculate where stack is printed on screen
 		call	screen_get_scroll_lines
 		sub	eax, [debugger_stack_print_lines$]
@@ -662,16 +665,17 @@ debugger:
 55:	call	cmd_tasks
 	jmp	0b
 
-13:	mov	al, [esp + 8]	# update low 3 bits (8 modes max)
+13:	mov	al, [ebp + 8]	# update low 3 bits (8 modes max)
 	mov	dl, al
 	and	al, 0xf8
 	inc	dl
 	and	dl, 7
 	or	al, dl
-	mov	[esp + 8], al
+	mov	[ebp + 8], al
 	jmp	4b
 
 9:	call	scheduler_resume
+	pop	ebx
 	pop	edi
 	pop	esi
 	add	esp, 4	# local storage
@@ -680,6 +684,7 @@ debugger:
 	#pop	dword ptr [mutex]
 	pop	eax
 	PIC_SET_MASK
+	pop	ebp
 	ret
 
 2:	call	debug_print_exception_registers$# printregisters

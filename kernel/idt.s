@@ -308,7 +308,7 @@ jmp_table_target:
 	# 8: double fault: error code always 0
 
 	cmp	cl, 14	# Page fault
-	jz	4f
+	jnz	4f
 	# 14 page fault: 
 	# bit 0: 0=triggered because page present; 1=not because page present
 	# bit 1: 0=cause is read, 1 = cause = write
@@ -316,7 +316,25 @@ jmp_table_target:
 	# bit 4: 0=not during instruction fetch; 1=during instruction fetch
 	# cause address in CR2.
 
+# bit 0: P (present) fault cause: 0 = page not present; 1=protection violation.
+# bit 1: W/R: access causing fault: 0 = read, 1 = write
+# bit 2: U/S: origin: 0=supervisor mode (CPL<3), 1=user mode (CPL=3)
+# bit 3: RSVD: 0=not, 1=caused by reserved bit set to 1 in paging struct entry.
+# bit 4: I/D: instruction/data: 0=not caused, 1=caused by instruction fetch.
+# bits 31:5: reserved.
 
+
+	PRINTFLAG dl, 1<<0, "PV ", "NP "
+	PRINTFLAG dl, 1<<1, "W", "R"
+	PRINTFLAG dl, 1<<2, "U", "S"
+	PRINTFLAG dl, 1<<3, "R", " "
+	PRINTFLAG dl, 1<<4, "C", "D"
+	PRINT	" LinAddr: "
+	mov	edx, cr2
+	call	printhex8
+
+	jmp	5f
+4:
 	#######################
 	# exception 10, 11, 12, 13: 
 	# bit 0: external event (0=internal)
@@ -344,7 +362,7 @@ jmp_table_target:
 	call	printhex8
 	#######################
 
-4:
+5:
 	#
 	add	edi, 4		# skip over error code: point to EIP:CS:EFLAGS
 	# End handle error code
@@ -447,7 +465,9 @@ jmp_table_target:
 	GDT_GET_LIMIT ebx, eax
 	cmp	edx, ebx
 	jb	1f
-	PRINTc 12, "IP beyond limit"
+	PRINTc 12, "IP beyond limit: "
+	push	ebx
+	call	_s_printhex8
 	jmp	0f
 1: 
 	# print the opcode: 4 bytes before, 4 bytes after cs:eip
@@ -500,10 +520,33 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	#############################
 	call	newline
 
+	call	debug_print_tss$
+
 	call	debug_print_exception_registers$
 
+#######
 	mov	esi, edi	# remember original stack ptr
+	mov	ebx, ss
 	call	debug_print_stack$
+
+	mov	edx, cs
+	mov	dh, dl
+	and	dh, 3
+	mov	dl, ss:[edi + 4]	# cs
+	and	dl, 3
+	cmp	dl, dh
+	jz	1f
+	# privilege level changed: esp,ss on stack after eflags,
+	# use this as the 'main' stack to print (for debugger scroll),
+	# as the last printed stack's position on screen is remembered.
+	mov	ebx, ss:[edi + 16]	# user ss
+	mov	esi, ss:[edi + 12]	# user esp
+	mov	edi, esi
+	printc_ 11, "USER"
+	call	debug_print_stack$
+1:
+#######
+
 	or	cx, cx	# division by zero
 	jz	2f
 	cmp	cx, 0xd	# general protection fault
@@ -511,6 +554,10 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	cmp	cx, 6	# invalid opcode
 	jz	2f
 	cmp	cx, 5	# bounds
+	jz	2f
+	cmp	cx, 0xa	# invalid TSS
+	jz	2f
+	cmp	cx, 0xe	# page fault
 	jz	2f
 	#############################
 .endif
@@ -559,6 +606,47 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	jmp	0b
 
 
+debug_print_tss$:
+	printc 15, "TSS: "
+	printc 7, "ESP0="
+	mov	edx, [tss_ESP0]
+	call	printhex8
+	printc 7, " SS0="
+	mov	edx, [tss_SS0]
+	call	printhex4
+	printc 7, " SS1="
+	mov	edx, [tss_SS1]
+	call	printhex4
+	printc 7, " SS2="
+	mov	edx, [tss_SS2]
+	call	printhex4
+	printc 7, " SS:ESP="
+	mov	edx, [tss_SS]
+	call	printhex4
+	printchar_ ':'
+	mov	edx, [tss_ESP]
+	call	printhex8
+	call	newline
+.if 1
+	printc 11, " ss:esp="
+	mov	edx, ss
+	call	printhex4
+	printchar_ ':'
+	mov	edx, esp
+	call	printhex8
+
+	printc 7, " TSS: cs="
+	mov	edx, [tss_CS]
+	call	printhex4
+
+	printc	11, " cs:"
+	mov	edx, cs
+	call	printhex4
+	call	newline
+.endif
+	ret
+
+
 debug_print_exception_registers$:
 	printc_ 7, "cs:eip="
 	mov	edx, ss:[edi + 4]
@@ -572,6 +660,12 @@ debug_print_exception_registers$:
 	call	printhex4
 	printc_ 7, " es="
 	mov	edx, [SR_ES] #[ebp - 20]
+	call	printhex4
+	printc_ 7, " fs="
+	mov	edx, fs
+	call	printhex4
+	printc_ 7, " gs="
+	mov	edx, gs
 	call	printhex4
 	call	newline
 
@@ -607,10 +701,28 @@ debug_print_exception_registers$:
 	printc_ 7, " esp="
 	lea	edx, [edi + 8]
 	call	printhex8
-	call	newline
+
+	mov	edx, cs
+	mov	dh, dl
+	and	dh, 3
+	mov	dl, ss:[edi + 4]
+	and	dl, 3
+	cmp	dl, dh
+	jz	1f
+	# privilege level changed: esp,ss on stack after eflags:
+
+	printc_ 7, " ss:esp="
+	movzx	edx, word ptr ss:[edi + 16]
+	call	printhex8
+	printchar_ ':'
+	mov	edx, ss:[edi + 12]
+	call	printhex8
+
+1:	call	newline
 	ret
 
 
+# in: ebx = stack segment
 # in: edi = stack pointer
 # in: esi = original stack pointer (points to eip,cs,eflags)
 # destroys: eax, edx
@@ -625,7 +737,7 @@ debug_print_stack$:
 	mov	[stack_print_pos$], eax
 
 	printc 11, " STACK: "
-	mov	dx, ss
+	mov	dx, bx
 	call	printhex4
 	printcharc 10 ':'
 	mov	edx, edi
@@ -636,8 +748,27 @@ debug_print_stack$:
 	call	printhex8
 	call	newline
 
+	push	fs
+	mov	fs, ebx
 	push	ebp
 	push	ecx
+##
+	xor	edx, edx
+	mov	ecx, ss
+	cmp	ebx, ecx
+	jnz	1f	# printed stack != exception stack: flag is 0
+	inc	edx	# flag 1 (or higher): printing exception stack
+	# if privilege level change, ss:esp of ring3 is also on stack
+	mov	ecx, cs
+	and	cl, 3
+	mov	ch, ss:[esi + 4]	# cs
+	and	ch, 3
+	cmp	cl, ch
+	jz	1f	# same privilege
+	inc	edx	# privilege level different: have ss:esp on stack
+1:	push	edx	# 0=user stack;>0=excpt stack; 1=same priv, 2=diff priv
+##
+
 	mov	ebp, edi
 
 	mov	ecx, 5#10 # 16
@@ -645,26 +776,41 @@ debug_print_stack$:
 	color	12
 	call	printhex8
 	printc	8, ": "
-	mov	edx, [ebp]
+	mov	edx, fs:[ebp]
 	color	7
 	call	printhex8
 	call	printspace
 
-	# check if stack address points to eip,cs or eflags
+	cmp	byte ptr [esp], 0
+	jz	3f	# user stack, skip exception stack interpretation
+
+	# check if stack address points to eip,cs,eflags, and opt ss:esp
 	push	edx
 	push	esi
 	mov	eax, esi
 	mov	dl, 1
 	sub	eax, ebp
-	LOAD_TXT "eip \0cs \0eflags "
-	jz	1f
+	LOAD_TXT "eip \0cs \0eflags \0esp \0ss "
+	jz	1f	# print "eip "
 	inc	dl
 	add	esi, 5	# skip "eip \0"
 	add	eax, 4
-	jz	1f
+	jz	1f	# print "cs "
 	add	esi, 4	# skip "cs \0"
 	add	eax, 4
+.if 0
 	jnz	2f
+.else
+	jz	1f	# print "eflags "
+	cmp	byte ptr [esp + 8], 1
+	jz	2f	# same priv level, no ss:esp
+	add	esi, 8	# skip "eflags \0"
+	add	eax, 4
+	jz	1f	# print "esp "
+	add	esi, 5	# skip "esp \0"
+	add	eax, 4
+	jnz	2f
+.endif
 1:	mov	ah, 9
 	call	printc
 	dec	dl
@@ -672,15 +818,17 @@ debug_print_stack$:
 	pop	edx
 	jnz	1f	# don't print symbol for cs, eflags
 
-	call	debug_printsymbol
+3:	call	debug_printsymbol
 1:	call	newline
 
 	add	ebp, 4
 	dec	ecx
 	jnz	0b
 
+	add	esp, 4	# pop the userstack flag
 	pop	ecx
 	pop	ebp
+	pop	fs
 
 	# calculate stack print screenpos
 	call	screen_get_scroll_lines
