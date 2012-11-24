@@ -201,7 +201,7 @@ bios_proxy:
 
 	# now use iret to conveniently jump
 	iret
-.code16
+.text16
 2:	# BIOS should return here in 16 bit CS selector
 	# return to 32 bit CS
 	push	SEL_compatCS # should be same as in IDT
@@ -221,4 +221,4 @@ bios_proxy:
 	pop	eax
 	pop	ebp
 	ret # or iret, depending on how this is called.
-
+.text32
