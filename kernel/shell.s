@@ -1264,6 +1264,7 @@ cmd_ls$:
 	jz	3f
 	# '>': door (sun/solaris)
 	mov	ax, 10 << 8 | '*'
+	mov	ax, 10 << 8 | ' '
 	test	ebx, POSIX_PERM_X | POSIX_PERM_X << 3 | POSIX_PERM_X << 6
 	jnz	3f
 	mov	ah, 7
