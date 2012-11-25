@@ -76,10 +76,12 @@ DEFINE = 1
 
 .macro INCLUDE file, name=0
 .ifnc 0,\name
+.text32
 code_\name\()_start:
 .endif
 .include "\file"
 .ifnc 0,\name
+.text32
 code_\name\()_end:
 .endif
 .endm
@@ -101,7 +103,9 @@ include "string.s", string
 include "schedule.s", scheduler
 
 include "token.s", tokenizer
-include "shell.s", shell
+DEFINE = 0
+include "shell.s"
+DEFINE = 1
 
 include "dev.s", dev
 include "pci.s", pci
@@ -114,6 +118,8 @@ include "partition.s", partition
 include "fat.s", fat
 include "sfs.s", sfs
 include "iso9660.s", iso9660
+
+include "shell.s", shell
 
 code_nic_start:
 include "nic.s"

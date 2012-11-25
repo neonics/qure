@@ -2839,7 +2839,7 @@ cmd_mem$:
 	jz	2f
 
 	mov	ecx, offset code_print_start
-	.irp _, print,pmode,paging,debugger,pit,keyboard,console,mem,hash,string,scheduler,tokenizer,shell,dev,pci,bios,cmos,ata,fs,partition,fat,sfs,iso9660,nic,net,gfx,hwdebug,vmware,kernel
+	.irp _, print,pmode,paging,debugger,pit,keyboard,console,mem,hash,string,scheduler,tokenizer,dev,pci,bios,cmos,ata,fs,partition,fat,sfs,iso9660,shell,nic,net,gfx,hwdebug,vmware,kernel
 	PRINT_MEMRANGE code_\_\(), indent="  "
 	.endr
 

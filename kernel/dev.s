@@ -8,7 +8,7 @@ DEV_PCI_PRINT_VENDOR_ID = 1
 DEV_ATA_PRINT_BUS = 0
 
 .intel_syntax noprefix
-.code32
+.text32
 
 ###############################
 .struct OBJ_STRUCT_SIZE	# variable length objects

@@ -1434,6 +1434,16 @@ fs_update_path:
 #####################################################################
 # POSIX file attributes and permissions
 
+POSIX_TYPE_MASK = 0770000
+POSIX_TYPE_SHIFT= 4*3
+
+POSIX_TYPE_SOCK	= 0140000
+POSIX_TYPE_LINK	= 0120000
+POSIX_TYPE_FILE	= 0100000
+POSIX_TYPE_BLK	= 0060000
+POSIX_TYPE_DIR	= 0040000
+POSIX_TYPE_CHR	= 0020000
+POSIX_TYPE_FIFO	= 0010000
 
 # Attributes: These apply to the 4th octal from the right:
 POSIX_PERM_SETUID = 4
@@ -1449,7 +1459,7 @@ POSIX_PERM_X	= 1
 # TT=type: 0TT0000
 #  14 = socket			(S_IFSOCK)
 #  12 = symbolic link		(S_IFLNK)
-#  10 = regular		(S_IFREG)
+#  10 = regular			(S_IFREG)
 #  06 = block special		(S_IFBLK)
 #  04 = directory		(S_IFDIR)
 #  02 = character special	(S_IFCHR)
