@@ -105,10 +105,16 @@ DEBUG_DWORD \r
 .endm
 
 
-.macro DEBUG_BYTE r8
+.macro DEBUG_BYTE r8, label=""
 	pushf
 	pushcolor DEBUG_COLOR1
+	.ifnc 0,\label
+	.ifc "","\label"
 	print	"\r8="
+	.else
+	print	"\label="
+	.endif
+	.endif
 	color	DEBUG_COLOR2
 	.ifc dl,\r8
 	call	printhex2
@@ -126,10 +132,12 @@ DEBUG_DWORD \r
 .macro DEBUG_WORD r16, label=""
 	pushf
 	pushcolor DEBUG_COLOR1
+	.ifnc 0,\label
 	.ifc "","\label"
 	print	"\r16="
 	.else
 	print	"\label="
+	.endif
 	.endif
 	color	DEBUG_COLOR2
 	.ifc dx,\r16
@@ -148,10 +156,12 @@ DEBUG_DWORD \r
 .macro DEBUG_DWORD r32, label=""
 	pushf
 	pushcolor DEBUG_COLOR1
+	.ifnc 0,\label
 	.ifc "","\label"
 	print	"\r32="
 	.else
 	print	"\label="
+	.endif
 	.endif
 	color	DEBUG_COLOR2
 	.ifc	edx,\r32

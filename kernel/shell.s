@@ -1206,11 +1206,30 @@ cmd_ls$:
 	loop	1b
 
 	call	printspace
-	call	print
 
+	mov	eax, [esi + fs_dirent_posix_perm]
+	or	eax, eax
+	jz	1f
+	call	fs_posix_perm_print
+	call	printspace
+	mov	edx, [esi + fs_dirent_posix_uid]
+	call	printdec32
+	call	printspace
+	mov	edx, [esi + fs_dirent_posix_gid]
+	call	printdec32
+	call	printspace
+1:
+	mov	ah, 7
+	test	byte ptr [esi + fs_dirent_attr], 0x10 # dir
+	jz	1f
+	mov	ah, 9
+1:	call	printc
 
+	test	byte ptr [esi + fs_dirent_attr], 0x10 # dir
+	jz	1f
+	printchar_ '/'
 
-	call	newline
+1:	call	newline
 	pop	eax
 	jmp	0b
 

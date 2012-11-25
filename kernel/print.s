@@ -303,9 +303,9 @@ COLOR_STACK_SIZE = 2
 		.if \noscroll
 		.else
 			cmp	edi, 160 * 25
-			jb	99f
+			jb	199f
 			call	__scroll
-			99:
+			199:
 		.endif
 
 		.if VIRTUAL_CONSOLES
@@ -389,21 +389,21 @@ COLOR_STACK_SIZE = 2
 .macro LOAD_TXT txt, reg = esi
 	_CODE_OFFS = .
 	.data SECTION_DATA_STRINGS
-		99: .asciz "\txt"
+		199: .asciz "\txt"
 	.section .strtab
-		.long 99b, _CODE_OFFS + 1
+		.long 199b, _CODE_OFFS + 1
 	.text32
-	mov	\reg, offset 99b
+	mov	\reg, offset 199b
 .endm
 
 .macro PUSH_TXT txt
 	_CODE_OFFS = .
 	.data SECTION_DATA_STRINGS
-		99: .asciz "\txt"
+		199: .asciz "\txt"
 	.section .strtab
-		.long 99b, _CODE_OFFS + 1
+		.long 199b, _CODE_OFFS + 1
 	.text32
-	push	dword ptr offset 99b
+	push	dword ptr offset 199b
 .endm
 
 # for printf
@@ -415,11 +415,11 @@ COLOR_STACK_SIZE = 2
 # call from .data
 .macro STRINGPTR n
 	.data SECTION_DATA_STRINGS
-	99: .asciz "\n"
+	199: .asciz "\n"
 	.section .strtab
-		.long 99b, 98f
+		.long 199b, 198f
 	.data
-	98: .long 99b
+	198: .long 199b
 .endm
 
 # call from .data
@@ -441,26 +441,26 @@ COLOR_STACK_SIZE = 2
 
 
 .macro PRINTSKIP_
-91:	lodsb
+191:	lodsb
 	or	al, al
-	jnz	91b
+	jnz	191b
 .endm
 
 # like PRINT_, except the string is skipped when ZF=1, and printed when ZF=0
 .macro PRINT_NZ_
-	jz	99f;
+	jz	199f
 	call	print_
-	jmp	98f
-99:	PRINTSKIP_
-98:
+	jmp	198f
+199:	PRINTSKIP_
+198:
 .endm
 
 .macro PRINT_Z_
-	jnz	99f;
+	jnz	199f
 	call	print_
-	jmp	98f
-99:	PRINTSKIP_
-98:
+	jmp	198f
+199:	PRINTSKIP_
+198:
 .endm
 
 
@@ -697,6 +697,34 @@ __printhex8:
 	pop	ecx
 	ret
 
+############################## print octal
+# 18 bits:
+printoct6:
+	push	ecx
+	push	edx
+	mov	cl, 18 - 3
+	jmp	1f
+# in: edx
+printoct:
+	push	ecx
+	push	edx
+	mov	cl, 32 - 2
+1:	push	ebx
+	PRINT_START
+0:	mov	ebx, edx
+	shr	ebx, cl
+	and	bl, 7
+	add	bl, '0'
+	mov	al, bl
+	stosw
+
+	sub	cl, 3
+	jge	0b
+	PRINT_END
+	pop	ebx
+	pop	edx
+	pop	ecx
+	ret
 
 ########################### CLEAR SCREEN, NEW LINE, SCROLL ##########
 

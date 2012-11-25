@@ -698,6 +698,13 @@ fs_dirent_name: .space 255
 fs_dirent_attr:	.byte 0		# RHSVDA78
   FS_DIRENT_ATTR_DIR = 1 << 4
 fs_dirent_size:	.long 0, 0
+fs_dirent_posix_perm:	.long 0
+fs_dirent_posix_uid:	.long 0
+fs_dirent_posix_gid:	.long 0
+fs_dirent_posix_ctime:	.long 0,0	# use short 7 byte fmt - reserve 8
+fs_dirent_posix_mtime:	.long 0,0
+fs_dirent_posix_atime:	.long 0,0
+# some other times - ignored.
 FS_DIRENT_STRUCT_SIZE = .
 .text32
 
@@ -722,7 +729,7 @@ FS_HANDLE_STRUCT_SIZE = .
 # - directory or file
 # - softlink
 
-.data
+.data SECTION_DATA_BSS
 # open files
 fs_handles$:	.long 0
 .text32
@@ -1052,7 +1059,7 @@ fs_close:	# fs_free_handle
 # 
 # in: eax = pointer to path string
 # out: eax = directory handle (pointer to struct), to be freed with fs_close.
-.data
+.data SECTION_DATA_BSS
 fs_openfoo: .byte 0
 .text32
 
@@ -1424,5 +1431,120 @@ fs_update_path:
 	pop	ebp
 	ret
 
+#####################################################################
+# POSIX file attributes and permissions
+
+
+# Attributes: These apply to the 4th octal from the right:
+POSIX_PERM_SETUID = 4
+POSIX_PERM_SETGID = 2
+POSIX_PERM_STICKY = 1
+# These apply to the last 3 octals:
+POSIX_PERM_R	= 4
+POSIX_PERM_W	= 2
+POSIX_PERM_X	= 1
+
+# in: eax = posix bits: 6 octals (18 bits)
+# octal values: 000000:  TTAugo
+# TT=type: 0TT0000
+#  14 = socket			(S_IFSOCK)
+#  12 = symbolic link		(S_IFLNK)
+#  10 = regular		(S_IFREG)
+#  06 = block special		(S_IFBLK)
+#  04 = directory		(S_IFDIR)
+#  02 = character special	(S_IFCHR)
+#  01 = pipe or FIFO		(S_IFIFO)
+#  undefined: 00, 03, 05, 07, 11, 13, 15, 16, 17
+# A=attributes (setuid, setgid, sticky)
+# u,g,o: rwx permissions
+fs_posix_perm_print:
+	push	eax
+	push	ebx
+	push	ecx
+	mov	ebx, eax
+
+	rol	ebx, 32 - 18 + 6	# have first 2 valid octals in bl:
+	movzx	eax, bl
+	rol	ebx, 3
+	and	al, 077
+	.data SECTION_DATA_STRINGS
+	posix_file_type_labels$:
+	.byte '0'	# 000
+	.byte 'f'	# 001 fifo
+	.byte 'c'	# 002 char
+	.byte '?'	# 003
+	.byte 'd'	# 004 dir
+	.byte '?'	# 005
+	.byte 'b'	# 006 block
+	.byte '?'	# 007
+	.byte '-'	# 010 regular
+	.byte '?'	# 011
+	.byte 'l'	# 012 link
+	.byte '?'	# 013
+	.byte 's'	# 014 socket
+	.ascii "???"	# 015, 016, 017: undefined
+	.text32
+	mov	al, [posix_file_type_labels$ + eax]
+	call	printchar
+
+	# get the special bits in ch
+	mov	ch, bl
+	and	ch, 7
+	rol	ebx, 3
+
+	call	posix_perm_3_print$
+
+	rol	ebx, 3
+	shl	ch, 1
+
+	call	posix_perm_3_print$
+
+	rol	ebx, 3
+	shl	ch, 1
+	or	ch, 0x80	# print 'T' 't' instead of 'S' 's'
+
+	call	posix_perm_3_print$
+
+	pop	ecx
+	pop	ebx
+	pop	eax
+	ret
+
+posix_perm_3_print$:
+	# 'R' bit
+	mov	ax, '-' | 'r' << 8
+	mov	cl, bl
+	shl	cl, 1
+	and	cl, 8
+	shr	eax, cl
+	call	printchar
+
+	# 'W' bit
+	mov	ax, '-' | 'w' << 8
+	mov	cl, bl
+	shl	cl, 2
+	and	cl, 8
+	shr	eax, cl
+	call	printchar
+
+	# 'X' bit: '-', 'x', 'S', 's'
+	mov	eax, '-' | 'x' << 8 | 'S' << 16 | 's' << 24
+	mov	cl, bl
+	shl	cl, 3
+	and	cl, 8
+	shr	eax, cl
+	mov	cl, ch
+	and	cl, 4	#highest special bit
+	shl	cl, 2
+	shr	eax, cl	# ax is either '-x' or 'Ss'
+
+	# we only want to increment the letter if eax was shifted, cl=16
+	shl	cl, 3	# cl is now either 0 or 0x80
+	add	ch, cl	# 0x80 + 0x80 -> CF
+
+	adc	al, 0	# increment 'S'/'s' to 'T'/'t'
+
+	call	printchar
+	ret
 
 ###############################################################################

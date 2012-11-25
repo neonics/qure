@@ -9,6 +9,7 @@
 .intel_syntax noprefix
 
 ISO9660_DEBUG = 0
+ISO9660_RR_DEBUG = 0	# rockridge, 'SUSP/RRIP'
 
 ISO9660_CACHE_ROOT_DIR = 0
 
@@ -273,8 +274,6 @@ fs_iso9660_nextentry:
 	jnz	1f
 	inc	ecx
 1:
-
-	#mov	edx, [eax + iso_root_dir]
 .if ISO9660_CACHE_ROOT_DIR
 	cmp	ebx, -1
 	jnz	0f
@@ -288,39 +287,37 @@ fs_iso9660_nextentry:
 
 	.if ISO9660_DEBUG > 1
 		push esi
-		debug "offset"
-		debug_dword ecx
+		debug_dword ecx, "offset"
 		push ecx
 		movzx ecx, byte ptr [edx + iso9660_dr_dir_name_len]
-		debug "dirnamelen"
-		DEBUG_DWORD ecx
+		DEBUG_DWORD ecx, "dirnamelen"
 		lea esi, [edx + iso9660_dr_dir_name]
 		call nprint
-		mov ecx, [edx + iso9660_dr_data_len]
-		debug "datalen"
-		debug_dword ecx
-		debug "ext"
-		mov ecx, [edx + iso9660_dr_extent_location]
-		debug_dword ecx
+		DEBUG_DWORD [edx+iso9660_dr_data_len],"datalen"
+		DEBUG_DWORD [edx+iso9660_dr_extent_location],"ext"
+		DEBUG_BYTE [edx+iso9660_dr_ext_attr_len],"extattr"
 		call newline
-		call more
+		DEBUG_BYTE [edx+iso9660_dr_record_len],"recordlen"
+		add	esi, ecx
+		sub	esi, edx
+		DEBUG_DWORD esi,"std reclen"
+		movzx	ecx, byte ptr [edx + iso9660_dr_record_len]
+		sub	ecx, esi
+		DEBUG_DWORD ecx, "system use len"
+		call newline
 		pop ecx
 		pop esi
 	.endif
-	call	iso9660_make_fs_entry$
 
-		.if 0
-		push	esi
-		movzx	esi, byte ptr [edx + iso9660_dr_dir_name_len]
-		add	esi, offset iso9660_dr_dir_name
-		add	ecx, esi
-		inc	ecx
-		and	cl, ~1
-		# start of system use.
-		# end of system use: see iso9660_dr_record_len
-		# TODO: rockridge extensions
-		pop	esi
-		.endif
+	call	iso9660_make_fs_entry$	# in: edx=iso dirent, edi=fs dirent
+
+	# parse RockRidge Extensions, and update the fs dirent info in edi
+	push	esi
+	push	ecx
+	call	iso9660_dr_get_susp	# in: edx; out: esi, ecx
+	call	iso9660_parse_rockridge	# in: esi,ecx=SUSP area; in: edi=dirent
+	pop	ecx
+	pop	esi
 
 	movzx	esi, byte ptr [edx + iso9660_dr_record_len]
 	add	ecx, esi
@@ -330,6 +327,465 @@ fs_iso9660_nextentry:
 
 1:	mov	ecx, -1
 	stc
+	ret
+
+# in: esi = points to directory entry system use area
+# in: ecx = system use area size
+iso9660_parse_rockridge:
+	push	eax
+	push	ecx
+	push	edx
+
+	.if ISO9660_RR_DEBUG > 1
+		push	esi
+		push	ecx
+	0:	lodsb
+		mov	dl, al
+		call	printhex2
+		call	printspace
+		loop	0b
+		call	newline
+		pop	ecx
+		pop	esi
+	.endif
+
+	xor	eax, eax
+########
+0:	cmp	byte ptr [esi + 2], 4
+	jb	99f
+	push	ecx
+###
+	lodsb	# first char of signature word
+	.if ISO9660_RR_DEBUG
+		call	printchar
+	.endif
+	lodsb	# second char of signature word
+	.if ISO9660_RR_DEBUG
+		call	printchar
+		call	printspace
+	.endif
+	lodsb	# 'record' length
+	movzx	ecx, al
+	sub	ecx, 4
+	lodsb	# version
+	.if ISO9660_RR_DEBUG
+		movzx	edx, al
+		printchar_ 'v'
+		mov	al, dl
+		call	printdec32
+		call	printspace
+		mov	edx, ecx
+		call	printdec32
+		call	printspace
+	.endif
+	push	ecx
+	push	esi
+	cmp	al, 1	# check version
+	jnz	1f
+##	# esi,ecx = payload
+	mov	ax, [esi - 4]	# signature word
+
+	# * marks TODO:
+	#
+	# SUSP fields:
+	#
+	#*CE: continuation area: when system use field len - rec len exceeds 255
+	#*PD: padding field
+	#*SP: system use sharing protocol indicator
+	#*ST: system use sharing protocol terminator
+	#*ER: extensions reference
+	#*ES: extension selector
+	#*AA: apple extension, preferred
+	#*AB: apple extension, OLD
+	#*AS: amiga file properties
+	#
+	# RRIP (POSIX SUSP tags):
+	#
+	# RR: rockridge extensions in-use indicator (deprecated)
+	# PX: posix file attributes
+	# PN: posix device numbers
+	#*SL: symbolic link
+	# NM: alernate name
+	# (due to dir structure being max 8 levels deep:)
+	#*CL: child link: LBA of relocated/child dir.
+	#*PL: parent link: LBA of original parent of relocated dir
+	#*RE: relocated: its presence indicates it is a relocated vers of orig.
+	# TF: timestamps
+	#*SF: sparse file data
+
+	cmp	ax, 'R' | 'R'<<8	# undocumented?
+	jz	2f
+	cmp	ax, 'N' | 'M'<<8
+	jz	3f
+	cmp	ax, 'P' | 'X'<<8
+	jz	4f
+	cmp	ax, 'T' | 'F'<<8
+	jz	5f
+	cmp	ax, 'S' | 'P'<<8
+	jz	6f
+	cmp	ax, 'P' | 'N'<<8
+	jz	7f
+	cmp	ax, 'S' | 'P'<<8
+	jz	8f
+	cmp	ax, 'S' | 'T'<<8
+	jz	9f
+	.if ISO9660_RR_DEBUG
+		printc 6, "Unknown"
+	.endif
+1:
+	.if ISO9660_RR_DEBUG
+		call	newline
+	.endif
+##
+	pop	esi
+	pop	ecx
+	add	esi, ecx
+	mov	edx, ecx
+###
+	pop	ecx
+	sub	ecx, edx
+	jg	0b
+########
+99:
+	pop	edx
+	pop	ecx
+	pop	eax
+	ret
+
+
+#################################
+# RR: SUSP extension: declare rockridge (deprecated, can't find doc)
+2:	cmp	ecx, 1
+	jnz	22f
+	lodsb	# generally 0x89 or 0x81.. flags?
+	.if ISO9660_RR_DEBUG
+		mov	dl, al
+		call	printhex2
+	.endif
+	jmp	1b
+22:	printc 6, "warning: 'RR' is not len 1: "
+	mov	edx, ecx
+	call	printdec32
+	jmp	1b
+#################################
+# SP: 'SUSP' system use sharing protocol indicator
+8:	or	ecx, ecx
+	jz	1b
+80:	lodsb
+	.if ISO9660_RR_DEBUG
+		mov	dl, al
+		call	printhex2
+		call	printspace
+	.endif
+	loop	80b
+	jmp	1b
+#################################
+# ST: 'SUSP' system use sharing protocol terminator
+9:	jmp	8b
+#################################
+# NM: name
+# format: 'N', 'M', len, 1, flags, ascii name (not zero terminated!)
+# flag bits:
+#   0 = continue: 1=concatenate more NM records; 0=last nm
+#   1 = current: 1=the name refers to the current directory.
+#   2 = parent: name refers to parent dir.
+# other bits reserved; bit 5 legacy meaning: network node name.
+# restriction: only one of the first 3 bits may be set.
+3:	lodsb	# flags
+	or	al, al
+	jnz	33f
+	dec	ecx
+	jle	1b
+	.if ISO9660_RR_DEBUG
+		mov	al, '\''
+		call	printchar
+		call	nprint
+		call	printchar
+	.endif
+
+	# copy new filename to dir handle.
+	# Safety quaranteed: fs_dirent_name is 256 bytes; SUSP field is
+	# max 255-31 and thus NM aswell.
+	push	edi
+	add	edi, offset fs_dirent_name
+	rep	movsb
+	xor	al, al
+	stosb
+	pop	edi
+
+	jmp	1b
+33:	printc	6, "warning: 'NM' flag unsupported: "
+	mov	dl, al
+	call	printhex2
+	jmp	1b
+#################################
+# PX: POSIX permissions, type
+# perm:	dd LSB, MSB
+# link:	dd LSB, MSB
+# uid:	dd LSB, MSB
+# gid:	dd LSB, MSB: total record len is 32 bytes. If longer:
+# ino:	dd LSB, MSB: file serial nr, st_ino; dir records with same ino=same file
+4:	lodsd	# permissions
+	add	esi, 4	# skip msb
+	.if ISO9660_RR_DEBUG
+		mov	edx, eax
+		printc	15, " perm "
+		call	printoct6
+		call	printspace
+		call	fs_posix_perm_print	# in: eax
+	.endif
+
+	mov	[edi + fs_dirent_posix_perm], eax
+
+	lodsd	# link
+	add	esi, 4	# skip msb
+	.if ISO9660_RR_DEBUG
+		printc	15, " link "
+		mov	edx, eax
+		call	printhex8
+	.endif
+
+	lodsd	# uid
+	add	esi, 4	# skip msb
+
+	mov	[edi + fs_dirent_posix_uid], eax
+
+	.if ISO9660_RR_DEBUG
+		printc	15, " uid "
+		mov	edx, eax
+		call	printdec32
+	.endif
+
+	lodsd	# gid
+	add	esi, 4	# skip msb
+
+	mov	[edi + fs_dirent_posix_gid], eax
+
+	.if ISO9660_RR_DEBUG
+		printc	15, " gid "
+		mov	edx, eax
+		call	printdec32
+	.endif
+
+	sub	ecx, 32
+	jle	1b
+
+	lodsd
+	add	esi, 4
+	.if ISO9660_RR_DEBUG
+		printc	15, " inode "
+		mov	edx, eax
+		call	printhex8
+	.endif
+
+	jmp	1b
+#################################
+# PN: device number
+# mandatory when PN specifies char/block device; ignore otherwise.
+7:	# len: 20 (-4) for version 1
+	lodsd
+	add	esi, 4	# skip msb
+	mov	edx, eax
+	call	printdec32
+	printchar_ ','
+	lodsd
+	add	esi, 4	# skip msb
+	mov	edx, eax
+	call	printdec32
+	jmp	1b
+#################################
+# TF: time stamps
+# payload: flags, time data recorded according to flags.
+RR_TF_FLAG_CREATION	= 1 << 0
+RR_TF_FLAG_MODIFY	= 1 << 1
+RR_TF_FLAG_ACCESS	= 1 << 2
+RR_TF_FLAG_ATTRIBUTES	= 1 << 3
+RR_TF_FLAG_BACKUP	= 1 << 4
+RR_TF_FLAG_EXPIRATION	= 1 << 5
+RR_TF_FLAG_EFFECTIVE	= 1 << 6
+RR_TF_FLAG_LONG_FORM	= 1 << 7 # fmt:1=(l=17)9660:8.4.26.1; 0=(l=7)9660:9.1.5
+5:	lodsb
+	mov	ah, al
+	test	ah, RR_TF_FLAG_LONG_FORM
+	jz	51f
+	# long form
+	.if ISO9660_RR_DEBUG > 1
+		printcharc 12, 'L'
+		.irp l,ctime,mtime,atime,attrtime,btime,exptime,efftime
+		shr	ah, 1
+		jnc	59f
+		call	iso9660_time_long_specified
+		jc	59f
+		printc	15, " \l "
+		call	iso9660_time_long_print
+	59:;	.endr
+	.endif
+
+51:	# short form
+	.if ISO9660_RR_DEBUG > 1
+		printcharc 12, 'S'
+		.irp l,ctime,mtime,atime,attrtime,btime,exptime,efftime
+		shr	ah, 1
+		jnc	59f
+		call	iso9660_time_short_specified
+		jc	59f
+		printc	15, " \l "
+		call	iso9660_time_short_print
+	59:;	.endr
+	.endif
+
+	jmp	1b
+#################################
+# SP
+6:
+	jmp	1b
+#################################
+
+# in: esi: offset to iso9660:8.4.26.1 long format time
+# out: CF = 1: time not specified (zero); 0: specified
+# out: esi: CF=1: advanced beyond time (+17); CF=0: unmodified
+iso9660_time_long_specified:
+	push	eax
+	push	edx
+	# if all digits are '0' and the timezone is 0, the record is not
+	# specified (even though flag may indicate it is stored).
+	mov	eax, [esi]
+	sub	eax, '0'|'0'<<8|'0'<<16|'0'<<24
+	add	eax, [esi + 4]
+	sub	eax, '0'|'0'<<8|'0'<<16|'0'<<24
+	add	eax, [esi + 8]
+	sub	eax, '0'|'0'<<8|'0'<<16|'0'<<24
+	add	eax, [esi + 12]
+	sub	eax, '0'|'0'<<8|'0'<<16|'0'<<24
+	movzx	edx, byte ptr [esi + 16]
+	add	eax, edx
+	clc
+	jnz	9f
+	add	esi, 17
+	stc
+9:	pop	edx
+	pop	eax
+	ret
+
+iso9660_time_long_print:
+	# date:
+	.rept 4
+	lodsb
+	call	printchar
+	.endr
+	.rept 2
+	printchar_ '-'
+	lodsb
+	call	printchar
+	lodsb
+	call	printchar
+	.endr
+	call	printspace
+	# time
+	lodsb
+	call	printchar
+	lodsb
+	call	printchar
+	.rept 2
+	printchar_ ':'
+	lodsb
+	call	printchar
+	lodsb
+	call	printchar
+	.endr
+	printchar '.'
+	lodsb
+	call	printchar
+	lodsb
+	call	printchar
+	call	printspace
+	# timezone (GMT offset)
+	lodsb	# 15 minute intervals
+	call	iso9660_print_tz
+9:	ret
+
+# in: esi: offset to iso9660:9.1.5 short format time
+# out: CF = 1: time not specified (zero); 0: specified
+# out: esi: CF=1: advanced beyond time (+17); CF=0: unmodified
+iso9660_time_short_specified:
+	push	eax
+	# if all 7 values are 0, the record is not stored (even though
+	# flag may say so).
+	mov	eax, [esi + 4]
+	and	eax, 0x00ffffff
+	add	eax, [esi]
+	clc
+	jnz	9f
+	add	esi, 7
+	stc
+9:	pop	eax
+	ret
+
+iso9660_time_short_print:
+	push	eax
+	# date
+	lodsb
+	movzx	edx, al
+	add	edx, 1900
+	call	printdec32
+	.rept 2
+	printchar_ '-'
+	lodsb
+	movzx	edx, al
+	call	printdec32
+	.endr
+	call	printspace
+	# time
+	lodsb
+	mov	dl, al
+	call	printdec32
+	.rept 2
+	printchar_ ':'
+	lodsb
+	mov	dl, al
+	call	printdec32
+	.endr
+	# timezone
+	lodsb
+	call	iso9660_print_tz
+9:	pop	eax
+	ret
+
+iso9660_print_tz:
+	movsx	edx, al
+	mov	al, '+'
+	or	edx, edx
+	jns	1f
+	mov	al, '-'
+	neg	edx
+1:	call	printchar
+	# 4 -> 60 minutes -> 100
+	# so take 25 'minutes' per quarter
+	mov	eax, 25
+	imul	edx, eax
+	cmp	edx, 1000
+	jae	1f
+	printchar_ '0'
+1:	call	printdec32
+	ret
+
+# in: edx = directory record pointer
+# out: esi = start of system use area in directory record
+# out: ecx = length of system use area
+iso9660_dr_get_susp:
+	movzx	ecx, byte ptr [edx + iso9660_dr_record_len]
+	sub	ecx, offset iso9660_dr_dir_name
+	movzx	esi, byte ptr [edx + iso9660_dr_dir_name_len]
+	sub	ecx, esi	# ecx is now system use len
+
+	add	esi, offset iso9660_dr_dir_name
+	# word align: use relative offset
+	bt	esi, 0
+	sbb	cl, 0
+	bt	esi, 0
+	adc	esi, 0
+
+	add	esi, edx	# start of sysuse
 	ret
 
 
@@ -416,21 +872,11 @@ iso9660_find_entry$:
 	# TODO: scan rockridge extensions for long filenames
 
 ######## find length of filename - strip trailing ;1 etc.
-	push	ecx
-	movzx	ecx, byte ptr [ebx + iso9660_dr_dir_name_len]
-	mov	al, ';'
-	lea	edi, [ebx + iso9660_dr_dir_name]
-	repnz	scasb
-	jnz	1f
-	inc	ecx
-1:	movzx	eax, byte ptr [ebx + iso9660_dr_dir_name_len]
-	sub	eax, ecx
-	pop	ecx
+	call	iso9660_dr_get_name	# out: edi, eax
 ########
 	cmp	eax, ecx	# filename len mismatch
 	jnz	1f
 
-	lea	edi, [ebx + iso9660_dr_dir_name]
 	push	esi
 	push	ecx
 	repz	cmpsb
@@ -446,6 +892,54 @@ iso9660_find_entry$:
 9:	pop	edi
 	pop	ecx
 	pop	eax
+	ret
+
+# in: ebx: directory entry
+# out: edi = dir name
+# out: eax = dir name len (strips trailing ';1' etc..)
+iso9660_dr_get_name:
+	# check rockridge:
+	push	ecx
+	push	esi
+
+	push	edx
+	mov	edx, ebx
+	call	iso9660_dr_get_susp	# out: esi, ecx
+	pop	edx
+	jecxz	1f
+0:	cmp	byte ptr [esi + 3], 1	# check version
+	jnz	2f
+	cmp	[esi], word ptr ('N'|'M'<<8)	# check signature word
+	jnz	2f
+	movzx	eax, byte ptr [esi + 2]	# verify record len
+	cmp	eax, ecx
+	ja	2f		# would exceed susp area
+	# found a name.
+	sub	eax, 4+1	# subtract susp record fixed len + NM flag
+	jle	2f
+	mov	ecx, eax
+	lea	edi, [esi + 5]
+	jmp	9f		# return rockridge name
+
+2:	movzx	eax, byte ptr [esi + 2]
+	or	eax, eax
+	jz	1f
+	add	esi, eax
+	sub	ecx, eax
+	jg	0b
+
+1:	movzx	ecx, byte ptr [ebx + iso9660_dr_dir_name_len]
+	mov	al, ';'
+	lea	edi, [ebx + iso9660_dr_dir_name]
+	repnz	scasb
+	jnz	1f
+	inc	ecx
+1:	movzx	eax, byte ptr [ebx + iso9660_dr_dir_name_len]
+	sub	eax, ecx
+	lea	edi, [ebx + iso9660_dr_dir_name]
+
+9:	pop	esi
+	pop	ecx
 	ret
 
 
@@ -488,16 +982,37 @@ iso9660_load_dir$:
 ######################################################
 # in: edi = fs dir entry struct (out)
 # in: edx = iso dir entry
+# [in: ebx = directory handle (mem ptr)]
+# [in: ecx = offset in directory handle]
 iso9660_make_fs_entry$:
 	push	ecx
 
 	push	eax
-	push	esi
+	# root directory records:
+	# first:  root dir, id 0
+	# second: root dir, id 1
+	# other directory records:
+	# first:  self,   id 0
+	# second: parent, id 1
+
+	# check if first entry: ecx == 0, or ebx==edx (as edx=ebx+ecx)
+	mov	eax, '.'
+	or	ecx, ecx	# or: cmp ebx, edx
+	jz	2f
+	# check if second entry: ebx + [ebx+dr_rec_len] == edx
+	mov	al, [ebx + iso9660_dr_record_len]
+	add	eax, ebx
+	cmp	eax, edx
+	mov	eax, '.'|'.'<<8
+	jnz	1f
+2:	mov	[edi + fs_dirent_name], eax
+	jmp	3f
+
+1:	push	esi
 	push	edi
 
 	lea	esi, [edx + iso9660_dr_dir_name]
 	lea	edi, [edi + fs_dirent_name]
-	movzx	ecx, byte ptr [edx + iso9660_dr_dir_name_len]
 0:	lodsb
 	cmp	al, ';'
 	jz	0f
@@ -508,7 +1023,7 @@ iso9660_make_fs_entry$:
 
 	pop	edi
 	pop	esi
-	pop	eax
+3:	pop	eax
 
 	mov	cl, [edx + iso9660_dr_file_flags]
 #  DR_FLAG_NON_FINAL_RECORD = 128
