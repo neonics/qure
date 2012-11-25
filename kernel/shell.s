@@ -1,4 +1,20 @@
 .intel_syntax noprefix
+# include with DEFINE = 0 to declare macros and structures (optional)
+# include with DEFINE = 1 to define code and data (and macros/structures if
+# they are not declared yet).
+# Since the shell references most of the kernel code and their constants,
+# and since constants must be declared before they are properly referenced
+# by the GNU assembler, this file is included with DEFINE=1 after those
+# kernel components which' constants it references.
+# Since most kernel subsystems (fs, net,...) define some commandline interfaces
+# that use some macros from this file, this file is included before them
+# with DEFINE=0.
+# Thus, with DEFINE=0, this file acts like a C header file,
+# and with DEFINE=1, acts like the source file.
+
+###############################################################################
+.ifndef SHELL_DECLARED	# begin declarations
+SHELL_DECLARED = 1
 
 CMDLINE_DEBUG = 1	# 1: include cmdline_print_args$;
 			# 2: 
@@ -31,12 +47,35 @@ cmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
 CMDLINE_STRUCT_SIZE = .
 
 ############################################################################
+
+.macro CMD_ISARG str
+	.data SECTION_DATA_STRINGS
+	79: .asciz "\str"
+	78: 
+	.text32
+	push	esi
+	mov	esi, offset 79b
+	push	ecx
+	mov	ecx, 78b - 79b
+	push	edi
+	mov	edi, eax
+	repz	cmpsb
+	pop	edi
+	pop	ecx
+	pop	esi
+.endm
+
+.macro CMD_EXPECTARG noarglabel
+	lodsd
+	or	eax, eax
+	jz	\noarglabel
+.endm
+
 .struct 0
 shell_command_code: .long 0
 shell_command_string: .long 0
 shell_command_length: .word 0
 SHELL_COMMAND_STRUCT_SIZE = .
-.data SECTION_DATA_SHELL_CMDS
 
 .macro SHELL_COMMAND string, addr
 	.data SECTION_DATA_STRINGS
@@ -49,8 +88,13 @@ SHELL_COMMAND_STRUCT_SIZE = .
 	.text32
 .endm
 
+.endif		# end declarations
+############################################################################
+
+.if DEFINE	# begin definitions (code, data)
 ############################################################################
 ### Shell Command list
+.data SECTION_DATA_SHELL_CMDS
 .align 4
 SHELL_COMMANDS:
 SHELL_COMMAND "cls",		cls
@@ -1189,12 +1233,47 @@ cmd_ls$:
 	pop	esi
 	call	printspace
 
-	# print attr
-	pushcolor 8
-	mov	dl, [esi + fs_dirent_attr]
-	call	printhex2
-	popcolor
+######## print attributes/permissions
+	mov	eax, [esi + fs_dirent_posix_perm]
+	or	eax, eax
+	jz	1f
+
+	call	fs_posix_perm_print
 	call	printspace
+	mov	edx, [esi + fs_dirent_posix_uid]
+	call	printdec32
+	call	printspace
+	mov	edx, [esi + fs_dirent_posix_gid]
+	call	printdec32
+	# ls --color
+	# ls -F: "/@|=>*" [dir link pipe socket door executable]
+	mov	ebx, eax
+	mov	edx, eax
+	mov	ax, 9 << 8 | '/'
+	and	edx, POSIX_TYPE_MASK
+	cmp	edx, POSIX_TYPE_DIR
+	jz	3f
+	mov	ax, 11 << 8 | '@'
+	cmp	edx, POSIX_TYPE_LINK
+	jz	3f
+	mov	al, '|'
+	cmp	edx, POSIX_TYPE_FIFO
+	jz	3f
+	mov	al, '='
+	cmp	edx, POSIX_TYPE_SOCK
+	jz	3f
+	# '>': door (sun/solaris)
+	mov	ax, 10 << 8 | '*'
+	test	ebx, POSIX_PERM_X | POSIX_PERM_X << 3 | POSIX_PERM_X << 6
+	jnz	3f
+	mov	ah, 7
+	jmp	3f
+########
+1:	mov	dl, [esi + fs_dirent_attr]
+	pushcolor 8
+	call	printhex2
+	call	printspace
+	popcolor
 	LOAD_TXT "RHSVDA78", ebx
 	mov	ecx, 8
 1:	mov	al, ' '
@@ -1205,29 +1284,16 @@ cmd_ls$:
 	inc	ebx
 	loop	1b
 
-	call	printspace
-
-	mov	eax, [esi + fs_dirent_posix_perm]
-	or	eax, eax
-	jz	1f
-	call	fs_posix_perm_print
-	call	printspace
-	mov	edx, [esi + fs_dirent_posix_uid]
-	call	printdec32
-	call	printspace
-	mov	edx, [esi + fs_dirent_posix_gid]
-	call	printdec32
-	call	printspace
-1:
-	mov	ah, 7
+	mov	ax, 7 << 8
 	test	byte ptr [esi + fs_dirent_attr], 0x10 # dir
-	jz	1f
-	mov	ah, 9
-1:	call	printc
-
-	test	byte ptr [esi + fs_dirent_attr], 0x10 # dir
-	jz	1f
-	printchar_ '/'
+	jz	3f
+	mov	ax, 9 << 8 | '/'
+########
+# in: al = trailer char ('/' for dir, '@' for link, ' ' for file, '=' for chr?)
+# in: ah = color
+3:	call	printspace
+	call	printc
+	call	printchar
 
 1:	call	newline
 	pop	eax
@@ -1517,29 +1583,6 @@ cmd_netdump:
 9:	ret
 #####################################
 
-.macro CMD_ISARG str
-	.data SECTION_DATA_STRINGS
-	79: .asciz "\str"
-	78: 
-	.text32
-	push	esi
-	mov	esi, offset 79b
-	push	ecx
-	mov	ecx, 78b - 79b
-	push	edi
-	mov	edi, eax
-	repz	cmpsb
-	pop	edi
-	pop	ecx
-	pop	esi
-.endm
-
-.macro CMD_EXPECTARG noarglabel
-	lodsd
-	or	eax, eax
-	jz	\noarglabel
-.endm
-
 cmd_print_gdt:
 	.macro PRINT_GDT seg
 
@@ -1752,8 +1795,8 @@ cmd_ramdisk:
 
 
 cmd_exe:
-	#LOAD_TXT "/c/A.EXE", eax
-	LOAD_TXT "/a/A.ELF", eax
+	#LOAD_TXT "/c/a.exe", eax
+	LOAD_TXT "/a/a.elf", eax
 	mov	bl, [boot_drive]
 	add	bl, 'a'
 	mov	[eax + 1], bl
@@ -2003,3 +2046,4 @@ cmd_cr:
 
 	# cr8 and further wrap to 0 etc
 	ret
+.endif

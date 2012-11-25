@@ -2755,7 +2755,7 @@ net_service_tcp_http:
 
 	# serve custom file:
 	.data SECTION_DATA_STRINGS
-	www_docroot$: .asciz "/c/WWW/"
+	www_docroot$: .asciz "/c/www/"
 	WWW_DOCROOT_STR_LEN = . - www_docroot$
 	.data SECTION_DATA_BSS
 	www_content$: .long 0
