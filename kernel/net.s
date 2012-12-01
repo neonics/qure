@@ -16,7 +16,7 @@ NET_DNS_DEBUG = 1#NET_DEBUG
 NET_TCP_CONN_DEBUG = 0
 NET_TCP_OPT_DEBUG = 0
 
-NET_HTTP_DEBUG = 3
+NET_HTTP_DEBUG = 1
 
 CPU_FLAG_I = (1 << 9)
 CPU_FLAG_I_BITS = 9
@@ -2017,7 +2017,14 @@ net_ipv4_tcp_print:
 # TCP Connection management
 #
 TCP_CONN_REUSE_TIMEOUT	= 30 * 1000	# 30 seconds
+TCP_CONN_BUFFER_SIZE	= 2048
 .struct 0
+# Buffers: not circular, as NIC's need contiguous region.
+tcp_conn_recv_buf:	.long 0
+tcp_conn_send_buf:	.long 0	# malloc'd address
+tcp_conn_send_buf_size:	.long 0	# malloc'd size
+tcp_conn_send_buf_start:.long 0 # payload offset start in buf
+tcp_conn_send_buf_len:	.long 0	# size of unsent data
 tcp_conn_timestamp:	.long 0	# [clock_ms]
 tcp_conn_local_addr:	.long 0
 tcp_conn_remote_addr:	.long 0	# ipv4 addr
@@ -2041,7 +2048,6 @@ tcp_conn_state:		.byte 0
 	# outgoing
 	TCP_CONN_STATE_FIN_TX		= 64
 	TCP_CONN_STATE_FIN_ACK_RX	= 128
-
 
 #	TCP_CONN_STATE_LISTEN		= 1	# server
 #	TCP_CONN_STATE_SYN_RECEIVED	= 2	# server
@@ -2099,6 +2105,7 @@ tcp_conn_print_state$:
 # in: esi = tcp frame pointer
 # out: eax = tcp_conn array index (add volatile [tcp_connections])
 net_tcp_conn_get:
+0:	MUTEX_LOCK TCP_CONN 0b
 	push	ecx
 	push	edx
 	mov	ecx, [esi + tcp_sport]
@@ -2108,7 +2115,10 @@ net_tcp_conn_get:
 	jz	0f
 	ARRAY_ENDL
 9:	stc
-0:	pop	edx
+0:	pushf
+	MUTEX_UNLOCK TCP_CONN
+	popf
+	pop	edx
 	pop	ecx
 	ret
 
@@ -2200,15 +2210,23 @@ net_tcp_conn_newentry:
 	mov	[eax + tcp_conn_local_seq_ack], dword ptr 0
 	mov	[eax + tcp_conn_remote_seq_ack], dword ptr 0
 
+	# allocate buffers
+	cmp	dword ptr [eax + tcp_conn_send_buf], 0
+	jnz	1f
+	mov	edx, eax
+	mov	eax, TCP_CONN_BUFFER_SIZE
+	call	mallocz
+	mov	[edx + tcp_conn_send_buf], eax
+	mov	[edx + tcp_conn_send_buf_size], dword ptr TCP_CONN_BUFFER_SIZE
+1:
 	MUTEX_UNLOCK TCP_CONN
 
 	pop	eax
 	pop	edx
 	pop	ecx
+	jnc	net_tcp_conn_update
 	# eax = tcp_conn array index, rest unmodified
-
-
-	# fallthrough
+	ret
 
 # in: eax = tcp_conn array index
 # in: edx = ip frame pointer
@@ -2538,6 +2556,7 @@ net_tcp_handle:
 #	or	dl, TCP_FLAG_FIN
 1:	xor	ecx, ecx
 	# send ACK [FIN]
+	xor	dh, dh
 	call	net_tcp_send
 	pop	ecx
 	pop	edx
@@ -2643,7 +2662,7 @@ net_tcp_conn_update_ack:
 net_tcp_conn_send_ack:
 	push	edx
 	push	ecx
-	xor	dl, dl
+	xor	dx, dx
 	xor	ecx, ecx
 	call	net_tcp_send
 	pop	ecx
@@ -2678,45 +2697,6 @@ net_tcp_service_get:
 #######################################################################
 # HTTP Server
 #
-.data SECTION_DATA_STRINGS
-html:
-.ascii "HTTP/1.1 200 OK\r\n"
-.ascii "Content-Type: text/html; charset=UTF-8\r\n"
-.ascii "Connection: close\r\n"
-.ascii "\r\n"
-.ascii "<html>\n"
-.ascii "  <head>\n"
-.ascii "    <style type='text/css'>\n"
-.ascii "      .ss { width: 144px; }\n"
-.ascii "      .ss:hover { width: 738px; }\n"
-.ascii "      dl { padding-left: 1em; }\n"
-.ascii "    </style>\n"
-.ascii "  </head>\n"
-.ascii "  <body>"
-.ascii "    <h1>QuRe - Intel Assembly Cloud Operating System</h1>\n"
-.ascii "    <i>This webpage is self-hosted</i>"
-.ascii "    <ul>\n"
-.ascii "      <li>extremely small memory footprint:<ul>\n"
-ep1: .space 260, ' '
-.ascii "</ul></li>\n"
-.ascii "      <li>memory location independent</li>\n"
-.ascii "      <li>manually optimized:\n"
-.ascii "        <ul>\n"
-.ascii "          <li>minimal stack usage</li>\n"
-.ascii "          <li>some pipelining</li>\n"
-.ascii "          <li>hardware string functions used whenever possible</li>\n"
-.ascii "          <li>maximal code reuse - methods and macros</li>\n"
-.ascii "        </ul>\n"
-.ascii "      </li>\n"
-.ascii "    </ul>\n\n"
-.ascii "    <h2><a name='s_source'>Source / Issues / Wiki</h2>\n"
-.ascii "      <a href='https://github.com/neonics/qure'>GitHub</a>\n"
-.asciz "    </code>\n"
-html2:
-.ascii "  </body>\n"
-.asciz "</html>\n"
-.text32
-
 # in: eax = tcp_conn array index
 # in: esi = request data
 # in: ecx = request data len
@@ -2750,9 +2730,17 @@ net_service_tcp_http:
 		pop	esi
 	.endif
 
-	cmp	word ptr [edx], '/'
-	jz	0f	# serve root
+	cmp	word ptr [edx], '/' | 'C'<<8
+	jnz	1f
+		call	www_send_screen
+		ret
+###################################################
 
+1:	cmp	word ptr [edx], '/'
+	jnz	1f
+	LOAD_TXT "/index.html", edx
+
+1:
 	# serve custom file:
 	.data SECTION_DATA_STRINGS
 	www_docroot$: .asciz "/c/www/"
@@ -2802,28 +2790,219 @@ net_service_tcp_http:
 	push	eax	# preserve net_tcp_conn_index
 	mov	eax, offset www_file$
 	call	fs_openfile
-	jc	1f
-	push	eax
+	jc	2f
 	call	fs_handle_read	# out: esi, ecx
+
+	push	edx
+	push	eax
+	call	fs_validate_handle	# out: edx + eax
+	mov	[eax + edx + fs_handle_buf], dword ptr 0
 	pop	eax
+	pop	edx
+
 	pushf
 	call	fs_close
 	popf
-1:	pop	eax
-	jc	404f
+	pop	eax
+	jnc	1f
 
-	push	esi
-	push	ecx
+	push	eax
+	mov	eax, esi
+	call	mfree
+2:	pop	eax
+	jmp	404f
+
+########
+1:	# esi, ecx = file contents
+	push	ebp
+	mov	ebp, esp
+	push	eax	# [ebp - 4]  tcp conn
+	push	esi	# [ebp - 8]  orig buf
+	push	ecx	# [ebp - 12] orig buflen
+
 	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
 	call	strlen_
-	push	edx
-	mov	dl, TCP_FLAG_PSH # | TCP_FLAG_FIN
-	call	net_tcp_send
-	pop	edx
-	pop	ecx
-	pop	esi
+	call	net_tcp_sendbuf
 
-	jmp	10f	# in: esi, ecx
+	mov	ebx, [ebp - 8]	# buf
+
+1:	mov	edi, ebx
+	mov	ecx, [ebp - 12]	# buflen
+	call	www_findexpr	# in: edi, ecx; out: edi,ecx
+	jc	1f
+# preserve edi,ecx
+	# edi, ecx = expression
+	lea	edx, [edi - 2]	# start of expression string
+	sub	edx, ebx	# len of unsent data
+	jz	2f
+	mov	esi, ebx	# start of unsent data
+	lea	ebx, [edi + ecx + 1]	# end of expr = new start of unsent data
+	sub	[ebp - 12], edx	# update remaining source len
+
+	push	ecx
+	mov	ecx, edx
+	call	net_tcp_sendbuf
+	pop	ecx
+2:
+# use edi,ecx
+	lea	edx, [ecx + 3]
+	sub	[ebp - 12], edx	# update remaining source len
+
+	call	www_expr_handle
+
+	jmp	1b
+##################################
+
+1:	mov	ecx, [ebp - 12]
+	mov	esi, ebx
+	call	net_tcp_sendbuf	# in: eax=tcpconn, esi=data, ecx=len
+	call	net_tcp_sendbuf_flush
+	call	net_tcp_fin
+
+	mov	eax, [ebp - 8]
+	call	mfree
+########
+9:	mov	esp, ebp
+	pop	ebp
+	ret
+
+# in: edi = data to scan
+# in: ecx = data len
+# out: edi, ecx: expression string
+www_findexpr:
+	push	esi
+	push	eax
+
+	mov	al, '$'
+	repnz	scasb
+	jnz	1f	# no expressions
+	cmp	[edi], byte ptr '{'
+	jnz	1f
+	inc	edi
+
+	# parse expression
+	mov	esi, edi	# start of expr
+0:	dec	ecx
+	jle	1f
+	lodsb
+	cmp	al, ' '
+	jz	1f
+	cmp	al, '\n'
+	jz	1f
+	cmp	al, '}'
+	jnz	0b
+
+	mov	ecx, esi
+	dec	ecx	# dont count closing '}'
+	sub	ecx, edi
+	clc
+
+9:	pop	eax
+	pop	esi
+	ret
+1:	stc
+	jmp	9b
+
+
+expr_h_unknown:
+	ret
+expr_h_const:
+	mov	eax, edx
+	xor	edx, edx
+	ret
+expr_h_mem:
+	mov	eax, [edx]
+	xor	edx, edx
+	ret
+expr_h_call:
+	call	edx
+	ret
+
+.data
+www_expr:
+.long (99f - .)/10
+STRINGPTR "kernel.size";	.byte 1,1;.long kernel_end - kernel_start
+STRINGPTR "kernel.code.size";	.byte 1,1;.long kernel_code_end-kernel_code_start
+STRINGPTR "kernel.data.size";	.byte 1,1;.long kernel_end - data_0_start
+STRINGPTR "mem.heap.size";	.byte 2,1;.long mem_heap_size
+STRINGPTR "mem.heap.allocated";	.byte 3,1;.long mem_get_used
+STRINGPTR "mem.heap.reserved";	.byte 3,1;.long mem_get_reserved
+STRINGPTR "mem.heap.free";	.byte 3,1;.long mem_get_free
+99:
+www_expr_handlers:
+	.long expr_h_unknown
+	.long expr_h_const
+	.long expr_h_mem
+	.long expr_h_call
+NUM_EXPR_HANDLERS = (.-www_expr_handlers)/4
+.text32
+# in: eax = tcp conn
+# in: edi = expressoin
+# in: ecx = expression len
+# free to use: edx, esi
+www_expr_handle:
+	push	ebx
+	push	ecx
+	push	edi
+	push	eax
+
+	mov	byte ptr [edi + ecx], 0	# '}' -> 0
+	inc	ecx	# include 0 terminator for rep cmpsb
+
+	.if 0
+		mov	esi, edi
+		call	nprint
+	.endif
+
+	# find expression info
+	mov	edx, [www_expr]
+	mov	ebx, offset www_expr + 4
+0:	mov	esi, [ebx]
+	push	ecx
+	push	edi
+	repz	cmpsb
+	pop	edi
+	pop	ecx
+	jz	1f	# found
+
+	add	ebx, 10	# struct size
+	dec	edx
+	jg	0b
+		DEBUG "no matches"
+	# not found
+	jmp	9f
+
+1:	movzx	edi, byte ptr [ebx + 4]	# type
+	mov	edx, [ebx + 6]		# arg2
+		cmp	edi, NUM_EXPR_HANDLERS
+		jae	9f
+	call	www_expr_handlers[edi * 4]
+
+	# todo: format
+	.data SECTION_DATA_BSS
+	_tmp_fmt$: .space 32
+	.text32
+	mov	edi, offset _tmp_fmt$
+	call	sprint_size
+	mov	ecx, edi
+	mov	esi, offset _tmp_fmt$
+	sub	ecx, esi
+
+	.if 0
+		DEBUG "EXPR VAL:"
+		call nprint
+		call newline
+	.endif
+
+	mov	eax, [esp]
+	call	net_tcp_sendbuf
+
+9:
+	pop	eax
+	pop	edi
+	pop	ecx
+	pop	ebx
+	ret
 
 404:
 .data SECTION_DATA_STRINGS
@@ -2847,95 +3026,223 @@ www_414$:
 	mov	esi, offset www_414$
 	jmp	8f
 
-# default root:
-0:	# fill in the ep1:
+# in: eax = tcp conn
+www_send_screen:
+	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
+	call	strlen_
+	call	net_tcp_sendbuf
+
+.data SECTION_DATA_STRINGS
+_color_css$:
+.ascii "<html><head><style type='text/css'>"
+.ascii "pre {background-color: black}\n"
+.ascii ".a{color:black}\n.ba{background-color:black}\n"
+.ascii ".b{color:darkblue}\n.bb{background-color:darkblue}\n"
+.ascii ".c{color:green}\n.bc{background-color:green}\n"
+.ascii ".d{color:darkcyan}\n.bd{background-color:cyan}\n"
+.ascii ".e{color:darkred}\n.be{background-color:darkred}\n"
+.ascii ".f{color:darkmagenta}\n.bf{background-color:darkmagenta}\n"
+.ascii ".g{color:brown}\n.bg{background-color:brown}\n"
+.ascii ".h{color:lightgray}\n.bh{background-color:lightgray}\n"
+.ascii ".i{color:darkgray}\n.bi{background-color:darkgray}\n"
+.ascii ".j{color:#0000ff}\n.bj{background-color:blue}\n"
+.ascii ".k{color:lime}\n.bk{background-color:lime}\n"
+.ascii ".l{color:cyan}\n.bl{background-color:cyan}\n"
+.ascii ".m{color:red}\n.bm{background-color:red}\n"
+.ascii ".n{color:magenta}\n.bn{background-color:magenta}\n"
+.ascii ".o{color:yellow}\n.bo{background-color:yellow}\n"
+.ascii ".p{color:white}\n.bp{background-color:white}\n"
+.asciz "</style></head><body><pre>\n"
+.text32
+
+	mov	esi, offset _color_css$
+	call	strlen_
+	call	net_tcp_sendbuf
+
+	push	fs
+	mov	ebx, SEL_vid_txt
+	mov	fs, ebx
+	xor	ebx, ebx
+
+	mov	ecx, 25
+0:	push	ecx
+#######
+	mov	ecx, 80
+	.data SECTION_DATA_BSS
+	_www_scr$: .space 80 * 13
+	.text32
+	mov	edi, offset _www_scr$
 	push	eax
-	xor	edx, edx
-	mov	edi, offset ep1
-	SPRINT "<li>Kernel Size: <b>Code:</b> "
-	mov	eax, kernel_code_end - kernel_code_start # realmode_kernel_entry
-	call	sprint_size
+	xor	dl, dl	# cur color
+1:	mov	ax, fs:[ebx]
+	cmp	dl, ah
+	jz	2f
+	or	dl, dl
+	jz	3f
+	mov	[edi], dword ptr ('<'|'/'<<8|'s'<<16|'p'<<24)
+	add	edi, 4
+	mov	[edi], dword ptr ('a'|'n'<<8|'>'<<16)
+	add	edi, 3
 
-	SPRINT " <b>Data:</b> "
-	mov	eax, kernel_end - data_0_start
-	call	sprint_size
+3:
+	mov	[edi], dword ptr ('<'|'s'<<8|'p'<<16|'a'<<24)
+	add	edi, 4
+	mov	[edi], dword ptr ('n'|' '<<8|'c'<<16|'l'<<24)
+	add	edi, 4
+	mov	[edi], dword ptr ('a'|'s'<<8|'s'<<16|'='<<24)
+	add	edi, 4
+	mov	[edi], byte ptr '\''
+	inc	edi
 
-	SPRINT " (<b>0:</b> "
-	mov	eax, data_0_end - data_0_start
-	call	sprint_size
+	mov	dl, ah
 
-	SPRINT " <b>strings:</b> "
-	mov	eax, data_str_end - data_str_start
-	call	sprint_size
+	and	ah, 0x0f
+	add	ah, 'a'
+	mov	[edi], ah
+	inc	edi
 
-	SPRINT " <b>bss:</b> "
-	mov	eax, data_bss_end - data_bss_start
-	call	sprint_size
+	mov	[edi], word ptr ' '|'b'<<8
+	add	edi, 2
+	mov	ah, dl
+	shr	ah, 4
+	add	ah, 'a'
+	mov	[edi], ah
+	inc	edi
 
-	SPRINT " <b>other:</b> "
-	mov	eax, kernel_end - data_bss_end
-	call	sprint_size
+	mov	[edi], word ptr '\'' | '>' << 8
+	add	edi, 2
 
-	SPRINT ") <b>Total:</b> "
-	mov	eax, kernel_end - kernel_code_end
-	# kernel_end - realmode_kernel_entry + kernel_end - kernel_signature
-	call	sprint_size
-	SPRINT "</li>"
-
-	SPRINT "<li>Heap: "
-	mov	eax, [mem_heap_size]
-	call	sprint_size
-
-	SPRINT " <b>Allocated:</b> "
-	mov	eax, [mem_heap_alloc_start]
-	sub	eax, [mem_heap_start]
-	call	sprint_size
-
-	SPRINT " <b>Free:</b> "
-	sub	eax, [mem_heap_size]
-	neg	eax
-	call	sprint_size
-	SPRINT "</li>"
-
+2:	stosb
+	add	ebx, 2
+	loop	1b
+	mov	[edi], byte ptr '\n'
+	inc	edi
 	pop	eax
-
-	mov	esi, offset html
-	call	strlen_	# in: esi; out: ecx
-
-	push	edx
-	mov	dl, TCP_FLAG_PSH # | TCP_FLAG_FIN
-	call	net_tcp_send
-	pop	edx
-
-	mov	esi, offset html2
-8:	call	strlen_
-
-10:	cmp	ecx, 1024 # 1536 - TCP_HEADER_LEN - ETH_HEADER_LEN
-	jb	0f
-
-	push	ecx
-	mov	ecx, 1024 # 1536 - TCP_HEADER_LEN - ETH_HEADER_LEN
-	push	edx
-	mov	dl, TCP_FLAG_PSH
-	call	net_tcp_send
-	pop	edx
+#######
+	mov	esi, offset _www_scr$
+	mov	ecx, edi
+	sub	ecx, esi
+	call	net_tcp_sendbuf
 	pop	ecx
-	add	esi, 1024 # 1536 - TCP_HEADER_LEN - ETH_HEADER_LEN
-	sub	ecx, 1024 # 1536 - TCP_HEADER_LEN - ETH_HEADER_LEN
-	ja	10b
-	jz	9f
+	dec	ecx
+	jnz	0b
 
-0:	push	edx
-	mov	dl, TCP_FLAG_PSH # | TCP_FLAG_FIN
-	call	net_tcp_send
-	pop	edx
+	pop	fs
 
-9:	push	edx
+	LOAD_TXT "</pre></body></html>\n"
+	call	strlen_
+	call	net_tcp_sendbuf
+	call	net_tcp_sendbuf_flush
+	call	net_tcp_fin
+	ret
+
+
+# appends the data to the tcp connection's send buffer; on overflow,
+# it flushes the buffer (sends it), and appends the remaining data.
+# This is repeated until all the data has been transfered to the buffer.
+# Upon return, the buffer may contain unsent data, which can be sent
+# by calling net_tcp_sendbuf_flush.
+#
+# in: eax = tcp conn idx
+# in: esi = data
+# in: ecx = data len
+# out: esi = start of data not put in buffer
+# out: ecx = length of data not put in buffer
+net_tcp_sendbuf:
+	push	edi
+	push	ebx
+	push	edx
+
+########
+0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
+	mov	ebx, [tcp_connections]
+	add	ebx, eax
+
+	# buf_start allows to put the eth/ip/tcp headers in the buffer to
+	# avoid copying the data yet again.
+
+	mov	edi, [ebx + tcp_conn_send_buf]
+	mov	edx, [ebx + tcp_conn_send_buf_start]
+	add	edx, [ebx + tcp_conn_send_buf_len]
+	add	edi, edx
+#	sub	edx, [ebx + tcp_conn_send_buf_size]
+	sub	edx, 1536 - ETH_HEADER_SIZE-IPV4_HEADER_SIZE-TCP_HEADER_SIZE
+	# edi = end of data to send so far
+	# edx = remaining buffer length
+
+	cmp	ecx, edx
+	mov	edx, 0	# don't modify CF
+	jb	1f	# it will fit
+	sub	ecx, edx
+	xchg	edx, ecx	# ecx = remaining buf len, edx=data not in buf
+1:	# ecx = data to copy into  buf
+	# edx = data that won't fit in buf
+
+	add	[ebx + tcp_conn_send_buf_len], ecx
+	rep	movsb
+
+	mov	ecx, [ebx + tcp_conn_send_buf_len]
+	MUTEX_UNLOCK TCP_CONN
+########
+	cmp	ecx, 1024	# search TCP_MAX_PAYLOAD_SIZE MTU PACKET_SIZE
+	mov	ecx, edx
+	jb	1f		# still room in buffer, dont send yet.
+	# enough data to send.
+	call	net_tcp_sendbuf_flush
+	# buf empty (as it is exactly one packet size)
+	or	ecx, ecx
+	jnz	0b	# go again
+
+1:	pop	edx
+	pop	ebx
+	pop	edi
+	ret
+
+
+# uses tcp_conn_send_buf*
+# in: eax = tcp conn idx
+net_tcp_sendbuf_flush:
+
+	push	edx
+	push	esi
+	push	ecx
+	push	ebx
+
+0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
+
+	mov	ebx, [tcp_connections]
+	add	ebx, eax
+
+	mov	esi, [ebx + tcp_conn_send_buf]
+	add	esi, [ebx + tcp_conn_send_buf_start]
 	xor	ecx, ecx
-	mov	dl, TCP_FLAG_FIN
+	xchg	ecx, [ebx + tcp_conn_send_buf_len]
+	MUTEX_UNLOCK TCP_CONN
+
+	mov	dx, TCP_FLAG_PSH # | 1 << 8	# nocopy
 	call	net_tcp_send
+
+	pop	ebx
+	pop	ecx
+	pop	esi
 	pop	edx
 	ret
+
+
+# in: eax = tcp_conn_idx
+net_tcp_fin:
+	push	edx
+	push	ecx
+	xor	ecx, ecx
+	mov	dx, TCP_FLAG_FIN
+	call	net_tcp_send
+	pop	ecx
+	pop	edx
+	ret
+
+
+	ret
+
 
 
 # in: esi = header
@@ -3032,18 +3339,20 @@ http_parse_header_line$:
 	ret
 
 # in: eax = tcp_conn array index
-# in: dl = TCP flags (FIN)
+# in: dl = TCP flags (FIN,PSH)
+# in: dh = 0: use own buffer; 1: esi has room for header before it
 # in: esi = payload
 # in: ecx = payload len
 net_tcp_send:
-	cmp	ecx, 1536 - TCP_HEADER_SIZE - ETH_HEADER_SIZE
+	cmp	ecx, 1536 - TCP_HEADER_SIZE - IPV4_HEADER_SIZE - ETH_HEADER_SIZE
 	jb	0f
 	printlnc 4, "tcp payload too large"
 	stc
 	ret
 0:
-
+	push	edi
 	push	esi
+	push	ebx
 	push	eax
 	push	ebp
 	lea	ebp, [esp + 4]
@@ -3052,6 +3361,7 @@ net_tcp_send:
 	jc	9f
 	push	edi
 
+0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
 	push	esi
 	push	edx
 	push	ecx
@@ -3159,9 +3469,12 @@ net_tcp_send:
 	or	dh, TCP_CONN_STATE_FIN_ACK_TX
 1:	or	[eax + tcp_conn_state], dh
 
-9:	pop	ebp
+9:	MUTEX_UNLOCK TCP_CONN
+	pop	ebp
 	pop	eax
+	pop	ebx
 	pop	esi
+	pop	edi
 	ret
 
 
@@ -3214,6 +3527,7 @@ net_tcp_handle_syn$:
 	mov	eax, [esi + tcp_seq]
 	bswap	eax
 	inc	eax
+0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
 		push	edx
 		mov	edx, [ebp - 4]
 		add	edx, [tcp_connections]
@@ -3279,7 +3593,8 @@ net_tcp_handle_syn$:
 	jc	1f
 	add	eax, [tcp_connections]
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_SYN_ACK_TX | TCP_CONN_STATE_SYN_TX
-1:	pop	ebp
+1:	MUTEX_UNLOCK TCP_CONN
+	pop	ebp
 	popad
 	ret
 8:	pop	edi
@@ -4139,13 +4454,19 @@ dns_parse_name$:
 9:	pop	ecx
 	pop	eax
 	ret
+
 # in: ebx = nic
 # in: edx = ipv4 frame
 # in: esi = payload (udp frame)
 # in: ecx = payload len
 net_dns_service:
 	.if 1#NET_DNS_DEBUG
-		PRINTLN "Servicing DNS request"
+		PRINT "Servicing DNS request from "
+		push eax
+		mov eax, [edx + ipv4_src]
+		call net_print_ip
+		pop eax
+		call	newline
 		call	net_dns_print
 	.endif
 
@@ -4219,7 +4540,6 @@ net_dns_service:
 # in: ebx: nic
 9:	NET_BUFFER_GET
 	push	edi
-debug_byte al
 	# calculate payload len:
 	mov	ecx, [ebp - 4]	# question size
 	or	al, al
@@ -6163,7 +6483,7 @@ cmd_traceroute:
 	188: .asciz "000.000.000.000"
 	.text32
 	mov	ecx, 0
-	
+
 0:	push	edx
 	push	ecx
 

@@ -767,6 +767,8 @@ fs_new_handle$:
 #	pop	ecx
 #	ret
 
+FS_HANDLE_PRINTINFO_COMPACT = 1
+
 # in: eax = handle offset
 fs_handle_printinfo:
 	push	esi
@@ -774,29 +776,51 @@ fs_handle_printinfo:
 	push	ebx
 	push	eax
 
+.if !FS_HANDLE_PRINTINFO_COMPACT
 	printc	11, "Handle "
+.endif
 	mov	edx, eax
 	call	printhex8
 	mov	ebx, [fs_handles$]
 
+.if FS_HANDLE_PRINTINFO_COMPACT
+	call	printspace
+	mov	edx, [eax + ebx + fs_handle_parent]
+	call	printhex8
+	call	printspace
+.else
 	printc 	13, " mtab "
+.endif
 	mov	edx, [eax + ebx + fs_handle_mtab_idx]
 	call	printhex8
 
+.if FS_HANDLE_PRINTINFO_COMPACT
+	call	printspace
+.else
 	printc 	13, " dir "
+.endif
 	mov	edx, [eax + ebx + fs_handle_dir]
 	call	printhex8
 
 .if 1
+.if FS_HANDLE_PRINTINFO_COMPACT
+	call	printspace
+.else
 	printc	10, " attr: "
+.endif
 	mov	dl, [eax + ebx + fs_handle_dirent + fs_dirent_attr]
 	call	printhex2
+	print_ "   "
 .endif
 
 	mov	esi, [eax + ebx + fs_handle_label]
 	cmp	esi, -1
 	jz	1f
+.if FS_HANDLE_PRINTINFO_COMPACT
+	call	printspace
+.else
 	printc	10, " name: '"
+.endif
 	call	print
 	printcharc 10, '\''
 	jmp	2f
@@ -806,7 +830,11 @@ fs_handle_printinfo:
 .if 1
 	test	al, 2
 	jnz	1f
+.if FS_HANDLE_PRINTINFO_COMPACT
+	call	printspace
+.else
 	printc 6, " entries: "
+.endif
 	mov	edx, [eax + ebx + fs_handle_dir_iter]
 	call	printdec32
 	printcharc 6, '/'
@@ -952,6 +980,7 @@ fs_list_openfiles:
 	mov	edx, ebx
 	call	printhex8
 	call	newline
+	println "handle.. parent.. mtab.... dir..... attr name.... entries"
 
 	xor	eax, eax
 	jmp	2f
@@ -999,7 +1028,7 @@ fs_close:	# fs_free_handle
 	push	ebx
 	push	ecx
 
-	call	fs_validate_handle	# out: eax+edx
+0:	call	fs_validate_handle	# out: eax+edx
 	jc	9f
 
 	mov	ebx, eax
@@ -1028,9 +1057,15 @@ fs_close:	# fs_free_handle
 	mov	ebx, [eax + edx + fs_handle_dir]
 	push	edi
 	lea	edi, [eax + edx + fs_handle_dirent]
+	push	eax
 	FS_HANDLE_CALL_API close, ecx
+	pop	eax
 	pop	edi
 
+	# free parent handles:
+	mov	eax, [eax + edx + fs_handle_parent]
+	cmp	eax, -1
+	jnz	0b
 
 0:	mov	eax, -1
 	pop	ecx

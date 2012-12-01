@@ -627,6 +627,26 @@ default_screen_update:	# 16 and 32 bit
 # set up - between PRINT_START and PRINT_END.
 
 ####################### PRINT HEX ########################
+# in: edx = nr to print
+# in: edi = buffer
+sprinthex8:
+	push	eax
+	push	ecx
+	mov	ecx, 8
+0:	rol	edx, 4
+	mov	al, dl
+	and	al, 0x0f
+	cmp	al, 10
+	jb	1f
+	add	al, 'a' - '0' - 10
+1:	add	al, '0'
+	stosb
+	loop	0b
+	pop	ecx
+	pop	eax
+	ret
+
+
 # in: ecx = num hex digits, edx = value
 nprinthex:
 	push	ecx
@@ -1153,12 +1173,21 @@ nprintln:
 	call	nprint
 	jmp	newline
 
+# in: ah = color
+# in: esi = string
+# in: ecx = max len
+nprintc:
+	jecxz	1f
+	PRINT_START -1
+	jmp	2f
+1:	ret
+
 # in: esi = string
 # in: ecx = max len
 nprint:	or	ecx, ecx
 	jz	1f
 	PRINT_START
-	push	esi
+2:	push	esi
 	push	ecx
 0:	lodsb
 	or	al, al
@@ -1222,7 +1251,7 @@ println_:
 	jmp	newline
 
 0:	stosw
-__print:	
+__print:
 1:	lodsb
 	test	al, al
 	jnz	0b
@@ -1689,13 +1718,13 @@ printf:
 	or	al, al
 	jz	2f
 
-1:	
+1:
 	.if PRINTF_DEBUG
 		PRINTc	11, ">"
 		call printchar
 		PRINTc	11, "<"
 	.endif
-	
+
 	mov	edx, [ebp]
 	add	ebp, 4
 
@@ -1775,7 +1804,7 @@ printf:
 3:	call	printchar
 ###########################
 	jmp	2b
-2:	
+2:
 	pop	esi
 	pop	edx
 	pop	ecx

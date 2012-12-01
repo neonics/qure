@@ -1,5 +1,39 @@
 <html>
-  <body>
-    First file served!
-  </body>
+	<head>
+		<style type='text/css'>
+			.ss { width: 144px; }
+			.ss:hover { width: 738px; }
+			dl { padding-left: 1em; }
+		</style>
+	</head>
+	<body>
+		<h1>QuRe - Intel Assembly Cloud Operating System</h1>
+		<i>This webpage is self-hosted</i>
+		<ul>
+			<li>extremely small memory footprint:
+				<ul>
+					<li>Kernel size: ${kernel.size} (
+						<b>Code:</b>${kernel.code.size}
+						<b>Data:</b>${kernel.data.size} )
+					</li>
+					<li>Heap: ${mem.heap.size}
+						<b>Allocated:</b> ${mem.heap.allocated}
+						<b>Reserved: </b> ${mem.heap.reserved}
+						<b>Free: </b> ${mem.heap.free}
+					</li>
+				</ul>
+			</li>
+			<li>memory location independent</li>
+			<li>manually optimized:
+				<ul>
+					<li>minimal stack usage</li>
+					<li>some pipelining</li>
+					<li>hardware string functions used whenever possible</li>
+					<li>maximal code reuse - methods and macros</li>
+				</ul>
+			</li>
+		</ul>
+		<h2><a name='s_source'>Source / Issues / Wiki</h2>
+			<a href='https://github.com/neonics/qure'>GitHub</a>
+	</body>
 </html>
