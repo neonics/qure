@@ -6,6 +6,7 @@
 
 FS_DEBUG = 0
 
+MAX_PATH_LEN = 1024
 ##############################################################################
 ## mtab
 ##
@@ -84,6 +85,8 @@ FS_DEBUG = 0
 	# This allows for garbage collection, whether during a call,
 	# or outside of one. 
 	#
+
+.if DEFINE
 
 .text32
 
@@ -1593,3 +1596,4 @@ posix_perm_3_print$:
 	ret
 
 ###############################################################################
+.endif # DEFINE

@@ -2,24 +2,7 @@
 
 KERNEL_MIN_STACK_SIZE	= 0x1000	# needs to be power of 2!
 
-# .data layout
-SECTION_DATA		= 0	# leave at 0 as there is still .data used.
-SECTION_DATA_SEMAPHORES	= 1
-SECTION_DATA_TLS	= 2
-SECTION_DATA_CONCAT	= 3
-SECTION_DATA_STRINGS	= 4
-SECTION_DATA_SHELL_CMDS	= 5
-SECTION_DATA_PCI_NIC	= 8
-SECTION_DATA_FONTS	= 9
-SECTION_DATA_BSS	= 10
-SECTION_DATA_SIGNATURE	= SECTION_DATA_BSS +1
-
-# .text layout
-SECTION_CODE_TEXT16	= 0
-SECTION_CODE_DATA16	= 1	# keep within 64k
-SECTION_CODE_TEXT16_END	= 2
-SECTION_CODE_TEXT32	= 3
-
+.include "defines.s"
 .include "macros.s"
 
 SHOWOFF = 0
@@ -104,6 +87,7 @@ include "schedule.s", scheduler
 
 include "token.s", tokenizer
 DEFINE = 0
+include "fs.s"
 include "shell.s"
 DEFINE = 1
 

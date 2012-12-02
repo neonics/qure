@@ -10,13 +10,6 @@
 .ifndef PRINT_32_DECLARED
 PRINT_32_DECLARED = 1
 
-# Include GDT selectors
-#TMP = DEFINE
-#DEFINE = 0
-#.include "gdt.s"
-#DEFINE = TMP
-
-
 ###################### 32 bit macros
 HEX_END_SPACE = 0	# whether to follow hex print with a space 
 			# transitional - temporary!
@@ -581,7 +574,7 @@ COLOR_STACK_SIZE = 2
 ###############################################################################
 ###############################################################################
 ###############################################################################
-.ifdef DEFINE
+.if DEFINE
 
 .if VIRTUAL_CONSOLES
 .tdata
