@@ -2719,15 +2719,15 @@ net_service_tcp_http:
 
 	# Send a response
 	cmp	edx, -1	# no GET / found in headers
-	jz	404f
+	mov	esi, offset www_code_400$
+	jz	www_err_response
 
 	.if NET_HTTP_DEBUG
-		push	esi
 		pushcolor 14
 		mov	esi, edx
-		call	println
+		call	print
+		call	printspace
 		popcolor
-		pop	esi
 	.endif
 
 	cmp	word ptr [edx], '/' | 'C'<<8
@@ -2758,7 +2758,9 @@ net_service_tcp_http:
 	mov	esi, edx
 	call	strlen_
 	cmp	ecx, MAX_PATH_LEN - WWW_DOCROOT_STR_LEN -1
-	jae	414f
+	mov	esi, offset www_code_414$
+	jae	www_err_response
+	mov	esi, edx
 
 	# calculate path
 	mov	edi, offset www_file$
@@ -2778,7 +2780,8 @@ net_service_tcp_http:
 	mov	edi, offset www_file$
 	mov	ecx, WWW_DOCROOT_STR_LEN - 1 # skip null terminator
 	repz	cmpsb
-	jnz	404f
+	mov	esi, offset www_code_404$
+	jnz	www_err_response
 
 	.if NET_HTTP_DEBUG > 1
 		printc 13, "Serving file: '"
@@ -2810,10 +2813,14 @@ net_service_tcp_http:
 	mov	eax, esi
 	call	mfree
 2:	pop	eax
-	jmp	404f
+	mov	esi, offset www_code_404$
+	jmp	www_err_response
 
 ########
 1:	# esi, ecx = file contents
+	.if NET_HTTP_DEBUG
+		print "200 "
+	.endif
 	push	ebp
 	mov	ebp, esp
 	push	eax	# [ebp - 4]  tcp conn
@@ -3004,27 +3011,53 @@ www_expr_handle:
 	pop	ebx
 	ret
 
-404:
 .data SECTION_DATA_STRINGS
-www_404$:
-.ascii "HTTP/1.1 404 OK\r\n"
-.ascii "Content-Type: text/html; charset=UTF-8\r\n"
-.ascii "Connection: close\r\n"
-.ascii "\r\n"
-.ascii "<html><body>File not found!</body></html>"
-.byte 0
+www_h$:		.asciz "HTTP/1.1 "
+www_h2$:	.ascii "\r\nContent-Type: text/html; charset=UTF-8\r\n"
+		.asciz "Connection: Close\r\n\r\n"
+www_code_400$:	.asciz "400 Bad Request"
+www_code_404$:	.asciz "404 Not Found"
+www_code_414$:	.asciz "414 Request URI too long"
+www_code_500$:	.asciz "500 Internal Server Error"
+www_content1$:	.asciz "<html><body>"
+www_content2$:	.asciz "</body></html>\r\n"
 .text32
-	mov	esi, offset www_404$
-	jmp	8f
+www_err_response:
+	.if NET_HTTP_DEBUG
+		mov	ecx, 4
+		call	nprint
+	.endif
 
-414:	# request uri too long
-.data SECTION_DATA_STRINGS
-www_414$:
-.ascii "HTTP/1.1 414 ERROR\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n"
-.asciz "<html><body>Request uri too long</body></html>"
-.text32
-	mov	esi, offset www_414$
-	jmp	8f
+	mov	edx, esi
+
+	mov	esi, offset www_h$
+	call	strlen_
+	call	net_tcp_sendbuf
+
+	mov	esi, edx
+	call	strlen_
+	call	net_tcp_sendbuf
+
+	mov	esi, offset www_h2$
+	call	strlen_
+	call	net_tcp_sendbuf
+
+	mov	esi, offset www_content1$
+	call	strlen_
+	call	net_tcp_sendbuf
+
+	lea	esi, [edx + 4]
+	call	strlen_
+	call	net_tcp_sendbuf
+
+	mov	esi, offset www_content2$
+	call	strlen_
+	call	net_tcp_sendbuf
+
+	call	net_tcp_sendbuf_flush
+	call	net_tcp_fin
+	ret
+
 
 # in: eax = tcp conn
 www_send_screen:
@@ -3250,9 +3283,6 @@ net_tcp_fin:
 # out: edx = -1 or resource name (GET /x -> /x)
 http_parse_header:
 	push	eax
-	.if NET_HTTP_DEBUG > 1
-		pushcolor 15
-	.endif
 	mov	edx, -1		# the file to serve
 	mov	edi, esi	# mark beginning
 0:	lodsb
@@ -3262,7 +3292,6 @@ http_parse_header:
 	jnz	2f
 	.if NET_HTTP_DEBUG > 1
 		call	newline
-		color	15
 	.endif
 	call	http_parse_header_line$	# update edx if GET /...
 	mov	edi, esi	# mark new line beginning
@@ -3270,12 +3299,10 @@ http_parse_header:
 
 2:	.if NET_HTTP_DEBUG > 1
 		call	printchar
-		color	7
 	.endif
 
 1:	loop	0b
 	.if NET_HTTP_DEBUG > 1
-		popcolor
 		call	newline
 	.endif
 	pop	eax
