@@ -20,7 +20,7 @@ HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s \
 
 NIC_SRC = rtl8139.s i8254.s am79c971.s
 
-NET_SRC = net.s httpd.s
+NET_SRC = net.s httpd.s dns.s
 
 FS_SRC = fs.s iso9660.s partition.s fat.s sfs.s
 
