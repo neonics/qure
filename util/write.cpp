@@ -29,6 +29,7 @@ int h_out, h_in = -1;
 int out_offs = 0;
 int sector = 0;
 int outlen = 144 * 10240;
+bool no_pad = false;
 
 void fill_sector()
 {
@@ -149,7 +150,9 @@ int next()
 		boot_buf[511] = 0xaa;
 	}
 
-	return sector * 512 <= outlen;
+	return no_pad
+		? rimgidx < imgidx
+		: sector * 512 <= outlen;
 }
 
 int main( int argc, char * argv[] )
@@ -194,6 +197,10 @@ bool parse_args( int argc, char ** argv )
 			if ( ++i < argc ) out_name = argv[i];
 			else ok = false;
 		}
+		else if ( strcmp( argv[i], "-np" ) == 0 )
+		{
+			no_pad = true;
+		}
 		else
 		{
 			ok = false;
@@ -212,10 +219,11 @@ bool parse_args( int argc, char ** argv )
 		if ( out_name == NULL )
 			printf( "Missing out-image-filename\n");
 		printf( "\n"
-			"Usage: %s [-b <boot.bin>" /*" [-wa xxxx]]"*/" [-rd] -o <outfile.img>\n\n"
+			"Usage: %s [-np] [-b <boot.bin>" /*" [-wa xxxx]"*/"] [-rd] -o <outfile.img>\n\n"
 			"Write a 1.44MB floppy disk image, marking the first "
 			"sector as a boot sector.\n\n"
 
+			"  -np      \tno pad: do not pad output to 1.44Mb\n"
 			"  -b <file>\tappend image at next sector alignment, "
 			"starting at 0.\n\n"
 

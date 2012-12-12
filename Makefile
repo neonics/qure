@@ -1,9 +1,10 @@
-define SECTORS =
-	$(shell perl -e 'use POSIX; print ceil((-s "$(1)") * 1.0 / 512)')
+define CALC_SECTORS =
+$(shell perl -e 'use POSIX; print ceil((-s "$(1)") * 1.0 / 512)')
 endef
 
 ISO_ARGS = -boot-load-seg 0
-#ISO_ARGS += -boot-load-size $(SECTORS)
+ISO_ARGS += -boot-load-size $(SECTORS)
+#ISO_ARGS += -J
 #ISO_ARGS += -no-emul-boot
 #ISO_ARGS += -hard-disk-boot
 
@@ -19,16 +20,16 @@ endef
 
 all: os.iso
 
+os.iso: SECTORS = $(call CALC_SECTORS,build/boot.img)
 os.iso: init build/boot.img
 	@echo Generating $@
-	@echo "Sectors: $(call SECTORS,build/boot.img)"
+	@echo "Sectors: $(SECTORS)"
 	@cp build/boot.img root/boot/boot.img
 	@genisoimage -input-charset utf-8 -o os.iso \
 		-r -b boot/boot.img \
 		$(ISO_ARGS) \
 		root/
 	@#-J -boot-info-table
-	@#-boot-load-size 2884
 	@#-no-emul-boot
 	@#-hard-disk-boot
 
@@ -43,7 +44,6 @@ clean:
 	$(call MAKE,bootloader,clean)
 	$(call MAKE,kernel,clean)
 	$(call MAKE,fonts,clean)
-
 
 build/boot.img: build/boot.bin build/kernel.bin build/write.exe
 	@build/write.exe -o $@ \
