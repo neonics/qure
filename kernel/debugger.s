@@ -542,6 +542,84 @@ printflags$:
 	loop	2b
 	ret
 
+#####################################################################
+# Printing mutexes
+.data SECTION_DATA_BSS
+debugger_mutex_col_width$:	.byte 0
+.text32
+debugger_printcalc_mutex$:
+	# calculate mutex name width
+	xor	edx, edx
+	mov	eax, NUM_MUTEXES
+	mov	esi, offset mutex_names
+0:	call	strlen_
+	cmp	ecx, edx
+	jb	1f
+	mov	edx, ecx
+	stc
+1:	adc	esi, ecx
+	dec	eax
+	jnz	0b
+	inc	edx
+	mov	[debugger_mutex_col_width$], dl
+	ret
+
+debugger_print_mutex$:
+	push	eax
+	push	ecx
+	push	edx
+	push	esi
+	push	edi
+
+	cmp	byte ptr [debugger_mutex_col_width$], 0
+	jnz	1f
+	call	debugger_printcalc_mutex$
+1:
+
+	printc_ 11, "mutex: "
+	mov	edx, [mutex]
+	call	printbin8
+	call	newline
+
+	mov	ecx, NUM_MUTEXES
+	mov	esi, offset mutex_owner
+	mov	edi, offset mutex_names
+########
+0:	mov	edx, NUM_MUTEXES
+	sub	edx, ecx
+	call	printdec32
+	printchar_ ':'
+
+	xchg	esi, edi
+	push	ecx
+	movzx	ecx, byte ptr [debugger_mutex_col_width$]
+	add	ecx, esi
+	call	print_
+	sub	ecx, esi
+	jbe	1f
+2:	call	printspace
+	loop	2b
+1:	pop	ecx
+	xchg	esi, edi
+
+	printchar_ '='
+	lodsd
+	mov	edx, eax
+	call	printhex8
+	or	edx, edx
+	jz	1f
+	call	printspace
+	call	debug_printsymbol
+1:	call	newline
+	loop	0b
+########
+	pop	edi
+	pop	esi
+	pop	edx
+	pop	ecx
+	pop	eax
+	ret
+
 
 .data SECTION_DATA_BSS
 debugger_stack_print_lines$:	.long 0
@@ -574,7 +652,7 @@ debugger:
 	PIC_SET_MASK ~(1<<IRQ_KEYBOARD)# | 1<<IRQ_TIMER)
 	sti	# for keyboard. Todo: mask other interrupts.
 
-1:	printlnc_ 0xb8, "Debugger: h=help c=continue p=printregisters s=sched m=mode"
+1:	printlnc_ 0xb8, "Debugger: h=help c=continue p=printregisters s=sched m=mutex"
 
 0:	printcharc_ 0xb0, ' '	# force scroll
 	call	screen_get_pos
@@ -583,7 +661,7 @@ debugger:
 4:	mov	eax, [debugger_cmdline_pos$]
 	call	screen_set_pos
 
-	mov	al, [esp + 8]
+	mov	al, [ebp + 8]
 	and	al, 7
 	LOAD_TXT "stack"
 	jz	2f
@@ -617,8 +695,12 @@ debugger:
 	jz	10f
 	test	eax, K_KEY_CONTROL | K_KEY_ALT
 	jnz	6b
+	cmp	ax, offset K_TAB
+	jz	13f	# mode
 	cmp	al, 'c'
 	jz	9f
+	# the rest of the keys/commands has print output, so do newline:
+	call	newline
 	cmp	al, 'p'
 	jz	2f
 	cmp	al, 'h'
@@ -626,7 +708,7 @@ debugger:
 	cmp	al, 's'
 	jz	55f
 	cmp	al, 'm'
-	jz	13f
+	jz	69f
 	jmp	6b
 
 10:	mov	edi, [ebp]
@@ -665,6 +747,10 @@ debugger:
 55:	call	cmd_tasks
 	jmp	0b
 
+69:	call	debugger_print_mutex$
+	jmp	0b
+
+# mode
 13:	mov	al, [ebp + 8]	# update low 3 bits (8 modes max)
 	mov	dl, al
 	and	al, 0xf8
@@ -689,3 +775,6 @@ debugger:
 
 2:	call	debug_print_exception_registers$# printregisters
 	jmp	0b
+
+
+

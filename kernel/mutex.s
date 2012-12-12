@@ -3,6 +3,7 @@
 #
 .intel_syntax noprefix
 
+MUTEX_DEBUG = 1	# registers lock owners
 
 ################################################################
 # Mutex - mutual exclusion
@@ -10,18 +11,35 @@
 .data SECTION_DATA_SEMAPHORES
 .align 4
 mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
-	MUTEX_SCHEDULER	= 1
-#	MUTEX_SCREEN	= 2
-	MUTEX_KB	= 4
-	MUTEX_NET	= 8
-	MUTEX_TCP_CONN	= 16
+	MUTEX_SCHEDULER	= 0
+#	MUTEX_SCREEN	= 1
+	MUTEX_KB	= 2
+	MUTEX_NET	= 3
+	MUTEX_TCP_CONN	= 4
 
+	NUM_MUTEXES	= 5
 
+mutex_owner:	.space 4 * NUM_MUTEXES
+
+mutex_names:
+mutex_name_SCHEDULER:	.asciz "SCHEDULER"
+mutex_name_SCREEN:	.asciz "SCREEN"
+mutex_name_KB:		.asciz "KB"
+mutex_name_NET:		.asciz "NET"
+mutex_name_TCP_CONN:	.asciz "TCP_CONN"
 .text32
 
 # out: CF = 1: fail, mutex was already locked.
 .macro MUTEX_LOCK name, nolocklabel=0, locklabel=0, debug=0
-	lock bts dword ptr [mutex], MUTEX_\name
+	lock bts dword ptr [mutex], 1 << MUTEX_\name
+
+	.if MUTEX_DEBUG
+		jc	100f
+		call	101f
+	101:	pop	[mutex_owner + MUTEX_\name * 4]
+	100:
+	.endif
+
 	.if \debug
 		jnc	100f
 		printc 5, "MUTEX LOCK \name: fail"
@@ -38,7 +56,12 @@ mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 
 # out: CF = 1: it was locked (ok); 0: another thread unlocked it (err)
 .macro MUTEX_UNLOCK name, debug=0
-	lock btr dword ptr [mutex], MUTEX_\name
+	lock btr dword ptr [mutex], 1 << MUTEX_\name
+
+	.if MUTEX_DEBUG > 1
+		mov	[mutex_owner + MUTEX_\name * 4], dword ptr 0
+	.endif
+
 	.if \debug
 		jc	100f
 		printc 4, "MUTEX_UNLOCK \name: unlock error"
@@ -50,17 +73,29 @@ mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 
 .macro MUTEX_SPINLOCK name, nolocklabel=0, locklabel=0, debug=0
 	push	ecx
-	mov	ecx, 1000
+	mov	ecx, 10
 101:	MUTEX_LOCK \name, locklabel=102f
 	hlt
 	loop	101b
+	.if \debug
+		printc 5, "MUTEX_SPINLOCK \name: fail"
+		.if MUTEX_DEBUG > 1
+			print " owner: "
+			push edx
+			mov edx,	dword ptr [mutex_owner + MUTEX_\name * 4]
+			call printhex8
+			call newline
+			print "MUTEX: "
+			mov edx, [mutex]
+			call printbin8
+			call printspace
+			pop edx
+		.endif
+	.endif
+	stc
 102:	pop	ecx
 	.ifnc 0,\locklabel
 	jnc	\locklabel
-	.endif
-	.if \debug
-	printc 5, "MUTEX_SPINLOCK \name: fail"
-	stc
 	.endif
 	.ifnc 0,\nolocklabel
 	jc	\nolocklabel
