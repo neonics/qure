@@ -25,7 +25,10 @@ net_service_tcp_http:
 		pop	eax
 	.endif
 
-	call	http_parse_header
+	# NOTE: this approach requires that the headers are sent in one
+	# contiguous packet.
+	# TODO: update to use sockets.
+	call	http_parse_header	# in: esi,ecx; out: edx=uri, ebx=host
 
 	# Send a response
 	cmp	edx, -1	# no GET / found in headers
@@ -33,7 +36,14 @@ net_service_tcp_http:
 	jz	www_err_response
 
 	.if NET_HTTP_DEBUG
-		pushcolor 14
+		pushcolor 13
+		cmp	ebx, -1
+		jz	1f
+		mov	esi, ebx
+		call	print
+		call	printspace
+
+	1:	color	14
 		mov	esi, edx
 		call	print
 		call	printspace
@@ -129,7 +139,7 @@ net_service_tcp_http:
 ########
 1:	# esi, ecx = file contents
 	.if NET_HTTP_DEBUG
-		print "200 "
+		println "200 "
 	.endif
 	push	ebp
 	mov	ebp, esp
@@ -186,10 +196,13 @@ net_service_tcp_http:
 
 # in: esi = header
 # in: ecx = header len
+# out: ebx = host ptr (in header), if any
 # out: edx = -1 or resource name (GET /x -> /x)
 http_parse_header:
 	push	eax
+	push	edi
 	mov	edx, -1		# the file to serve
+	mov	ebx, -1		# the hostname
 	mov	edi, esi	# mark beginning
 0:	lodsb
 	cmp	al, '\r'
@@ -199,7 +212,7 @@ http_parse_header:
 	.if NET_HTTP_DEBUG > 1
 		call	newline
 	.endif
-	call	http_parse_header_line$	# update edx if GET /...
+	call	http_parse_header_line$	# update edx if GET /..., ebx if Host:..
 	mov	edi, esi	# mark new line beginning
 	jmp	1f
 
@@ -211,11 +224,13 @@ http_parse_header:
 	.if NET_HTTP_DEBUG > 1
 		call	newline
 	.endif
+	pop	edi
 	pop	eax
 	ret
 
 
-
+# Parses the header, and zero-terminates the lines if there is a match
+# for a GET / or Host: header.
 # in: edi = start of header line
 # in: esi = end of header line
 # in: edx = known value (-1) to compare against
@@ -244,11 +259,41 @@ http_parse_header_line$:
 	repz	cmpsb
 	pop	esi
 	pop	ecx
+	jz	1f
+
+	LOAD_TXT "Host: ", edi
+	push	ecx
+	push	esi
+	mov	ecx, 5
+	repz	cmpsb
+	pop	esi
+	pop	ecx
 	jnz	9f
 
+	# found Host header line
+	add	esi, 6		# skip "Host: "
+	sub	ecx, 6
+	mov	ebx, esi	# start of hostname
+
+	.if NET_HTTP_DEBUG > 1
+		print "Host: <"
+		call	nprint
+		println ">"
+	.endif
+
+	jmp	0f
+
+1:	# found GET header line
 	add	esi, 4		# preserve the leading /
 	sub	ecx, 4
 	mov	edx, esi	# start of resource
+
+	.if NET_HTTP_DEBUG > 1
+		print "Resource: <"
+		call	nprint
+		println ">"
+	.endif
+
 0:	lodsb
 	cmp	al, ' '
 	jz	0f
@@ -259,13 +304,6 @@ http_parse_header_line$:
 	loop	0b
 	# hmmm
 0:	mov	[esi - 1], byte ptr 0
-	mov	esi, edx
-
-	.if NET_HTTP_DEBUG > 1
-	print "Resource: <"
-	call	print
-	println ">"
-	.endif
 
 9:	pop	ecx
 	pop	esi
@@ -425,7 +463,7 @@ www_content2$:	.asciz "</body></html>\r\n"
 www_err_response:
 	.if NET_HTTP_DEBUG
 		mov	ecx, 4
-		call	nprint
+		call	nprintln
 	.endif
 
 	mov	edx, esi
@@ -568,4 +606,3 @@ _color_css$:
 	call	net_tcp_sendbuf_flush
 	call	net_tcp_fin
 	ret
-
