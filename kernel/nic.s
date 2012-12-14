@@ -604,7 +604,7 @@ cmd_ifconfig:
 	clc
 	ret
 
-9:	printlnc 12, "usage: ifconfig <device> <ip>"
+9:	printlnc 12, "usage: ifconfig <device> [up|down] [<ip>]"
 	stc
 	ret
 
