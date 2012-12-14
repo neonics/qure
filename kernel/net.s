@@ -1079,7 +1079,7 @@ net_ipv4_header_put:
 	push	esi
 	cmp	eax, -1
 	jz	1f	# require ebx=nic and esi=mac to be arguments
-	call	net_arp_resolve_ipv4	# out: ebx=nic, esi=mac
+	call	net_arp_resolve_ipv4	# in: eax; out: ebx=nic, esi=mac for eax
 	jc	0f	# jc arp_err$:printlnc 4,"ARP error";stc;ret
 
 1:	push	edx
@@ -4932,7 +4932,7 @@ cmd_route:
 	mov	ecx, eax
 	CMD_EXPECTARG 9f
 	CMD_ISARG "mask"
-	jnz	9f
+	jnz	2f
 	CMD_EXPECTARG 9f
 	call	net_parse_ip
 	jc	9f
@@ -5014,8 +5014,14 @@ cmd_route:
 0:	pop	ebp
 	ret
 
-9:	printlnc 12, "usage: route add [default] gw <ip>"
-	printlnc 12, "       route add [net <ip>] [mask <ip>] gw <ip>"
+9:	printlnc 12, "usage: route [print]"
+	printlnc 12, "       route add [default] gw <ip> [metric <nr>] [<nic>]"
+	printlnc 12, "       route add [net <ip>] [mask <ip>] gw <ip> [metric <nr>] [<nic>]"
+	call	newline
+	printlnc 12, "  metric: <nr> decimal or hex if prefixed with '0x'"
+	printlnc 12, "          lower numbers: higher priority."
+	printlnc 12, "  <ip>:   ipv4 only."
+	printlnc 12, "  <nic>:  eth<X>, where X is decimal."
 	jmp	0b
 
 ############################################################################
@@ -5401,7 +5407,6 @@ socket_get_lport:
 # out: esi, ecx
 # out: CF = timeout.
 socket_read:
-	push	eax
 	push	edx
 	push	ebx
 	mov	ebx, [clock_ms]
@@ -5411,8 +5416,7 @@ socket_read:
 	xor	ecx, ecx
 	xchg	esi, [edx + eax + sock_in]
 	xchg	ecx, [edx + eax + sock_inlen]
-	or	ecx, ecx
-	clc	# not sure if or clears it
+	or	ecx, ecx	# clears CF
 	jnz	1f
 	cmp	ebx, [clock_ms]
 	jb	1f
@@ -5420,12 +5424,9 @@ socket_read:
 	hlt
 	jmp	0b
 
-2:	stc
 1:	pop	ebx
 	pop	edx
-	pop	eax
 	ret
-
 
 #in: esi, ecx
 net_sock_deliver_icmp:
