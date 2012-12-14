@@ -31,8 +31,9 @@ bkp_reg_gs: .word 0
 
 
 bkp_pm_mode: .word 0
-bkp_pm_ss: .word 0
-bkp_pm_esp: .long 0
+bkp_pm_ss:   .word 0
+bkp_pm_esp:  .long 0
+bkp_pm_cr0:  .long 0
 
 
 ##########################
@@ -517,6 +518,9 @@ call_realmode:
 	mov	[bkp_pm_ss], ss
 	mov	[bkp_pm_esp], esp
 
+	mov	eax, cr0
+	mov	[bkp_pm_cr0], eax
+
 	call	pic_save_mask32
 
 	mov	dx, [esp + 4]
@@ -565,6 +569,8 @@ call_realmode:
 	pop	es
 
 	call	pic_restore_mask32
+	mov	eax, [bkp_pm_cr0]
+	mov	cr0, eax	# restore paging flag
 	ret	4
 
 
@@ -689,7 +695,7 @@ real_mode_rm:
 
 	# enter realmode
 	mov	eax, cr0
-	and	al, 0xfe
+	and	eax, 0x7ffffffe	# no paging, no pmode
 	mov	cr0, eax
 
 	# PLACE NO CODE HERE - serialize CPU to reload code segment
