@@ -22,8 +22,6 @@ SHELL_DEBUG_FS = 0
 
 MAX_CMDLINE_LEN = 1024
 
-MAX_PATH_LEN = 1024
-
 .struct 0
 cmdline_buf:		.space MAX_CMDLINE_LEN
 cmdline_len:		.long 0
@@ -88,6 +86,17 @@ SHELL_COMMAND_STRUCT_SIZE = .
 	.text32
 .endm
 
+.macro SHELL_COMMAND_CATEGORY string
+	.data SECTION_DATA_STRINGS
+		9: .asciz "\string"
+		8:
+	.data SECTION_DATA_SHELL_CMDS
+		.long -1
+		.long 9b
+		.word 8b - 9b
+	.text32
+.endm
+
 .endif		# end declarations
 ############################################################################
 
@@ -97,25 +106,12 @@ SHELL_COMMAND_STRUCT_SIZE = .
 .data SECTION_DATA_SHELL_CMDS
 .align 4
 SHELL_COMMANDS:
+SHELL_COMMAND_CATEGORY "console"
 SHELL_COMMAND "cls",		cls
-# filesystem
-SHELL_COMMAND "ls",		cmd_ls$
-SHELL_COMMAND "cd",		cmd_cd$
-SHELL_COMMAND "pwd",		cmd_pwd$
-SHELL_COMMAND "disks",		cmd_disks_print$
-SHELL_COMMAND "listdrives",	ata_list_drives
-SHELL_COMMAND "fdisk",		cmd_fdisk
-SHELL_COMMAND "mkfs",		cmd_sfs_format
-SHELL_COMMAND "partinfo",	cmd_partinfo$
-SHELL_COMMAND "mount",		cmd_mount$
-SHELL_COMMAND "umount",		cmd_umount$
-SHELL_COMMAND "listfs"		fs_list_filesystems
-SHELL_COMMAND "lsof",		fs_list_openfiles
-SHELL_COMMAND "fat_handles"	cmd_fat_handles
-# memory
-SHELL_COMMAND "mtest",		malloc_test$
-SHELL_COMMAND "mem",		cmd_mem$
+SHELL_COMMAND "colors"		cmd_colors
 # shell
+SHELL_COMMAND_CATEGORY "shell"
+SHELL_COMMAND "shell"		cmd_shell
 SHELL_COMMAND "quit",		cmd_quit$
 SHELL_COMMAND "exit",		cmd_quit$
 SHELL_COMMAND "help",		cmd_help$
@@ -126,15 +122,38 @@ SHELL_COMMAND "unset"		cmd_unset
 
 SHELL_COMMAND "strlen",		cmd_strlen$
 SHELL_COMMAND "echo",		cmd_echo$
+# filesystem
+SHELL_COMMAND_CATEGORY "filesystem"
+SHELL_COMMAND "ls",		cmd_ls$
+SHELL_COMMAND "cd",		cmd_cd$
+SHELL_COMMAND "pwd",		cmd_pwd$
 SHELL_COMMAND "cat",		cmd_cat$
+#
+SHELL_COMMAND "disks",		cmd_disks_print$
+SHELL_COMMAND "listdrives",	ata_list_drives
+SHELL_COMMAND "fdisk",		cmd_fdisk
+SHELL_COMMAND "partinfo",	cmd_partinfo$
+SHELL_COMMAND "mkfs",		cmd_sfs_format
+#
+SHELL_COMMAND "mount",		cmd_mount$
+SHELL_COMMAND "umount",		cmd_umount$
+#
+SHELL_COMMAND "listfs"		fs_list_filesystems
+SHELL_COMMAND "lsof",		fs_list_openfiles
+SHELL_COMMAND "fat_handles"	cmd_fat_handles
+# memory
+SHELL_COMMAND_CATEGORY "memory"
+SHELL_COMMAND "mem",		cmd_mem$	# aka 'free'
+SHELL_COMMAND "mtest",		malloc_test$
 # hardware
+SHELL_COMMAND_CATEGORY "hardware"
 SHELL_COMMAND "dev"		cmd_dev
 SHELL_COMMAND "lspci",		pci_list_devices
-SHELL_COMMAND "ints",		cmd_int_count
-# network
-# nonstandard
-SHELL_COMMAND "nics", 		cmd_nic_list
 SHELL_COMMAND "nicdrivers",	cmd_list_nic_drivers
+# network
+SHELL_COMMAND_CATEGORY "network"
+# nonstandard
+SHELL_COMMAND "nics", 		cmd_nic_list	# aka 'ifconfig'
 SHELL_COMMAND "netdump"		cmd_netdump
 SHELL_COMMAND "zconf"		nic_zeroconf
 # standard
@@ -144,45 +163,44 @@ SHELL_COMMAND "ifdown"		cmd_ifdown
 SHELL_COMMAND "route"		cmd_route
 SHELL_COMMAND "dhcp"		cmd_dhcp
 SHELL_COMMAND "ping"		cmd_ping
+SHELL_COMMAND "p"		cmd_ping_gateway
+SHELL_COMMAND "host"		cmd_host
+SHELL_COMMAND "traceroute"	cmd_traceroute
+SHELL_COMMAND "netstat"		cmd_netstat
 SHELL_COMMAND "arp"		cmd_arp
 SHELL_COMMAND "icmp"		net_icmp_list
-SHELL_COMMAND "host"		cmd_host
-SHELL_COMMAND "netstat"		cmd_netstat
 # utils
+SHELL_COMMAND_CATEGORY "misc"
 SHELL_COMMAND "hs",		cmd_human_readable_size$
 #SHELL_COMMAND "regexp",		regexp_parse
 SHELL_COMMAND "obj"		pci_list_obj_counters
-
-SHELL_COMMAND "gdt"		cmd_print_gdt
-SHELL_COMMAND "p"		cmd_ping_gateway
 SHELL_COMMAND "gfx"		cmd_gfx
-
-SHELL_COMMAND "gpf"		cmd_gpf
-SHELL_COMMAND "colors"		cmd_colors
-
-SHELL_COMMAND "debug"		cmd_debug
-SHELL_COMMAND "breakpoint"	cmd_breakpoint
-SHELL_COMMAND "pic"		cmd_pic
-
-SHELL_COMMAND "vmcheck"		cmd_vmcheck
-SHELL_COMMAND "ramdisk"		cmd_ramdisk
-
+# tasks / processes
+SHELL_COMMAND_CATEGORY "tasks"
 SHELL_COMMAND "exe"		cmd_exe
 SHELL_COMMAND "init"		cmd_init
 SHELL_COMMAND "fork"		cmd_fork
-SHELL_COMMAND "traceroute"	cmd_traceroute
 SHELL_COMMAND "top"		cmd_top
 SHELL_COMMAND "ps"		cmd_tasks
 SHELL_COMMAND "kill"		cmd_kill
-SHELL_COMMAND "shell"		cmd_shell
+# Debugger:
+SHELL_COMMAND_CATEGORY "debugging"
+SHELL_COMMAND "breakpoint"	cmd_breakpoint
+SHELL_COMMAND "gpf"		cmd_gpf
+SHELL_COMMAND "debug"		cmd_debug
+SHELL_COMMAND "pic"		cmd_pic
+SHELL_COMMAND "ints",		cmd_int_count
+SHELL_COMMAND "gdt"		cmd_print_gdt
+SHELL_COMMAND "cr",		cmd_cr
+SHELL_COMMAND "sline",		cmd_sline
+SHELL_COMMAND "sym",		cmd_sym
+SHELL_COMMAND "paging"		paging_show_usage
+SHELL_COMMAND "vmcheck"		cmd_vmcheck
+SHELL_COMMAND "vmx"		cmd_vmx
+SHELL_COMMAND "ramdisk"		cmd_ramdisk
 .if VIRTUAL_CONSOLES
 SHELL_COMMAND "consoles"	cmd_consoles
 .endif
-# Debugger:
-SHELL_COMMAND "sline",		cmd_sline
-SHELL_COMMAND "sym",		cmd_sym
-SHELL_COMMAND "cr",		cmd_cr
-SHELL_COMMAND "paging"		paging_show_usage
 .data SECTION_DATA_SHELL_CMDS
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -742,6 +760,8 @@ cmdline_execute$:
 	mov	edx, offset SHELL_COMMANDS
 0:	cmp	[edx + shell_command_code], dword ptr 0
 	jz	2f
+	cmp	[edx + shell_command_code], dword ptr -1
+	jz	3f
 
 	mov	esi, [edx + shell_command_string]
 	or	esi, esi
@@ -753,7 +773,7 @@ cmdline_execute$:
 	pop	edi
 	jz	1f
 
-	add	edx, SHELL_COMMAND_STRUCT_SIZE
+3:	add	edx, SHELL_COMMAND_STRUCT_SIZE
 	jmp	0b
 
 2:	PRINTLNc 4, "Unknown command"
@@ -950,17 +970,74 @@ cmd_pwd$:
 	call	println
 	ret
 
+.data SECTION_DATA_STRINGS
+cmd_help_intro$:
+.ascii "For usage, run a command with -? or --help; -h works too except for "
+.asciz "commands for\nwhich it is a valid argument.\n"
+.text32
+
 cmd_help$:
+	# calculate shell command category name maxlen
+	mov	ebx, offset SHELL_COMMANDS
+	xor	edx, edx
+0:	cmp	[ebx + shell_command_string], dword ptr 0
+	jz	0f
+	cmp	[ebx + shell_command_code], dword ptr -1
+	jnz	1f
+	mov	ax, [ebx + shell_command_length]
+	cmp	ax, dx
+	jb	1f
+	mov	dx, ax
+1:	add	ebx, SHELL_COMMAND_STRUCT_SIZE
+	jmp	0b
+0:
+
+	push	dword ptr offset cmd_help_intro$
+	call	printf
+	add	esp, 4
+
+	#
 	mov	ebx, offset SHELL_COMMANDS
 0:	mov	esi, [ebx + shell_command_string]
 	or	esi, esi
 	jz	0f
 	cmp	[ebx + shell_command_code], dword ptr 0
 	jz	0f
-	call	print
+	cmp	[ebx + shell_command_code], dword ptr -1
+	jnz	1f
+	call	newline	# prints newline for first cat too - after help intro.
+	mov	ah, 15
+	call	printc
+	# pad
+	call	strlen_
+	neg	ecx
+	add	ecx, edx
+	add	ecx, 2
+3:	call	printspace
+	loop	3b
+	jmp	2f
+1:	# word-wrap
+	GET_SCREENPOS eax
+	shr	eax, 1
+	push	edx
+	xor	dx, dx
+	mov	cx, 80
+	div	cx
+	add	dx, word ptr [ebx + shell_command_length]
+	cmp	dx, 80
+	pop	edx
+	jb	1f
+	call	newline
+	# pad
+	mov	ecx, edx
+	add	ecx, 2
+3:	call	printspace
+	loop	3b
+	#
+1:	call	print
 	mov	al, ' '
 	call	printchar
-	add	ebx, SHELL_COMMAND_STRUCT_SIZE
+2:	add	ebx, SHELL_COMMAND_STRUCT_SIZE
 	jmp	0b
 0:	call	newline
 	ret
@@ -2046,4 +2123,15 @@ cmd_cr:
 
 	# cr8 and further wrap to 0 etc
 	ret
+
+cmd_vmx:
+	mov	eax, 1
+	cpuid
+	test	ecx, 1 << 5
+	jz	1f
+	println "VMX supported"
+	ret
+1:	printlnc 4, "No VMX support"
+	ret
+
 .endif
