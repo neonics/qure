@@ -1097,17 +1097,30 @@ fs_close:	# fs_free_handle
 # 
 # in: eax = pointer to path string
 # out: eax = directory handle (pointer to struct), to be freed with fs_close.
-.data SECTION_DATA_BSS
-fs_openfoo: .byte 0
-.text32
-
-
 fs_openfile:
-	mov	byte ptr [fs_openfoo], 1
-	jmp	0f
 fs_opendir:
-	mov	byte ptr [fs_openfoo], 2
-0:
+	push	edx
+	mov	edx, 0x80000000
+	call	fs_open
+	pop	edx
+	ret
+
+# in: eax = path string
+# out: CF = 0: exists; 1: does not exist.
+fs_stat:
+	push	edx
+	xor	edx, edx
+	call	fs_open
+	pop	edx
+	jc	9f
+	call	fs_close
+9:	ret
+
+
+# in: eax = pointer to path string
+# in: edx = flags: 0x80000000 = print error
+# out: eax = directory handle (pointer to struct), to be freed with fs_close.
+fs_open:
 ####################################################################
 	push	ebp
 	push	ebx
@@ -1199,6 +1212,7 @@ fs_opendir:
 	pop	ebx
 	pop	ebp
 	ret
+
 
 handle_copy_path$:
 	# copy path so far:
@@ -1326,7 +1340,9 @@ handle_pathpart$:
 	mov	[edi + fs_handle_dir], ebx	# out: ebx = fs specific handle
 	ret
 
-1:	printc 12, "File not found: "
+1:	test	[ebp + 12], dword ptr 0x80000000 # print error
+	jz	1f
+19:	printc 12, "File not found: "
 	push	ecx
 	push	esi
 	add	ecx, esi
@@ -1335,8 +1351,8 @@ handle_pathpart$:
 	call	nprintln
 	pop	esi
 	pop	ecx
-	stc
-2:	ret
+1:	stc
+	ret
 
 ###############################################################################
 # Utility functions

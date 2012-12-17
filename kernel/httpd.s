@@ -75,19 +75,42 @@ net_service_tcp_http:
 	mov	[www_docroot$ + 1], al
 	pop	eax
 
-	mov	esi, edx
+	xor	ecx, ecx
+	cmp	ebx, -1
+	jz	1f	# no host
+	mov	esi, ebx
 	call	strlen_
+	inc	ecx
+1:
+	mov	esi, edx
+	push	ecx
+	call	strlen_
+	add	ecx, [esp]
+	add	esp, 4
 	cmp	ecx, MAX_PATH_LEN - WWW_DOCROOT_STR_LEN -1
 	mov	esi, offset www_code_414$
 	jae	www_err_response
-	mov	esi, edx
 
 	# calculate path
-	mov	edi, offset www_file$
+0:	mov	edi, offset www_file$
 	mov	esi, offset www_docroot$
 	mov	ecx, WWW_DOCROOT_STR_LEN
 	rep	movsb
 
+	cmp	ebx, -1
+	jz	1f
+	mov	edi, offset www_file$
+	mov	esi, ebx
+	call	fs_update_path
+	mov	word ptr [edi - 1], '/'
+	push	eax
+	mov	eax, offset www_file$
+	call	fs_stat
+	pop	eax
+	jnc	1f
+	mov	ebx, -1
+	jmp	0b
+1:
 	mov	edi, offset www_file$
 	mov	esi, edx
 	inc	esi	# skip leading /
