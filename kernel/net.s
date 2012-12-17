@@ -2023,7 +2023,7 @@ tcp_conn_send_buf_size:	.long 0	# malloc'd size
 tcp_conn_send_buf_start:.long 0 # payload offset start in buf
 tcp_conn_send_buf_len:	.long 0	# size of unsent data
 tcp_conn_timestamp:	.long 0	# [clock_ms]
-tcp_conn_local_addr:	.long 0
+tcp_conn_local_addr:	.long 0	# NEEDS to be adjacent to tcp_conn_remote_addr
 tcp_conn_remote_addr:	.long 0	# ipv4 addr
 tcp_conn_local_port:	.word 0
 tcp_conn_remote_port:	.word 0
@@ -2046,15 +2046,92 @@ tcp_conn_state:		.byte 0
 	TCP_CONN_STATE_FIN_TX		= 64
 	TCP_CONN_STATE_FIN_ACK_RX	= 128
 
-#	TCP_CONN_STATE_LISTEN		= 1	# server
-#	TCP_CONN_STATE_SYN_RECEIVED	= 2	# server
-#	TCP_CONN_STATE_ESTABLISHED	= 3	# both
-#	TCP_CONN_STATE_FIN_WAIT_1	= 4
-#	TCP_CONN_STATE_FIN_WAIT_2	= 5
-#	TCP_CONN_STATE_CLOSE_WAIT	= 6
-#	TCP_CONN_STATE_LAST_ACK		= 7
-#	TCP_CONN_STATE_TIME_WAIT	= 8
-#	TCP_CONN_STATE_CLOSED		= 9
+# rfc793:
+# states:
+#TCP_CONN_STATE_LISTEN		= 1	# wait conn req from remote
+#TCP_CONN_STATE_SYN_SENT	= 2	# wait match conn req after tx conn req
+#TCP_CONN_STATE_SYN_RECEIVED	= 3	# wait conn req ack after rx/tx conn req
+#TCP_CONN_STATE_ESTABLISHED	= 4	# open connection, normal
+#TCP_CONN_STATE_FIN_WAIT_1	= 5	# wait rx (fin | ack for tx fin)
+#TCP_CONN_STATE_FIN_WAIT_2	= 6	# wait rx fin
+#TCP_CONN_STATE_CLOSE_WAIT	= 7	# wait local close command
+#TCP_CONN_STATE_CLOSING		= 8	# wait rx ack for tx fin
+#TCP_CONN_STATE_LAST_ACK	= 9	# wait rx ack for tx fin
+#TCP_CONN_STATE_TIME_WAIT	= 10	# delay ensure remote rx ack for rx fin
+#TCP_CONN_STATE_CLOSED		= 11	# fictional: no conn state
+#
+# events:
+# * user calls		OPEN, SEND, RECEIVE, CLOSE, ABORT, STATUS
+# * incoming segments	SYN, ACK, RST, FIN
+# * timeouts
+#
+# client:
+# active OPEN -> tx SYN -> {SYN_SENT}
+#
+# server:
+# passive OPEN   -> {LISTEN}
+# {LISTEN}       -> rx SYN    / tx SYN,ACK -> {SYN_RECEIVED}
+# {LISTEN}       -> user SEND / tx SYN     -> {SYN_SENT}
+# - reset event:
+# {SYN_SENT}     -> rx RST -> {LISTEN}
+# {SYN_RECEIVED} -> rx RST -> {LISTEN}
+#
+# common:
+# {SYN_SENT}     -> rx SYN,ACK/tx ACK -> {ESTABLISHED}
+# {SYN_SENT}     -> rx SYN    /tx ACK -> {SYN_RECEIVED} -> rx ACK -> {ESTABLSHD}
+# {SYN_RECEIVED} -> CLOSE/tx FIN  -> {FIN_WAIT_1}
+# {ESTABLISHED}  -> CLOSE/tx FIN  -> {FIN_WAIT_1}
+# {ESTABLISHED}  -> rx FIN/tx ACK -> {CLOSE_WAIT} -> CLOSE/tx FIN -> {LAST_ACK}
+# {LAST_ACK}     -> rx ACK -> {CLOSED}
+# {FIN_WAIT_1}   -> rx ACK  -> {FIN_WAIT_2}
+# {FIN_WAIT_1}   -> rx FIN/tx ACK -> {CLOSING} -> rx ACK -> {TIME_WAIT}
+# {FIN_WAIT_2}   -> rx FIN/tx ACK -> {TIME_WAIT}
+# {TIME_WAIT}    -> timeout 2MSL -> {CLOSED}
+# - reset event: abort
+# {ESTABLISHED}  -> rx RST -> {CLOSED}, report error
+# {FIN_WAIT_1}   -> rx RST -> {CLOSED}, report error
+# {FIN_WAIT_2}   -> rx RST -> {CLOSED}, report error
+# {CLOSE_WAIT}   -> rx RST -> {CLOSED}, report error
+# {CLOSING}      -> rx RST -> {CLOSED}, report error
+# {LAST_ACK}     -> rx RST -> {CLOSED}, report error
+# {TIME_WAIT}    -> rx RST -> {CLOSED}, report error
+#
+# Connection state categories:
+# - nonexistent: CLOSED
+# - non-synchronized: LISTEN, SYN_SENT, SYN_RECEIVED
+# - synchronized: ESTABLISHED, FIN_WAIT_1, FIN_WAIT_2, CLOSE_WAIT, CLOSING,
+#    LAST_ACK, TIME_WAIT.
+#
+# RST: sent when unacceptable packet is received.
+# Ignored here is precedence levels, security level/compartment for the
+# connection as this is not part of the core (minimal) TCP packet.
+#
+# Basic reasons to send RST depending on connection state:
+# - nonexistent: something is received.
+# - non-synchronized: something is ACKed which is not sent
+# In the following case:
+# - synchronized: out-of-window seq or unacceptable ack_nr
+# only an empty ACK is sent with current send seq_nr and ack_nr indicating next
+# expected sequence number.
+#
+# In all the above cases, the connection does not change state.
+#
+# rx ACK for out-of-window data
+# {CLOSED}       -> rx !RST / tx RST -> {CLOSED}   (!RST means anything but RST)
+# unsynchronised states:
+# {LISTEN}       -> rx ?ACK / tx RST -> {LISTEN}   (?ACK means unacceptable ACK,
+# {SYN_SENT}     -> rx ?ACK / tx RST -> {SYN_SENT}      for something not sent.)
+# {SYN_RECEIVED} -> rx ?ACK / tx RST -> {SYN_RECEIVED}
+#
+# -------
+#
+# MSL: maximum segment lifetime (<4.55 hours, usually 2 minutes)
+#
+# ISN: initial sequence number: 4 microsecond clock: 4.55 hour cycle.
+#
+# ISS: initial send sequence nr - chosen by tx data.
+# IRS: initial receive sequence nr - learned during 3way handshake.
+
 .align 4
 TCP_CONN_STRUCT_SIZE = .
 .data SECTION_DATA_BSS
@@ -2124,6 +2201,7 @@ net_tcp_conn_get:
 # in: esi = tcp frame pointer
 # in: edi = handler [unrelocated]
 # out: eax = tcp_conn array index
+# out: CF = 1: out of memory
 net_tcp_conn_newentry:
 	push	ecx
 	push	edx
@@ -2213,10 +2291,13 @@ net_tcp_conn_newentry:
 	mov	edx, eax
 	mov	eax, TCP_CONN_BUFFER_SIZE
 	call	mallocz
+	jc	1f
 	mov	[edx + tcp_conn_send_buf], eax
 	mov	[edx + tcp_conn_send_buf_size], dword ptr TCP_CONN_BUFFER_SIZE
 1:
+	pushf
 	MUTEX_UNLOCK TCP_CONN
+	popf
 
 	pop	eax
 	pop	edx
@@ -2260,7 +2341,7 @@ net_tcp_conn_update:
 		DEBUG "ack"
 		DEBUG_DWORD ebx
 	.endif
-0:
+0:	clc	# net_tcp_conn_newentry ends up here
 	pop	ebx
 	pop	edx
 	pop	eax
@@ -2466,6 +2547,7 @@ net_ipv4_tcp_handle:
 		printc TCP_DEBUG_COL, "tcp: ACCEPT SYN"
 	.endif
 	call	net_tcp_conn_newentry	# in: edx, esi, edi
+	jc	9f	# no more connections, send RST
 	call	net_tcp_handle_syn$
 	.if NET_TCP_DEBUG
 		call	newline
@@ -2480,8 +2562,11 @@ net_ipv4_tcp_handle:
 	.endif
 	jmp	1f
 9:	.if NET_TCP_DEBUG
-		printc 0x8c, "tcp: DROP SYN: "
+		printc 0x8c, "tcp: REJECT SYN: "
 	.endif
+	mov	eax, -1	# nonexistent connection
+	call	net_tcp_tx_rst$
+
 1:	.if NET_TCP_DEBUG
 		mov	eax, [edx + ipv4_src]
 		call	net_print_ip
@@ -2905,12 +2990,11 @@ net_tcp_send:
 0:
 	# calculate checksum
 
-	# in: eax = tcp conn
-	mov	eax, [ebp]
-	# in: esi = tcp frame pointer
-	mov	esi, edi
-	# in: ecx = tcp frame len
-	add	ecx, TCP_HEADER_SIZE
+	mov	edx, [ebp]		# in: edx = ipv4 src, dst ptr
+	add	edx, [tcp_connections]
+	add	edx, offset tcp_conn_local_addr
+	mov	esi, edi		# in: esi = tcp frame pointer
+	add	ecx, TCP_HEADER_SIZE	# in: ecx = tcp frame len
 	call	net_tcp_checksum
 
 	# send packet
@@ -2943,6 +3027,136 @@ net_tcp_send:
 	pop	edi
 	ret
 
+# Sends a reset packet. Called when a packet is received that refers
+# to a nonexistent connection.
+#
+# in: eax = tcp_conn array index, or -1 for nonexistent connection
+# in: edx = ip frame
+# in: esi = tcp frame
+# in: ecx = tcp frame len
+net_tcp_tx_rst$:
+	push	ebp
+	push	eax
+	mov	ebp, esp	# [ebp] = tcp_conn idx
+	push	ecx
+	push	edx
+	push	esi
+	push	edi
+
+	NET_BUFFER_GET
+	jc	9f
+	push	edi	# remember packet start
+
+	mov	eax, [edx + ipv4_src]
+	mov	ecx, TCP_HEADER_SIZE
+	push	edx
+	mov	dx, IP_PROTOCOL_TCP
+	push	esi
+	lea	esi, [edx - ETH_HEADER_SIZE + eth_src] # optional
+	mov	ecx, _TCP_HLEN
+	call	net_ipv4_header_put # mod eax, esi, edi
+	pop	esi
+	pop	edx
+	jc	8f
+
+	# add tcp header
+	push	edi
+	push	ecx
+	xor	al, al
+	rep	stosb
+	pop	ecx
+	pop	edi
+
+	mov	eax, [esi + tcp_sport]
+	rol	eax, 16
+	mov	[edi + tcp_sport], eax
+
+	# Calculate sequence number tcp_seq:
+	# check connection state:
+	cmp	dword ptr [ebp], -1
+	jnz	3f
+
+######### CLOSED:
+	# from rfc793, added () logical interpretation:
+	#
+	# "(If the incoming segment has an ACK field, the reset takes its
+	# sequence number from the ACK field of the segment, otherwise the
+	# reset has sequence number zero) and the ACK field is set to the sum
+	# of the sequence number and segment length of the incoming segment.
+	# The connection remains in the CLOSED state."
+	#
+	# without the (), the ACK field response is not specified for an
+	# incoming SEG with an ACK field.
+
+	# SEG.ACK ? seq = SEG.ack_nr, ack_nr = <unspecified>
+	#         : seq = 0,          ack_nr = SEG.SEQ + SEG.LEN
+	#
+	# Interpretation:
+	#
+	# seq    = SEG.ACK ? SEG.ack_nr : 0
+	# ack_nr = SEG.SEQ + SEG.LEN
+
+	# calculate tcp_seq:
+	xor	eax, eax		# seq if there is no ACK flag
+	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_ACK
+	jz	1f
+	mov	eax, [esi + tcp_ack_nr]	# ACK present
+1:	mov	[edi + tcp_seq], eax
+
+	# calculate ack_nr: (standard)
+	mov	eax, [esi + tcp_seq]
+	bswap	eax
+	# add segment len
+	# temporary: assume SYN sent:
+	inc	eax
+	bswap	eax
+	mov	[edi + tcp_ack_nr], eax
+########
+#	jmp	4f
+3:	# TODO: connection exists: so far no valid reason to RST found;
+	# if sequence numbers mismatch, an ACK with proper sequence numbers
+	# is to be sent - in another method preferrably.
+########
+4:	mov	ax, TCP_FLAG_RST | TCP_FLAG_ACK | ((TCP_HEADER_SIZE/4)<<12)
+	xchg	al, ah
+	mov	[edi + tcp_flags], ax
+
+	mov	[edi + tcp_windowsize], word ptr 0 # RST: no receive window
+	mov	[edi + tcp_checksum], word ptr 0
+	mov	[edi + tcp_urgent_ptr], word ptr 0
+
+	# calculate checksum
+	mov	esi, edi		# in: esi = tcp frame pointer
+	mov	ecx, TCP_HEADER_SIZE	# in: ecx = tcp frame len
+	add	edx, offset ipv4_src	# in: edx = ipv4 src,dst
+push eax
+DEBUG "RST"
+mov eax, [edx]
+call net_print_ip
+call printspace
+mov eax, [edx+4]
+call net_print_ip
+pop eax
+	call	net_tcp_checksum
+
+	add	edi, TCP_HEADER_SIZE
+	# send packet
+
+	pop	esi
+	NET_BUFFER_SEND
+
+9:	pop	edi
+	pop	esi
+	pop	edx
+	pop	ecx
+	pop	eax
+	pop	ebp
+	ret
+# error between NET_BUFFER_GET/push edi and pop esi/NET_BUFFER_SEND
+8:	pop	edi
+	jmp	9b
+
+
 
 # in: eax = tcp_conn array index
 # in: edx = ip frame
@@ -2953,7 +3167,6 @@ net_tcp_handle_syn$:
 	push	ebp
 	mov	ebp, esp
 	push	eax
-
 
 #### accept tcp connection
 
@@ -3041,14 +3254,11 @@ net_tcp_handle_syn$:
 	call	net_tcp_copyoptions
 	.endif
 
-	# calculate checksum
-
-	# in: eax = tcp_conn
-	mov	eax, [ebp - 4]
-	# in: esi = tcp frame pointer
-	# in: ecx = tcp frame len
-	mov	ecx, _TCP_HLEN
+	# calculate checksum		# in: esi = tcp frame pointer
+	add	edx, offset ipv4_src	# in: edx = ipv4 src,dst
+	mov	ecx, _TCP_HLEN		# in: ecx = tcp frame len
 	call	net_tcp_checksum
+	sub	edx, offset ipv4_src
 
 	# send packet
 
@@ -3243,7 +3453,7 @@ net_tcp_copyoptions:
 	pop	ecx
 	ret
 
-# in: eax = tcp_conn array index
+# in: edx = ptr to ipv4 src, dst
 # in: esi = tcp frame pointer
 # in: ecx = tcp frame len (header and data)
 net_tcp_checksum:
@@ -3259,9 +3469,7 @@ net_tcp_checksum:
 	# db 0, protocol	# dw 0x0600 # protocol
 	# dw headerlen+datalen
 	push	esi
-	add	eax, [tcp_connections]
-#	lea	esi, [edx + ipv4_src]
-	lea	esi, [eax + tcp_conn_local_addr]
+	mov	esi, edx
 	xor	edx, edx
 	xor	eax, eax
 	# ipv4 src, ipv4 dst
@@ -3628,10 +3836,12 @@ ph_ipv4_udp:
 	jz	1f	#net_dns_print
 	cmp	[eax + udp_dport], word ptr 53 << 8	# DNS
 	jz	net_dns_service
-	cmp	[esi + udp_sport], dword ptr ( (67 << 8) | (68 << 24))
+	cmp	[eax + udp_sport], dword ptr ( (67 << 8) | (68 << 24))
 	jz	ph_ipv4_udp_dhcp_s2c
-	cmp	[esi + udp_sport], dword ptr ( (68 << 8) | (67 << 24))
+	cmp	[eax + udp_sport], dword ptr ( (68 << 8) | (67 << 24))
 	jz	ph_ipv4_udp_dhcp_c2s
+
+	mov	esi, eax	# restore udp frame for error message below
 
 	LOAD_TXT "unknown port", eax
 9:	printc 4, "ipv4_udp["
@@ -5299,10 +5509,11 @@ cmd_netstat:
 
 #############################################################################
 # Sockets
+SOCK_LISTEN = 0x80000000
 .struct 0
 sock_addr:	.long 0
 sock_port:	.word 0
-sock_proto:	.word 0
+sock_proto:	.word 0	# and SOCK flags.
 sock_in:	.long 0	# updated by net_rx_packet's packet handlers if
 sock_inlen:	.long 0 # the ip, port and proto match.
 SOCK_STRUCT_SIZE = .
@@ -5310,7 +5521,7 @@ SOCK_STRUCT_SIZE = .
 socket_array: .long 0
 .text32
 # in: eax = ip
-# in: ebx = [proto] [port]
+# in: ebx = [SOCK_LISTEN] | [proto << 16] | [port]
 # out: eax = socket index
 socket_open:
 	push	edx
@@ -5349,6 +5560,7 @@ socket_close:
 	pop	edx
 	stc
 	ret
+
 
 socket_list:
 	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, ebx, ecx, 9f
@@ -5420,12 +5632,35 @@ socket_read:
 	jnz	1f
 	cmp	ebx, [clock_ms]
 	jb	1f
-	sti
-	hlt
+	.if 1
+		call	schedule_near
+	.else
+		sti
+		hlt
+	.endif
 	jmp	0b
 
 1:	pop	ebx
 	pop	edx
+	ret
+
+# returns a new socket if a tcp connection is establised
+# in: eax = socket idx
+# in: ecx = timeout
+# out: edx = connected socket
+# out: CF
+socket_accept:
+	push	ebx
+	mov	ebx, [clock_ms]
+	add	ebx, ecx
+
+	ARRAY_LOOP [tcp_connections], TCP_CONN_STRUCT_SIZE, esi, edx
+# TODO
+#	test	[esi + edx + tcp_flags], 
+	ARRAY_ENDL
+
+	pop	ebx
+	stc
 	ret
 
 #in: esi, ecx
@@ -5443,6 +5678,7 @@ net_sock_deliver_icmp:
 # in: edx = [proto] [port]
 # in: esi, ecx: packet
 net_socket_deliver:
+	push	edi
 	push	ebx
 	push	ebp
 	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, ebx, edi, 9f
@@ -5458,6 +5694,7 @@ net_socket_deliver:
 3:	ARRAY_ENDL
 9:	pop	ebp
 	pop	ebx
+	pop	edi
 	ret
 ########
 2:	# got a match
