@@ -111,7 +111,7 @@ include "rtl8139.s"
 include "i8254.s"
 include "am79c971.s"
 code_nic_end:
-include "net.s", net
+include "net/net.s", net
 
 include "gfx.s", gfx
 include "hwdebug.s", hwdebug

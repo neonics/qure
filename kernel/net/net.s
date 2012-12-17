@@ -5703,6 +5703,6 @@ net_socket_deliver:
 	mov	[ebx + edi + sock_inlen], ecx
 	jmp	9b
 
-
-.include "dns.s"
-.include "httpd.s"
+# AS does not support source-relative includes:
+.include "net/dns.s"
+.include "net/httpd.s"
