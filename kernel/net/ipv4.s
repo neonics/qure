@@ -111,9 +111,9 @@ net_ipv4_header_put:
 1:
 	# checksum
 	push	edi
-	mov	esi, edi
-	mov	edi, offset ipv4_checksum
-	mov	ecx, IPV4_HEADER_SIZE / 2
+	mov	esi, edi			# in: esi = start
+	mov	edi, offset ipv4_checksum	# in: edi = offset to cksum word
+	mov	ecx, IPV4_HEADER_SIZE		# in: ecx = len in bytes
 	call	protocol_checksum
 	pop	edi
 	pop	ecx
@@ -121,6 +121,62 @@ net_ipv4_header_put:
 	add	edi, IPV4_HEADER_SIZE
 
 0:	pop	esi
+	ret
+
+# Calculates a checksum for UDP and TCP over IPv4 constructing a psesudo-header.
+# in: al = IP_PROTOCOL_...
+# in: edx = ptr to ipv4 src, dst
+# in: edi = ptr to checksum field (tcp_checksum, udp_checksum)
+# in: esi = tcp/udp frame pointer
+# in: ecx = tcp/udp frame len (header and data)
+net_ip_pseudo_checksum:
+	push	esi
+	push	edi
+	push	edx
+	push	ecx
+	push	eax
+
+	# calculate tcp pseudo header:
+	# dd ipv4_src
+	# dd ipv4_src
+	# db 0, protocol	# dw 0x0600 # protocol
+	# dw headerlen+datalen
+	push	esi
+	mov	esi, edx
+	movzx	edx, al		# protocol
+	shl	edx, 8		# 0 byte
+.if 1	# 9 instructions, 2 memory references
+	lodsd
+	add	edx, eax
+	adc	edx, 0
+	lodsd
+	add	edx, eax
+	adc	edx, 0
+	movzx	eax, dx
+	shr	eax, 16
+	add	edx, eax
+.else	# 9 instructions, 4 memory references
+	xor	eax, eax
+	# ipv4 src, ipv4 dst
+	.rept 4
+	lodsw
+	add	edx, eax
+	.endr
+.endif
+
+	#xchg	cl, ch		# headerlen + datalen
+	shl	ecx, 8	# hmmm
+	add	edx, ecx	# header + data len
+	shr	ecx, 8
+	pop	esi
+
+	call	protocol_checksum_	# in: ecx=len, esi=start, esi+edi=cksum
+
+	pop	eax
+	pop	ecx
+	pop	edx
+	pop	edi
+	pop	esi
 	ret
 
 ######

@@ -1,7 +1,13 @@
-
 ################################################################################
 # TCP
 #
+NET_TCP_RESPOND_UNK_RST = 0	# whether to respond with RST packet for unknown
+				# connections or non-listening ports.
+
+NET_TCP_DEBUG		= 0
+NET_TCP_CONN_DEBUG	= 0
+NET_TCP_OPT_DEBUG	= 0
+
 .struct 0
 tcp_sport:	.word 0
 tcp_dport:	.word 0
@@ -538,11 +544,11 @@ net_tcp_port_get:
 
 
 
-TCP_DEBUG_COL_RX = 0xf9
-TCP_DEBUG_COL_TX = 0xfd
-TCP_DEBUG_COL    = 0xf3
-TCP_DEBUG_COL2   = 0xf2
-TCP_DEBUG_COL3   = 0xf4
+TCP_DEBUG_COL_RX = 0x89
+TCP_DEBUG_COL_TX = 0x8d
+TCP_DEBUG_COL    = 0x83
+TCP_DEBUG_COL2   = 0x82
+TCP_DEBUG_COL3   = 0x84
 
 .macro TCP_DEBUG_CONN
 	push	eax
@@ -616,6 +622,10 @@ net_ipv4_tcp_handle:
 
 
 0:	# firewall: new connection
+	.if NET_TCP_DEBUG
+		TCP_DEBUG_REQUEST
+	.endif
+
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_SYN
 	jz	8f # its not a new or known connection
 
@@ -653,21 +663,29 @@ net_ipv4_tcp_handle:
 		TCP_DEBUG_REQUEST
 		printc TCP_DEBUG_COL3, "tcp: unknown connection"
 	.endif
+
+.if NET_TCP_RESPOND_UNK_RST
+	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_RST
+	jnz	1f
+	jmp	2f
+.else
 	jmp	1f
-9:	.if NET_TCP_DEBUG
+.endif
+
+9:
+
+.if NET_TCP_RESPOND_UNK_RST
+	.if 1#NET_TCP_DEBUG
 		printc 0x8c, "tcp: REJECT SYN: "
 	.endif
+
 	mov	eax, -1	# nonexistent connection
-	call	net_tcp_tx_rst$
+2:	call	net_tcp_tx_rst$
+.endif
 
 1:	.if NET_TCP_DEBUG
-		mov	eax, [edx + ipv4_src]
-		call	net_print_ip
-		printc 4, " port "
-		movzx	edx, word ptr [esi + tcp_dport]
-		xchg	dl, dh
-		call	printdec32
-		printlnc 4, "unknown port"
+		call	net_print_ip_pair
+		call	newline
 
 		call	net_ipv4_tcp_print
 	.endif
@@ -678,9 +696,6 @@ net_ipv4_tcp_handle:
 # in: esi = tcp frame
 # in: ecx = tcp frame len
 net_tcp_handle:
-	# C->S  FIN, ACK
-	# S->C  FIN, ACK
-	# C->S  ACK
 	.if NET_TCP_DEBUG
 		printc	TCP_DEBUG_COL_RX, "<"
 	.endif
@@ -691,8 +706,6 @@ net_tcp_handle:
 		printc	TCP_DEBUG_COL_RX, "dup SYN"
 	.endif
 0:
-
-
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_ACK
 	jz	0f
 	.if NET_TCP_DEBUG
@@ -702,34 +715,37 @@ net_tcp_handle:
 0:
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_FIN
 	jz	0f
-	.if NET_TCP_DEBUG
-		printc TCP_DEBUG_COL_RX, "FIN "
-	.endif
+
 	# FIN
-
-	.if NET_TCP_DEBUG
-		printc TCP_DEBUG_COL_TX, "tcp: Tx "
-	.endif
-
 	push	eax
 	add	eax, [tcp_connections]
+
+	test	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_RX
+	.if NET_TCP_DEBUG
+	jz	1f
+		printc 11, "dup FIN "
+	jmp	2f
+	.else
+	jnz	2f
+	.endif
+
+1:;	.if NET_TCP_DEBUG
+		printc TCP_DEBUG_COL_RX, "FIN "
+	.endif
 	inc	dword ptr [eax + tcp_conn_remote_seq]
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_RX
-	test	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_TX
+2:	test	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_ACK_TX#|TCP_CONN_STATE_FIN_TX
 	pop	eax
+	jnz	9f	# don't ack: already sent FIN
+	# havent sent fin, rx'd fin: tx fin ack
+	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_ACK_TX
 	push	edx
 	push	ecx
 	.if NET_TCP_DEBUG
-		printc TCP_DEBUG_COL_TX, "ACK "
+		printc TCP_DEBUG_COL_TX, "tcp: Tx ACK[FIN] "
 	.endif
 	mov	dl, TCP_FLAG_ACK
-#	jnz	1f
-#	.if NET_TCP_DEBUG
-#		printc TCP_DEBUG_COL_TX, "FIN "
-#	.endif
-#	# XXX
-#	or	dl, TCP_FLAG_FIN
-1:	xor	ecx, ecx
+	xor	ecx, ecx
 	# send ACK [FIN]
 	xor	dh, dh
 	call	net_tcp_send
@@ -751,7 +767,7 @@ net_tcp_handle:
 	.if NET_TCP_DEBUG
 		printlnc	TCP_DEBUG_COL_RX, ">"
 	.endif
-	ret
+9:	ret
 
 
 # in: eax = tcp_conn array index
@@ -888,10 +904,21 @@ net_tcp_sendbuf:
 ########
 0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
 	mov	ebx, [tcp_connections]
+cmp eax, [ebx + array_index]
+jb 1f
+printc 0x4f, "tcp connection idx out of range: "
+DEBUG_DWORD eax
+DEBUG_DWORD [ebx+array_index]
+1:
+
 	add	ebx, eax
 
 	# buf_start allows to put the eth/ip/tcp headers in the buffer to
 	# avoid copying the data yet again.
+
+#DEBUG_DWORD [ebx+tcp_conn_send_buf]
+#DEBUG_DWORD [ebx+tcp_conn_send_buf_start]
+#DEBUG_DWORD [ebx+tcp_conn_send_buf_len]
 
 	mov	edi, [ebx + tcp_conn_send_buf]
 	mov	edx, [ebx + tcp_conn_send_buf_start]
@@ -911,7 +938,7 @@ net_tcp_sendbuf:
 	# edx = data that won't fit in buf
 
 	add	[ebx + tcp_conn_send_buf_len], ecx
-	rep	movsb
+	rep	movsb	# BUG: tcp_conn_sendbuf page fault
 
 	mov	ecx, [ebx + tcp_conn_send_buf_len]
 	MUTEX_UNLOCK TCP_CONN
@@ -1050,6 +1077,13 @@ net_tcp_send:
 	bswap	ebx
 	mov	[edi + tcp_ack_nr], ebx # dword ptr 0	# maybe ack
 	pop	ebx
+
+	# update state if FIN
+	test 	dl, TCP_FLAG_FIN
+	jz	1f
+	or	[eax + tcp_conn_state], byte ptr TCP_CONN_STATE_FIN_TX
+	inc	dword ptr [eax + tcp_conn_local_seq]	# count FIN as octet
+1:
 
 
 	mov	ax, TCP_FLAG_ACK| ((TCP_HEADER_SIZE/4)<<12)
@@ -1221,14 +1255,19 @@ net_tcp_tx_rst$:
 	mov	esi, edi		# in: esi = tcp frame pointer
 	mov	ecx, TCP_HEADER_SIZE	# in: ecx = tcp frame len
 	add	edx, offset ipv4_src	# in: edx = ipv4 src,dst
-push eax
-DEBUG "RST"
-mov eax, [edx]
-call net_print_ip
-call printspace
-mov eax, [edx+4]
-call net_print_ip
-pop eax
+
+	.if NET_TCP_DEBUG
+		push eax
+		DEBUG "RST<"
+		mov eax, [edx]
+		call net_print_ip
+		call printspace
+		mov eax, [edx+4]
+		call net_print_ip
+		DEBUG ">"
+		pop eax
+	.endif
+
 	call	net_tcp_checksum
 
 	add	edi, TCP_HEADER_SIZE
@@ -1577,14 +1616,9 @@ net_tcp_checksum:
 	shr	ecx, 8
 	pop	esi
 
-	# esi = start of ipv4 frame (saved above)
-	# deal with odd length:
-	mov	word ptr [esi + ecx], 0	# just in case
-	inc	ecx
-	shr	ecx, 1
-
-1:	mov	edi, offset tcp_checksum	#
-	call	protocol_checksum_
+	# esi = start of tcp frame (saved above)
+	mov	edi, offset tcp_checksum
+	call	protocol_checksum_	# in: ecx=len, esi=start, esi+edi=cksum
 
 	pop	eax
 	pop	ecx

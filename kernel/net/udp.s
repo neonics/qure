@@ -1,6 +1,8 @@
-
 ###########################################################################
 # UDP
+
+UDP_LOG = 0	# 1: print dropped packets
+
 .struct 0
 udp_sport:	.word 0
 udp_dport:	.word 0
@@ -10,7 +12,7 @@ UDP_HEADER_SIZE = .
 .text32
 # in: edi = udp frame pointer
 # in: eax = sport/dport
-# in: cx = len
+# in: cx = udp payload len (without header size)
 net_udp_header_put:
 	push	eax
 
@@ -19,41 +21,86 @@ net_udp_header_put:
 
 	mov	ax, cx
 	add	ax, UDP_HEADER_SIZE
+.if 1
+	shl	eax, 16
+	bswap	eax
+	stosd
+.else
 	xchg	al, ah
 	stosw	# udp frame size
 	xor	ax, ax
 	stosw	# checksum
-
+.endif
 	pop	eax
 	ret
 
+# Stores ethernet, ip and udp headers before the payload and calculates the
+# udp checksum. The caller should prepare the payload, and then have edi
+# decremented to make room for the protocol headers before it.
+#
+# in: edi = packet start
 # in: eax = ipv4 dest addr
 # in: edx = dport << 16 | sport
 # in: ecx = udp payload size (without udp headers)
+# in: edi+ETH_HEADER_SIZE+IPV4_HEADER_SIZE+UDP_HEADER_SIZE = payload start
+# out: ebx = nic
+# out: edi = end of headers
 # out: CF = 1: no MAC for dest ip/gateway
 net_put_eth_ipv4_udp_headers:
+	push	ecx
+	push	esi
+	push	edx
+
 	# ETH, IP frame
 	add	ecx, UDP_HEADER_SIZE
-	push	edx
 	mov	dx, IP_PROTOCOL_UDP
+	# in: edi = out packet
+	# in: dl = ipv4 sub-protocol
+	# in: dh = bit 0: 0=use nic ip; 1=use 0 ip; bit 1: 1=edx>>16&255=ttl
+	# in: eax = destination ip
+	# in: ecx = payload length (without ethernet/ip frame)
+	# in: ebx = nic - ONLY if eax = -1!
+	# in: esi = mac - ONLY if eax = -1!
+	# out: edi = points to end of ethernet+ipv4 frames in packet
+	# out: ebx = nic object (for src mac & ip) [calculated from eax]
+	# out: esi = destination mac [calculated from eax]
+	push	edi	# remember eth frame start
 	call	net_ipv4_header_put
-	pop	edx
+	pop	edx	# edx = eth frame
 	jc	9f
 
 	# UDP frame
 
 	push	eax
-	mov	eax, edx
+	mov	eax, [esp + 4]	# edx: ports
 	bswap	eax
-	ror	eax, 16
-	sub	ecx, UDP_HEADER_SIZE
+	ror	eax, 16			# in: eax = sport | dport
+	sub	ecx, UDP_HEADER_SIZE	# in: ecx = udp payload len
+	mov	esi, edi		# remember udp frame start
 	call	net_udp_header_put
+	add	ecx, UDP_HEADER_SIZE
+.if 0
+	mov	eax, [edx + ETH_HEADER_SIZE + ipv4_src]
+	mov	edx, [edx + ETH_HEADER_SIZE + ipv4_dst]
+	call	net_udp_checksum
+.else
+	push	edi
+	add	edx, offset ipv4_src + ETH_HEADER_SIZE # in: edx = ipv4 src,dst
+	mov	eax, IP_PROTOCOL_UDP
+	mov	edi, offset udp_checksum
+	call	net_ip_pseudo_checksum
+	pop	edi
+.endif
+
 	clc
 	pop	eax
-9:	ret
 
+9:	pop	esi
+	pop	ecx
+	pop	edx
+	ret
 
-# in: eax = source ip
+# in: eax = src ip
 # in: edx = dest ip
 # in: esi = udp frame pointer
 # in: ecx = udp frame len (header and data)
@@ -63,7 +110,6 @@ net_udp_checksum:
 	push	edx
 	push	ecx
 	push	eax
-
 	# calculate tcp pseudo header:
 	# dd ipv4_src
 	# dd ipv4_src
@@ -83,13 +129,8 @@ net_udp_checksum:
 	add	edx, ecx
 	shr	ecx, 8
 
-	# deal with odd length:
-	mov	word ptr [esi + ecx], 0	# just in case
-	inc	ecx
-	shr	ecx, 1
-
-1:	mov	edi, offset udp_checksum	#
-	call	protocol_checksum_
+	mov	edi, offset udp_checksum	#
+	call	protocol_checksum_	# in: ecx=len, esi=start,esi+edi=cksum
 
 	pop	eax
 	pop	ecx
@@ -205,11 +246,23 @@ ph_ipv4_udp:
 	jnz	9f
 1:
 .endif
+
+	mov	eax, [edx + ipv4_dst]
+	cmp	eax, -1	# broadcast
+	jz	2f
+	mov	ebx, eax # multicast
+	rol	ebx, 4
+	and	bl, 0b1111
+	cmp	bl, 0b1110
+	jz	2f	# 244.0.0.0/4 match
+
+	call	nic_get_by_ipv4
+	jc	1f	# ret: no match
+2:
 		# in: eax = ip
 		# in: edx = [proto] [port]
 		# in: esi, ecx: packet
 		push	edx
-		mov	eax, [edx + ipv4_dst]
 		mov	edx, IP_PROTOCOL_UDP << 16
 		mov	dx, [esi + udp_dport]
 		xchg	dl, dh
@@ -238,24 +291,16 @@ ph_ipv4_udp:
 	mov	esi, eax	# restore udp frame for error message below
 
 	LOAD_TXT "unknown port", eax
-9:	printc 4, "ipv4_udp["
-	push	eax
-	mov	eax, [edx + ipv4_src]
-	call	net_print_ip
-	printchar_ ':'
-	pop	eax
-	push	edx
-	movzx	edx, word ptr [esi + udp_dport]
-	xchg	dl, dh
-	call	printdec32
-	pop	edx
+9:	.if UDP_LOG
+	printc 4, "ipv4_udp["
+	call	net_print_ip_pair
 	printc 4, "]: dropped packet: "
 	push	esi
 	mov	esi, eax
 	call	println
 	pop	esi
+	.endif
 1:	ret
-
 
 net_udp_port_get:
 	.data

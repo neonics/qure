@@ -1,8 +1,10 @@
-
 ###########################################################################
 # DHCP
 #
 # rfc 2131 (protocol), rfc 1533 (options)
+
+NET_DHCP_DEBUG = 0
+
 .struct 0
 dhcp_op:	.byte 0
 	DHCP_OP_BOOTREQUEST	= 1

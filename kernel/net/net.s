@@ -1,4 +1,4 @@
-##############################################################################
+#x#############################################################################
 # Networking
 #
 # Ethernet, ARP, IPv4, ICMP
@@ -8,12 +8,6 @@
 NET_DEBUG = 0
 NET_ARP_DEBUG = NET_DEBUG
 NET_IPV4_DEBUG = NET_DEBUG
-NET_ICMP_DEBUG = NET_DEBUG
-NET_TCP_DEBUG = NET_DEBUG
-NET_DHCP_DEBUG = NET_DEBUG
-
-NET_TCP_CONN_DEBUG = 0
-NET_TCP_OPT_DEBUG = 0
 
 CPU_FLAG_I = (1 << 9)
 CPU_FLAG_I_BITS = 9
@@ -278,8 +272,7 @@ net_ipv6_print:
 
 # in: esi = pointer to header to checksum
 # in: edi = offset relative to esi to receive checksum
-# in: ecx = length of header in 16 bit words
-# destroys: eax, ecx, esi
+# in: ecx = length in bytes
 protocol_checksum_:
 	push	edx
 	push	eax
@@ -291,11 +284,15 @@ protocol_checksum:
 1:	xor	eax, eax
 	mov	[esi + edi], ax
 
-	push	esi
+	push	ecx
+	shr	ecx, 1
+	jc	2f
+3:	push	esi
 0:	lodsw
 	add	edx, eax
 	loop	0b
 	pop	esi
+	pop	ecx
 
 	mov	ax, dx
 	shr	edx, 16
@@ -306,6 +303,10 @@ protocol_checksum:
 	pop	eax
 	pop	edx
 	ret
+
+2:	mov	al, [esi + ecx * 2]
+	add	edx, eax
+	jmp	3b
 
 
 #############################################################################
@@ -399,6 +400,35 @@ net_print_mac:
 	pop	eax
 	pop	ecx
 	pop	esi
+	ret
+
+# in: edx = ip frame
+# in: esi = udp or tcp frame (or ptr to sport, dport in network byte order)
+net_print_ip_pair:
+	add	edx, offset ipv4_src
+	add	esi, offset udp_dport
+	call	net_print_ip_port
+	printc	8, "->"
+	add	edx, offset ipv4_dst - ipv4_src
+	add	esi, offset udp_sport - udp_dport
+	call	net_print_ip_port
+	sub	edx, offset ipv4_src
+	sub	esi, offset udp_dport
+	ret
+
+# in: edx = ptr to ipv4 src
+# in: esi = ptr to port, network byte order
+net_print_ip_port:
+	push	eax
+	push	edx
+	mov	eax, [edx]
+	call	net_print_ip
+	printchar_ ':'
+	movzx	edx, word ptr [esi]
+	xchg	dl, dh
+	call	printdec32
+	pop	edx
+	pop	eax
 	ret
 
 # in: esi

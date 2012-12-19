@@ -1,8 +1,11 @@
-
-#############################################################################
+###############################################################################
 # ICMP
 #
 # rfc 792
+
+NET_ICMP_DEBUG = 0
+
+#############################################################################
 .struct 0	# 14 + 20
 icmp_header:
 icmp_type: .byte 0
@@ -77,7 +80,7 @@ net_icmp_header_put:
 	and	edx, 0xff
 	jz	1f
 	shl	edx, 16
-	mov	dh, 2
+	mov	dh, 2	# indicate edx>>16 &0xff = ttl
 1:	mov	dl, IP_PROTOCOL_ICMP
 	add	ecx, ICMP_HEADER_SIZE
 	call	net_ipv4_header_put
@@ -102,10 +105,9 @@ net_icmp_header_put:
 	push	esi
 	push	ecx
 	push	edi
-	add	ecx, ICMP_HEADER_SIZE
-	shr	ecx, 1
-	mov	esi, edi
-	mov	edi, offset icmp_checksum
+	add	ecx, ICMP_HEADER_SIZE		# in: ecx = len in bytes
+	mov	esi, edi			# in: esi = start
+	mov	edi, offset icmp_checksum	# in: edi = offset of cksum word
 	call	protocol_checksum
 	pop	edi
 	pop	ecx
@@ -558,9 +560,7 @@ protocol_icmp_ping_response:
 	# in: ebx = nic object (for src mac & ip (ip currently static))
 	lea	esi, [edx - ETH_HEADER_SIZE + eth_src]
 
-# FIXME bypass arp lookup - this code is triggered from the NIC ISR and thus
-# cannot rely on IRQ's for packet Tx/Rx for the ARP protocol.
-#call arp_table_put_mac
+	# call arp_table_put_mac
 
 	# in: dl = ipv4 sub-protocol
 	mov	dx, IP_PROTOCOL_ICMP
@@ -584,23 +584,23 @@ protocol_icmp_ping_response:
 	add	edi, ICMP_HEADER_SIZE
 	# append ping data
 	add	esi, ICMP_HEADER_SIZE
-	.rept 8
-	movsd
-	.endr
+	push	ecx
+	sub	ecx, ICMP_HEADER_SIZE
+	jle	2f
+	rep	movsb
+2:	pop	ecx
 	pop	edi
 
 	# call checksum
-	push	esi
 	push	edi
-	push	ecx
-	mov	esi, edi
-	mov	edi, offset icmp_checksum
-	mov	ecx, ICMP_HEADER_SIZE / 2 + 32/2
-	# edi = start/base
+	push	ecx				# in: ecx = len in bytes
+	mov	esi, edi			# in: esi = start
+	mov	edi, offset icmp_checksum	# in: edi = start/base
 	call	protocol_checksum
 	pop	ecx
 	pop	edi
-	pop	esi
+
+	add	edi, ecx
 
 	# done, send the packet.
 
@@ -609,8 +609,7 @@ protocol_icmp_ping_response:
 	.endif
 
 	pop	esi
-	mov	ecx, ICMP_HEADER_SIZE + IPV4_HEADER_SIZE + ETH_HEADER_SIZE + 32
-	call	[ebx + nic_api_send]
+	NET_BUFFER_SEND
 9:	ret
 1:	pop	esi
 	ret
