@@ -130,7 +130,8 @@ tcp_conn_local_seq:	.long 0
 tcp_conn_remote_seq:	.long 0
 tcp_conn_local_seq_ack:	.long 0
 tcp_conn_remote_seq_ack:.long 0
-tcp_conn_handler:	.long 0
+tcp_conn_sock:		.long 0	# -1 = no socket; peer socket
+tcp_conn_handler:	.long 0	# -1 or 0 = no handler
 tcp_conn_state:		.byte 0
 	# incoming
 	TCP_CONN_STATE_SYN_RX		= 1
@@ -298,6 +299,7 @@ net_tcp_conn_get:
 
 # in: edx = ip frame pointer
 # in: esi = tcp frame pointer
+# in: ebx = socket (or -1)
 # in: edi = handler [unrelocated]
 # out: eax = tcp_conn array index
 # out: CF = 1: out of memory
@@ -346,9 +348,11 @@ net_tcp_conn_newentry:
 
 	# eax = tcp_conn ptr
 	# ecx = ip frame
+	# edi = handler
 	# edx = free
 
 	mov	[eax + tcp_conn_state], byte ptr 0
+	mov	[eax + tcp_conn_sock], dword ptr -1
 	mov	[eax + tcp_conn_handler], edi
 
 	mov	edx, [ecx + ipv4_src]
@@ -643,19 +647,47 @@ net_ipv4_tcp_handle:
 	.endif
 
 	# firewall / services:
-
+.if 1
+	mov	eax, [edx + ipv4_dst]
+	push	edx
+	movzx	edx, word ptr [esi + tcp_dport]
+	xchg	dl, dh
+	or	edx, IP_PROTOCOL_TCP << 16
+	call	net_socket_find
+	mov	ebx, edx
+	pop	edx
+	jc	1f
+	mov	edi, offset tcp_rx_sock
+	jmp	2f
+1:
+.endif
+	mov	ebx, -1
 	call	net_tcp_service_get	# out: edi = handler
 	jc	9f
-	.if NET_TCP_DEBUG
+2:	.if NET_TCP_DEBUG
 		printc TCP_DEBUG_COL, "tcp: ACCEPT SYN"
 	.endif
-	call	net_tcp_conn_newentry	# in: edx, esi, edi
+	call	net_tcp_conn_newentry	# in: edx=ip fr, esi=tcp fr, edi=handler
 	jc	9f	# no more connections, send RST
 	call	net_tcp_handle_syn$
 	.if NET_TCP_DEBUG
 		call	newline
 	.endif
-	ret
+	# update socket, call handler
+	cmp	ebx, -1
+	jz	1f
+	mov	ecx, eax			# in: ecx = tcp conn idx
+	mov	eax, ebx			# in: eax = local socket
+#DEBUG_DWORD ebx,"local sock"
+	movzx	ebx, word ptr [esi + tcp_sport]	# in: ebx = peer port
+	mov	edx, [edx + ipv4_src]		# in: edx = peer ip
+	call	net_sock_deliver_accept		# out: edx = peer sock idx
+#DEBUG "Socket notified"
+#DEBUG_DWORD edx,"tcp_conn_sock"
+	mov	eax, [tcp_connections]
+	mov	[eax + ecx + tcp_conn_sock], edx
+
+1:	ret
 
 	#
 8:	# unknown connection, not SYN
@@ -739,6 +771,7 @@ net_tcp_handle:
 	jnz	9f	# don't ack: already sent FIN
 	# havent sent fin, rx'd fin: tx fin ack
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_ACK_TX
+
 	push	edx
 	push	ecx
 	.if NET_TCP_DEBUG
@@ -769,6 +802,15 @@ net_tcp_handle:
 	.endif
 9:	ret
 
+# in: eax = tcp_conn array index
+# in: edx = ipv4 frame
+# in: esi = tcp payload
+# in: ecx = tcp payload len
+tcp_rx_sock:
+	add	eax, [tcp_connections]
+	mov	eax, [eax + tcp_conn_sock]
+	call	net_socket_write
+	ret
 
 # in: eax = tcp_conn array index
 # in: edx = ipv4 frame
@@ -812,8 +854,11 @@ or edi, edi
 jz 10f
 	add	edi, eax
 	mov	edi, [edi + tcp_conn_handler]
-	add	edi, [realsegflat]
+or	edi, edi
 jz	9f
+cmp	edi, -1
+jz	9f
+	add	edi, [realsegflat]
 	pushad
 	call	edi
 	popad
@@ -860,13 +905,16 @@ net_tcp_conn_send_ack:
 	pop	edx
 	ret
 
+# TODO: this will be replaced by listening sockets, which may use similar
+# scanning technique.
+#
 # in: esi = tcp frame
 # out: edi = handler
 net_tcp_service_get:
 	.data
-	tcp_service_ports: .word 80
+	tcp_service_ports: .word 80#, 25
 	TCP_NUMSERVICES = (. - tcp_service_ports)/2
-	tcp_service_handlers: .long net_service_tcp_http
+	tcp_service_handlers: .long net_service_tcp_http, net_service_tcp_smtp
 	.text32
 	push	eax
 	push	ecx
@@ -880,7 +928,7 @@ net_tcp_service_get:
 	stc
 	jnz	9f
 	sub	edi, offset tcp_service_ports + 2
-	mov	edi, [tcp_service_handlers + edi * 4]
+	mov	edi, [tcp_service_handlers + edi * 2]
 	clc
 9:	ret
 

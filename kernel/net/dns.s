@@ -934,13 +934,16 @@ dns_answer_question$:
 # out: eax = ipv4 address
 dns_resolve_name:
 	# receives all dns packets....
+	push	edx
 	push	ebx
-	mov	ebx, IP_PROTOCOL_UDP << 16
+	mov	edx, IP_PROTOCOL_UDP << 16
 	call	net_udp_port_get
-	mov	bx, dx
+	mov	dx, ax
 	xor	eax, eax	# ip
+	xor	ebx, ebx	# flags
 	call	socket_open
 	pop	ebx
+	pop	edx
 	jc	9f
 
 	push	edi

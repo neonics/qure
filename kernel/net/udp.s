@@ -79,7 +79,7 @@ net_put_eth_ipv4_udp_headers:
 	mov	esi, edi		# remember udp frame start
 	call	net_udp_header_put
 	add	ecx, UDP_HEADER_SIZE
-.if 0
+.if 1
 	mov	eax, [edx + ETH_HEADER_SIZE + ipv4_src]
 	mov	edx, [edx + ETH_HEADER_SIZE + ipv4_dst]
 	call	net_udp_checksum

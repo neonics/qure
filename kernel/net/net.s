@@ -218,6 +218,10 @@ net_buffer_get:
 .include "net/eth.s"
 .include "net/arp.s"
 .include "net/ipv4.s"
+#
+.include "net/route.s"
+.include "net/socket.s"
+# socket-enabled protocols:
 .include "net/icmp.s"
 .include "net/udp.s"
 .include "net/tcp.s"
@@ -226,9 +230,7 @@ net_buffer_get:
 .include "net/dhcp.s"
 .include "net/dns.s"
 .include "net/httpd.s"
-
-.include "net/route.s"
-.include "net/socket.s"
+.include "net/smtp.s"
 
 ###########################################################################
 # LLC - Logical Link Control
@@ -297,6 +299,7 @@ protocol_checksum:
 	mov	ax, dx
 	shr	edx, 16
 	add	ax, dx
+	adc	ax, 0
 	not	ax
 	mov	[esi + edi], ax
 
