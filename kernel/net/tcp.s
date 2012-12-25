@@ -414,6 +414,7 @@ net_tcp_conn_newentry:
 # in: esi = tcp frame pointer
 # in: ecx = tcp frame len (incl header)
 net_tcp_conn_update:
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	.if NET_TCP_CONN_DEBUG > 1
 		DEBUG "tcp_conn update"
 	.endif
@@ -728,6 +729,7 @@ net_ipv4_tcp_handle:
 # in: esi = tcp frame
 # in: ecx = tcp frame len
 net_tcp_handle:
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	.if NET_TCP_DEBUG
 		printc	TCP_DEBUG_COL_RX, "<"
 	.endif
@@ -807,6 +809,7 @@ net_tcp_handle:
 # in: esi = tcp payload
 # in: ecx = tcp payload len
 tcp_rx_sock:
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	add	eax, [tcp_connections]
 	mov	eax, [eax + tcp_conn_sock]
 	call	net_socket_write
@@ -817,6 +820,7 @@ tcp_rx_sock:
 # in: esi = tcp frame
 # in: ecx = tcp frame len
 net_tcp_handle_psh:
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	push	ecx
 	push	edx
 	push	esi
@@ -945,6 +949,7 @@ net_tcp_service_get:
 # out: esi = start of data not put in buffer
 # out: ecx = length of data not put in buffer
 net_tcp_sendbuf:
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	push	edi
 	push	ebx
 	push	edx
@@ -952,13 +957,6 @@ net_tcp_sendbuf:
 ########
 0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
 	mov	ebx, [tcp_connections]
-cmp eax, [ebx + array_index]
-jb 1f
-printc 0x4f, "tcp connection idx out of range: "
-DEBUG_DWORD eax
-DEBUG_DWORD [ebx+array_index]
-1:
-
 	add	ebx, eax
 
 	# buf_start allows to put the eth/ip/tcp headers in the buffer to
@@ -967,8 +965,14 @@ DEBUG_DWORD [ebx+array_index]
 #DEBUG_DWORD [ebx+tcp_conn_send_buf]
 #DEBUG_DWORD [ebx+tcp_conn_send_buf_start]
 #DEBUG_DWORD [ebx+tcp_conn_send_buf_len]
-
 	mov	edi, [ebx + tcp_conn_send_buf]
+cmp edi, 0x00200000
+jb 1f
+pushad
+call net_tcp_conn_list
+int 3
+popad
+1:
 	mov	edx, [ebx + tcp_conn_send_buf_start]
 	add	edx, [ebx + tcp_conn_send_buf_len]
 	add	edi, edx
@@ -1009,6 +1013,7 @@ DEBUG_DWORD [ebx+array_index]
 # uses tcp_conn_send_buf*
 # in: eax = tcp conn idx
 net_tcp_sendbuf_flush:
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 
 	push	edx
 	push	esi
@@ -1038,6 +1043,7 @@ net_tcp_sendbuf_flush:
 
 # in: eax = tcp_conn_idx
 net_tcp_fin:
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	push	edx
 	push	ecx
 	xor	ecx, ecx
@@ -1054,6 +1060,7 @@ net_tcp_fin:
 # in: esi = payload
 # in: ecx = payload len
 net_tcp_send:
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	cmp	ecx, 1536 - TCP_HEADER_SIZE - IPV4_HEADER_SIZE - ETH_HEADER_SIZE
 	jb	0f
 	printc	4, "tcp payload too large: "
@@ -1210,6 +1217,7 @@ net_tcp_send:
 # in: esi = tcp frame
 # in: ecx = tcp frame len
 net_tcp_tx_rst$:
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	push	ebp
 	push	eax
 	mov	ebp, esp	# [ebp] = tcp_conn idx
@@ -1342,6 +1350,7 @@ net_tcp_tx_rst$:
 # in: esi = tcp frame
 # in: ecx = tcp frame len
 net_tcp_handle_syn$:
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	pushad
 	push	ebp
 	mov	ebp, esp

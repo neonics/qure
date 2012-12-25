@@ -8,7 +8,7 @@ alias dk16 "objdump -Mintel-mnemonic,i8086 -d kernel/kernel.o | less"
 alias hd "hexdump -C build/boot.bin | grep -e '*' -e '|'"
 alias hdi "hexdump -C build/boot.img | grep -e '*' -e '|' |& less"
 alias da32 objdump -d -Mintel-mnemonic build/bootloader.o
-alias w "grep \!* kernel/*.s"
+alias w "grep \!* kernel/*.s kernel/*/*.s"
 
 #####################################################################
 # VirtualBox aliases
@@ -23,9 +23,12 @@ alias testvm "make && startvm && perl -e '<>' && stopvm"
 #####################################################################
 # VMWare aliases (pff...)
 set VMRUN_PATH = "c:/Program\ Files\ \(x86\)/VMware/VMware\ VIX/vmrun.exe"
-alias vmwgetvm "$VMRUN_PATH -T player list | grep QuRe"
+alias vmwlistvm "$VMRUN_PATH -T player list"
+alias vmwgetvm  "$VMRUN_PATH -T player list | grep QuRe.vmx"
+alias vmwgetvm2 "$VMRUN_PATH -T player list | grep QuRe2.vmx"
 set VMRUN_PATH2 = `cygpath -u "c:/Program Files (x86)/VMware/VMware VIX/vmrun.exe"`
-alias vmwreset 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player reset "$VMWVM"'
+alias vmwreset  'set VMWVM=`vmwgetvm`  && "$VMRUN_PATH2" -T player reset "$VMWVM"'
+alias vmw2reset 'set VMWVM=`vmwgetvm2` && "$VMRUN_PATH2" -T player reset "$VMWVM"'
 alias vmwpause 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player pause "$VMWVM"'
 alias vmwunpause 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player pause "$VMWVM"'
 alias vmwscreenshot 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player captureScreen "$VMWVM" vmware.png'

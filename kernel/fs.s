@@ -165,6 +165,7 @@ mtab_entry_alloc$:
 # in: ebx = base ptr
 # in: edx = entry to release
 mtab_entry_free$:
+	ASSERT_ARRAY_IDX edx, ebx, MTAB_ENTRY_SIZE
 	push	ecx
 	# destructor: free the string pointer
 	push	eax
@@ -774,6 +775,7 @@ FS_HANDLE_PRINTINFO_COMPACT = 1
 
 # in: eax = handle offset
 fs_handle_printinfo:
+	ASSERT_ARRAY_IDX eax, [fs_handles$], FS_HANDLE_STRUCT_SIZE
 	push	esi
 	push	edx
 	push	ebx
@@ -854,12 +856,14 @@ fs_handle_printinfo:
 
 # out: ZF = 1: file, 0: directory (jz dir$ ;  jnz file$)
 fs_handle_isdir:
+	ASSERT_ARRAY_IDX eax, [fs_handles$], FS_HANDLE_STRUCT_SIZE
 	test	eax, 1
 	ret
 
 # in: eax = handle index
 # out: esi
 fs_handle_getname:
+	ASSERT_ARRAY_IDX eax, [fs_handles$], FS_HANDLE_STRUCT_SIZE
 	mov	esi, [fs_handles$]
 	mov	esi, [eax + esi + fs_handle_label]
 	ret
@@ -1005,6 +1009,7 @@ fs_list_openfiles:
 # out: edx = handle index
 # out: CF
 fs_validate_handle:
+	ASSERT_ARRAY_IDX eax, [fs_handles$], FS_HANDLE_STRUCT_SIZE
 	mov	edx, eax
 	cmp	edx, 0
 	jl	1f

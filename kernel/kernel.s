@@ -344,6 +344,8 @@ kmain:
 	call	newline
 	call	nic_zeroconf
 
+	call	cmd_smtpd
+
 
 OPEN_SHELL_DEFAULT = 0
 

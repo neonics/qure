@@ -1,9 +1,12 @@
-
-
 #############################################################################
 # Sockets
 #
 # Only AF_INET supported.
+
+
+NET_SOCKET_DEBUG = 0
+
+
 SOCK_LISTEN	= 0x80000000
 SOCK_PEER	= 0x40000000
 SOCK_ACCEPTABLE	= 0x20000000
@@ -47,6 +50,7 @@ socket_open:
 	ret
 
 socket_close:
+	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	edx
 	mov	edx, [socket_array]
 		cmp	eax, [edx + array_index]
@@ -94,6 +98,7 @@ socket_list:
 
 # in: eax = socket
 socket_print:
+	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	eax
 	push	edx
 	push	ebx
@@ -122,6 +127,7 @@ socket_print:
 	ret
 
 socket_get_lport:
+	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	mov	edx, [socket_array]
 	movzx	edx, word ptr [edx + eax + sock_port]
 	or	edx, edx
@@ -157,6 +163,7 @@ socket_get_lport:
 # out: esi, ecx
 # out: CF = timeout.
 socket_read:
+	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	edx
 	push	ebx
 	mov	ebx, [clock_ms]
@@ -176,7 +183,8 @@ socket_read:
 	jnz	1f
 	cmp	ebx, [clock_ms]
 	jb	1f
-	.if 1
+	.if 0
+		# doesn't work with ping...
 		call	schedule_near
 	.else
 		sti
@@ -195,6 +203,7 @@ socket_read:
 # out: ecx = datalen not written
 # out: CF: 1: write fail (unsupported proto)
 socket_write:
+	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	eax
 	add	eax, [socket_array]
 	cmp	byte ptr [eax + sock_proto], IP_PROTOCOL_TCP
@@ -218,6 +227,7 @@ socket_write_tcp$:
 
 # flushes pending writes
 socket_flush:
+	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	eax
 	add	eax, [socket_array]
 	cmp	byte ptr [eax + sock_proto], IP_PROTOCOL_TCP
@@ -260,6 +270,7 @@ socket_flush:
 # out: edx = peer socket index
 # side effect: set peer socket's data to local socket index
 peer_socket_open:
+	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	edi
 	push	esi
 	push	ecx
@@ -292,6 +303,7 @@ peer_socket_open:
 # in: ecx = connection
 # out: edx = peer socket
 net_sock_deliver_accept:
+	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	ebx
 	push	eax
 	xchg	eax, edx
@@ -310,11 +322,12 @@ net_sock_deliver_accept:
 	ret
 
 # returns a new socket if a tcp connection is establised
-# in: eax = locak socket idx
+# in: eax = local socket idx
 # in: ecx = timeout
 # out: edx = connected peer socket
 # out: CF
 socket_accept:
+	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	esi
 	push	ebx
 	mov	ebx, [clock_ms]
@@ -391,7 +404,29 @@ net_socket_deliver:
 	push	edi
 	push	ebx
 	push	ebp
+
+	.if NET_SOCKET_DEBUG > 1
+		DEBUG "net_socket_deliver:"
+		call net_print_ip
+		printchar ':'
+		push edx;movzx edx, dx; call printdec32;pop edx;
+		push edx;shr edx, 16;DEBUG_WORD dx,"proto";pop edx
+		call newline
+	.endif
 	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, ebx, edi, 9f
+	.if NET_SOCKET_DEBUG > 1
+		pushad
+		mov eax, [ebx + edi + sock_addr]
+		call net_print_ip
+		movzx edx, word ptr [ebx + edi + sock_port]
+		printchar_ ':'
+		call printdec32
+		print " proto "
+		movzx edx, word ptr [ebx + edi + sock_proto]
+		call printdec32
+		call newline
+		popad
+	.endif
 	mov	ebp, [ebx + edi + sock_addr]
 	or	ebp, ebp
 	jz	1f
@@ -402,7 +437,10 @@ net_socket_deliver:
 1:	cmp	[ebx + edi + sock_port], edx	# compare proto and port
 	jz	2f
 3:	ARRAY_ENDL
-9:	pop	ebp
+9:;	.if NET_SOCKET_DEBUG > 1
+		printc 4, "net_socket_deliver: no match"
+	.endif
+0:	pop	ebp
 	pop	ebx
 	pop	edi
 	ret
@@ -411,9 +449,13 @@ net_socket_deliver:
 	# TODO: copy packet (though that should've been done in net_rx_packet).
 	mov	[ebx + edi + sock_in], esi
 	mov	[ebx + edi + sock_inlen], ecx
-	jmp	9b
+	jmp	0b
 
+# in: eax = socket index
+# in: esi = data
+# in: ecx = datalen
 net_socket_write:
+	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	# TODO: copy/append
 	push	eax
 #DEBUG "net_socket_write"

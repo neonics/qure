@@ -102,6 +102,32 @@ SETNP / SETPO
 
 
 
+##########################################################################
+
+Flag modifications:
+
+0 = cleared / reset
+1 = set
+* = set according to result of operation
+? = undefined
+  = unaffected
+ 
+Note: IF, VIP, VIF, AC, VM, RF: unaffected
+
+Instruction	| NT |IOPL| OF | DF | IF | TF | SF | ZF | AF | PF | CF
+	OR	|    |    | 0  |    |    |    | *  | *  | ?  | *  | 0
+	XOR	|    |    | 0  |    |    |    | *  | *  | ?  | *  | 0
+	TEST	|    |    | 0  |    |    |    | *  | *  | ?  | *  | 0
+	CMP	|    |    | *  |    |    |    | *  | *  | *  | *  | *
+
+##########################################################################
+
+ecx == 0:
+
+	REP	: does nothing (movs, stos)
+
+	LOOP	: loops MAX times
+
 
 
 ##########################################################################

@@ -336,7 +336,8 @@ cmd_ping:
 
 	.if PING_USE_SOCKET
 		push	eax
-		mov     ebx, IP_PROTOCOL_ICMP << 16 | 0
+		mov     edx, IP_PROTOCOL_ICMP << 16 | 0
+		mov	ebx, SOCK_LISTEN
 		mov	eax, -1
 		call	socket_open
 		jc	1f
