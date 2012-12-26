@@ -297,7 +297,11 @@ net_ipv4_icmp_send_ping:
 	call	net_icmp_register_request
 
 	pop	esi
-	push	dword ptr [clock_ms]
+
+	push	eax
+	call	get_time_ms
+	xchg	eax, [esp]
+
 	NET_BUFFER_SEND
 	pop	ebx
 9:	ret
@@ -408,10 +412,13 @@ cmd_ping:
 
 1:
 	print	"ICMP PING response from "
-2:	sub	ebx, [clock_ms]
+2:	push	eax
+	call	get_time_ms
+	sub	ebx, eax
+	pop	eax
 	mov	eax, [eax + edx + 1]
 	call	net_print_ip
-	call printspace
+	call	printspace
 	push	edx
 	mov	edx, ebx
 	neg	edx

@@ -334,16 +334,18 @@ pit_isr:
 	# TODO: interface with PIT port 0x43 (func 0x73 = read channel 0)
 	mov	ah, 0x73
 
-	xor	al, al		# read channel 0 (bits 6,7 = channel)
-	out	0x43, al	# PIT port
-
 	mov	edx, SEL_compatDS	# required for PRINT_START, PRINT
 	mov	ds, edx
 	mov	es, edx
 
-	in	al, 0x40
+	#xor	al, al		# read channel 0 (bits 6,7 = channel)
+	mov	al, byte ptr PIT_CW_RW_CL | PIT_CW_SC_0
+	out	PIT_PORT_CONTROL, al	# 0x43
+
+
+	in	al, PIT_PORT_COUNTER_0	# 0x40
 	mov	dl, al
-	in	al, 0x40
+	in	al, PIT_PORT_COUNTER_0	# 0x40
 	mov	dh, al
 
 	inc	dword ptr [clock]
@@ -359,6 +361,8 @@ pit_isr:
 
 	pushf
 	cli	# 'mutex'
+
+	PUSH_SCREENPOS
 
 	PRINT_START 8
 	mov	ax, (8<<8) | '('
@@ -381,7 +385,8 @@ pit_isr:
 
 	mov	al, ')'
 	stosw
-	PRINT_END 1
+	PRINT_END #1
+	POP_SCREENPOS
 
 	popf
 0:
@@ -405,4 +410,52 @@ udelay:
 0:	in	al, 0x80	# DMA page register, safe to read.
 	loop	0b
 	pop	ecx
+	ret
+
+get_time_ms:
+	push	edx
+	push	ebx
+
+	xor	edx, edx
+
+	pushf
+	cli	# lock pit port
+	mov	al, byte ptr PIT_CW_RW_CL | PIT_CW_SC_0
+	out	PIT_PORT_CONTROL, al
+	in	al, PIT_PORT_COUNTER_0
+	mov	dl, al
+	in	al, PIT_PORT_COUNTER_0
+	mov	dh, al
+	popf
+
+	# edx = counter (counts down!)
+	# (pit_timer_interval - counter) / pit_timer_interval = fraction
+	# fraction * pit_timer_period = ms
+
+	mov	ebx, [pit_timer_interval]
+	sub	edx, ebx
+	neg	edx		# edx = elapsed counter
+	xor	eax, eax
+	div	ebx		# eax = fraction
+
+	# multiply by the period:
+	mov	ebx, eax
+	mov	edx, [pit_timer_period]
+	mov	eax, [pit_timer_period+4]
+
+	# otherwise overflow:
+	shrd	eax, edx, 16
+	shr	edx, 16
+	mul	ebx
+
+	shrd	eax, edx, 16
+	shr	edx, 16
+
+	add	eax, [clock_ms+4]
+	adc	edx, [clock_ms]
+	mov	eax, edx
+
+	pop	ebx
+	pop	edx
+	add	eax, [clock_ms]
 	ret
