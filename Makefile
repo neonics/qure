@@ -24,11 +24,11 @@ os.iso: SECTORS = $(call CALC_SECTORS,build/boot.img)
 os.iso: init build/boot.img
 	@echo Generating $@
 	@echo "Sectors: $(SECTORS)"
-	@cp build/boot.img root/boot/boot.img
-	@genisoimage -input-charset utf-8 -o os.iso \
+	@cp --sparse=always build/boot.img root/boot/boot.img
+	@genisoimage -input-charset utf-8 -o os.iso.tmp \
 		-r -b boot/boot.img \
 		$(ISO_ARGS) \
-		root/
+		root/ && cp --sparse=always os.iso.tmp os.iso && rm os.iso.tmp
 	@#-J -boot-info-table
 	@#-no-emul-boot
 	@#-hard-disk-boot
