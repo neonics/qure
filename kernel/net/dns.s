@@ -788,7 +788,7 @@ dns_process_question$:
 	stosd
 	bswap	eax	# ax=class, eax.h = type
 	cmp	ax, DNS_CLASS_IN
-	jnz	1f	# class not IN: no answer for this one.
+	jnz	91f	# class not IN: no answer for this one.
 
 	ror	eax, 16
 	.if NET_DNS_DEBUG > 1
