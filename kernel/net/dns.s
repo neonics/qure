@@ -423,9 +423,10 @@ dns_print_name$:
 	lea	esi, [ebx + eax]
 	call	dns_print_name$
 	pop	esi
-	ret	# name ref is always last element in name
+3:	ret	# name ref is always last element in name
 
 2:	movzx	ecx, al
+	jecxz	3b
 0:	lodsb
 	call	printchar
 	loop	0b
