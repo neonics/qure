@@ -16,8 +16,9 @@ mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 	MUTEX_KB	= 2
 	MUTEX_NET	= 3
 	MUTEX_TCP_CONN	= 4
+	MUTEX_SOCK	= 5
 
-	NUM_MUTEXES	= 5
+	NUM_MUTEXES	= 6
 
 mutex_owner:	.space 4 * NUM_MUTEXES
 
@@ -27,11 +28,12 @@ mutex_name_SCREEN:	.asciz "SCREEN"
 mutex_name_KB:		.asciz "KB"
 mutex_name_NET:		.asciz "NET"
 mutex_name_TCP_CONN:	.asciz "TCP_CONN"
+mutex_name_SOCK:	.asciz "SOCK"
 .text32
 
 # out: CF = 1: fail, mutex was already locked.
 .macro MUTEX_LOCK name, nolocklabel=0, locklabel=0, debug=0
-	lock bts dword ptr [mutex], 1 << MUTEX_\name
+	lock bts dword ptr [mutex], MUTEX_\name
 
 	.if MUTEX_DEBUG
 		jc	100f
@@ -56,7 +58,7 @@ mutex_name_TCP_CONN:	.asciz "TCP_CONN"
 
 # out: CF = 1: it was locked (ok); 0: another thread unlocked it (err)
 .macro MUTEX_UNLOCK name, debug=0
-	lock btr dword ptr [mutex], 1 << MUTEX_\name
+	lock btr dword ptr [mutex], MUTEX_\name
 
 	.if MUTEX_DEBUG > 1
 		mov	[mutex_owner + MUTEX_\name * 4], dword ptr 0
@@ -70,6 +72,29 @@ mutex_name_TCP_CONN:	.asciz "TCP_CONN"
 	.endif
 .endm
 
+
+.macro MUTEX_SPINLOCK_ name
+1999:	lock bts dword ptr [mutex], MUTEX_\name
+	jc	1999b
+	call	1999f
+1999:	pop	dword ptr [mutex_owner + MUTEX_\name * 4]
+.endm
+
+.macro MUTEX_UNLOCK_ name
+	pushf
+	lock btr dword ptr [mutex], MUTEX_\name
+	mov	dword ptr [mutex_owner + MUTEX_\name * 4], 0
+	popf
+.endm
+
+.macro MUTEX_SCHEDLOCK name
+1999:	lock bts dword ptr [mutex], MUTEX_\name
+	jnc	1999f
+	call	schedule_near
+	jmp	1999b
+1999:	call	1999f
+1999:	pop	dword ptr [mutex_owner + MUTEX_\name * 4]
+.endm
 
 .macro MUTEX_SPINLOCK name, nolocklabel=0, locklabel=0, debug=0
 	push	ecx

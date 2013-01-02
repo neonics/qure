@@ -81,6 +81,7 @@ include "console.s", console
 
 include "mem.s", mem
 include "hash.s", hash
+include "buffer.s", buffer
 include "string.s", string
 
 include "schedule.s", scheduler
@@ -344,7 +345,10 @@ kmain:
 	call	newline
 	call	nic_zeroconf
 
+	call	cmd_dnsd
+	call	cmd_httpd
 	call	cmd_smtpd
+#	call	cmd_sipd
 
 
 OPEN_SHELL_DEFAULT = 0

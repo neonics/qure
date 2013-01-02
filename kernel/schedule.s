@@ -103,9 +103,9 @@ SCHEDULE_ROUND_ROBIN	= 1	# the default; has no effect when SCHED.._JOBS=0
 SCHEDULE_JOBS		= 0	#buggy# 0 means jobs are treated like tasks
 SCHEDULE_CLEAN_STACK	= 1	# zeroes the stack for each new job; ovrhd:264 clocks
 
-JOB_STACK_SIZE		= 1024
+JOB_STACK_SIZE		= 1024 * 4
 
-TASK_SWITCH_INTERVAL	= 1	# nr of timer ticks between scheduling (debug)
+TASK_SWITCH_INTERVAL	= 0	# nr of timer ticks between scheduling (debug)
 TASK_SWITCH_DEBUG	= 0	# 0..4 very verbose printing of pivoting
 TASK_SWITCH_DEBUG_JOB	= 0	# job completion (no effect when !SCHEDULE_JOBS)
 TASK_SWITCH_DEBUG_TASK	= 0	# task completion
@@ -134,8 +134,13 @@ task_pid:	.long 0
 task_label:	.long 0	# name of task (for debugging)
 task_registrar:	.long 0	# debugging: address from which schedule_task was called
 task_flags:	.long 0	# bit 1: 1=task (ctx on task_task);0=job (task_regs)
+	# task configuration flags:
 	TASK_FLAG_TASK		= 0x0001
-	TASK_FLAG_RESCHEDULE	= 0x0100	# upon completion, sched again
+	TASK_FLAG_RESCHEDULE	= 0x0010	# upon completion, sched again
+	# task wait flags:
+	TASK_FLAG_WAIT_IO	= 0x0100	# task waiting for IO
+	TASK_FLAG_WAIT_MUTEX	= 0x0200	# task waiting for MUTEX avail
+	# task status flags:
 	TASK_FLAG_RUNNING	= 0x8000 << 16	# do not schedule
 	TASK_FLAG_SUSPENDED	= 0x4000 << 16
 	TASK_FLAG_DONE		= 0x0100 << 16	# (aligned with RESCHEDULE)
@@ -256,14 +261,14 @@ tls_task_idx:	.long 0	# not used - no tls setup in this file.
 .endif
 .endm
 
-SCHEDULE_PRINT_FREQUENCY = PIT_FREQUENCY	# in Hz
+SCHEDULE_PRINT_FREQUENCY = 5 #PIT_FREQUENCY	# in Hz
 .data SECTION_DATA_BSS
 schedule_top_delay$: .long 0
 .text32
 
 .macro DO_SCHEDULER_DEBUG_TOP
 
-.if 0 	# print throttling
+.if 1 	# print throttling
 	push	eax
 	add	dword ptr [schedule_top_delay$], SCHEDULE_PRINT_FREQUENCY
 	mov	eax, [schedule_top_delay$]
@@ -286,9 +291,15 @@ schedule_top_delay$: .long 0
 	cmp	bl, 2
 	jb	100f
 	PUSH_SCREENPOS 0
+	# print mutex
+	push	edx
+	mov	edx, [mutex]
+	call	printbin8
+	pop	edx
+	call	printspace
+	# print task
 	mov	eax, [scheduler_current_task_idx]
-	add	eax, [task_queue]
-	# potential concurrency issue
+	add	eax, [task_queue]	# potential concurrency issue
 	DEBUGS [eax + task_label],"task"
 	POP_SCREENPOS
 
@@ -454,6 +465,7 @@ schedule_isr:
 	.endif
 	DO_TASK_SWITCH_INTERVAL
 	# store the CPU state (eip,cs,eflags already on stack):
+	cli
 	pushad
 	pushd	ss
 	pushd	ds
@@ -478,7 +490,9 @@ schedule_isr:
 	or	dword ptr [eax + edx + task_flags], TASK_FLAG_RUNNING
 	mov	[scheduler_current_task_idx], edx
 	mov	[task_index], edx
-
+# for debugging
+mov ebx, [eax + edx + task_stack]
+mov ecx, [eax + edx + task_stack+4]
 	lss	esp, [eax + edx + task_stack]
 	or	[esp + task_reg_eflags], dword ptr 1<<9
 
@@ -1092,7 +1106,7 @@ schedule_task:
 	mov	edi, eax
 	mov	ecx, JOB_STACK_SIZE / 4
 	xor	eax, eax
-	rep	stosd
+	rep	stosd	# BUG: edi
 	pop	eax
 	.endif
 
@@ -1137,7 +1151,6 @@ schedule_task:
 	ret	16
 ########
 8:	test	[esp + 12], dword ptr TASK_FLAG_TASK
-	stc
 	jz	1f	# don't print for kernel jobs
 	DEBUG "scheduling disabled: caller="
 	push	edx
@@ -1145,7 +1158,8 @@ schedule_task:
 	call	printhex8
 	pop 	edx
 	call	newline
-1:	ret	16
+1:	stc
+	ret	16
 ######## error messages
 99:	call	0f
 	printlnc_ 4, "can't lock task queue"

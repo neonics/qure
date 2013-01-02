@@ -176,9 +176,52 @@ dns_type_label_idx_end$:
 ####################################################################
 
 .text32
+cmd_dnsd:
+	I "Starting DNS Daemon"
+	PUSH_TXT "dnsd"
+	push	dword ptr 2	# context switch task
+	push	cs
+	push	dword ptr offset net_service_dnsd_main
+	call	schedule_task
+	jc	9f
+	OK
+9:	ret
+
+net_service_dnsd_main:
+	xor	eax, eax
+	mov	edx, IP_PROTOCOL_UDP << 16 | 53
+	mov	ebx, SOCK_READPEER	#SOCK_LISTEN
+	call	socket_open
+	jc	9f
+	printc 11, "DNS listening on "
+	call	socket_print
+	call	newline
+
+0:	mov	ecx, 10000
+	call	socket_read
+	jc	0b
+
+	push	eax
+	# SOCK_READPEER effect handling:
+	mov	eax, [esi]		# in: peer address
+	mov	edx, 53 << 24		# in: local port in network byte owrder
+	mov	dx, word ptr [esi + 4]	# in: peer port
+	add	esi, 6	# skip the peer address
+	sub	ecx, 6
+	call	net_dns_service
+	pop	eax
+	jmp	0b
+	
+	ret
+9:	printlnc 4, "dnsd: failed to open socket"
+	ret
+
+
+
+
 # in: ebx = nic
 # in: edx = ipv4 frame
-# in: esi = payload (udp frame)
+# in: esi = payload (dns frame)
 # in: ecx = payload len
 net_dns_print:
 	push	edi
@@ -360,7 +403,10 @@ dns_print_type$:
 # in: edi = dns frame
 # in: esi = answer start
 dns_print_answer$:
+	push	ebx
+	mov	ebx, edi
 	call	dns_print_name$
+	pop	ebx
 
 	print " type "
 	lodsw
@@ -380,7 +426,7 @@ dns_print_answer$:
 	mov	edx, eax
 	call	printdec32
 
-	print " len "
+	print " addr "
 	xor	eax, eax
 	lodsw
 	xchg	al, ah
@@ -514,6 +560,21 @@ dns_parse_name$:
 # in: eax = udp frame
 # in: esi = payload: dns frame
 # in: ecx = payload len
+net_dns_service_:
+	push	eax
+	push	edx
+	xchg	eax, edx
+	mov	eax, [eax + ipv4_src]
+	mov	edx, [edx + udp_sport]
+	call	net_dns_service
+	pop	edx
+	pop	eax
+	ret
+
+# in: eax = peer address (ipv4)
+# in: dx = local port << 16 | peer port (network byte order)
+# in: esi = dns frame
+# in: ecx = dns frame len
 net_dns_service:
 	cmp	ecx, DNS_HEADER_SIZE
 	jb	10f	# short packet
@@ -522,10 +583,13 @@ net_dns_service:
 
 	.if NET_DNS_DEBUG
 		PRINT "Servicing DNS request from "
-		push	eax
-		mov	eax, [edx + ipv4_src]
 		call	net_print_ip
-		pop	eax
+		printchar ':'
+		push	edx
+		bswap	edx
+		shr	edx, 16
+		call	printdec32
+		pop	edx
 		call	newline
 		call	net_dns_print
 	.endif
@@ -541,10 +605,6 @@ net_dns_service:
 
 	push	edi	# [esp + 0]: payload end
 	mov	edi, [esp + 4]	# packet start
-
-	xchg	eax, edx
-	mov	eax, [eax + ipv4_src]
-	mov	edx, [edx + udp_sport]
 	call	net_put_eth_ipv4_udp_headers	# restores ebx
 	# assert edi == [esp + 4]
 	pop	edi	# payload end
@@ -554,7 +614,7 @@ net_dns_service:
 	ret
 
 9:	pop	edi	# packet start
-	printlnc 4, "error constructing response packet"
+	printlnc 4, "dns: error constructing response packet"
 	# TODO: net_buffer_release
 10:	ret
 
@@ -961,12 +1021,19 @@ dns_resolve_name:
 	call	socket_read	# in: eax, ecx; out: esi, ecx
 	jc	8f
 
+	.if NET_DNS_DEBUG > 1
+		DEBUG "dns_resolve_name"
+		pushad
+		call	net_dns_print
+		popad
+	.endif
+
 #	printlnc 11, "socket UDP read:"
 	push	eax
 #	call	net_dns_print
 
-		add	esi, UDP_HEADER_SIZE
-		sub	ecx, UDP_HEADER_SIZE
+#		add	esi, UDP_HEADER_SIZE
+#		sub	ecx, UDP_HEADER_SIZE
 
 	#	push	esi
 
@@ -976,9 +1043,16 @@ dns_resolve_name:
 		and	ax, DNS_FLAG_QR | DNS_RCODE_MASK
 		cmp	ax, DNS_FLAG_QR
 		jnz	1f
+		.if NET_DNS_DEBUG > 1
+			DEBUG "flags"
+		.endif
+
 		# verify question/answer:
 		cmp	dword ptr [esi + dns_questions], 0x01000100
 		jnz	1f
+		.if NET_DNS_DEBUG > 1
+			DEBUG "q/a"
+		.endif
 
 		mov	ebx, esi	# in: ebx = dns frame (for name refs)
 		add	esi, DNS_HEADER_SIZE # in: esi = RR ptr in DNS message
@@ -1008,10 +1082,16 @@ dns_resolve_name:
 		pop	esi
 		stc
 		jnz	2f
+		.if NET_DNS_DEBUG > 1
+			DEBUG "str"
+		.endif
 		cmp	word ptr [edi], '.'
 		stc
 		jnz	2f
 		clc
+		.if NET_DNS_DEBUG > 1
+			DEBUG "."
+		.endif
 
 	2:	mov	esp, ebp
 		pop	ebp
@@ -1019,9 +1099,16 @@ dns_resolve_name:
 		pop	ecx	# pop edx: orig name len; keep edx=question rr
 		pop	ecx
 		jc	1f
+		.if NET_DNS_DEBUG > 1
+			DEBUG "name"
+		.endif
 		lodsd	# load type/class
 		cmp	eax, 0x01000100
 		jnz	1f
+		.if NET_DNS_DEBUG > 1
+			DEBUG "type/class"
+		.endif
+
 		# parse answer
 
 	######## compare answer rr name, type, class
@@ -1029,6 +1116,9 @@ dns_resolve_name:
 		lodsb
 		cmp	al, 0b11000000
 		jb	2f
+		.if NET_DNS_DEBUG > 1
+			DEBUG "compressed"
+		.endif
 		# check if reference matches
 		mov	ah, al
 		and	ah, 0b00111111
@@ -1041,6 +1131,9 @@ dns_resolve_name:
 		jnz	1f
 		jmp	3f
 	2:	# noncompressed name: compare RR with question RR
+		.if NET_DNS_DEBUG > 1
+			DEBUG "full"
+		.endif
 		push	edi
 		push	ecx
 		dec	esi	# unread byte
@@ -1052,13 +1145,26 @@ dns_resolve_name:
 		pop	edi
 		jnz	1f
 	3:
+		.if NET_DNS_DEBUG > 1
+			DEBUG "aname"
+		.endif
 	########
 		lodsd	# ttl - ignore
+		.if NET_DNS_DEBUG > 1
+			DEBUG_DWORD eax,"ttl"
+		.endif
 		lodsw	# addr len
+		.if NET_DNS_DEBUG > 1
+			DEBUG_WORD ax,"addrlen"
+		.endif
 		cmp	ax, 0x0400
 		jnz	1f
 		lodsd	# ip
 		mov	edx, eax
+
+		.if NET_DNS_DEBUG > 1
+			DEBUG "addr"
+		.endif
 
 		jmp	7f
 	1:	printlnc 4, "DNS error: wrong response"

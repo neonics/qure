@@ -256,33 +256,34 @@ ph_ipv4_udp:
 	cmp	bl, 0b1110
 	jz	2f	# 244.0.0.0/4 match
 
-	call	nic_get_by_ipv4
+	push	eax
+	call	nic_get_by_ipv4	# in: eax = ip; out: ebx = nic (ignored)
+	pop	eax
 	jc	1f	# ret: no match
 2:
+
+	push	esi
 		# in: eax = ip
 		# in: edx = [proto] [port]
 		# in: esi, ecx: packet
+		mov	ebx, edx	# in: ebx = ip frame (for recvfrom)
 		push	edx
 		mov	edx, IP_PROTOCOL_UDP << 16
 		mov	dx, [esi + udp_dport]
 		xchg	dl, dh
-		push	ecx
-		# esi: udp frame
-		sub	ecx, UDP_HEADER_SIZE
-		call	net_socket_deliver
-		pop	ecx
+
+	add	esi, UDP_HEADER_SIZE	# esi: udp payload
+	sub	ecx, UDP_HEADER_SIZE
+		call	net_socket_deliver_udp
 		pop	edx
+	pop	eax	# udp frame
 
 	# call handler
 
-	mov	eax, esi	# udp frame
-	add	esi, UDP_HEADER_SIZE
-	sub	ecx, UDP_HEADER_SIZE
-
-	cmp	[eax + udp_sport], word ptr 53 << 8	# DNS
-	jz	1f	#net_dns_print
-	cmp	[eax + udp_dport], word ptr 53 << 8	# DNS
-	jz	net_dns_service
+#	cmp	[eax + udp_sport], word ptr 53 << 8	# DNS
+#	jz	1f	#net_dns_print
+#	cmp	[eax + udp_dport], word ptr 53 << 8	# DNS
+#	jz	net_dns_service
 	cmp	[eax + udp_sport], dword ptr ( (67 << 8) | (68 << 24))
 	jz	ph_ipv4_udp_dhcp_s2c
 	cmp	[eax + udp_sport], dword ptr ( (68 << 8) | (67 << 24))

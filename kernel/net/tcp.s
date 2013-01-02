@@ -320,7 +320,7 @@ net_tcp_conn_newentry:
 	ARRAY_LOOP	[tcp_connections], TCP_CONN_STRUCT_SIZE, eax, edx, 9f
 	cmp	byte ptr [eax + edx + tcp_conn_state], -1
 	jz	1f
-	cmp	byte ptr [eax + edx + tcp_conn_state], 0b01111111
+	cmp	byte ptr [eax + edx + tcp_conn_state], 0b11011111
 	jnz	2f
 	cmp	edi, [eax + edx + tcp_conn_timestamp]
 	jnb	1f
@@ -648,7 +648,6 @@ net_ipv4_tcp_handle:
 	.endif
 
 	# firewall / services:
-.if 1
 	mov	eax, [edx + ipv4_dst]
 	push	edx
 	movzx	edx, word ptr [esi + tcp_dport]
@@ -657,15 +656,10 @@ net_ipv4_tcp_handle:
 	call	net_socket_find
 	mov	ebx, edx
 	pop	edx
-	jc	1f
-	mov	edi, offset tcp_rx_sock
-	jmp	2f
-1:
-.endif
-	mov	ebx, -1
-	call	net_tcp_service_get	# out: edi = handler
 	jc	9f
-2:	.if NET_TCP_DEBUG
+	mov	edi, offset tcp_rx_sock
+
+	.if NET_TCP_DEBUG
 		printc TCP_DEBUG_COL, "tcp: ACCEPT SYN"
 	.endif
 	call	net_tcp_conn_newentry	# in: edx=ip fr, esi=tcp fr, edi=handler
@@ -681,6 +675,7 @@ net_ipv4_tcp_handle:
 	mov	eax, ebx			# in: eax = local socket
 #DEBUG_DWORD ebx,"local sock"
 	movzx	ebx, word ptr [esi + tcp_sport]	# in: ebx = peer port
+	xchg	bl, bh
 	mov	edx, [edx + ipv4_src]		# in: edx = peer ip
 	call	net_sock_deliver_accept		# out: edx = peer sock idx
 #DEBUG "Socket notified"
@@ -908,34 +903,6 @@ net_tcp_conn_send_ack:
 	pop	ecx
 	pop	edx
 	ret
-
-# TODO: this will be replaced by listening sockets, which may use similar
-# scanning technique.
-#
-# in: esi = tcp frame
-# out: edi = handler
-net_tcp_service_get:
-	.data
-	tcp_service_ports: .word 80#, 25
-	TCP_NUMSERVICES = (. - tcp_service_ports)/2
-	tcp_service_handlers: .long net_service_tcp_http, net_service_tcp_smtp
-	.text32
-	push	eax
-	push	ecx
-	mov	ax, [esi + tcp_dport]
-	xchg	al, ah
-	mov	edi, offset tcp_service_ports
-	mov	ecx, TCP_NUMSERVICES
-	repne	scasw
-	pop	ecx
-	pop	eax
-	stc
-	jnz	9f
-	sub	edi, offset tcp_service_ports + 2
-	mov	edi, [tcp_service_handlers + edi * 2]
-	clc
-9:	ret
-
 
 # appends the data to the tcp connection's send buffer; on overflow,
 # it flushes the buffer (sends it), and appends the remaining data.

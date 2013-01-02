@@ -2530,6 +2530,33 @@ malloc_optimized:
 	
 	ret
 
+# in: esi = data
+# in: ecx = datalen
+# out: esi = new buffer containing data
+mdup:	push	eax
+
+	mov	eax, ecx
+	call	malloc
+	jc	9f
+
+	push	eax
+	push	edi
+	push	ecx
+	mov	edi, eax
+	mov	al, cl
+	shr	ecx, 2
+	jz	1f
+	rep	movsd
+1:	mov	cl, al
+	and	cl, 3
+	jz	1f
+	rep	movsb
+1:	pop	ecx
+	pop	edi
+	pop	esi
+
+9:	pop	eax
+	ret
 
 ##############################################################################
 # Commandline utility

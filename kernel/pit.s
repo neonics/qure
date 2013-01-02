@@ -10,7 +10,7 @@ PIT_IO = 0x40
 
 PIT_FREQUENCY = 250	# 4 ms accuracy
 
-PIT_DEBUG = 1
+PIT_DEBUG = 0
 
 .if PIT_DEBUG
 PIT_FREQUENCY = 18

@@ -4,30 +4,219 @@
 .intel_syntax noprefix
 .text32
 
-NET_HTTP_DEBUG = 1
+NET_HTTP_DEBUG = 1		# 1: log requests; 2: more verbose
 
 
-# in: eax = tcp_conn array index
-# in: esi = request data
+cmd_httpd:
+	I "Starting HTTP Daemon"
+	PUSH_TXT "httpd"
+	push	dword ptr 2	# context switch task
+	push	cs
+	push	dword ptr offset net_service_httpd_main
+	call	schedule_task
+	jc	9f
+	OK
+9:	ret
+
+net_service_httpd_main:
+	xor	eax, eax
+	mov	edx, IP_PROTOCOL_TCP<<16 | 80
+	mov	ebx, SOCK_LISTEN
+	call	socket_open
+	jc	9f
+	printc 11, "HTTP listening on "
+	call	socket_print
+	call	newline
+
+0:	mov	ecx, 10000
+	call	socket_accept
+	jc	0b
+
+	push	eax
+	mov	eax, edx
+	.if NET_HTTP_DEBUG
+		printc 11, "HTTP "
+		call	socket_print
+		call	printspace
+	.endif
+	call	httpd_handle_client
+	pop	eax
+	jmp	0b
+
+	ret
+9:	printlnc 4, "httpd: failed to open socket"
+	ret
+
+
+# in: eax = socket
+# postcondition: socket closed.
+httpd_handle_client:
+	mov	edx, 6	# minimum request size: "GET /\n"
+0:	mov	ecx, 10000
+	call	socket_peek
+	jc	9f
+
+	lea	edx, [ecx + 1]	# new minimum request size
+
+	push	eax
+	push	edx
+	call	http_check_request_complete
+	pop	edx
+	pop	eax
+	jc	4f	# invalid request
+	jnz	0b	# incomplete
+
+	call	net_service_tcp_http	# takes care of socket_close
+	ret
+
+9:	printlnc 4, "httpd: timeout, closing connection"
+	LOAD_TXT "HTTP/1.1 408 Request timeout\r\n\r\n"
+	call	strlen_
+	call	socket_write
+1:	call	socket_flush
+	call	socket_close
+0:	ret
+
+4:	LOAD_TXT "HTTP/1.1 400 Bad request\r\n\r\n"
+	call	strlen_
+	call	socket_write
+	jmp	1b
+
+# out: CF = 1: invalid request (request might be incomplete but complete enough
+#  to determine the error, i.e., first line received)
+# out: [CF=0] ZF = 1: have a complete request; 0: request incomplete
+# out: edi: end of request
+http_check_request_complete:
+#DEBUG "check_request_complete:"
+#call nprintln
+	push	ecx
+	mov	edi, esi
+0:	mov	al, '\n'
+	repnz	scasb
+	jnz	91f	# incomplete
+########
+	# Check for simple request (GET uri \n):
+	mov	ecx, [esp]
+	mov	edi, esi
+	mov	al, ' '
+	repnz	scasb	# scan method uri separator
+	jnz	99f	# no space: invalid request (request complete)
+	repnz	scasb	# check for second space
+	jnz	90f	# no second space, thus simple (one-line) request
+	# have second space, check for HTTP
+	cmp	ecx, 8	# check if sizeof("HTTP/x.x") is at least present
+	jb	99f	# invalid (complete) request
+
+	cmp	dword ptr [edi], 'H'|'T'<<8|'T'<<16|'P'<<24
+	jnz	99f	# invalid (complete) request
+	cmp	byte ptr [edi + 4], '/'
+	jnz	99f	# invalid (complete) request
+	# check version
+	add	edi, 5
+	sub	ecx, 5
+
+	call	10f	# expect at least 1 digit:
+	jc	99f
+	inc	edi
+	dec	ecx	# 6
+	# check for '.' or digit
+4:	cmp	[edi], byte ptr '.'
+	jz	3f
+	call	10f
+	jc	99f
+	inc	edi
+	loop	4b
+	jmp	99f
+
+3:	inc	edi	# got '.'
+	dec	ecx
+	jz	99f
+	call	10f	# check minor version
+	jc	99f
+	dec	ecx
+	jz	99f	# invalid
+	# so far we've matched "HTTP/\d+\.\d"
+	# now, expect \r|\n|\d
+3:	inc	edi
+	cmp	[edi], byte ptr '\r'
+	jz	1f
+	cmp	[edi], byte ptr '\n'
+	jz	2f
+	call	10f
+	jc	99f
+	loop	3b
+	jmp	99f	# invalid
+
+	# full request line complete
+	# check for \n\n (or \r\n\r\n)
+
+2:	# char trailing HTTP version is '\n', so check if next char is also \n.
+	cmp	ecx, 2
+	jb	91f	# incomplete: no room
+	cmp	byte ptr [edi+1], '\n'
+	jz	90f	# complete
+	add	edi, 2
+	sub	ecx, 2
+	jle	91f	# incomplete
+	# check for a double \n:
+	mov	al, '\n'
+2:	repnz	scasb
+	jnz	91f	# incomplete
+	scasb
+	jz	90f
+	dec	ecx
+	jnle	2b
+	jmp	91f	# incomplete
+
+
+1:	# char trailing HTTP version is \r, check for (\r)\n\r\n:
+	cmp	ecx, 4
+	jb	91f	# incomplete: no room for two CRLF's
+	mov	eax, '\r'|'\n'<<8|'\r'<<16|'\n'<<24
+	cmp	[edi], eax
+	jz	90f	# complete!
+	inc	edi
+	dec	ecx
+	jle	91f
+
+1:	repnz	scasb
+	jnz	91f
+	cmp	[edi -1], eax
+	jz	90f
+	jecxz	91f
+	jmp	1b
+
+	# incomplete
+########
+91:	or	edi, edi	# ZF = 0, CF = 0: incomplete
+	pop	ecx
+	ret
+
+99:	stc			# ZF = ?, CF = 1: invalid request
+	pop	ecx
+	ret
+
+90:	xor	cl, cl		# ZF = 1, CF = 0: complete
+	pop	ecx
+	ret
+
+# check for digit
+10:	mov	al, [edi]
+	cmp	al, '0'
+	jb	9f
+	cmp	al, '9'
+	ja	9f
+	clc
+	ret
+9:	stc
+	ret
+
+
+
+# in: eax = socket index
+# in: esi = request data (complete)
 # in: ecx = request data len
 net_service_tcp_http:
-	.if NET_HTTP_DEBUG
-		printc 11, "TCP HTTP "
-		push	eax
-		add	eax, [tcp_connections]
-		movzx	edx, word ptr [eax + tcp_conn_remote_port]
-		xchg	dl, dh
-		mov	eax, [eax + tcp_conn_remote_addr]
-		call	net_print_ip
-		printchar_ ':'
-		call	printdec32
-		call	printspace
-		pop	eax
-	.endif
-
-	# NOTE: this approach requires that the headers are sent in one
-	# contiguous packet.
-	# TODO: update to use sockets.
 	call	http_parse_header	# in: esi,ecx; out: edx=uri, ebx=host
 
 	# Send a response
@@ -133,9 +322,12 @@ net_service_tcp_http:
 		printlnc 13, "'"
 	.endif
 
-	push	eax	# preserve net_tcp_conn_index
+	push	eax	# preserve socket
+	push	edx
 	mov	eax, offset www_file$
-	call	fs_openfile
+	xor	edx, edx	# fs_open flags argument
+	call	fs_open
+	pop	edx
 	jc	2f
 	call	fs_handle_read	# out: esi, ecx
 
@@ -172,7 +364,7 @@ net_service_tcp_http:
 
 	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
 	call	strlen_
-	call	net_tcp_sendbuf
+	call	socket_write
 
 	mov	ebx, [ebp - 8]	# buf
 
@@ -191,7 +383,7 @@ net_service_tcp_http:
 
 	push	ecx
 	mov	ecx, edx
-	call	net_tcp_sendbuf
+	call	socket_write
 	pop	ecx
 2:
 # use edi,ecx
@@ -205,9 +397,9 @@ net_service_tcp_http:
 
 1:	mov	ecx, [ebp - 12]
 	mov	esi, ebx
-	call	net_tcp_sendbuf	# in: eax=tcpconn, esi=data, ecx=len
-	call	net_tcp_sendbuf_flush
-	call	net_tcp_fin
+	call	socket_write
+	call	socket_flush
+	call	socket_close
 
 	mov	eax, [ebp - 8]
 	call	mfree
@@ -463,10 +655,9 @@ www_expr_handle:
 	.endif
 
 	mov	eax, [esp]
-	call	net_tcp_sendbuf
+	call	socket_write
 
-9:
-	pop	eax
+9:	pop	eax
 	pop	edi
 	pop	ecx
 	pop	ebx
@@ -493,30 +684,30 @@ www_err_response:
 
 	mov	esi, offset www_h$
 	call	strlen_
-	call	net_tcp_sendbuf
+	call	socket_write
 
 	mov	esi, edx
 	call	strlen_
-	call	net_tcp_sendbuf
+	call	socket_write
 
 	mov	esi, offset www_h2$
 	call	strlen_
-	call	net_tcp_sendbuf
+	call	socket_write
 
 	mov	esi, offset www_content1$
 	call	strlen_
-	call	net_tcp_sendbuf
+	call	socket_write
 
 	lea	esi, [edx + 4]
 	call	strlen_
-	call	net_tcp_sendbuf
+	call	socket_write
 
 	mov	esi, offset www_content2$
 	call	strlen_
-	call	net_tcp_sendbuf
+	call	socket_write
 
-	call	net_tcp_sendbuf_flush
-	call	net_tcp_fin
+	call	socket_flush
+	call	socket_close
 	ret
 
 
@@ -524,7 +715,7 @@ www_err_response:
 www_send_screen:
 	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
 	call	strlen_
-	call	net_tcp_sendbuf
+	call	socket_write
 
 .data SECTION_DATA_STRINGS
 _color_css$:
@@ -551,7 +742,7 @@ _color_css$:
 
 	mov	esi, offset _color_css$
 	call	strlen_
-	call	net_tcp_sendbuf
+	call	socket_write
 
 	push	fs
 	mov	ebx, SEL_vid_txt
@@ -616,7 +807,7 @@ _color_css$:
 	mov	esi, offset _www_scr$
 	mov	ecx, edi
 	sub	ecx, esi
-	call	net_tcp_sendbuf
+	call	socket_write
 	pop	ecx
 	dec	ecx
 	jnz	0b
@@ -625,7 +816,7 @@ _color_css$:
 
 	LOAD_TXT "</pre></body></html>\n"
 	call	strlen_
-	call	net_tcp_sendbuf
-	call	net_tcp_sendbuf_flush
-	call	net_tcp_fin
+	call	socket_write
+	call	socket_flush
+	call	socket_close
 	ret

@@ -231,6 +231,7 @@ net_buffer_get:
 .include "net/dns.s"
 .include "net/httpd.s"
 .include "net/smtp.s"
+.include "net/sip.s"
 
 ###########################################################################
 # LLC - Logical Link Control
@@ -626,7 +627,13 @@ NET_RX_QUEUE_DEBUG = 0
 # in: ebx = nic
 # in: esi = packet (ethernet frame)
 # in: ecx = packet len
+# effect: schedules net_rx_packet task with a copy of the packet
 net_rx_packet:
+	push	esi
+	# copy the packet
+	call	mdup	# in: esi,ecx; out: esi = copied packet
+	jc	8f
+
 	PUSH_TXT "net"
 	push	dword ptr 0 # TASK_FLAG_RESCHEDULE # flags
 	push	cs
@@ -636,50 +643,64 @@ net_rx_packet:
 	xchg	eax, [esp]
 	call	schedule_task
 	jc	9f	# lock fail, already scheduled, ...
+0:	pop	esi
 	ret
+8:	printlnc 4, "net: out of memory"
+	jmp	0b
 9:	printlnc 4, "net: packet dropped"
-	ret
+	jmp	0b
 
 .else
 # A queue for incoming packets so as to not flood the scheduler with a job
 # (and possibly a stack) for each packet.
 .struct 0
 net_rx_queue_status:	.long 0
-net_rx_queue_args:	.space 8*4
+net_rx_queue_args:	.space 8*4	# pushad; eax+edx, esi,ecx
 NET_RX_QUEUE_STRUCT_SIZE = .
 .data SECTION_DATA_BSS
 net_rx_queue:	.long 0
 .text32
 # out: eax + edx
 net_rx_queue_newentry:
+	push	ecx
 	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 1f
 	cmp	[eax + edx + net_rx_queue_status], dword ptr 0
 	jz	2f
 	ARRAY_ENDL
 1:	ARRAY_NEWENTRY [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, 4, 9f
 2:	mov	[eax + edx + net_rx_queue_status], dword ptr 1
-9:	ret
+9:	pop	ecx
+	ret
 
 # in: ds = es = ss
 # in: ebx = nic
 # in: esi = packet (ethernet frame)
 # in: ecx = packet len
+# effect: appends a copy of the packet to net_rx_queue
 net_rx_packet:
-	pushad
+	push	eax
+	push	edx
+	push	esi
+	call	mdup
+	jc	8f
 0:	MUTEX_SPINLOCK NET, nolocklabel=0b
 	call	net_rx_queue_newentry	# out: eax + edx
 	jnc	1f
-	MUTEX_UNLOCK NET
-	popad
+2:	MUTEX_UNLOCK NET
 	jmp	9f
 
-1:	lea	edi, [eax + edx + net_rx_queue_args]
+1:	pushad
+	lea	edi, [eax + edx + net_rx_queue_args]
 	mov	esi, esp
 	mov	ecx, 8
 	rep	movsd
-	mov	[edi-4], eax
-	mov	[edi-12], edx
+#	mov	[edi-4], eax
+#	mov	[edi-12], edx
+#	mov	[edi-28], esi
 	popad
+	pop	esi
+	pop	edx
+	pop	eax
 	MUTEX_UNLOCK NET
 
 net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
@@ -691,15 +712,27 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 	add	eax, [realsegflat]
 	xchg	eax, [esp]
 	call	schedule_task
-	setc	al
 	.if NET_RX_QUEUE_DEBUG
+		setc	al
 		DEBUG_BYTE al
 	.endif
-
-# have queue
-#	jc	9f	# lock fail, already scheduled, ...
+#	jnc	1f
+#	call	0f
+#	printlnc 4, "schedule error"	# task already scheduled: happens often
 	ret
-9:	printlnc 4, "net: packet dropped"
+
+8:	call	0f
+	printlnc 4, "mdup error"
+90:	pop	esi
+	pop	edx
+	pop	eax
+	ret
+
+9:	call	0f
+	printlnc 4, "queue full"
+	jmp	90b
+
+0:	printc 4, "net: packet dropped: "
 	ret
 
 
@@ -767,36 +800,30 @@ net_rx_queue_print:
 .endif
 
 # in: ebx = nic
-# in: esi = packet (ethernet frame)
+# in: esi = packet (ethernet frame) [to be freed on completion]
 # in: ecx = packet len
+# side-effect: esi freed.
 net_rx_packet_task:
 	push	esi
-	push	ecx
-	push	ebx
-
-	push	esi
-	push	edx
 	push	eax
+	push	edx
 	LOAD_TXT "ethdump"
 	call	shell_variable_get
-	pop	eax
 	pop	edx
+	pop	eax
 	pop	esi
 	jc	1f
 
 	push	esi
 	push	ecx
-	pushad
 	call	net_print_protocol
-	popad
 	pop	ecx
 	pop	esi
 
-1:	call	net_handle_packet
-
-	pop	ebx
-	pop	ecx
-	pop	esi
+1:	push	esi
+	call	net_handle_packet
+	pop	eax
+	call	mfree
 	ret
 
 ############################################################################

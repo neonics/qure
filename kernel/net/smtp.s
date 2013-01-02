@@ -33,10 +33,6 @@ net_service_smtpd_main:
 	call	socket_open
 	jc	9f
 
-	pushad
-	call	socket_list
-	popad
-
 0:	mov	ecx, 10000
 	call	socket_accept
 	jc	0b
@@ -96,12 +92,7 @@ smtp_close:
 	call	strlen_
 	call	socket_write
 	call	socket_flush
-
-	mov	edx, [socket_array]
-	mov	edx, [edx + eax + sock_conn]
 	call	socket_close
-	mov	eax, edx
-	call	net_tcp_fin
 	ret
 
 # Handle SMTP data
@@ -109,14 +100,9 @@ smtp_close:
 # in: esi = data
 # in: ecx = data len
 net_service_tcp_smtp:
-	push	eax
 	printc 11, " SMTP: "
-	mov	ebx, [tcp_connections]
-	add	ebx, eax
-	mov	eax, [ebx + tcp_conn_remote_addr]
-	call	net_print_ip
+	call	socket_print
 	call	smtp_parse
-	pop	eax
 	ret
 
 
