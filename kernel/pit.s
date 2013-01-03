@@ -10,10 +10,10 @@ PIT_IO = 0x40
 
 PIT_FREQUENCY = 250	# 4 ms accuracy
 
-PIT_DEBUG = 0
+PIT_DEBUG = 1
 
 .if PIT_DEBUG
-PIT_FREQUENCY = 18
+#PIT_FREQUENCY = 18
 .endif
 
 #############################################################################################
@@ -307,8 +307,6 @@ pit_calc_interval:
 	mov	eax, (PIT_FREQ_INT << INTERVAL_BIT_SHIFT) | (PIT_FREQ_FRAC >> (32-INTERVAL_BIT_SHIFT))
 	xor	edx, edx
 	div	ebx
-	shr	eax, INTERVAL_BIT_SHIFT * 2
-	adc	eax, 0
 1:	ret
 
 
@@ -410,6 +408,17 @@ udelay:
 0:	in	al, 0x80	# DMA page register, safe to read.
 	loop	0b
 	pop	ecx
+	ret
+
+# in: eax = milliseconds
+sleep:
+	push	edx
+	add	eax, [clock_ms]
+0:	YIELD
+	cmp	eax, [clock_ms]
+	pause
+	ja	0b
+	pop	edx
 	ret
 
 get_time_ms:
