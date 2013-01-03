@@ -389,16 +389,18 @@ net_tcp_conn_newentry:
 	mov	[eax + tcp_conn_remote_seq_ack], dword ptr 0
 
 	# allocate buffers
-	cmp	dword ptr [eax + tcp_conn_send_buf], 0
+	xchg	edx, eax
+	cmp	dword ptr [edx + tcp_conn_send_buf], 0
 	jnz	1f
-	mov	edx, eax
 	mov	eax, TCP_CONN_BUFFER_SIZE
 	call	mallocz
-	jc	1f
+	jc	9f
 	mov	[edx + tcp_conn_send_buf], eax
 	mov	[edx + tcp_conn_send_buf_size], dword ptr TCP_CONN_BUFFER_SIZE
-1:
-	pushf
+1:	mov	[edx + tcp_conn_send_buf_start], dword ptr 0
+	mov	[edx + tcp_conn_send_buf_len], dword ptr 0
+
+0:	pushf
 	MUTEX_UNLOCK TCP_CONN
 	popf
 
@@ -408,6 +410,9 @@ net_tcp_conn_newentry:
 	jnc	net_tcp_conn_update
 	# eax = tcp_conn array index, rest unmodified
 	ret
+
+9:	printlnc 4, "tcp: out of memory"
+	jmp	0b
 
 # in: eax = tcp_conn array index
 # in: edx = ip frame pointer
@@ -996,12 +1001,20 @@ net_tcp_sendbuf_flush:
 	add	esi, [ebx + tcp_conn_send_buf_start]
 	xor	ecx, ecx
 	xchg	ecx, [ebx + tcp_conn_send_buf_len]
-	MUTEX_UNLOCK TCP_CONN
+	cmp	ecx, 1420
+	jbe	1f
+	sub	ecx, 1420
+	mov	[ebx + tcp_conn_send_buf_len], ecx
+	mov	ecx, 1420
+	add	[ebx + tcp_conn_send_buf_start], ecx
+1:	MUTEX_UNLOCK TCP_CONN
 
+	jecxz	1f
 	mov	dx, TCP_FLAG_PSH # | 1 << 8	# nocopy
 	call	net_tcp_send
+	jmp	0b
 
-	pop	ebx
+1:	pop	ebx
 	pop	ecx
 	pop	esi
 	pop	edx
