@@ -341,7 +341,7 @@ cmd_ping:
 	.if PING_USE_SOCKET
 		push	eax
 		mov     edx, IP_PROTOCOL_ICMP << 16 | 0
-		mov	ebx, SOCK_LISTEN
+		mov	ebx, SOCK_READPEER | SOCK_READTTL
 		mov	eax, -1
 		call	socket_open
 		jc	1f
@@ -370,8 +370,9 @@ cmd_ping:
 	call	socket_read # in: eax, ecx
 	pop	eax
 	jc	3f
-	mov	ecx, [esi - 8] # update ip in icmp request registration
-	mov	[eax + edx + 1], ecx
+	mov	ecx, [esi]	# SOCK_READPEER
+	mov	[eax + edx + 1], ecx # update ip in icmp request registration
+	add	esi, 4 + 2 + 1	# ip, port, ttl
 	movzx	ecx, byte ptr [esi + icmp_type]
 	cmp	cl, 0	# ping response
 	jz	1f
@@ -379,7 +380,7 @@ cmd_ping:
 	jnz	4f
 	printc 4, "ttl exceeded: "
 	push	edx
-	movsx	edx, byte ptr [esi - IPV4_HEADER_SIZE + ipv4_ttl]
+	movsx	edx, byte ptr [esi - 1]	# SOCK_READTTL
 #		neg	edx
 	call	printdec32
 	call	printspace
@@ -436,11 +437,19 @@ cmd_ping:
 	pop	ecx
 	dec	ecx
 	jz	1f
+
+	.if 1
+	push	eax
+	mov	eax, 1000
+	call	sleep
+	pop	eax
+	.else
 	push	ecx
 	mov	ecx, [pit_timer_frequency]
 0:	hlt
 	loop	0b
 	pop	ecx
+	.endif
 	jmp	7b
 1:
 	.if PING_USE_SOCKET

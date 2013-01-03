@@ -12,11 +12,14 @@ SOCKET_BUFSIZE	= 2048
 SOCK_LISTEN	= 0x80000000
 SOCK_STREAM	= 0x40000000	# 1: continuous buffer; 0: packetized buffer
 # NOTE: gnored: the above option is automatically determined based on IP_PROTOCOL_TCP.
-SOCK_READPEER	= 0x40000000 	# prepend packetized data with peer address (ip:port)
+# options affecting socket packetized read/peek contents (i.e. deliver)
+SOCK_READPEER	= 0x08000000 	# prepend packetized data with peer address (ip:port)
+SOCK_READTTL	= 0x04000000	# prepend IP ttl (after peer)
+SOCK_READTTL_SHIFT = (24+2)
 
 # internal flags
-SOCK_PEER	= 0x04000000
-SOCK_ACCEPTABLE	= 0x02000000
+SOCK_PEER	= 0x00400000
+SOCK_ACCEPTABLE	= 0x00200000
 .struct 0
 sock_addr:	.long 0
 sock_port:	.word 0
@@ -51,6 +54,26 @@ socket_open:
 	mov	[eax + edx + sock_port], edi
 	mov	[eax + edx + sock_flags], ebx
 	mov	edi, eax
+
+	.if NET_SOCKET_DEBUG
+		DEBUG "socket_open "
+		mov	eax, esi
+		call	net_print_ip
+		printchar_ ':'
+		push	edi
+		push	edx
+		add	edi, edx
+		movzx	edx, word ptr [edi + sock_port]
+		call	printdec32
+		DEBUG " proto "
+		mov	dx, [edi + sock_proto]
+		call	printhex4
+		DEBUG " flags "
+		mov	edx, [edi + sock_flags]
+		call	printhex8
+		pop	edx
+		pop	edi
+	.endif
 
 	test	ebx, SOCK_LISTEN
 	jnz	1f	# dont alloc buffer for server sockets.
@@ -319,13 +342,7 @@ socket_buffer_read:
 	jnb	1f
 	cmp	ebx, [clock_ms]
 	jb	1f
-	.if 0
-		# doesn't work with ping...
-		call	schedule_near
-	.else
-		sti
-		hlt
-	.endif
+	YIELD
 	MUTEX_SPINLOCK_ SOCK
 	jmp	0b
 
@@ -416,10 +433,13 @@ net_sock_deliver_accept:
 	push	eax
 	xchg	eax, edx
 	add	edx, [socket_array]
+	push	dword ptr [edx + sock_flags]
 	mov	dx, [edx + sock_proto]
 	shl	edx, 16
 	mov	dx, bx
-	mov	ebx, SOCK_PEER | SOCK_ACCEPTABLE
+	pop	ebx	# flags
+	and	ebx, ~SOCK_LISTEN
+	or	ebx, SOCK_PEER | SOCK_ACCEPTABLE
 	MUTEX_UNLOCK_ SOCK
 	call	socket_open
 	MUTEX_SPINLOCK_ SOCK
@@ -469,13 +489,24 @@ socket_accept:
 	ret
 
 
-#in: esi, ecx
+# in: esi, ecx: icmp frame
+# in: edx = ipv4 frame
 net_sock_deliver_icmp:
 	push	eax
 	push	edx
-	mov	eax, [esi - IPV4_HEADER_SIZE + ipv4_dst]
+	mov	eax, [edx + ipv4_dst]
 	mov	edx, IP_PROTOCOL_ICMP << 16	# no port for icmp
-	call	net_socket_deliver
+#	call	net_socket_deliver
+	MUTEX_SPINLOCK_ SOCK
+	call	net_socket_find_	# out: edx
+	jc	9f
+
+	mov	eax, edx	# in: eax = socket index
+	mov	ebx, [esp]	# in: ebx = ipv4 frame
+	xor	edx, edx	# in: dx = [port]
+	call	net_socket_in_append$ # in: esi = payload; ecx = payload len
+
+9:	MUTEX_UNLOCK_ SOCK
 	pop	edx
 	pop	eax
 	ret
@@ -488,6 +519,7 @@ net_sock_deliver_icmp:
 net_socket_deliver_udp:
 	MUTEX_SPINLOCK_ SOCK
 	push	edx
+	push	ebx
 	push	eax
 	call	net_socket_find_
 	jc	9f
@@ -500,13 +532,12 @@ net_socket_deliver_udp:
 	test	[edx + eax + sock_flags], dword ptr SOCK_LISTEN
 	jz	1f	# nope, just deliver the data.
 ######### trigger a connect event
-
 	# UNTESTED:
 
 	# find the peer socket:
 	mov	ebx, [ebx + ipv4_src]	# in: eax = ip
 	xchg	eax, ebx		# in: eax = ip ; backup server socked in ebx
-	mov	edx, IP_PROTOCOL_UDP	# in: edx = [proto] [port]
+	mov	edx, [esp + 8]		# in: edx = [proto] [port]
 	mov	dx, [esi - UDP_HEADER_SIZE + udp_sport]
 	call	net_socket_find_	# out: edx
 	jnc	2f
@@ -525,33 +556,79 @@ net_socket_deliver_udp:
 	jmp	0f
 
 2:	# edx = peer socket index
-	add	edx, [socket_array]
-	mov	eax, [edx + sock_in_buffer]
-	# packet oriented socket, but do not write socket address:
-	mov	edx, ecx
-	jmp	2f
-
+	mov	eax, [socket_array]
+	add	eax, edx
 ######### packet oriented socket: write in local (!SOCK_LISTEN) or peer socket
-1:	test	dword ptr [edx + eax + sock_flags], SOCK_READPEER
-	mov	eax, [edx + eax + sock_in_buffer]
-	mov	edx, ecx
-	jz	2f
-
-	add	edx, 6	# 6 bytes for ip and port
-	call	buffer_put_word	# write packet length
-	mov	edx, [ebx + ipv4_src]
-	call	buffer_put_dword
-	mov	dx, [esi - UDP_HEADER_SIZE + udp_sport]
-2:	call	buffer_put_word
-	call	buffer_write
+1:	mov	ebx, [esp + 4]				# in : ebx = ip frame
+	mov	dx, [esi - UDP_HEADER_SIZE + udp_sport]	# in: dx = port
+	call	net_socket_in_append$	# in: eax=sock,esi,ecx
 ########
 0:
 	MUTEX_UNLOCK_ SOCK
 	pop	eax
+	pop	ebx
 	pop	edx
 	ret
 
-9:	printc 4, "udp: packet dropped - no socket"
+9:	#printc 4, "udp: packet dropped - no socket"
+	jmp	0b
+
+# precondition: [socket_array] locked
+# in: eax = socket index
+# in: ebx = ipv4 frame
+# in: dx = [port]
+# in: esi = payload
+# in: ecx = payload len
+net_socket_in_append$:
+	push	edi
+	push	eax
+	push	edx
+	mov	edi, [socket_array]
+	add	edi, eax
+
+	mov	eax, [edi + sock_in_buffer]
+	or	eax, eax
+	jz	9f
+	mov	edi, [edi + sock_flags]
+	test	edi, SOCK_STREAM
+	jnz	2f
+
+	# write packetized len
+	mov	edx, ecx
+
+	test	edi, SOCK_READPEER
+	jz	1f
+	add	edx, 6
+1:	bt	edi, SOCK_READTTL_SHIFT
+	adc	edx, 0
+	call	buffer_put_word
+
+	# write peer address
+	test	edi, SOCK_READPEER
+	jz	1f
+	mov	edx, [ebx + ipv4_src]
+	call	buffer_put_dword
+	mov	dx, [esp]	# port
+	call	buffer_put_word
+
+	# write ttl
+1:	test	edi, SOCK_READTTL
+	jz	1f
+	mov	dl, [ebx + ipv4_ttl]
+	call	buffer_put_byte
+1:
+	# write payload
+2:	call	buffer_write
+
+0:	pop	edx
+	pop	eax
+	pop	edi
+	ret
+
+9:	printc 4, "net_socket_in_append$: no buffer: "
+	mov	eax, [esp + 4]
+	call	socket_print
+	call	newline
 	jmp	0b
 
 # in: eax = ip
@@ -566,6 +643,7 @@ net_socket_find:
 # in: eax = ip
 # in: edx = [proto] [port]
 # out: edx = socket idx
+# out: CF = 0: found 1: not found
 net_socket_find_:
 	push	edi
 	push	ebx
@@ -606,24 +684,10 @@ net_socket_deliver:
 		call newline
 	.endif
 
-	.if 1
 	call	net_socket_find_
-	jz	2f
-	.else
-		ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, ebx, edi, 9f
-		mov	ebp, [ebx + edi + sock_addr]
-		or	ebp, ebp
-		jz	1f
-		cmp	ebp, -1
-		jz	1f
-		cmp	ebp, eax
-		jnz	3f
-	1:	cmp	[ebx + edi + sock_port], edx	# compare proto and port
-		jz	2f
-	3:	ARRAY_ENDL
-	9:;	.if NET_SOCKET_DEBUG > 1
-			printc 4, "net_socket_deliver: no match"
-		.endif
+	jnc	2f
+	.if NET_SOCKET_DEBUG > 1
+		printc 4, "net_socket_deliver: no match"
 	.endif
 0:	pop	ebp
 	pop	ebx
@@ -631,18 +695,8 @@ net_socket_deliver:
 	MUTEX_UNLOCK_ SOCK
 	ret
 ########
-2:	# got a match
-	push	eax
-	mov	eax, [ebx + edi + sock_in_buffer]
-	cmp	word ptr [ebx + edi + sock_proto], IP_PROTOCOL_TCP
-	jz	1f
-	# packet buffer: prepend packet size; assume ecx < 64k
-	push	edx
-	mov	edx, ecx
-	call	buffer_put_word
-	pop	edx
-1:	call	buffer_write	# out: CF: data not appended. signal drop pkt.
-	pop	eax
+2:	mov	eax, edx
+	call	net_socket_in_append$
 	jmp	0b
 
 # in: eax = socket index

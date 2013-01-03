@@ -92,28 +92,31 @@ buffer_compact$:
 	pop	esi
 	jmp	2b
 
-buffer_put_dword:
-	push	esi
+# in: eax
+# in: dl
+buffer_put_byte:
 	push	ecx
-	push	edx		# create pointer
-	mov	esi, esp
+	mov	ecx, 1
+	jmp	buffer_put_$
+
+# in: eax
+# in: dx
+buffer_put_dword:
+	push	ecx
 	mov	ecx, 4
-	call	buffer_write
-	pop	edx
-	pop	ecx
-	pop	esi
-	ret
+	jmp	buffer_put_$
 
 # in: eax = buffer
 # in: dx = word
 buffer_put_word:
-	push	esi
 	push	ecx
+	mov	ecx, 2
+buffer_put_$:
+	push	esi
 	push	edx		# create pointer
 	mov	esi, esp
-	mov	ecx, 2
 	call	buffer_write
 	pop	edx
-	pop	ecx
 	pop	esi
+	pop	ecx
 	ret
