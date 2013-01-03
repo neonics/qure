@@ -419,7 +419,7 @@ jmp_table_target:
 	add	edx, [task_queue]
 	mov	edx, [edx + task_pid]
 	printc 7, "task "
-	call	printdec32
+	call	printhex4
 	call	newline
 
 0:	COLOR 8
