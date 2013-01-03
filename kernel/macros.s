@@ -67,6 +67,22 @@ _TLS_SIZE = .
 .endm
 
 ##############################################################################
+# Convenience macros
+
+.macro PUSH_ a:vararg
+	.irp v,\a
+	push	\v
+	.endr
+.endm
+
+.macro POP_ a:vararg
+	.irp v,\a
+	pop	\v
+	.endr
+.endm
+
+
+##############################################################################
 # Register macros
 
 .macro GET_INDEX name, values:vararg

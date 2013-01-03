@@ -602,7 +602,7 @@ DEBUG "WARNING: IF=0"
 	.if NET_ARP_DEBUG
 		printcharc 11, '.'
 	.endif
-	hlt
+	YIELD
 	loop	0b
 
 	printc 4, "arp timeout for "

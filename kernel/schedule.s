@@ -822,7 +822,7 @@ task_done:
 	# in case the scheduler is locked (TASK_SWITCH_INTERVAL>0 for instance)
 task_done_:	# debug label: nice output in task list
 0:	printchar '.'
-	hlt
+	YIELD
 	jmp	0b
 
 

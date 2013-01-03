@@ -303,12 +303,29 @@ net_ipv4_handle:
 	movzx	eax, word ptr [esi + ipv4_totlen] # including header
 	xchg	al, ah
 	cmp	ecx, eax
-	LOAD_TXT "packet length mismatch", edx
 	.if 0
-	jnz	9f
+	jz	1f
 	.else
-	jb	9f	# ip hdr reports larger packet than NIC
+	jnb	1f	# ip hdr reports larger packet than NIC
 	.endif
+
+	push	edi
+	push	ebx
+	LOAD_TXT "packet length mismatch: packet=12345678 header=12345678", ebx
+	#         0.........1.........2.........3*........4......7
+	lea	edi, [ebx + 31]
+	mov	edx, ecx
+	call	sprinthex8
+	lea	edi, [ebx + 47]
+	mov	edx, eax
+	call	sprinthex8
+
+	mov	edx, ebx
+	pop	ebx
+	pop	edi
+	jmp	9f
+1:
+
 	# since the NIC driver may report a larger packet, we correct
 	# it here:
 	mov	ecx, eax
