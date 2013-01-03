@@ -31,6 +31,18 @@ mutex_name_TCP_CONN:	.asciz "TCP_CONN"
 mutex_name_SOCK:	.asciz "SOCK"
 .text32
 
+.macro YIELD
+	.if 1
+		call	schedule_near
+		hlt
+	.else
+		pushf
+		sti
+		hlt
+		popf
+	.endif
+.endm
+
 # out: CF = 1: fail, mutex was already locked.
 .macro MUTEX_LOCK name, nolocklabel=0, locklabel=0, debug=0
 	lock bts dword ptr [mutex], MUTEX_\name
@@ -100,7 +112,7 @@ mutex_name_SOCK:	.asciz "SOCK"
 	push	ecx
 	mov	ecx, 10
 101:	MUTEX_LOCK \name, locklabel=102f
-	hlt
+	YIELD
 	loop	101b
 	.if \debug
 		printc 5, "MUTEX_SPINLOCK \name: fail"
@@ -206,14 +218,8 @@ mutex_name_SOCK:	.asciz "SOCK"
 		or	eax, eax
 		jz	109f
 	.endif
-	.if 1
-	pushf
-	sti
-	hlt
-	popf
-	.else
-	pause
-	.endif
+
+	YIELD
 	loop	100b
 
 	.ifc 0,\nolocklabel
