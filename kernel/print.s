@@ -557,7 +557,9 @@ COLOR_STACK_SIZE = 2
 	test	\reg, \bit
 	jz	111f
 	PRINT	"\msg"
+	.ifnc 0,\altmsg
 	jmp	112f
+	.endif
 111:
 	.ifnc 0,\altmsg
 	PRINT	"\altmsg"
