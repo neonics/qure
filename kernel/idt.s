@@ -288,8 +288,10 @@ jmp_table_target:
 	and	dl, 0b11111000	# CPL0 access
 	mov	ds, dx
 	mov	edx, ss:[SR_EIP]	# EIP when no error code
+or edx, edx
+jz 11f
 	mov	dx, [edx-2]
-	pop	ds
+11:	pop	ds
 	cmp	dl, 0xcd	# INT instruction opcode
 	jne	2f
 	cmp	dh, cl		# interrupt number
@@ -416,11 +418,13 @@ jmp_table_target:
 
 	call	printspace
 	mov	edx, [scheduler_current_task_idx]
+	cmp	edx, -1
+	jz	1f
 	add	edx, [task_queue]
 	mov	edx, [edx + task_pid]
 	printc 7, "task "
 	call	printhex4
-	call	newline
+1:	call	newline
 
 0:	COLOR 8
 ########
@@ -611,21 +615,15 @@ debug_print_tss$:
 	printc 7, "ESP0="
 	mov	edx, [tss_ESP0]
 	call	printhex8
-	printc 7, " SS0="
-	mov	edx, [tss_SS0]
-	call	printhex4
-	printc 7, " SS1="
-	mov	edx, [tss_SS1]
-	call	printhex4
-	printc 7, " SS2="
-	mov	edx, [tss_SS2]
-	call	printhex4
 	printc 7, " SS:ESP="
 	mov	edx, [tss_SS]
 	call	printhex4
 	printchar_ ':'
 	mov	edx, [tss_ESP]
 	call	printhex8
+	print " type: "
+	mov	dl, [GDT_tss + 5] # type (access)
+	call	printhex2
 	call	newline
 .if 1
 	printc 11, " ss:esp="
