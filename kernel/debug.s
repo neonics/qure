@@ -53,10 +53,10 @@ DEBUG_COLOR1 = 0x1a
 DEBUG_COLOR2 = 0x17
 DEBUG_COLOR3 = 0x1f
 
-.macro DEBUG str
+.macro DEBUG str, color=DEBUG_COLOR3
 	.ifnes "\str", ""
 	pushf
-	printc DEBUG_COLOR3, "\str "
+	printc \color, "\str "
 	popf
 	.endif
 .endm
@@ -105,9 +105,9 @@ DEBUG_DWORD \r
 .endm
 
 
-.macro DEBUG_BYTE r8, label=""
+.macro DEBUG_BYTE r8, label="", color1=DEBUG_COLOR1, color2=DEBUG_COLOR2
 	pushf
-	pushcolor DEBUG_COLOR1
+	pushcolor \color1
 	.ifnc 0,\label
 	.ifc "","\label"
 	print	"\r8="
@@ -115,7 +115,7 @@ DEBUG_DWORD \r
 	print	"\label="
 	.endif
 	.endif
-	color	DEBUG_COLOR2
+	color	\color2
 	.ifc dl,\r8
 	call	printhex2
 	.else
@@ -153,9 +153,9 @@ DEBUG_DWORD \r
 	popf
 .endm
 
-.macro DEBUG_DWORD r32, label=""
+.macro DEBUG_DWORD r32, label="", color1=DEBUG_COLOR1, color2=DEBUG_COLOR2
 	pushf
-	pushcolor DEBUG_COLOR1
+	pushcolor \color1
 	.ifnc 0,\label
 	.ifc "","\label"
 	print	"\r32="
@@ -163,7 +163,7 @@ DEBUG_DWORD \r
 	print	"\label="
 	.endif
 	.endif
-	color	DEBUG_COLOR2
+	color	\color2
 	.ifc	edx,\r32
 	call	printhex8
 	.else
