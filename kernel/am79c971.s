@@ -1,5 +1,5 @@
 ##############################################################################
-# AM AM79C971 PCNet Fast Network Controller
+# AMD AM79C971 PCNet Fast Network Controller
 .intel_syntax noprefix
 ##############################################################################
 AM79C_DEBUG = 0
