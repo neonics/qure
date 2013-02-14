@@ -13,19 +13,23 @@ MUTEX_DEBUG = 1	# registers lock owners
 mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 	MUTEX_SCHEDULER	= 0
 #	MUTEX_SCREEN	= 1
-	MUTEX_KB	= 2
-	MUTEX_NET	= 3
-	MUTEX_TCP_CONN	= 4
-	MUTEX_SOCK	= 5
+	MUTEX_MEM	= 2
+	MUTEX_KB	= 3
+	MUTEX_FS	= 4
+	MUTEX_NET	= 5
+	MUTEX_TCP_CONN	= 6
+	MUTEX_SOCK	= 7
 
-	NUM_MUTEXES	= 6
+	NUM_MUTEXES	= 8
 
 mutex_owner:	.space 4 * NUM_MUTEXES
 
 mutex_names:
 mutex_name_SCHEDULER:	.asciz "SCHEDULER"
+mutex_name_MEM:		.asciz "MEM"
 mutex_name_SCREEN:	.asciz "SCREEN"
 mutex_name_KB:		.asciz "KB"
+mutex_name_FS:		.asciz "FS"
 mutex_name_NET:		.asciz "NET"
 mutex_name_TCP_CONN:	.asciz "TCP_CONN"
 mutex_name_SOCK:	.asciz "SOCK"
@@ -34,7 +38,7 @@ mutex_name_SOCK:	.asciz "SOCK"
 .macro YIELD
 	.if 1
 		call	schedule_near
-		hlt
+		#hlt #GP
 	.else
 		pushf
 		sti
@@ -238,4 +242,92 @@ mutex_name_SOCK:	.asciz "SOCK"
 
 
 
+################################################################################
+# Read/Write Locking
+#
 
+################################################################################
+# Jcc breakdown:
+#
+# SZCO | G GE NG NGE L LE NL NLE A AE NA NAE BE NBE |
+# ---- | ------------------------------------------ |---------------------------
+#      | G GE             NL NLE A AE           NBE |INC DEC ADD SUB            
+#   C  | G GE             NL NLE      NA NAE BE     |                SUB-1 ADD-1
+#  Z   |   GE NG       LE NL       AE NA     BE	    |INC DEC     SUB SUB-1 
+#  ZC  |   GE NG       LE NL          NA NAE BE	    |        ADD           ADD-1
+# S    |      NG NGE L LE        A AE           NBE |INC DEC ADD SUB       ADD-1
+# S C  |      NG NGE L LE             NA NAE BE     |                SUB-1 ADD-1
+# S  O | G GE             NL NLE A AE           NBE | add 7fffffff
+#    O |      NG NGE L LE        A AE           NBE | sub 7fffffff
+#   CO | ???
+#  Z O | ???
+#
+# JG/JNLE: ZF == 0 && SF == OF  - or - NOT(SF!=OF || ZF==1)
+################################################################################
+
+#		 DEC 	ADD-1	SUB 1
+#		----- + ----- + -----
+#  2 ->  1:	      |     C |  
+#  1 ->  0:	  Z   |   Z C |   Z  
+#  0 -> -1:	S     |	S     | S   C	LOCK_WRITE success
+# -1 -> -2:	S     | S   C | S
+#
+# LOCK_WRITE: sub [sem], 1; jc success
+
+.macro LOCK_WRITE sem
+990:	lock sub dword ptr \sem, 1
+	jc	999f
+	lock inc dword ptr \sem
+	YIELD
+	jmp	990b
+999:	
+.endm
+
+#		 INC    ADD 1
+#		----- + ----- + -----
+#  1 ->  2:	      |       |      	LOCK_READ success
+#  0 ->  1:	      |       |      	LOCK_READ success
+# -1 ->  0:	  Z   |   Z C |      
+# -2 -> -1:	S     | S     |      
+#
+# LOCK_READ: inc [sem]; jg success
+
+.macro LOCK_READ sem
+990:	lock inc dword ptr \sem
+	jg	999f
+	lock dec dword ptr \sem
+	YIELD
+	jmp	990b
+999:
+.endm
+
+.macro UNLOCK_READ sem
+	lock dec dword ptr \sem
+	# SF = 0: lock is >=0: jns success.
+	# SF = 1: sem was <=0. Causes:
+	# 1) too many read unlocks (bug), or:
+	# 2) write lock attempted: interrupted at 2nd line (jc) in LOCK_WRITE.
+	#    It will resolve on LOCK_WRITE's inc which will set sem to 0. 
+	# x) LOCK_READ's DEC cannot be a cause due to it being preceeded by
+	#    an INC resulting in a zero or positive contribution that cannot
+	#    cannot make sem too negative.
+.endm
+
+
+.macro UNLOCK_WRITE sem
+	lock inc dword ptr \sem
+	# ZF = 1: success. Otherwise, ZF = 0, and:
+	# SF = 0: sem was 0+. Causes:
+	# 1) too many UNLOCK_WRITE (bug), or:
+	# 2) read lock attempted (inc -1->0, released write lock, now 0->1).
+	#    LOCK_READ will decrement (1->0) and try again.
+	# x) LOCK_WRITE's INC cannot be a cause since it is preceeded by a SUB,
+	#    which results in a zero or negative change that cannot contribute
+	#    to sem being too positive.
+	# SF = 1: sem was -2. Causes:
+	# 1) too many UNLOCK_READ (bug), or:
+	# 2) LOCK_WRITE attempted (dec -1->-2, now -2->-1).
+	#    LOCK_WRITE will increment (-1->0) and try again.
+	# x) LOCK_READ's DEC is not a cause as it is preceeded by INC, resulting
+	#    in a change of 0 or +1 and thus cannot cause negativity.
+.endm

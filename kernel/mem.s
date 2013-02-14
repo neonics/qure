@@ -1648,6 +1648,7 @@ _mallocz_malloc_ret$:
 # in: eax = size
 # out: eax = base pointer
 malloc:
+	MUTEX_SPINLOCK MEM
 #call mem_debug
 	push	ebx
 	push	esi
@@ -1731,6 +1732,7 @@ malloc:
 		popcolor
 		popf
 	.endif
+	MUTEX_UNLOCK_ MEM
 	ret
 
 2:	printlnc 4, "malloc: no more handles"
@@ -1813,6 +1815,10 @@ get_handle_by_base$:
 	jmp	\malloc
 1:
 ########
+	MUTEX_LOCK MEM locklabel=1f
+	DEBUG "MREALLOC mutex fail"
+	jmp 1b
+1:
  	push	ebx
 	push	ecx
 	push	esi
@@ -1911,7 +1917,9 @@ get_handle_by_base$:
 	mov	esi, eax
 
 	mov	eax, edx
+	MUTEX_UNLOCK_ MEM
 	call	\malloc
+	MUTEX_SPINLOCK_ MEM
 	# copy
 	or	ecx, ecx	# shouldnt happen if malloc checks for it.
 	jz	1f
@@ -1937,6 +1945,7 @@ get_handle_by_base$:
 	pop	esi
 	pop	ecx
 	pop	ebx
+	MUTEX_UNLOCK_ MEM
 .endm
 
 

@@ -734,10 +734,13 @@ FS_HANDLE_STRUCT_SIZE = .
 # - softlink
 
 .data SECTION_DATA_BSS
+.align 4
 # open files
 fs_handles$:	.long 0
+fs_handles_sem:	.long 0
 .text32
 
+# precondition: handle write locked
 # out: eax + edx = fs_handle base + index
 fs_new_handle$:
 	push	ecx
@@ -775,6 +778,7 @@ FS_HANDLE_PRINTINFO_COMPACT = 1
 
 # in: eax = handle offset
 fs_handle_printinfo:
+	LOCK_READ [fs_handles_sem]
 	ASSERT_ARRAY_IDX eax, [fs_handles$], FS_HANDLE_STRUCT_SIZE
 	push	esi
 	push	edx
@@ -851,6 +855,7 @@ fs_handle_printinfo:
 	pop	ebx
 	pop	edx
 	pop	esi
+	UNLOCK_READ [fs_handles_sem]
 	ret
 
 
@@ -863,9 +868,11 @@ fs_handle_isdir:
 # in: eax = handle index
 # out: esi
 fs_handle_getname:
+	LOCK_READ [fs_handles_sem]
 	ASSERT_ARRAY_IDX eax, [fs_handles$], FS_HANDLE_STRUCT_SIZE
 	mov	esi, [fs_handles$]
 	mov	esi, [eax + esi + fs_handle_label]
+	UNLOCK_READ [fs_handles_sem]
 	ret
 
 
@@ -890,8 +897,9 @@ fs_handle_getname:
 # out: CF = error
 # out: ZF = no next entry
 fs_nextentry:
+	LOCK_READ [fs_handles_sem]
 	push	eax
-	call	fs_validate_handle	# in: eax; out: eax + edx
+	call	fs_validate_handle$	# in: eax; out: eax + edx
 	jc	9f
 	lea	esi, [eax + edx + fs_handle_dirent]
 	push	esi
@@ -904,12 +912,14 @@ fs_nextentry:
 	mov	edi, esi
 	mov	ecx, [eax + edx + fs_handle_dir_iter]
 	mov	ebx, [eax + edx + fs_handle_dir]
+	UNLOCK_READ [fs_handles_sem]
+
 	push	edx
-	FS_HANDLE_CALL_API nextentry, edx
-	# out: edx = fir name
+	FS_HANDLE_CALL_API nextentry, edx	# out: edx=dir name, ecx=next
 	mov	esi, edx
 	pop	edx
-	# out: ecx = next entry
+
+	LOCK_READ [fs_handles_sem]
 	mov	eax, [fs_handles$]
 	mov	[eax + edx + fs_handle_dir_iter], ecx
 	pop	ebx
@@ -918,6 +928,7 @@ fs_nextentry:
 	pop	esi
 
 0:	pop	eax
+	UNLOCK_READ [fs_handles_sem]
 	ret
 
 9:	printc 4, "fs_nextentry: unknown handle: "
@@ -925,15 +936,18 @@ fs_nextentry:
 	stc
 	jmp	0b
 
+fs_handle_read_:
+	call	SEL_kernelCall:0
 # in: eax = handle
 # out: esi = buffer
 # out: ecx = buffer size
 fs_handle_read:
+	LOCK_READ [fs_handles_sem]
 	push	eax
 	push	ebx
 	push	edi
 	push	edx
-	call	fs_validate_handle
+	call	fs_validate_handle$
 	jc	9f
 
 	mov	edi, [eax + edx + fs_handle_buf]
@@ -964,6 +978,7 @@ fs_handle_read:
 	pop	edi
 	pop	ebx
 	pop	eax
+	UNLOCK_READ [fs_handles_sem]
 	ret
 9:	printc 4, "fs_handle_read: unknown handle"
 	stc
@@ -972,6 +987,7 @@ fs_handle_read:
 
 # cmd_lsof
 fs_list_openfiles:
+	LOCK_READ [fs_handles_sem]
 	# map { print } @fs_handles;
 	mov	ebx, [fs_handles$]
 	or	ebx, ebx
@@ -1001,14 +1017,16 @@ fs_list_openfiles:
 2:	cmp	eax, [ebx + array_index]
 	jb	0b
 
-1:	ret
+1:	UNLOCK_READ [fs_handles_sem]
+	ret
 
 
+# precondition: fs_handles_sem locked.
 # in: eax = handle index
 # out: eax = [fs_handles]
 # out: edx = handle index
 # out: CF
-fs_validate_handle:
+fs_validate_handle$:
 	ASSERT_ARRAY_IDX eax, [fs_handles$], FS_HANDLE_STRUCT_SIZE
 	mov	edx, eax
 	cmp	edx, 0
@@ -1036,7 +1054,8 @@ fs_close:	# fs_free_handle
 	push	ebx
 	push	ecx
 
-0:	call	fs_validate_handle	# out: eax+edx
+	LOCK_READ [fs_handles_sem]
+0:	call	fs_validate_handle$	# out: eax+edx
 	jc	9f
 
 	mov	ebx, eax
@@ -1079,6 +1098,7 @@ fs_close:	# fs_free_handle
 	pop	ecx
 	pop	ebx
 	pop	edx
+	UNLOCK_READ [fs_handles_sem]
 	ret
 
 9:	printc	4, "fs_close: unknown handle: "
@@ -1110,6 +1130,8 @@ fs_opendir:
 	pop	edx
 	ret
 
+fs_stat_:
+	call	SEL_kernelCall:0
 # in: eax = path string
 # out: CF = 0: exists; 1: does not exist.
 fs_stat:
@@ -1122,6 +1144,8 @@ fs_stat:
 9:	ret
 
 
+fs_open_:
+	call	SEL_kernelCall:0
 # in: eax = pointer to path string
 # in: edx = flags: 0x80000000 = print error
 # out: eax = directory handle (pointer to struct), to be freed with fs_close.
@@ -1239,6 +1263,7 @@ handle_copy_path$:
 # in: ebp
 # out: eax, esi, ecx, [ebp]
 handle_dup$:
+	LOCK_WRITE [fs_handles_sem]
 	call	fs_new_handle$	# out: eax + edx
 	jc	9f	# TODO: also dealloc handle_pathparth's ebx
 	push	edi
@@ -1255,8 +1280,8 @@ handle_dup$:
 	mov	[ebp], edx # store last handle
 	pop	edi
 	clc
-9:	ret
-
+9:	UNLOCK_WRITE [fs_handles_sem]
+	ret
 
 # in: esi = path part ptr
 # in: ecx = path part len
@@ -1313,7 +1338,6 @@ handle_pathpart$:
 
 2:	cmp	dword ptr [edi + fs_handle_mtab_idx], -1
 	jz	1f
-
 	######## copy the pathpart onto stack
 	push	ebp
 	mov	ebp, esp
