@@ -49,12 +49,12 @@
 # in: eax = mem address
 breakpoint_enable_memwrite_dword:
 enable_breakpoint_memwrite_dword:
-	DEBUG "Set breakpoint: addr:"
-	DEBUG_DWORD eax
+	#DEBUG "Set breakpoint: addr:"
+	#DEBUG_DWORD eax
 	GDT_GET_BASE ebx, ds
 	add	eax, ebx
-	DEBUG " hw addr:"
-	DEBUG_DWORD eax
+	#DEBUG " hw addr:"
+	#DEBUG_DWORD eax
 
 
 breakpoint_set_memwrite_dword:

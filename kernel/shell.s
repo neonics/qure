@@ -109,6 +109,7 @@ SHELL_COMMANDS:
 SHELL_COMMAND_CATEGORY "console"
 SHELL_COMMAND "cls",		cls
 SHELL_COMMAND "colors"		cmd_colors
+SHELL_COMMAND "ascii"		cmd_ascii
 # shell
 SHELL_COMMAND_CATEGORY "shell"
 SHELL_COMMAND "shell"		cmd_shell
@@ -972,8 +973,8 @@ cmd_pwd$:
 
 .data SECTION_DATA_STRINGS
 cmd_help_intro$:
-.ascii "For usage, run a command with -? or --help; -h works too except for "
-.asciz "commands for\nwhich it is a valid argument.\n"
+.ascii "For usage, run a command with -? or --help; -h works too except for"
+.asciz "commands\nfor which it is a valid argument.\n"
 .text32
 
 cmd_help$:
@@ -1661,22 +1662,6 @@ cmd_netdump:
 #####################################
 
 cmd_print_gdt:
-	.macro PRINT_GDT seg
-
-		printc	11, "\seg: "
-		mov	edx, \seg
-		call	printhex8
-		GDT_GET_BASE edx, \seg
-		printc	15, " base "
-		call	printhex8
-		GDT_GET_LIMIT edx, \seg
-		printc	15, " limit "
-		call	printhex8
-		printc 15, " flags "
-		GDT_GET_FLAGS dl, \seg
-		call	printhex2
-		call	newline
-	.endm
 	PRINT_GDT cs
 	PRINT_GDT ds
 	PRINT_GDT es
@@ -1730,13 +1715,21 @@ cmd_colors:
 	jnz	0b
 	call	newline
 	jmp	0b
-
-0:
-
-	call	newline
+0:	call	newline
 	color	7
 	ret
 
+cmd_ascii:
+	xor	al, al
+	mov	ah, 16
+1:	mov	ecx, 16
+0:	call	printchar
+	inc	al
+	loop	0b
+	call	newline
+	dec	ah
+	jnz	1b
+	ret
 
 
 .data
@@ -1882,10 +1875,12 @@ cmd_exe:
 	call	fs_handle_read
 	jc	10f
 		# HACK
+		LOCK_READ [fs_handles_sem]
 		push	eax
-		call	fs_validate_handle	# out: edx + eax
+		call	fs_validate_handle$	# out: edx + eax
 		mov	[eax + edx + fs_handle_buf], dword ptr 0
 		pop	eax
+		UNLOCK_READ [fs_handles_sem]
 ########
 	cmp	[esi], word ptr 'M' | 'Z' << 8
 	jz	1f
@@ -2133,5 +2128,6 @@ cmd_vmx:
 	ret
 1:	printlnc 4, "No VMX support"
 	ret
+
 
 .endif

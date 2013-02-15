@@ -704,7 +704,7 @@ net_rx_packet:
 	MUTEX_UNLOCK NET
 
 net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
-	PUSH_TXT "net"
+	PUSH_TXT "netq"
 	push	dword ptr TASK_FLAG_RESCHEDULE # flags
 	push	cs
 	push	eax

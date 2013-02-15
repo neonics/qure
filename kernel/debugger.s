@@ -843,10 +843,16 @@ debug_assert_array_index:
 	int	3
 	jmp	0b
 
-.macro ASSERT_ARRAY_IDX index, arrayref, elsize
+.macro ASSERT_ARRAY_IDX index, arrayref, elsize, mutex=0
+	.ifnc 0,\mutex
+	MUTEX_SPINLOCK_ \mutex
+	.endif
 	push_txt "\arrayref"
 	push	\elsize
 	push	\arrayref
 	push	\index
 	call	debug_assert_array_index
+	.ifnc 0,\mutex
+	MUTEX_UNLOCK_ \mutex
+	.endif
 .endm

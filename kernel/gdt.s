@@ -71,6 +71,7 @@
 .equ ACC_RING1,	1 << 5
 .equ ACC_RING2,	2 << 5
 .equ ACC_RING3,	3 << 5
+.equ ACC_RING_SHIFT, 5
 .equ ACC_NRM,	1 << 4	# 0b00010000 S
 .equ ACC_SYS,	0 << 4
 
@@ -105,15 +106,25 @@
 .byte \base >> 24
 .endm
 
+.macro DEFTSS base limit access flags
+.word \limit & 0xffff
+.word \base & 0xffff
+.byte \base >> 16 & 0xff
+.byte \access	# type: [P DPL:2 0] [1 0 B 1] (B: busy)
+.byte \flags << 4 | (\limit >> 16 & 0xf) # flags: [G 0 0 available]
+.byte \base >> 24
+.endm
+
+
 .data16	# real-mode access, keep within 64k
 .space 4 # DEBUG: align in file for hexdump
 
 GDT: 	.space 8	# null descriptor
 GDT_flatCS:	DEFGDT 0, 0xffffff, ACCESS_CODE, FLAGS_32 #ffff 0000 00 9a cf 00
 GDT_flatDS:	DEFGDT 0, 0xffffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 92 ca 00
-GDT_tss:	DEFGDT 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
-GDT_vid_txt:	DEFGDT 0xb8000, 0x00ffff, ACCESS_DATA, FLAGS_16
-GDT_vid_gfx:	DEFGDT 0xa0000, 0x00ffff, ACCESS_DATA, FLAGS_16
+GDT_tss:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
+GDT_vid_txt:	DEFGDT 0xb8000, 0x00ffff, ACCESS_DATA|ACC_RING3, FLAGS_16
+GDT_vid_gfx:	DEFGDT 0xa0000, 0x00ffff, ACCESS_DATA|ACC_RING3, FLAGS_16
 
 GDT_compatCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, (FL_32|FL_GR1b) #FLAGS_TSS #ffff 0000 00 9a 00 00
 GDT_compatSS:	DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 9a 00 00
@@ -128,9 +139,17 @@ GDT_realmodeGS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
 
 GDT_biosCS:	DEFGDT 0xf0000, 0x00ffff, ACCESS_CODE, FLAGS_16 #ffff 0000 00 92 00 00
 
-GDT_taskCS:	DEFGDT 0, 0x000000, ACCESS_CODE|ACC_RING3, FLAGS_32
-GDT_taskDS:	DEFGDT 0, 0x000000, ACCESS_DATA|ACC_RING3, FLAGS_32
+GDT_taskCS:	DEFGDT 0, 0x000000, ACCESS_CODE|ACC_RING3, (FL_32|FL_GR1b)
+GDT_taskDS:	DEFGDT 0, 0x000000, ACCESS_DATA|ACC_RING3, (FL_32|FL_GR1b)
 
+GDT_ring0CS:	DEFGDT 0, 0xffffff, ACCESS_CODE|ACC_RING0, (FL_32|FL_GR1b)
+GDT_ring0DS:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING0, (FL_32|FL_GR4kb)
+GDT_ring1CS:	DEFGDT 0, 0xffffff, ACCESS_CODE|ACC_RING1, (FL_32|FL_GR1b)
+GDT_ring1DS:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING1, (FL_32|FL_GR4kb)
+GDT_ring2CS:	DEFGDT 0, 0xffffff, ACCESS_CODE|ACC_RING2, (FL_32|FL_GR1b)
+GDT_ring2DS:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING2, (FL_32|FL_GR4kb)
+GDT_ring3CS:	DEFGDT 0, 0xffffff, ACCESS_CODE|ACC_RING3, (FL_32|FL_GR1b)
+GDT_ring3DS:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING3, (FL_32|FL_GR4kb)
 
 .macro DEFCALLGATE sel, offs, dpl, pc
 # DPL field of selector must be 0
@@ -142,7 +161,9 @@ GDT_taskDS:	DEFGDT 0, 0x000000, ACCESS_DATA|ACC_RING3, FLAGS_32
 .endm
 
 # the first 0 is the offset, but can't do math due to GAS limitations
+GDT_tss2:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 GDT_kernelCall:	DEFCALLGATE SEL_compatCS, 0, 3, 0
+GDT_kernelMode:	DEFCALLGATE SEL_compatCS, 0, 3, 0
 
 pm_gdtr:.word . - GDT -1
 	.long GDT
@@ -173,14 +194,27 @@ rm_gdtr:.word 0
 .equ SEL_biosCS,	8 * 15	# 78 # origin F000:0000
 .equ SEL_taskCS,	8 * 16	# 80
 .equ SEL_taskDS,	8 * 17	# 88
-.equ SEL_kernelCall,	8 * 18	# 90
-.equ SEL_MAX, SEL_kernelCall + 0b11	# ring level 3
+
+.equ SEL_ring0CS,	8 * 18	# 90
+.equ SEL_ring0DS,	8 * 19	# 98
+.equ SEL_ring1CS,	8 * 20	# a0
+.equ SEL_ring1DS,	8 * 21	# a8
+.equ SEL_ring2CS,	8 * 22	# b0
+.equ SEL_ring2DS,	8 * 23	# b8
+.equ SEL_ring3CS,	8 * 24	# c0
+.equ SEL_ring3DS,	8 * 25	# c8
+
+.equ SEL_tss2,		8 * 26	# d0
+.equ SEL_kernelCall,	8 * 27	# d8
+.equ SEL_kernelMode,	8 * 28	# e0
+.equ SEL_MAX, SEL_kernelMode + 0b11	# ring level 3
 
 
 .macro GDT_STORE_SEG seg
 	mov	[\seg + 2], ax
-	shr	eax, 16
+	ror	eax, 16
 	mov	[\seg + 4], al
+	ror	eax, 16
 	# ignore ah as realmode addresses are 20 bits
 .endm
 
@@ -213,6 +247,7 @@ xor \target,\target
 	.endif
 	push	_R
 	mov	_R, \sel
+	and	_R, ~7
 	mov	\target, byte ptr [GDT + _R + 6]
 	shr	\target, 4
 	pop	_R
@@ -222,9 +257,39 @@ xor \target,\target
 	.endif
 .endm
 
+.macro GDT_GET_ACCESS target, sel
+	IS_REG8 _, \target
+	.if !_
+	.error "\target must be 8 bit register"
+	.endif
+
+	IS_SEGREG _, \sel
+	.if _
+	GET_REG32 _R32, \target
+xor	_R32, _R32
+xor \target,\target
+	.if eax==_R32
+	_R = ebx
+	.else
+	_R = eax
+	.endif
+	push	_R
+	mov	_R, \sel
+	and	_R, ~7
+	mov	\target, byte ptr [GDT + _R + 5]
+	pop	_R
+	.else
+	push	\sel
+	and	\sel, ~7
+	mov	\target, byte ptr [GDT + \sel + 5]
+	pop	\sel
+	.endif
+.endm
+
 .macro GDT_GET_BASE target, sel
 	push	esi
 	mov	esi, \sel
+	and	esi, ~7
 	_R32 = \target
 	R16 \target
 	R8H \target
@@ -366,6 +431,59 @@ xor \target,\target
 	call		newline_16
 .endm
 
+
+.macro PRINT_GDT seg, debug=0
+	push	edx
+
+	printc	11, "\seg: "
+	mov	edx, \seg
+	call	printhex8
+	GDT_GET_BASE edx, \seg
+	printc	15, " base "
+	call	printhex8
+	GDT_GET_LIMIT edx, \seg
+	printc	15, " limit "
+	call	printhex8
+	printc 15, " fl "
+	GDT_GET_FLAGS dl, \seg
+	call	printhex1
+	printc 15, " xs "
+	GDT_GET_ACCESS dl, \seg
+	call	printhex2
+
+	.ifnc 0,\debug
+	printc 8, " ["
+	# w w b b n n b
+	mov	edx, \seg
+	add	edx, offset GDT
+	push	edx
+	mov	edx, [edx]
+	call	printhex4	# w
+	call	printspace
+	shr	edx, 16
+	call	printhex4	# w
+	call	printspace
+	pop	edx
+	mov	edx, [edx+4]
+	call	printhex2	# b
+	call	printspace
+	shr	edx, 8
+	call	printhex2	# b
+	call	printspace
+	shr	edx, 8
+	call	printhex1	# n
+	call	printspace
+	shr	edx, 4
+	call	printhex1	# n
+	call	printspace
+	shr	edx, 4
+	call	printhex2	# b
+	printc 8, "]"
+	.endif
+	call	newline
+	pop	edx
+.endm
+
 .text16
 
 # Calulate segments and addresses
@@ -394,14 +512,26 @@ init_gdt_16:
 	mov	ebx, eax
 
 	GDT_STORE_SEG GDT_realmodeCS
-	mov	eax, ebx
 	GDT_STORE_SEG GDT_compatCS
+	GDT_STORE_SEG GDT_ring0CS
+	GDT_STORE_SEG GDT_ring1CS
+	GDT_STORE_SEG GDT_ring2CS
+	GDT_STORE_SEG GDT_ring3CS
 
 	# find len
 	mov	eax, kernel_code_end - kernel_code_start
+	mov	edx, eax
 	#mov	eax, (offset kernel_code_end - offset kernel_code_start + 4095)>> 12
 	#mov eax, 0xffff
 	GDT_STORE_LIMIT GDT_compatCS
+	mov	eax, edx
+	GDT_STORE_LIMIT GDT_ring0CS
+	mov	eax, edx
+	GDT_STORE_LIMIT GDT_ring1CS
+	mov	eax, edx
+	GDT_STORE_LIMIT GDT_ring2CS
+	mov	eax, edx
+	GDT_STORE_LIMIT GDT_ring3CS
 
 	xor	eax, eax
 	call	0f	# determine possible relocation
@@ -428,10 +558,13 @@ init_gdt_16:
 		call	newline_16
 	.endif
 
-	push	eax
+	mov	edx, eax
 	GDT_STORE_SEG GDT_realmodeDS
-	pop	eax
 	GDT_STORE_SEG GDT_compatDS
+	GDT_STORE_SEG GDT_ring0DS
+	GDT_STORE_SEG GDT_ring1DS
+	GDT_STORE_SEG GDT_ring2DS
+	GDT_STORE_SEG GDT_ring3DS
 
 
 	# store proper linear (base 0) GDT/IDT address in pointer structure
@@ -445,14 +578,20 @@ init_gdt_16:
 
 	# Set up TSS
 
+	call	init_tss_16
+
 	mov	eax, offset TSS
 	add	eax, ebx
 
 	GDT_STORE_SEG GDT_tss
-
-	call	init_tss_16
-
+	mov	eax, 104 #value doesnt really matter here it seems
 	GDT_STORE_LIMIT GDT_tss
+
+	mov	eax, offset TSS2
+	add	eax, ebx
+	GDT_STORE_SEG GDT_tss2
+	mov	eax, 104
+	GDT_STORE_LIMIT GDT_tss2
 
 
 	# Set up SS
@@ -521,11 +660,16 @@ init_gdt_16:
 
 	GDT_STORE_SEG GDT_realmodeGS
 
-	# set the call gate
+	# set the call gates
 	mov	eax, offset kernel_callgate
 	mov	[GDT_kernelCall + 0], ax
 	shr	eax, 16
 	mov	[GDT_kernelCall + 6], ax
+
+	mov	eax, offset kernel_callgate_2
+	mov	[GDT_kernelMode + 0], ax
+	shr	eax, 16
+	mov	[GDT_kernelMode + 6], ax
 
 	# Load GDT
 
@@ -551,74 +695,158 @@ kernel_callgate:
 # Once here, the ss:esp is according to the TSS, and cs is
 # according to the call gate descriptor.
 .if 0
-	printc 11, "KERNEL CALLGATE: cs="
+	push	ebp
+	lea	ebp, [esp + 4]
+	push	ecx
 	push	edx
+
+	printc 11, "KERNEL CALLGATE: cs="
 	mov	edx, cs
 	call	printhex4
+
+	printc 11, " ds="
+	mov	edx, ds
+	call	printhex4
+	printc 11, " es="
+	mov	edx, es
+	call	printhex4
+
+
 	printc 11, " ss:esp="
 	mov	edx, ss
 	call	printhex8
 	printchar ':'
-	mov	edx, esp
+	mov	edx, ebp
 	call	printhex8
-	printc 11, " ret: "
-	mov	edx, [esp + 8]
+	call newline
+
+	printc 11, "stack:";
+	call	newline
+	xor	ecx, ecx
+0:	lea	edx, [ecx * 4]
+	call	printhex2
+	call	printspace
+	lea	edx, [ebp + ecx * 4]
+	call	printhex8
+	print ": "
+	mov	edx, [ebp + ecx * 4]
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+	call	newline
+	inc	ecx
+	cmp	ecx, 4
+	jb	0b
+
+	printc 11, "usermode stack:";
+	mov	edx, [ebp + 12]
 	call	printhex4
 	printchar ':'
-	mov	edx, [esp + 12]
-	call	printhex8
-
-	printc 11, " usermode ret: "
-	mov	edx, [edx]
+	mov	edx, [ebp + 8]
 	call	printhex8
 	call	newline
+
+	push	ebp
+	mov	ebp, [ebp + 8]
+	xor	ecx, ecx
+0:	mov	edx, ecx
+	call	printhex2
+	call	printspace
+	lea	edx, [ebp + ecx * 4]
+	call	printhex8
+	print ": "
+	mov	edx, [ebp + ecx * 4]
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+	call	newline
+	inc	ecx
+	cmp	ecx, 4
+	jb	0b
+	pop	ebp
+
+	printc 11, " ret: "
+	mov	edx, [ebp + 12]
+	call	printhex4
+	printchar ':'
+	mov	edx, [ebp + 8]
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+
+	call	newline
+	printc 11, " usermode ret: "
+	mov	edx, [ebp + 8]
+	mov	edx, [edx + 4]
+	call	printhex8
+	printchar ':'
+	mov	edx, [ebp + 12]
+	mov	edx, [edx]
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+	call	newline
+
 	pop	edx
+	pop	ecx
+	pop	ebp
 .endif
 
-## a CPL3 user function:
-# user_app:
-# 	call lib	
-# user_ret:
-#
-# lib:
-## user esp = [user_ret][...
-#	call SEL_kernelCall:0
-# 1:
-## kernel esp = [1][user cs][user esp][user ss]
-#
-.data SECTION_DATA_BSS
-_callgate_stack: .long 0
-_callgate_cont: .long 0
-.text32
-.if 0
 	push	ebp
-## esp = [ebp][1][user cs][user esp][user ss]
-	mov	ebp, [esp + 4 + 8]	# orig stack ptr
-## ebp = [user ret]
-	push	[esp+4]
-## esp = [1][ebp][1][user cs][user esp][user ss]
-	xchg	ebp, esp		# remember new stack, load orig stack
-## ebp = [1][ebp][1][user cs][user esp][user ss]
-## esp = [user_ret][...
-	pop	[ebp + 8]	# remove caller ret and replace our retf eip
-## esp = [...
-## ebp = [1][ebp][user_ret][user cs][user esp][user ss]
+	lea	ebp, [esp + 4]
+	push	ds
+	push	es
+
+	push	edx
+	mov	edx, SEL_compatDS
+	mov	ds, edx
+	mov	es, edx
+	pop	edx
+
 	call	[ebp]
-	lea	esp, [ebp + 4]
-	pop	ebp
-.else
-	push	ebp
-	mov	ebp, [esp + 4 + 8]	# orig stack ptr
-	mov	[_callgate_stack], ebp
-	mov	ebp, [ebp]	# user ret
-	xchg	ebp, [esp + 4] # replace retf eip
-	mov	[_callgate_cont], ebp
-	pop	ebp
-	xchg	esp, [_callgate_stack]
-	add	esp, 4
 
-	call	[_callgate_cont]
+	###################
+	pushf
+	# the called method had expected to return the original caller, but
+	# it ends up here. So now we return to the original caller:
+	# we replace [ebp] (the return address of this method)
+	# with the original return address, adjust the original caller's
+	# stack, and then simply return:
+	push	edx
+	mov	edx, [ebp + 8]
+	#DEBUG_DWORD edx,"bla stack"
+	mov	edx, [edx]
+	#DEBUG_DWORD edx,"bla ret"
+	mov	[ebp], edx
+	add	[ebp + 8], dword ptr 4	# simulate the ret
+	pop	edx
+	popf
+	####################
 
-	mov	esp, [_callgate_stack]
+	pop	ds
+	pop	es
+.if 0
+	pushf
+lea ebp, [esp + 4]; call newline
+DEBUG_DWORD [ebp+4],"cs";
+DEBUG_DWORD [ebp],"eip"; push edx;mov edx, [ebp];call debug_printsymbol;pop edx;call newline
+DEBUG_DWORD [ebp+8],"esp"; call newline
+DEBUG_DWORD [ebp+12],"ss"; call newline
+	popf
 .endif
+	pop	ebp
 	retf
+
+# This is the SEL_kernelMode: it switches to CPL0, but doesn't do the return
+# trickery. It is used to switch to kernel mode for a task switch.
+kernel_callgate_2:
+	# we're now on the TSS_SS0:TSS_ESP0 stack.
+	# [esp+0]  = caller eip
+	# [esp+4]  = caller cs
+	# [esp+8]  = caller esp
+	# [esp+12] = caller ss
+
+	# we should continue at the caller's address, with the current cs.
+	ret
+	# now, on return, the stack is:
+	# [esp] = caller cs, esp, ss

@@ -145,6 +145,13 @@ task_flags:	.long 0	# bit 1: 1=task (ctx on task_task);0=job (task_regs)
 	TASK_FLAG_SUSPENDED	= 0x4000 << 16
 	TASK_FLAG_DONE		= 0x0100 << 16	# (aligned with RESCHEDULE)
 	TASK_FLAG_CHILD_JOB	= 0x0010 << 16	# a job is using this stack
+
+	TASK_FLAG_RING0		= 0x0000 << 16
+	TASK_FLAG_RING1		= 0x0001 << 16
+	TASK_FLAG_RING2		= 0x0002 << 16
+	TASK_FLAG_RING3		= 0x0003 << 16
+	TASK_FLAG_RING_MASK	= 0x0003 << 16
+	TASK_FLAG_RING_SHIFT	= 16
 task_parent:	.long 0
 task_tls:	.long 0
 task_stackbuf:	.long 0	# remembered for mfree
@@ -267,6 +274,7 @@ schedule_top_delay$: .long 0
 .text32
 
 .macro DO_SCHEDULER_DEBUG_TOP
+	pushf
 
 .if 1 	# print throttling
 	push	eax
@@ -321,6 +329,7 @@ schedule_top_delay$: .long 0
 		DEBUG_DWORD [ebp + task_reg_eip],"eip"
 		DEBUG_DWORD [ebp + task_reg_eflags],"eflags"
 	.endif
+	popf
 .endm
 
 
@@ -357,6 +366,11 @@ schedule_top_delay$: .long 0
 #############################################################################
 scheduler_init:
 	# assume scheduler is disabled: [task_queue_sem]==-1
+
+	# clear fs, gs, since popping them in CPL > 0 causes error:
+	xor	eax, eax
+	mov	fs, eax
+	mov	gs, eax
 
 	# allocate a space for the current task:
 	call	task_queue_newentry
@@ -442,11 +456,76 @@ schedule_far:
 	pop	eax
 	jmp	schedule_isr
 
+# scheduling disabled:
+9:	DEBUG "Scheduling disabled: caller="
+	push edx; mov edx, [esp]; call debug_printsymbol;pop edx
+	hlt
+	ret
+# KEEP WITH NEXT!
+
 # this is callable as a near call.
 # in: [esp] = eip
 schedule_near:
+	cmp	dword ptr [task_queue_sem], -1
+	jz	9b	# scheduling disabled...
+
 	# adjust stack to make it suitable for iret
-	sub	esp, 8
+
+	push	eax
+	mov	eax, cs
+	and	al, 3	# check for privilege level change
+	pop	eax
+	jz	1f
+
+	# enter kernel mode
+	call	SEL_kernelMode, 0
+.if 0
+	DEBUG "kernelmode called."
+	push ebp; lea ebp, [esp+4]
+	DEBUG_DWORD [ebp+0]	# caller cs
+	DEBUG_DWORD [ebp+4]	# caller esp
+	DEBUG_DWORD [ebp+8]	# caller ss
+	pop ebp
+	call newline
+.endif
+	# now in CPL0.
+	# Stack: kernelmode's caller cs, caller esp, caller ss.
+	# copy the schedule_near caller's return address on the current
+	# stack:
+	sub	esp, 8	# reserve space for eip, eflags
+	push	eax
+	mov	eax, [esp + 4+8 +4]	# caller's esp
+	# also pop the return address from the near caller's stack
+	add	[esp + 4+8+4], dword ptr 4
+	mov	eax, [eax]		# schedule_near caller eip
+	mov	[esp + 4 + 0], eax		# eip
+	# [esp+4+4]: should be cs, is undefined
+	# [esp+4+8]: should be eflags, is cs
+	mov	eax, [esp + 4 +8]
+	mov	[esp + 4 +4], eax		# cs
+	pushfd
+	pop	eax
+	mov	[esp + 12], eax		# eflags
+	pop	eax
+
+.if 0
+	DEBUG "CPL0 schedule_near"
+	push	ebp
+	lea	ebp, [esp + 4]
+	DEBUG_DWORD [ebp+0], "eip"
+	DEBUG_DWORD [ebp+4], "cs"
+	DEBUG_DWORD [ebp+8], "eflags"
+	DEBUG_DWORD [ebp+12], "esp"
+	DEBUG_DWORD [ebp+16], "ss"
+call newline
+	pop	ebp
+.endif
+	# stack is set up as if there was an interrupt with privilege level change.
+	jmp	schedule_isr
+
+
+# no privilege level change
+1:	sub	esp, 8	# allocate eip,cs (eip on stack becomes eflags)
 	push	eax
 	mov	eax, [esp + 4 + 8]	# eip
 	mov	[esp + 4], eax
@@ -490,26 +569,57 @@ schedule_isr:
 	or	dword ptr [eax + edx + task_flags], TASK_FLAG_RUNNING
 	mov	[scheduler_current_task_idx], edx
 	mov	[task_index], edx
+
+	# since we've locked the task_queue sem, collapse eax and edx:
+	add	edx, eax
+
 # for debugging
-mov ebx, [eax + edx + task_stack]
-mov ecx, [eax + edx + task_stack+4]
-	lss	esp, [eax + edx + task_stack]
+mov ebx, [edx + task_stack]
+mov ecx, [edx + task_stack+4]
+# ! task cs=30 ss=a9, or a8: GPF.
+	#lss	esp, [edx + task_stack]
+	mov	esp, [edx + task_stack_esp]
 	or	[esp + task_reg_eflags], dword ptr 1<<9
 
-	mov	ebx, [eax + edx + task_tls]
+	mov	ebx, [edx + task_tls]
 	mov	[tls], ebx
 
 	SEM_UNLOCK [task_queue_sem]
 8:	MUTEX_UNLOCK SCHEDULER
-9:
+9:	# schedule mutex locked jmp target
 	DO_SCHEDULER_DEBUG_TOP
-10:	popd	gs
+
+10:	# scheduler disabled jmp target; CF=ZF=0
+	popd	gs
 	popd	fs
 	popd	es
 	popd	ds
-	popd	ss # should have same value as ss already has
+#	popd	ss # should have same value as ss already has
+	add	esp, 4	# the pushed ss is the task ss, which may have diff CPL
 	popad	# esp ignored
+	.if 0
+		push	ebp
+		lea	ebp, [esp + 4]
+		DEBUG "continue"
+		DEBUG_DWORD [ebp], "eip"
+		DEBUG_DWORD [ebp+4], "cs"
+		DEBUG_DWORD [ebp+8], "eflags"
+		DEBUG_DWORD [ebp+12], "esp"
+		DEBUG_DWORD [ebp+16], "ss"
+		DEBUG_WORD ds
+		DEBUG_WORD es
+		call	newline
+		pop	ebp
+
+	.endif
+
+	# two cases:
+	# 1) same privilege level:
+	#    [esp] = eip, cs, eflags
+	# 2) different privilege level:
+	#    [esp] = eip, cs, eflags, esp, ss
 	iret
+
 88:	SCHED_UPDATE_GRAPH 1
 	jmp	8b
 
@@ -520,7 +630,49 @@ scheduler_get_task$:
 
 	mov	eax, [task_queue]
 	mov	edx, [scheduler_current_task_idx]
-	mov	[eax + edx + task_stack_esp], ebp
+	mov	[eax + edx + task_stack_esp], ebp	# preliminary
+
+	# check for privilege level change
+	mov	ebx, [ebp + 20+32+ 4]	# interrupted cs
+	and	bl, 3
+	jz	1f	# CPL0: okay
+
+	# since there is privilege change, the task register's TSS SS0:ESP0
+	# is used: it contains the eip,cs,eflags and esp,ss of interrupted
+	# task, aswell as all the pushed registers.
+	# We need to clear out this stack for subsequent use.
+
+	# task_stack_esp points to the wrong stack:
+
+	mov	esi, ebp	# source: the current (tss) stack
+	mov	edi, [ebp + 20+32 + 12] # interrupted esp
+	mov	ecx, 20+32+20	# pushseg[20],pushad[32],(eip,cs,eflags,esp,ss)[20]
+	sub	edi, ecx
+	# edi is the new task stack:
+	mov	[eax + edx + task_stack_esp], edi
+	shr	ecx, 2
+	rep	movsd	# copy the entire pushed stack.
+
+	# taskstack contains a copy of this stack, so we can use that
+	# for a privchg iret, by using kernel ss, task esp.
+	#
+	# the stored esp used for privchg iret points to the same stack,
+	# but, the ss will be the new priv level.
+	# So, the task_stack_esp data looks like:
+	#
+	# S+20+32+20
+	# S+20+32+16]	[4]  ss	 task ss
+	# S+20+32+12	[4]  esp task esp, value S+20+32+20
+	# S+20+32+8	[4]  eflags
+	# S+20+32+4	[4]  cs	 task cs (CPL>0)
+	# S+20+32	[4]  eip task interrupted instruction
+	# S+20		[32] pushad
+	# S		[20] push segment registers
+	#(S = task_stack_esp)
+
+1:
+#########################################################################
+
 	mov	ebx, [tls]
 	mov	[eax + edx + task_tls], ebx
 	.if 1
@@ -1067,14 +1219,47 @@ schedule_task:
 	rep	movsb
 	add	esi, 4	# skip method return
 	movsd	# eip
+	.if 1
+	# calculate the selectors to use according to CPL.
+	lodsd	# cs
+	mov	eax, [esi] # task flags
+	and	eax, TASK_FLAG_RING_MASK
+	shr	eax, TASK_FLAG_RING_SHIFT - 4	# eax = 16 * RPL = 2 selectors
+	mov	ecx, eax
+	shr	ecx, 4	# remember RPL
+	add	eax, SEL_ring0CS
+	or	al, cl	# add RPL
+	stosd	# cs
+
+	.if 0
+		DEBUG "schedule_task: "
+		push esi; mov esi, [esi+4]; call print;pop esi
+		call newline
+		call printspace
+		pushad;PRINT_GDT cs,1;popad
+		pushad;PRINT_GDT eax,1;popad
+		add	eax, 8
+		call printspace
+		pushad;PRINT_GDT ds,1;popad
+		pushad;PRINT_GDT eax,1;popad
+	.else
+	add	eax, 8
+	.endif
+
+	mov	[ebx + edx + task_regs + task_reg_ds], eax
+	mov	[ebx + edx + task_regs + task_reg_es], eax
+	mov	[ebx + edx + task_regs + task_reg_ss], eax
+	.else
 	movsd	# cs
+	.endif
+
 	pushfd	# need some eflags
 	pop	eax
 	or	eax, 1 << 9	# sti
 	mov	dword ptr [ebx + edx + task_regs + task_reg_eflags], eax
 
 	lodsd	# task flags
-	and	eax, TASK_FLAG_TASK
+	and	eax, TASK_FLAG_TASK | TASK_FLAG_RING_MASK
 	mov	[ebx + edx + task_flags], eax
 	lodsd	# task tabel
 	mov	[ebx + edx + task_label], eax
@@ -1097,9 +1282,23 @@ schedule_task:
 	jnz	1f
 	# allocate a stack
 	mov	eax, JOB_STACK_SIZE
-	call	malloc
+	call	mallocz
 	jc	66f
+#### debugging:
+cmp eax, 0x00200000
+jb 2f
+int 3
+2:
+####
 	mov	[ebx + edx + task_stackbuf], eax
+1:
+
+#### debugging
+cmp eax, 0x00200000
+jb 1f
+int 3	# The bug is here. The task_stackbuf gets overwritten with at least
+	# 4 bytes of root/www/index.html.
+#### XXXBUG
 1:
 	.if SCHEDULE_CLEAN_STACK
 	push	eax
@@ -1120,20 +1319,72 @@ schedule_task:
 	mov	[eax], dword ptr offset task_done
 	.endif
 
+	add	ebx, edx	# free up edx
+	movzx	edx, word ptr [ebx + task_regs + task_reg_ds]
+
 	sub	eax, TASK_REG_SIZE
-	mov	[ebx + edx + task_stack_esp], eax
-	mov	[ebx + edx + task_stack_ss], ss
+
+	# if there is a privilege level change (from 0), alloc esp,ss
+	test	dword ptr [ebx + task_flags], TASK_FLAG_RING_MASK
+	jz	1f
+	sub	eax, 8
+1:
+
+	# record stack for task switching
+	mov	[ebx + task_stack_esp], eax
+	mov	[ebx + task_stack_ss], edx # ss
+	# copy the task registers from task struct to stack
+	# (can be optimized
 	mov	edi, eax
-	lea	esi, [ebx + edx + task_regs]
+	lea	esi, [ebx + task_regs]
 	mov	ecx, TASK_REG_SIZE / 4
 	rep	movsd
 
+.if 1
+	test	dword ptr [ebx + task_flags], TASK_FLAG_RING_MASK
+	jz	1f
+	# privilege level change: push esp,ss
+	#mov	[edi + 4], edx	# ss
+	#add	edi, 8
+	#mov	[edi - 8], edi
+	## FOO
+	#add	eax, 8
+	push eax
+	lea eax, [edi + 8]
+	stosd
+	mov eax, edx
+	stosd
+	pop eax
+1:
+.endif
+
+.if 0
+mov ebp, [ebx + task_stack_esp]
+DEBUG_DWORD ebp, "task_stack_esp"
+call newline
+DEBUG_DWORD [ebp+0], "gs"
+DEBUG_DWORD [ebp+4], "fs"
+DEBUG_DWORD [ebp+8], "es"
+DEBUG_DWORD [ebp+12], "ds"
+DEBUG_DWORD [ebp+16], "ss"
+call newline
+add	ebp, 20 + 32
+DEBUG_DWORD [ebp+0], "eip"
+DEBUG_DWORD [ebp+4], "cs"
+DEBUG_DWORD [ebp+8], "eflags"
+DEBUG_DWORD [ebp+12], "esp"
+DEBUG_DWORD [ebp+16], "ss"
+call newline
+#DEBUG "press key"
+#push eax; xor eax,eax; call keyboard; pop eax
+.endif
+
 	add	eax, TASK_REG_SIZE - 12
 
-	mov	[ebx + edx + task_regs + task_reg_esp], eax
-	mov	[ebx + edx + task_regs + task_reg_ss], ss
+	mov	[ebx + task_regs + task_reg_esp], eax
+	mov	[ebx + task_regs + task_reg_ss], edx # ss
 
-	mov	eax, [ebx + edx + task_pid]
+	mov	eax, [ebx + task_pid]
 	mov	[ebp + task_reg_eax], eax
 
 	clc
