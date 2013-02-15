@@ -10,7 +10,7 @@ NET_HTTP_DEBUG = 1		# 1: log requests; 2: more verbose
 cmd_httpd:
 	I "Starting HTTP Daemon"
 	PUSH_TXT "httpd"
-	push	dword ptr 2	# context switch task
+	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING1
 	push	cs
 	push	dword ptr offset net_service_httpd_main
 	call	schedule_task
@@ -22,14 +22,14 @@ net_service_httpd_main:
 	xor	eax, eax
 	mov	edx, IP_PROTOCOL_TCP<<16 | 80
 	mov	ebx, SOCK_LISTEN
-	call	socket_open
+	call	socket_open_
 	jc	9f
 	printc 11, "HTTP listening on "
 	call	socket_print
 	call	newline
 
 0:	mov	ecx, 10000
-	call	socket_accept
+	call	socket_accept_
 	jc	0b
 
 	push	eax
@@ -294,7 +294,7 @@ net_service_tcp_http:
 	mov	word ptr [edi - 1], '/'
 	push	eax
 	mov	eax, offset www_file$
-	call	fs_stat
+	call	fs_stat_
 	pop	eax
 	jnc	1f
 	mov	ebx, -1
@@ -326,17 +326,20 @@ net_service_tcp_http:
 	push	edx
 	mov	eax, offset www_file$
 	xor	edx, edx	# fs_open flags argument
-	call	fs_open
+	call	fs_open_
 	pop	edx
 	jc	2f
-	call	fs_handle_read	# out: esi, ecx
+	call	fs_handle_read_	# out: esi, ecx
 
+	# HACK
+	LOCK_READ [fs_handles_sem]
 	push	edx
 	push	eax
-	call	fs_validate_handle	# out: edx + eax
+	call	fs_validate_handle$	# out: edx + eax
 	mov	[eax + edx + fs_handle_buf], dword ptr 0
 	pop	eax
 	pop	edx
+	UNLOCK_READ [fs_handles_sem]
 
 	pushf
 	call	fs_close
