@@ -202,6 +202,7 @@ SHELL_COMMAND "ramdisk"		cmd_ramdisk
 .if VIRTUAL_CONSOLES
 SHELL_COMMAND "consoles"	cmd_consoles
 .endif
+SHELL_COMMAND "sha1"		cmd_sha1
 .data SECTION_DATA_SHELL_CMDS
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -2129,5 +2130,30 @@ cmd_vmx:
 1:	printlnc 4, "No VMX support"
 	ret
 
+.include "../lib/sha.s"
+cmd_sha1:
+	push	ebp
+	mov	ebp, esp
+	sub	esp, 512
+	LOAD_TXT "abc"
+	call	strlen_
+	mov	edi, esp
+	push	ecx
+	rep	movsb
+	pop	ecx
+	mov	esi, esp
+#xor ecx,ecx
+	call	sha1
+	mov	esi, edi
+	mov	ecx, 20
+0:	lodsb
+	mov	dl, al
+	call	printhex2
+	call	printspace
+	loop	0b
+	call	newline
+	mov	esp, ebp
+	pop	ebp
+	ret
 
 .endif
