@@ -1209,8 +1209,14 @@ fs_open:
 	pop	ecx
 	pop	esi
 	jnc	0b
+
 	# error: CF=1
-	mov	eax, -1	# side effect for clarity
+	mov	eax, [ebp]
+	cmp	eax, -1	# optional if root is always present
+	jz	2f
+	call	fs_close
+2:	mov	eax, -1	# return value for clarity
+	stc
 	jmp	9f
 
 1:	# end of path found. done.
