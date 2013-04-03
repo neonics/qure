@@ -453,8 +453,17 @@ dev_pci_constructor:
 
 	# it's a nic, check if we support it:
 	call	nic_constructor
+	jmp	9f
+0:
+# TODO: merge
 
-0:	pop	edx
+	cmp	[ebx + dev_pci_class], word ptr 0x0003 # Display Adapter
+	jnz	0f
+	DEBUG "Is video device - calling vid_constructor"
+	DEBUG_DWORD (offset vid_constructor)
+	call	vid_constructor
+0:
+9:	pop	edx
 	pop	edi
 	pop	esi
 	ret

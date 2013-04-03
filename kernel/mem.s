@@ -28,6 +28,7 @@ mem_sel_base: .long 0
 mem_sel_limit: .long 0
 
 MEM_DEBUG = 0
+MEM_DEBUG2 = 0
 
 MEM_PRINT_HANDLES = 2	# 1 or 2: different formats.
 
@@ -398,6 +399,13 @@ handle_flags: .byte 0	# 25
 	MEM_FLAG_ALLOCATED = 1
 	MEM_FLAG_REUSABLE = 2	# handle's base and size are meaningless/0.
 	MEM_FLAG_REFERENCE = 4
+
+	MEM_FLAG_DBG_SPLIT	= 8
+	MEM_FLAG_DBG_SPLIT2	= 16
+	MEM_FLAG_DBG3 = 32
+
+	MEM_FLAG_UNK	= 64	#
+	MEM_FLAG_HANDLE	= 128	# handle for handle structure
 
 	# When there are more than this number of bytes wasted (i.e. reuse
 	# of a chunk of previously free'd memory that is larger than the
@@ -1157,7 +1165,18 @@ print_handle_2$:
 	call	printhex8
 	call	printspace
 	mov	dl, [ebx + handle_flags]
+	.if 1
+	PRINTFLAG dl, MEM_FLAG_ALLOCATED, "A"," "
+	PRINTFLAG dl, MEM_FLAG_REUSABLE, "u"," "
+	PRINTFLAG dl, MEM_FLAG_REFERENCE, "R"," "
+	PRINTFLAG dl, MEM_FLAG_DBG_SPLIT, "s"," "
+	PRINTFLAG dl, MEM_FLAG_DBG_SPLIT2, "2"," "
+	PRINTFLAG dl, MEM_FLAG_DBG3, "3"," "
+	PRINTFLAG dl, MEM_FLAG_UNK, "?"," "
+	PRINTFLAG dl, MEM_FLAG_HANDLE, "H"," "
+	.else
 	call	printbin8
+	.endif
 	call	printspace
 	mov	edx, [ebx + handle_caller]
 	call	printhex8
@@ -1285,6 +1304,28 @@ get_handle$:
 	inc	dword ptr [mem_numhandles]
 	ret
 
+# meant for external callers
+# in: eax = handle_base (allocated mem ptr)
+# out: ebx = handle struct ptr
+# out: edx = handle number (decimal count)
+mem_find_handle$:
+	push	ecx
+	mov	ebx, [mem_handles]
+	mov	ecx, [mem_numhandles] # can't be 0
+0:	cmp	eax, [ebx + handle_base]
+	jz	1f
+	add	ebx, HANDLE_STRUCT_SIZE
+	loop	0b
+	pop	ecx
+	stc
+	ret
+
+1:	mov	edx, [mem_numhandles]
+	sub	edx, ecx
+	pop	ecx
+	clc
+	ret
+
 # in: eax = size
 # in: esi = [mem_handles]
 # out: ebx = handle index that can accommodate it
@@ -1350,8 +1391,8 @@ find_handle$:
 		pop edx
 	.endif
 	# debug markings
-	or	byte ptr [esi + ebx + handle_flags], 8
-	or	byte ptr [esi + edx + handle_flags], 16
+	or	byte ptr [esi + ebx + handle_flags], MEM_FLAG_DBG_SPLIT # 8
+	or	byte ptr [esi + edx + handle_flags], MEM_FLAG_DBG_SPLIT2 # 16
 
 	# edx = handle to split, ebx = handle to return, eax = size
 	mov	ecx, [esi + edx + handle_base]
@@ -1557,7 +1598,7 @@ alloc_handles$:
 	# free the old handle
 	push	ebx
 	mov	ebx, [mem_handles_handle]
-	mov	[eax + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED | (1<<6)
+	mov	[eax + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED | MEM_FLAG_UNK
 	pop	ebx
 
 1:	
@@ -1570,7 +1611,7 @@ alloc_handles$:
 	mov	[mem_handles_handle], ebx
 	pop	dword ptr [esi + ebx + handle_size]
 	mov	[esi + ebx + handle_base], eax
-	or	[esi + ebx + handle_flags], byte ptr 1 << 7
+	or	[esi + ebx + handle_flags], byte ptr MEM_FLAG_HANDLE #1 << 7
 	push	edi
 	mov	edi, offset handle_fa_first
 	add	esi, offset handle_base
@@ -1607,24 +1648,63 @@ alloc_handles$:
 	ret
 
 mallocz:
+	.if MEM_DEBUG2
+		DEBUG "mallocz "; 
+		push edx; mov edx,[esp+4]; call debug_printsymbol; pop edx
+	.endif
 	push	ecx
 	mov	ecx, eax
+#DEBUG_DWORD ecx,"mallocz"
 	call	malloc
-_mallocz_malloc_ret$:
+_mallocz_malloc_ret$:	# debug symbol
+	.if MEM_DEBUG2
+		DEBUG_DWORD eax; pushf; call newline; popf
+	.endif
 	jc	9f
 	push	edi
 	mov	edi, eax
 	push	eax
 	xor	eax, eax
 	push	ecx
+#DEBUG_DWORD edi
+#DEBUG_DWORD ecx
 	and	ecx, 3
 	rep	stosb
 	pop	ecx
+push ecx
 	shr	ecx, 2
 	rep	stosd
-	clc
+pop ecx
 	pop	eax
+.if 0
+pushf
+push edi
+push eax
+push ecx
+mov edi, eax
+xor al, al
+DEBUG_DWORD edi,"scan"
+DEBUG_DWORD ecx
+repz scasb
+jz 2f
+or ecx, ecx
+jz 2f
+printc 4, "NOT 0"
+DEBUG_DWORD ecx,"size-index"
+DEBUG_DWORD edi
+mov eax, [esp + 4]
+DEBUG_DWORD eax,"alloccd"
+mov eax, [esp]
+DEBUG_DWORD eax,"ecx"
+call newline
+2:
+pop ecx
+pop eax
+pop edi
+popf
+.endif
 	pop	edi
+	clc
 1:	pop	ecx
 	ret
 9:	printc 4, "mallocz: can't allocate "
@@ -1648,7 +1728,11 @@ _mallocz_malloc_ret$:
 # in: eax = size
 # out: eax = base pointer
 malloc:
+#DEBUG_REGSTORE
 	MUTEX_SPINLOCK MEM
+	.if MEM_DEBUG2
+		DEBUG_DWORD eax,"malloc("
+	.endif
 #call mem_debug
 	push	ebx
 	push	esi
@@ -1732,8 +1816,13 @@ malloc:
 		popcolor
 		popf
 	.endif
+	.if MEM_DEBUG2
+		DEBUG_DWORD eax,")"
+		call mem_validate_handles
+	.endif
 	MUTEX_UNLOCK_ MEM
-	ret
+#DEBUG_REGDIFF
+	ret	# WEIRD BUG: 0x001008f0 on stack (called from mdup@net.s:685)
 
 2:	printlnc 4, "malloc: no more handles"
 	stc
@@ -1762,6 +1851,107 @@ malloc:
 	
 	stc
 	jmp	1b
+
+
+# search term: verify
+mem_validate_handles:
+_mem_validate_contiguous_address$:
+	pushf
+	pushad
+	mov	esi, [mem_handles]
+	or	esi, esi
+	jz	9f
+	mov	ecx, [mem_numhandles]
+	or	ecx, ecx
+	jz	9f
+
+	xor	ebx, ebx
+0:	
+	mov	eax, [esi + ebx + handle_base]
+	# check address prev
+	mov	edi, [esi + ebx + handle_fa_prev]
+	cmp	edi, -1
+	jz	1f
+	mov	edx, [esi + edi + handle_base]
+	add	edx, [esi + edi + handle_size]
+	cmp	edx, eax
+	jnbe	41f
+1:
+	add	eax, [esi + ebx + handle_size]
+	mov	edi, [esi + ebx + handle_fa_next]
+	cmp	edi, -1
+	jz	1f
+	cmp	eax, [esi + edi + handle_base]
+	jnbe	42f
+1:
+	add	ebx, HANDLE_STRUCT_SIZE
+	loop	0b
+
+9:	popad
+	popf
+	ret
+
+41:	cli
+	printlnc 4, "MEM ERROR: prev(base+size) != curr(base)";
+	DEBUG "curr", 0x04
+	push	edx
+	mov	edx, ebx
+	call	printdec32
+		DEBUG_DWORD [esi+ebx+handle_base],"base"
+		DEBUG_DWORD [esi+ebx+handle_size],"size"
+		DEBUG_DWORD eax
+	call	newline
+
+	DEBUG "prev", 0x04
+	mov	edx, edi
+	call	printdec32
+	pop	edx
+		DEBUG_DWORD [esi+edi+handle_base],"base"
+		DEBUG_DWORD [esi+edi+handle_size],"size"
+		DEBUG_DWORD edx, "sum"
+		call	newline
+
+	add	ebx, esi
+	call	print_handle_$
+	lea	ebx, [esi + edi]
+	call	print_handle_$
+	printlnc 4,"-----------------------------";
+	call	print_handles$
+	int 1
+	sti
+
+	jmp	9b
+
+42:	cli
+	printlnc 4, "MEM ERROR: curr(base+size) != next(base)";
+	DEBUG "curr", 0x04
+	push	edx
+	mov	edx, ebx
+	call	printdec32
+		DEBUG_DWORD [esi+ebx+handle_base],"base"
+		DEBUG_DWORD [esi+ebx+handle_size],"size"
+		DEBUG_DWORD eax, "sum"
+	call	newline
+
+	DEBUG "next", 0x04
+	mov	edx, edi
+	call	printdec32
+	pop	edx
+		DEBUG_DWORD [esi+edi+handle_base],"base"
+		DEBUG_DWORD [esi+edi+handle_size],"size"
+		call	newline
+
+	add	ebx, esi
+	call	print_handle_$
+	lea	ebx, [esi + edi]
+	call	print_handle_$
+	printlnc 4,"-----------------------------";
+	call	print_handles$
+	int 1
+	sti
+
+	jmp	9b
+
 
 
 .if 0
@@ -1817,8 +2007,16 @@ get_handle_by_base$:
 ########
 	MUTEX_LOCK MEM locklabel=1f
 	DEBUG "MREALLOC mutex fail"
+	pushad
+	mov	edx, [esp + 32]
+	call debug_printsymbol; call newline
+	call	debugger_print_mutex$
+	popad
 	jmp 1b
 1:
+	.if MEM_DEBUG2
+		DEBUG "[", 0x6f
+	.endif
  	push	ebx
 	push	ecx
 	push	esi
@@ -1851,9 +2049,12 @@ get_handle_by_base$:
 	mov	ecx, [esi + ebx + handle_size]
 	sub	ecx, edx	# ecx = cursize - newsize
 	jns	2f	# shrink
+	jz	0f	# no change.
 
 	neg	ecx
-
+	.if MEM_DEBUG2
+		DEBUG "+", 0x6f
+	.endif
 1:	# grow
 	# check if the next memory block is free
 	mov	edi, [esi + ebx + handle_fa_next]
@@ -1874,6 +2075,24 @@ get_handle_by_base$:
 	jnz	1f	# no go. [perhaps issue warning]
 
 	# we're lucky!
+
+	# clear first:
+	.ifc \malloc,mallocz
+	push	edi
+	mov	ecx, edx			# new size
+	sub	ecx, [esi + ebx + handle_size]	# - current size = borrow
+	.if MEM_DEBUG2
+		DEBUG_DWORD ecx,"clr",0x9f
+	.endif
+	mov	edi, [esi + edi + handle_base]
+	push	eax
+	xor	eax, eax
+	rep	stosb
+	pop	eax
+	pop	edi
+	.endif
+
+
 	mov	ecx, edx
 	sub	ecx, [esi + ebx + handle_size] # ecx = bytes to borrow
 	sub	ecx, [esi + edi + handle_size]
@@ -1881,7 +2100,9 @@ get_handle_by_base$:
 	# js...
 	cmp	ecx, MEM_SPLIT_THRESHOLD
 	jb	5f	# take it all
-
+	.if MEM_DEBUG2
+		DEBUG "B",0x6f
+	.endif
 	# just borrow the bytes, leave the handle as is.
 
 	mov	ecx, edx
@@ -1889,9 +2110,13 @@ get_handle_by_base$:
 	add	[esi + ebx + handle_size], ecx
 	sub	[esi + edi + handle_size], ecx
 	add	[esi + edi + handle_base], ecx
+
 	jmp	0f
 
 5:	# take all the memory - merge the handles.
+	.if MEM_DEBUG2
+		DEBUG "M",0x6f
+	.endif
 
 	# edi is unallocated handle, and thus it is part of the lists:
 	# handle_fa - to maintain address order
@@ -1908,10 +2133,14 @@ get_handle_by_base$:
 	call	ll_update$
 
 	# eax is unchanged
+
 	jmp	0f
 
 ####### allocate a new block and copy the data.
 1:
+	.if MEM_DEBUG2
+		DEBUG "C",0x6f
+	.endif
 	mov	ecx, [esi + ebx + handle_size]
 	push	esi
 	mov	esi, eax
@@ -1930,37 +2159,102 @@ get_handle_by_base$:
 	or	[ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 
 	# free the old handle
+	.if MEM_DEBUG2
+		DEBUG "<", 0x6f; call mem_validate_handles;
+	.endif
+
+	MUTEX_UNLOCK_ MEM
 	push	eax
 	mov	eax, [esi + ebx + handle_base]
+	.if MEM_DEBUG2
+		DEBUG ".", 0x6f
+	.endif
 	call	mfree	# TODO: optimize, as handle is known
 	pop	eax
 
-	# jmp 0f # when shrink implemented.
+	jmp	1f
 
 ########
 2:	# shrink: ignore.
+	.if MEM_DEBUG2
+		DEBUG "-", 0x6f
+	.endif
 ########
 
-0:	pop	edi
+0:	MUTEX_UNLOCK_ MEM
+1:	pop	edi
 	pop	esi
 	pop	ecx
 	pop	ebx
-	MUTEX_UNLOCK_ MEM
+	.if MEM_DEBUG2
+		call mem_validate_handles
+		DEBUG "]", 0x6f
+	.endif
 .endm
 
 
 # in: eax = mem, edx = new size
 # out: eax = reallocated (memcpy) mem
 mrealloc:
+	.if MEM_DEBUG2
+		DEBUG_DWORD eax,"mrealloc";DEBUG_DWORD edx
+	.endif
 	MREALLOC malloc
+	.if MEM_DEBUG2
+		DEBUG_DWORD eax
+	.endif
 	ret
 
 mreallocz:
+.if 1
+	push	edi
+	push	esi
+	push	ecx
+	####################
+	push	eax
+	mov	eax, edx
+	call	mallocz
+	jc	9f
+	mov	esi, [esp]
+	mov	edi, eax
+#	DEBUG "mreallocz";DEBUG_DWORD esi;DEBUG_DWORD edi;DEBUG_DWORD edx
+	movzx	ecx, dl
+	and	cl, 3
+	rep	movsb
+	mov	ecx, edx
+	shr	ecx, 2
+	rep	movsd
+	xchg	eax, [esp]
+	call	mfree
+	pop	eax
+	clc
+	####################
+0:	pop	ecx
+	pop	esi
+	pop	edi
+	ret
+9:	pop	eax
+	jmp	0b
+.endif
+
+	.if MEM_DEBUG2
+		DEBUG_DWORD eax,"mrealloc";DEBUG_DWORD edx
+	.endif
 	MREALLOC mallocz
+	.if MEM_DEBUG2
+		DEBUG_DWORD eax
+	.endif
 	ret
 
 # in: eax = memory pointer
 mfree:
+	MUTEX_SPINLOCK_ MEM
+	.if MEM_DEBUG2
+		DEBUG "["
+		DEBUG_DWORD eax,"mfree"
+		call mem_validate_handles
+		DEBUG ","
+	.endif
 	push	esi
 	push	ecx
 	push	ebx
@@ -1997,6 +2291,11 @@ mfree:
 2:	pop	ebx
 	pop	ecx
 	pop	esi
+	.if MEM_DEBUG2
+		call mem_validate_handles
+		DEBUG "]"
+	.endif
+	MUTEX_UNLOCK_ MEM
 	ret
 
 1:	pushcolor 4
@@ -2042,15 +2341,18 @@ handle_merge_fa$:
 
 	# Check if ebx follows the previous handle
 	mov	eax, [esi + ebx + handle_fa_prev]
+#DEBUG "a",0x8f
 	or	eax, eax
 	js	1f
+#DEBUG "b",0x8f
 	test	byte ptr [esi + eax + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	jnz	1f
+#DEBUG "c",0x8f
 	mov	edx, [esi + eax + handle_base]
 	add	edx, [esi + eax + handle_size]
 	cmp	edx, [esi + ebx + handle_base]
 	jnz	1f
-
+#DEBUG "d",0x8f
 	# eax preceeds ebx immediately
 	# empty ebx, add memory to eax:
 	xor	edx, edx
@@ -2063,13 +2365,16 @@ handle_merge_fa$:
 	mov	eax, [esi + ebx + handle_fa_next]
 	or	eax, eax
 	js	1f
+#DEBUG "e",0x8f
 	test	byte ptr [esi + eax + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	jnz	1f
+#DEBUG "f",0x8f
 	mov	edx, [esi + ebx + handle_base]
 	add	edx, [esi + ebx + handle_size]
 	cmp	edx, [esi + eax + handle_base]
 	jnz	1f
 
+#DEBUG "g",0x8f
 	# ebx preceeds eax immediately.
 	# Prepend ebx's size to eax:
 	xor	edx, edx
@@ -2078,26 +2383,37 @@ handle_merge_fa$:
 
 2:	# merge
 
+#DEBUG "M",0x8f
 	# empty out ebx:
 	# remove from the address list
 	mov	edi, offset handle_fa_first
 	add	esi, offset handle_base
 	call	ll_unlink$
+	.if MEM_DEBUG2
+		call mem_validate_handles
+		DEBUG ".", 0x8f
+	.endif
 	# add to the reusable handles list
 	mov	edi, offset handle_fh_first
 	call	ll_update$
 	or	byte ptr [esi + ebx + handle_flags], MEM_FLAG_REUSABLE
+	.if MEM_DEBUG2
+		call mem_validate_handles
+		DEBUG ".", 0x8f
+	.endif
 
 MERGE_RECURSE = 0
 	# eax's address list membership doesnt change.
 	# eax's size address might have changed:
 	mov	ebx, eax
 .if MERGE_RECURSE
+#DEBUG "R",0x8f
 	sub	esi, offset handle_base
 	mov	edi, -1	# loop 
 	jmp	0b
 3:
 .else
+#DEBUG "!",0x8f
 	add	esi, offset handle_size - offset handle_base
 .endif
 	mov	edi, offset handle_fs_first
@@ -2554,13 +2870,11 @@ mdup:	push	eax
 	mov	edi, eax
 	mov	al, cl
 	shr	ecx, 2
-	jz	1f
 	rep	movsd
-1:	mov	cl, al
+	mov	cl, al
 	and	cl, 3
-	jz	1f
 	rep	movsb
-1:	pop	ecx
+	pop	ecx
 	pop	edi
 	pop	esi
 

@@ -4,7 +4,7 @@
 NET_TCP_RESPOND_UNK_RST = 0	# whether to respond with RST packet for unknown
 				# connections or non-listening ports.
 
-NET_TCP_DEBUG		= 0
+NET_TCP_DEBUG		= 0#2
 NET_TCP_CONN_DEBUG	= 0
 NET_TCP_OPT_DEBUG	= 0
 
@@ -58,6 +58,20 @@ tcp_options:	#
 	# 03 03 07:	window scale: 03 len: 03 shift 07
 	# 04 02:	tcp SACK permission: true
 	# timestamp 08 len 0a value 66 02 ae a8 echo reply 00 00 00 00
+
+.macro TCP_DEBUG_FLAGS r=ax
+	PRINTFLAG ax, TCP_FLAG_NS, "NS "
+	PRINTFLAG ax, TCP_FLAG_CWR, "CWR "
+	PRINTFLAG ax, TCP_FLAG_ECE, "ECE "
+	PRINTFLAG ax, TCP_FLAG_URG, "URG "
+	PRINTFLAG ax, TCP_FLAG_ACK, "ACK "
+	PRINTFLAG ax, TCP_FLAG_PSH, "PSH "
+	PRINTFLAG ax, TCP_FLAG_RST, "RST "
+	PRINTFLAG ax, TCP_FLAG_SYN, "SYN "
+	PRINTFLAG ax, TCP_FLAG_FIN, "FIN "
+.endm
+
+
 .text32
 # in: edx = ipv4 frame
 # in: esi = tcp frame
@@ -95,15 +109,8 @@ net_ipv4_tcp_print:
 	call	printdec32
 
 	print	" flags "
-	PRINTFLAG ax, TCP_FLAG_NS, "NS "
-	PRINTFLAG ax, TCP_FLAG_CWR, "CWR "
-	PRINTFLAG ax, TCP_FLAG_ECE, "ECE "
-	PRINTFLAG ax, TCP_FLAG_URG, "URG "
-	PRINTFLAG ax, TCP_FLAG_ACK, "ACK "
-	PRINTFLAG ax, TCP_FLAG_PSH, "PSH "
-	PRINTFLAG ax, TCP_FLAG_RST, "RST "
-	PRINTFLAG ax, TCP_FLAG_SYN, "SYN "
-	PRINTFLAG ax, TCP_FLAG_FIN, "FIN "
+	DEBUG_WORD ax
+	TCP_DEBUG_FLAGS ax
 
 	call	newline
 	ret
@@ -116,12 +123,21 @@ TCP_CONN_REUSE_TIMEOUT	= 30 * 1000	# 30 seconds
 TCP_CONN_BUFFER_SIZE	= 2048
 .struct 0
 # Buffers: not circular, as NIC's need contiguous region.
-tcp_conn_recv_buf:	.long 0
+# The recv and send buf contain the data to be PSH'd.
+tcp_conn_recv_buf:	.long 0	# malloc'd address
+tcp_conn_recv_buf_size:	.long 0	# malloc'd size
+tcp_conn_recv_buf_start:.long 0	# start of buffered data
+tcp_conn_recv_buf_len:  .long 0	# length of buffered data 
+
 tcp_conn_send_buf:	.long 0	# malloc'd address
 tcp_conn_send_buf_size:	.long 0	# malloc'd size
 tcp_conn_send_buf_start:.long 0 # payload offset start in buf
 tcp_conn_send_buf_len:	.long 0	# size of unsent data
+
+tcp_conn_tx_fin_seq:	.long 0
+
 tcp_conn_timestamp:	.long 0	# [clock_ms]
+
 tcp_conn_local_addr:	.long 0	# NEEDS to be adjacent to tcp_conn_remote_addr
 tcp_conn_remote_addr:	.long 0	# ipv4 addr
 tcp_conn_local_port:	.word 0
@@ -142,6 +158,7 @@ tcp_conn_state:		.byte 0
 	# incoming
 	TCP_CONN_STATE_FIN_RX		= 16
 	TCP_CONN_STATE_FIN_ACK_TX	= 32
+	TCP_CONN_STATE_FIN_ACK_TX_SHIFT = 5
 	# outgoing
 	TCP_CONN_STATE_FIN_TX		= 64
 	TCP_CONN_STATE_FIN_ACK_RX	= 128
@@ -279,7 +296,7 @@ tcp_conn_print_state$:
 # in: esi = tcp frame pointer
 # out: eax = tcp_conn array index (add volatile [tcp_connections])
 net_tcp_conn_get:
-0:	MUTEX_LOCK TCP_CONN 0b
+	MUTEX_SPINLOCK_ TCP_CONN
 	push	ecx
 	push	edx
 	mov	ecx, [esi + tcp_sport]
@@ -289,9 +306,7 @@ net_tcp_conn_get:
 	jz	0f
 	ARRAY_ENDL
 9:	stc
-0:	pushf
-	MUTEX_UNLOCK TCP_CONN
-	popf
+0:	MUTEX_UNLOCK_ TCP_CONN
 	pop	edx
 	pop	ecx
 	ret
@@ -299,11 +314,13 @@ net_tcp_conn_get:
 
 # in: edx = ip frame pointer
 # in: esi = tcp frame pointer
+# in: ecx = tcp frame len
 # in: ebx = socket (or -1)
 # in: edi = handler [unrelocated]
 # out: eax = tcp_conn array index
 # out: CF = 1: out of memory
 net_tcp_conn_newentry:
+	MUTEX_SPINLOCK_ TCP_CONN
 	push	ecx
 	push	edx
 
@@ -326,7 +343,7 @@ net_tcp_conn_newentry:
 	jnb	1f
 2:	ARRAY_ENDL
 9:
-	push	ecx
+	push	ecx	# remember ip frame
 	ARRAY_NEWENTRY [tcp_connections], TCP_CONN_STRUCT_SIZE, 4, 9f
 	jmp	2f
 9:	pop	ecx
@@ -334,14 +351,15 @@ net_tcp_conn_newentry:
 	pop	edi
 	pop	edx
 	pop	ecx
+	MUTEX_UNLOCK_ TCP_CONN
 	ret
 
-2:	pop	ecx
+## newly allocated
+2:	pop	ecx	# ip frame
 
 1:	pop	edi
 	push	edx	# retval eax
 
-0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
 	mov	eax, [tcp_connections]
 
 	add	eax, edx
@@ -395,14 +413,35 @@ net_tcp_conn_newentry:
 	mov	eax, TCP_CONN_BUFFER_SIZE
 	call	mallocz
 	jc	9f
+cmp eax,0x00400000
+jb 2f
+int 3
+2:
+clc
 	mov	[edx + tcp_conn_send_buf], eax
 	mov	[edx + tcp_conn_send_buf_size], dword ptr TCP_CONN_BUFFER_SIZE
 1:	mov	[edx + tcp_conn_send_buf_start], dword ptr 0
 	mov	[edx + tcp_conn_send_buf_len], dword ptr 0
 
-0:	pushf
-	MUTEX_UNLOCK TCP_CONN
-	popf
+	# allocate receive buffer
+	cmp	dword ptr [edx + tcp_conn_recv_buf], 0
+	jnz	1f
+	mov	eax, TCP_CONN_BUFFER_SIZE
+	call	mallocz
+	jc	9f
+cmp eax, 0x00400000
+jb 2f
+int 3
+2:
+clc
+
+	mov	[edx + tcp_conn_recv_buf], eax
+	mov	[edx + tcp_conn_recv_buf_size], dword ptr TCP_CONN_BUFFER_SIZE
+1:	mov	[edx + tcp_conn_recv_buf_start], dword ptr 0
+	mov	[edx + tcp_conn_recv_buf_len], dword ptr 0
+
+
+0:	MUTEX_UNLOCK_ TCP_CONN
 
 	pop	eax
 	pop	edx
@@ -419,6 +458,7 @@ net_tcp_conn_newentry:
 # in: esi = tcp frame pointer
 # in: ecx = tcp frame len (incl header)
 net_tcp_conn_update:
+	MUTEX_SPINLOCK_ TCP_CONN
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	.if NET_TCP_CONN_DEBUG > 1
 		DEBUG "tcp_conn update"
@@ -454,10 +494,12 @@ net_tcp_conn_update:
 	pop	ebx
 	pop	edx
 	pop	eax
+	MUTEX_UNLOCK_ TCP_CONN
 	ret
 
 
 net_tcp_conn_list:
+	MUTEX_SPINLOCK_ TCP_CONN
 	ARRAY_LOOP	[tcp_connections], TCP_CONN_STRUCT_SIZE, esi, ebx, 9f
 	printc	11, "tcp/ip "
 
@@ -507,7 +549,20 @@ net_tcp_conn_list:
 	call	printdec32
 	print	" ms ago"
 
+	cmp	[esi + ebx + tcp_conn_send_buf], dword ptr 0
+	jz	1f
+	printc 12, " B"
+1:
+
 	call	newline
+
+	.if 1
+		DEBUG_DWORD [esi+ebx+tcp_conn_send_buf],"tx buf"
+		DEBUG_DWORD [esi+ebx+tcp_conn_send_buf_start],"start"
+		DEBUG_DWORD [esi+ebx+tcp_conn_send_buf_len],"len"
+		call	newline
+	.endif
+
 	call	printspace
 
 	printc 13, "local"
@@ -533,7 +588,7 @@ net_tcp_conn_list:
 	#call	newline	# already at eol
 
 	ARRAY_ENDL
-9:
+9:	MUTEX_UNLOCK TCP_CONN
 	ret
 
 # out: ax
@@ -600,18 +655,6 @@ TCP_DEBUG_COL3   = 0x84
 	popcolor
 .endm
 
-.macro TCP_DEBUG_FLAGS r=ax
-	PRINTFLAG ax, TCP_FLAG_NS, "NS "
-	PRINTFLAG ax, TCP_FLAG_CWR, "CWR "
-	PRINTFLAG ax, TCP_FLAG_ECE, "ECE "
-	PRINTFLAG ax, TCP_FLAG_URG, "URG "
-	PRINTFLAG ax, TCP_FLAG_ACK, "ACK "
-	PRINTFLAG ax, TCP_FLAG_PSH, "PSH "
-	PRINTFLAG ax, TCP_FLAG_RST, "RST "
-	PRINTFLAG ax, TCP_FLAG_SYN, "SYN "
-	PRINTFLAG ax, TCP_FLAG_FIN, "FIN "
-.endm
-
 # in: edx = ipv4 frame
 # in: esi = tcp frame
 # in: ecx = tcp frame len
@@ -638,6 +681,9 @@ net_ipv4_tcp_handle:
 
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_SYN
 	jz	8f # its not a new or known connection
+
+	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_ACK
+	jnz	1f # ACK must not be set on initial SYN.
 
 	.if NET_TCP_DEBUG
 		pushcolor TCP_DEBUG_COL_RX
@@ -678,15 +724,17 @@ net_ipv4_tcp_handle:
 	jz	1f
 	mov	ecx, eax			# in: ecx = tcp conn idx
 	mov	eax, ebx			# in: eax = local socket
-#DEBUG_DWORD ebx,"local sock"
 	movzx	ebx, word ptr [esi + tcp_sport]	# in: ebx = peer port
 	xchg	bl, bh
 	mov	edx, [edx + ipv4_src]		# in: edx = peer ip
+#	MUTEX_SPINLOCK_ TCP_CONN
 	call	net_sock_deliver_accept		# out: edx = peer sock idx
-#DEBUG "Socket notified"
-#DEBUG_DWORD edx,"tcp_conn_sock"
-	mov	eax, [tcp_connections]
-	mov	[eax + ecx + tcp_conn_sock], edx
+	# the deliver may trigger an IRQ due to the socket user sending a
+	# packet, however, the tcp_conn_sock field is only used on receiving
+	# packets, which are queued.
+#	mov	eax, [tcp_connections]
+#	mov	[eax + ecx + tcp_conn_sock], edx
+#	MUTEX_UNLOCK_ TCP_CONN
 
 1:	ret
 
@@ -729,7 +777,7 @@ net_ipv4_tcp_handle:
 # in: esi = tcp frame
 # in: ecx = tcp frame len
 net_tcp_handle:
-	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE, TCP_CONN
 	.if NET_TCP_DEBUG
 		printc	TCP_DEBUG_COL_RX, "<"
 	.endif
@@ -745,12 +793,19 @@ net_tcp_handle:
 	.if NET_TCP_DEBUG
 		printc TCP_DEBUG_COL_RX, "ACK "
 	.endif
+	push	eax
 	call	net_tcp_conn_update_ack
+	cmp	eax, -1
+	pop	eax
+#	jz	9f	# received final ACK on FIN - connection closed.
 0:
+
+########
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_FIN
 	jz	0f
 
 	# FIN
+	MUTEX_SPINLOCK_ TCP_CONN
 	push	eax
 	add	eax, [tcp_connections]
 
@@ -768,11 +823,13 @@ net_tcp_handle:
 	.endif
 	inc	dword ptr [eax + tcp_conn_remote_seq]
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_RX
-2:	test	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_ACK_TX#|TCP_CONN_STATE_FIN_TX
+2:
+	# byte not allowed - using word.
+	bts	word ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_ACK_TX_SHIFT
 	pop	eax
-	jnz	9f	# don't ack: already sent FIN
+	MUTEX_UNLOCK_ TCP_CONN
+	jc	9f	# don't ack: already sent FIN
 	# havent sent fin, rx'd fin: tx fin ack
-	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_ACK_TX
 
 	push	edx
 	push	ecx
@@ -791,12 +848,14 @@ net_tcp_handle:
 	.endif
 	#ret
 ########
-0:
+0:	call	net_tcp_handle_payload$
+
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_PSH
 	jz	0f
 	.if NET_TCP_DEBUG
 		printc TCP_DEBUG_COL_RX, "PSH "
 	.endif
+	# flush the accumulated payload to the handler/socket
 	call	net_tcp_handle_psh
 0:
 	.if NET_TCP_DEBUG
@@ -806,21 +865,54 @@ net_tcp_handle:
 
 # in: eax = tcp_conn array index
 # in: edx = ipv4 frame
-# in: esi = tcp payload
-# in: ecx = tcp payload len
+# These two will point to the PSH data (accumulated)
+## in: esi = tcp payload
+## in: ecx = tcp payload len
 tcp_rx_sock:
+	.if 1
+	push	eax
+	push	edx
+	# in: eax = ip
+	# in: edx = [proto] [port]
+	# out: edx = socket
+#	mov	eax, [edx + ipv4_dst]
+#	movzx	edx, word ptr [esi + tcp_dport]
+#	xchg	dl, dh
+#printchar ':'
+#call printdec32
+	mov	edx, IP_PROTOCOL_TCP << 16
+	MUTEX_SPINLOCK_ TCP_CONN
+	add	eax, [tcp_connections]
+	mov	dx, [eax + tcp_conn_remote_port]
+	xchg	dl, dh
+	mov	eax, [eax + tcp_conn_remote_addr]
+	MUTEX_UNLOCK_ TCP_CONN
+	call	net_socket_find
+	jc	9f
+#	DEBUG "Got socket"
+	mov	eax, edx
+	call	net_socket_write
+0:	pop	edx
+	pop	eax
+	ret
+9: DEBUG "!! NO socket: ip=";call net_print_ip;DEBUG_DWORD edx,"proto|port"
+jmp 0b
+	.else
+
+	MUTEX_SPINLOCK_ TCP_CONN
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	add	eax, [tcp_connections]
 	mov	eax, [eax + tcp_conn_sock]
+	MUTEX_UNLOCK_ TCP_CONN
 	call	net_socket_write
+	.endif
 	ret
 
 # in: eax = tcp_conn array index
 # in: edx = ipv4 frame
 # in: esi = tcp frame
 # in: ecx = tcp frame len
-net_tcp_handle_psh:
-	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
+net_tcp_handle_payload$:
 	push	ecx
 	push	edx
 	push	esi
@@ -830,17 +922,62 @@ net_tcp_handle_psh:
 	shr	edx, 2
 	and	dl, ~3
 	sub	ecx, edx
-	add	esi, edx
+	jz	0f	# no payload
+	add	esi, edx	# esi points to payload
 
+	MUTEX_SPINLOCK_ TCP_CONN
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	push	eax
 	add	eax, [tcp_connections]
 	add	[eax + tcp_conn_remote_seq], ecx
+
+	call newline
+	.if NET_TCP_DEBUG > 1
+		DEBUG "rx payload",0xa0
+		DEBUG_DWORD [eax+tcp_conn_recv_buf_start],"start",0xa0
+		DEBUG_DWORD [eax+tcp_conn_recv_buf_len],"len",0xa0
+	.endif
+	push	esi
+	push	edi
+	push	ecx
+	mov	edi, [eax + tcp_conn_recv_buf]
+	add	edi, [eax + tcp_conn_recv_buf_start]
+	add	edi, [eax + tcp_conn_recv_buf_len]
+	rep	movsb
+	pop	ecx
+	pop	edi
+	pop	esi
+	add	[eax + tcp_conn_recv_buf_len], ecx
+	.if NET_TCP_DEBUG > 1
+		DEBUG_DWORD [eax+tcp_conn_recv_buf_len],"len",0xa0
+		call newline
+		push_ esi ecx
+		11:	lodsb
+			call	printchar
+			loop	11b
+			call	newline
+		pop_ ecx esi
+	.endif
+
+
 	pop	eax
+	MUTEX_UNLOCK_ TCP_CONN
 	# send ack
 	push	eax
 	call	net_tcp_conn_send_ack
 	pop	eax
 
+0:	pop	esi
+	pop	edx
+	pop	ecx
+	ret
+
+# in: eax = tcp_conn array index
+# in: edx = ipv4 frame
+net_tcp_handle_psh:
+	push	ecx
+	push	edx
+	push	esi
 		# UNTESTED
 		# in: eax = ip
 		# in: edx = [proto] [port]
@@ -853,19 +990,41 @@ net_tcp_handle_psh:
 
 	# call handler
 
+	MUTEX_SPINLOCK_ TCP_CONN
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	mov	edi, [tcp_connections]
-or edi, edi
-jz 10f
 	add	edi, eax
+	mov	esi, [edi + tcp_conn_recv_buf]
+	add	esi, [edi + tcp_conn_recv_buf_start]
+	mov	ecx, [edi + tcp_conn_recv_buf_len]
+
+	.if NET_TCP_DEBUG > 1
+		call newline
+		DEBUG "handle PSH", 0xb0
+		DEBUG_DWORD [edi+tcp_conn_recv_buf_start],"start",0xb0
+		DEBUG_DWORD [edi+tcp_conn_recv_buf_len],"len",0xb0
+		call newline
+	.endif
+
 	mov	edi, [edi + tcp_conn_handler]
+	MUTEX_UNLOCK_ TCP_CONN
+
 or	edi, edi
 jz	9f
 cmp	edi, -1
 jz	9f
 	add	edi, [realsegflat]
+	mov	edx, [esp + 4]	# edx: ipv4 frame
 	pushad
-	call	edi
+	call	edi	# in: eax = tcp conn idx; edx=ipv4; esi=data; ecx=data len
 	popad
+	# the push has copied ALL data, so we clear the buffer.
+	MUTEX_SPINLOCK_ TCP_CONN
+	mov	edi, [tcp_connections]
+	add	edi, eax
+	sub	[edi + tcp_conn_recv_buf_len], ecx	# should be 0
+	mov	[edi + tcp_conn_recv_buf_start], dword ptr 0
+	MUTEX_UNLOCK_ TCP_CONN
 
 0:	pop	esi
 	pop	edx
@@ -873,29 +1032,51 @@ jz	9f
 	ret
 9:	printlnc 4, "net_tcp_handle_psh: null handler"
 	# eax = edi = 0; edx=tcp hlen=ok, ecx=0x75.
-	jmp	1f
-10:	printlnc 4, "net_tcp_handle_psh: no connections"
-1:	pushad
+	pushad
 	call	net_tcp_conn_list
 	popad
 	int	1
 	jmp	0b
 
+# in: eax = tcp connection index
+# out: eax = -1 if the ACK is for the FIN
+# side-effect: send_buf free'd.
 net_tcp_conn_update_ack:
+	MUTEX_SPINLOCK_ TCP_CONN
+	push	edx
 	push	eax
 	push	ebx
 	add	eax, [tcp_connections]
 	mov	ebx, [esi + tcp_ack_nr]
 	mov	[eax + tcp_conn_local_seq_ack], ebx
 	movzx	ebx, byte ptr [eax + tcp_conn_state]
+	# see if ACK is for FIN
 	test	bl, TCP_CONN_STATE_FIN_TX
 	jz	1f
+	mov	edx, [eax + tcp_conn_tx_fin_seq]
+	bswap	edx
+	cmp	edx, [esi + tcp_ack_nr]
+	jnz	1f
+	# Connection closed now, free buffer:
+	push	eax
+	mov	eax, [eax + tcp_conn_send_buf]
+	call	mfree
+	pop	eax
+	mov	[eax + tcp_conn_send_buf], dword ptr 0
+	test	bl, TCP_CONN_STATE_FIN_ACK_RX|TCP_CONN_STATE_FIN_ACK_TX
+	jz	1f
+	mov	[esp + 4], dword ptr -1	# return eax = -1
+1:
+	#
 	or	bh, TCP_CONN_STATE_FIN_ACK_RX
 1:	test	bl, TCP_CONN_STATE_SYN_TX
+	jz	1f
 	or	bh, TCP_CONN_STATE_SYN_ACK_RX
-	or	[eax + tcp_conn_state], bh
+1:	or	[eax + tcp_conn_state], bh
 	pop	ebx
 	pop	eax
+	pop	edx
+	MUTEX_UNLOCK_ TCP_CONN
 	ret
 
 
@@ -909,6 +1090,7 @@ net_tcp_conn_send_ack:
 	pop	edx
 	ret
 
+
 # appends the data to the tcp connection's send buffer; on overflow,
 # it flushes the buffer (sends it), and appends the remaining data.
 # This is repeated until all the data has been transfered to the buffer.
@@ -921,13 +1103,13 @@ net_tcp_conn_send_ack:
 # out: esi = start of data not put in buffer
 # out: ecx = length of data not put in buffer
 net_tcp_sendbuf:
-	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	push	edi
 	push	ebx
 	push	edx
 
 ########
-0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
+0:	MUTEX_SPINLOCK_ TCP_CONN
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	mov	ebx, [tcp_connections]
 	add	ebx, eax
 
@@ -938,10 +1120,36 @@ net_tcp_sendbuf:
 #DEBUG_DWORD [ebx+tcp_conn_send_buf_start]
 #DEBUG_DWORD [ebx+tcp_conn_send_buf_len]
 	mov	edi, [ebx + tcp_conn_send_buf]
-cmp edi, 0x00200000
+cmp edi, 0x00300000
 jb 1f
 pushad
+MUTEX_UNLOCK_ TCP_CONN
 call net_tcp_conn_list
+MUTEX_SPINLOCK_ TCP_CONN
+call print_handles$
+popad
+pushad
+DEBUG_DWORD [tcp_connections],"[conn]"
+DEBUG_DWORD eax,"idx"
+DEBUG_DWORD ebx
+DEBUG_DWORD edi,"buf"
+lea eax, [ebx + tcp_conn_send_buf]
+DEBUG_DWORD eax,"!!!"
+call newline
+
+mov edx, [esp + 32 + 12]
+DEBUG_DWORD edx;  call debug_printsymbol;call newline # callgate
+
+mov	eax, [tcp_connections]
+sub	eax, 8
+call	mem_find_handle$	# out: edx = handle nr; ebx = handle struct ptr
+jc	11f
+call	print_handle_$;
+jmp	12f
+
+11:	DEBUG "handle not found"
+12:
+
 int 3
 popad
 1:
@@ -985,14 +1193,14 @@ popad
 # uses tcp_conn_send_buf*
 # in: eax = tcp conn idx
 net_tcp_sendbuf_flush:
-	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE, TCP_CONN
 
 	push	edx
 	push	esi
 	push	ecx
 	push	ebx
 
-0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
+0:	MUTEX_SPINLOCK_ TCP_CONN
 
 	mov	ebx, [tcp_connections]
 	add	ebx, eax
@@ -1007,7 +1215,7 @@ net_tcp_sendbuf_flush:
 	mov	[ebx + tcp_conn_send_buf_len], ecx
 	mov	ecx, 1420
 	add	[ebx + tcp_conn_send_buf_start], ecx
-1:	MUTEX_UNLOCK TCP_CONN
+1:	MUTEX_UNLOCK_ TCP_CONN
 
 	jecxz	1f
 	mov	dx, TCP_FLAG_PSH # | 1 << 8	# nocopy
@@ -1023,7 +1231,7 @@ net_tcp_sendbuf_flush:
 
 # in: eax = tcp_conn_idx
 net_tcp_fin:
-	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE, TCP_CONN
 	push	edx
 	push	ecx
 	xor	ecx, ecx
@@ -1040,7 +1248,7 @@ net_tcp_fin:
 # in: esi = payload
 # in: ecx = payload len
 net_tcp_send:
-	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE, TCP_CONN
 	cmp	ecx, 1536 - TCP_HEADER_SIZE - IPV4_HEADER_SIZE - ETH_HEADER_SIZE
 	jb	0f
 	printc	4, "tcp payload too large: "
@@ -1067,7 +1275,7 @@ net_tcp_send:
 	jc	9f
 	push	edi
 
-0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
+	MUTEX_SPINLOCK_ TCP_CONN
 	push	esi
 	push	edx
 	push	ecx
@@ -1118,6 +1326,10 @@ net_tcp_send:
 	jz	1f
 	or	[eax + tcp_conn_state], byte ptr TCP_CONN_STATE_FIN_TX
 	inc	dword ptr [eax + tcp_conn_local_seq]	# count FIN as octet
+	push	ebx	# mark the sequence
+	mov	ebx, [eax + tcp_conn_local_seq]
+	mov	[eax + tcp_conn_tx_fin_seq], ebx
+	pop	ebx
 1:
 
 
@@ -1158,6 +1370,7 @@ net_tcp_send:
 	mov	esi, edi		# in: esi = tcp frame pointer
 	add	ecx, TCP_HEADER_SIZE	# in: ecx = tcp frame len
 	call	net_tcp_checksum
+	MUTEX_UNLOCK_ TCP_CONN
 
 	# send packet
 
@@ -1168,6 +1381,8 @@ net_tcp_send:
 	jc	9f
 
 	# update flags
+	MUTEX_SPINLOCK_ TCP_CONN
+	mov	eax, [ebp]	# tcp_conn_idx
 	add	eax, [tcp_connections]
 	mov	dh, [eax + tcp_conn_state]
 
@@ -1180,9 +1395,9 @@ net_tcp_send:
 	jz	1f
 	or	dh, TCP_CONN_STATE_FIN_ACK_TX
 1:	or	[eax + tcp_conn_state], dh
+	MUTEX_UNLOCK_ TCP_CONN
 
-9:	MUTEX_UNLOCK TCP_CONN
-	pop	ebp
+9:	pop	ebp
 	pop	eax
 	pop	ebx
 	pop	esi
@@ -1374,7 +1589,7 @@ net_tcp_handle_syn$:
 	mov	eax, [esi + tcp_seq]
 	bswap	eax
 	inc	eax
-0:	MUTEX_LOCK TCP_CONN, nolocklabel=0b
+	MUTEX_SPINLOCK_ TCP_CONN
 		push	edx
 		mov	edx, [ebp - 4]
 		add	edx, [tcp_connections]
@@ -1437,7 +1652,7 @@ net_tcp_handle_syn$:
 	jc	1f
 	add	eax, [tcp_connections]
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_SYN_ACK_TX | TCP_CONN_STATE_SYN_TX
-1:	MUTEX_UNLOCK TCP_CONN
+1:	MUTEX_UNLOCK_ TCP_CONN
 	pop	ebp
 	popad
 	ret

@@ -16,7 +16,8 @@ KERNEL_SRC = kernel.s defines.s macros.s debug.s debugger.s realmode.s print.s \
 	mutex.s console.s paging.s buffer.s
 
 HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s \
-	nic.s dev.s $(NIC_SRC) vmware.s
+	nic.s dev.s $(NIC_SRC) \
+	vmware.s vmware_svga2.s
 
 NIC_SRC = rtl8139.s i8254.s am79c971.s
 
@@ -27,7 +28,8 @@ FS_SRC = fs.s iso9660.s partition.s fat.s sfs.s
 GFX_SRC = gfx.s ../fonts/courier56.s
 
 kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s $(FS_SRC) $(NET_SRC) $(GFX_SRC) \
-		token.s shell.s Makefile
+		token.s shell.s Makefile ../lib/sha.s
+		# ../lib/xml.s
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
 	@../util/checksymbols $@

@@ -24,14 +24,42 @@
 				</ul>
 			</li>
 			<li>memory location independent</li>
-			<li>manually optimized:
+			<li>manually optimized</li>
+			<li>unwindable to bootloader - 'hot restart'</li>
+			<li>Device drivers:
 				<ul>
-					<li>minimal stack usage</li>
-					<li>some pipelining</li>
-					<li>hardware string functions used whenever possible</li>
-					<li>maximal code reuse - methods and macros</li>
+					<li>generic ATA (harddisk)</li>
+					<li>generic ATAPI (cdrom)</li>
+					<li>PCI</li>
+					<li>AMD AM79C971 PCNet Fast network controller</li>
+					<li>Intel 8254x PCI/PCI-X_Gigabit Ethernet Controller</li>
+					<li>Realtek 8139 Ethernet Controller</li>
+					<li>VMWare SVGA II</li>
 				</ul>
 			</li>
+			<li>File systems:
+				<ul>
+					<li>ISO9660</li>
+					<li>FAT16</li>
+				</ul>
+			</li>
+			<li>Networking:
+				<ul>
+					<li>Ethernet</li>
+					<li>ARP</li>
+					<li>ICMP</li>
+					<li>IPv4</li>
+					<li>UDP</li>
+					<li>TCP</li>
+					<li>DHCP</li>
+					<li>DNS</li>
+					<li>SMTP</li>
+					<li>HTTP</li>
+					<li>SIP responder</li>
+					<li>SSH - extremely experimental</li>
+				</ul>
+			</li>
+
 		</ul>
 		<h2><a name='s_source'>Source / Issues / Wiki</h2>
 			<a href='https://github.com/neonics/qure'>GitHub</a>

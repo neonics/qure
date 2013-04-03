@@ -1194,6 +1194,20 @@ nprint:	or	ecx, ecx
 	PRINT_END
 1:	ret
 
+# in: esi = string
+# in: ecx = exact len to print
+# out: esi += ecx, ecx = 0
+nprint_:
+	jecxz	9f
+0:	lodsb
+	call	printchar
+	loop	0b
+9:	ret
+
+nprintln_:
+	call	nprint_
+	jmp	newline
+
 .global println
 println:call	print
 	jmp	newline

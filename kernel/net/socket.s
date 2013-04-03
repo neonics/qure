@@ -58,7 +58,7 @@ socket_open:
 	mov	edi, eax
 
 	.if NET_SOCKET_DEBUG
-		DEBUG "socket_open "
+		DEBUG_DWORD edx, "socket_open "
 		mov	eax, esi
 		call	net_print_ip
 		printchar_ ':'
@@ -91,6 +91,9 @@ socket_open:
 	pop	esi
 	pop	edx
 	pop	edi
+	.if NET_SOCKET_DEBUG
+		DEBUG_DWORD eax,"SOCKET_OPEN_RETURN"
+	.endif
 	ret
 91:	printlnc 4, "socket_open: out of memory"
 	mov	[edi + edx + sock_port], dword ptr -1	# mark available
@@ -262,6 +265,7 @@ socket_get_lport:
 socket_read:
 	push	edx
 	mov	edx, 1
+##DEBUG "socket_read", 0xf0
 	call	socket_buffer_read
 	jc	9f
 	mov	edx, [esi + buffer_start]
@@ -342,8 +346,7 @@ socket_buffer_read:
 	push	ebx
 	mov	ebx, [clock_ms]
 	add	ebx, ecx # SO_TIMEOUT: 10 seconds
-
-
+##DEBUG_DWORD eax,"socket_buffer_read", 0xf1
 0:	mov	edi, [socket_array]
 	mov	esi, [edi + eax + sock_in_buffer]
 	mov	ecx, [esi + buffer_index]
@@ -466,6 +469,9 @@ net_tcp_sendbuf_flush_priv$:
 net_sock_deliver_accept:
 	MUTEX_SPINLOCK_ SOCK
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
+	.if NET_SOCKET_DEBUG
+		DEBUG "SOCK DELIVER ACCEPT"
+	.endif
 	push	ebx
 	push	eax
 	xchg	eax, edx
@@ -595,8 +601,9 @@ net_socket_deliver_udp:
 	jmp	0f
 
 2:	# edx = peer socket index
-	mov	eax, [socket_array]
-	add	eax, edx
+	##mov	eax, [socket_array]
+	##add	eax, edx
+	mov	eax, edx
 ######### packet oriented socket: write in local (!SOCK_LISTEN) or peer socket
 1:	mov	ebx, [esp + 4]				# in : ebx = ip frame
 	mov	dx, [esi - UDP_HEADER_SIZE + udp_sport]	# in: dx = port
@@ -619,6 +626,9 @@ net_socket_deliver_udp:
 # in: esi = payload
 # in: ecx = payload len
 net_socket_in_append$:
+	.if NET_SOCKET_DEBUG
+		DEBUG_DWORD eax, "SOCK IN APPEND"
+	.endif
 	push	edi
 	push	eax
 	push	edx
@@ -709,11 +719,11 @@ net_socket_find_:
 # in: edx = [proto] [port]
 # in: esi, ecx: packet
 net_socket_deliver:
+DEBUG "SOCK DELIVER"
 	MUTEX_SPINLOCK_ SOCK
 	push	edi
 	push	ebx
 	push	ebp
-
 	.if NET_SOCKET_DEBUG > 1
 		DEBUG "net_socket_deliver:"
 		call net_print_ip
@@ -742,6 +752,9 @@ net_socket_deliver:
 # in: esi = data
 # in: ecx = datalen
 net_socket_write:
+	.if NET_SOCKET_DEBUG
+		DEBUG_DWORD eax, "SOCK WRITE"
+	.endif
 	MUTEX_SPINLOCK_ SOCK
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	ebx

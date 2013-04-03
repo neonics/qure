@@ -420,3 +420,22 @@ TODO: implement .bss
   declare bss start/size constants, and use those in pm kernel to memzero
   and update kernel end and calculate stack. Saves about 51k disk storage
   (even though the 1.44 floppy image still takes 1.44 mb in the iso).
+
+
+BUG: [tcp_connections] gets overwritten
+
+BUG: scheduler: [task_stack] gets overwritten with html
+
+BUG: memleak: netq: does not drop packets when queue is full.
+	Solution: have empty spot between tail/head always.
+	(other solution: no empty spot, but, when head=tail, check whether
+	the current index is occupied or not; if not, entire q is empty,
+	otherwise, entire q is full; downside: requires knowledge of q content,
+	so not generalizable.).
+
+	addendum: there are some mallocs for net_rx_packet in print_handles$
+	that are quite large: 0x0003336f (209kb).
+	NOTE: this may be due to re-merging memory blocks and not a bug at all.
+
+	new BUG: net_rx_queue not scheduled after reorg. probablyh
+	becase of the 'inc' .. result is packet queue always full.

@@ -24,22 +24,33 @@ net_service_sipd_main:
 	jc	9f
 
 0:	mov	ecx, 10000
-	call	socket_read
+	call	socket_accept
 	jc	0b
 	push	eax
-	call	sipd_handle_packet
+	mov	eax, edx
+	call	sipd_handle_client
 	pop	eax
 	jmp	0b
-	ret
 
 9:	printlnc 4, "sipd: failed to open socket"
 	ret
 
-
-sipd_handle_packet:
+sipd_handle_client:
 	printc 11, "SIP connection: "
 	call	socket_print
 	call	newline
+
+0:	mov	ecx, 10000
+	call	socket_read
+	jnc	sipd_handle_packet
+
+	printlnc 4, "sipd: request timeout"
+	LOAD_TXT "SIP/2.0/UDP 408 Request Timeout\r\n"
+	jmp	sipd_close
+
+sipd_handle_packet:
+	printc 11, "SIP RX: "
+	call	nprintln
 	LOAD_TXT "SIP/2.0/UDP 501 Not implemented\r\n"
 # in: eax = sock
 # in: esi = asciz message

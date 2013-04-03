@@ -10,13 +10,15 @@ SHA1_DEBUG = 0
 # in: ecx = source len
 # in: edi = pointer to 160 bits (20 bytes)
 sha1:
+	push_	eax ebx ecx edx ebp
+
 	.if SHA1_DEBUG
 		DEBUG "sha1"
 		call	nprintln
 		DEBUG_DWORD ecx, "sha1 inlen"
 	.endif
 
-	call	sha_pad
+	call	sha_pad	# destroys eax, edx; updates ecx
 
 	.if SHA1_DEBUG
 		DEBUG_DWORD ecx, "sha1 padded len"
@@ -24,7 +26,6 @@ sha1:
 		call	sha_dump
 	.endif
 
-	push_	eax ebx ecx edx ebp
 	sub	esp, 5*4 + 5*4 + 80*4
 	mov	ebp, esp
 
@@ -56,7 +57,7 @@ sha1:
 	pop	ecx
 	loop	0b
 
-	# processing done: mash is H0,...H4
+	# processing done: hash is H0,...H4
 	push	esi
 	lea	esi, [ebp + SHA_H0]
 	mov	ecx, 5
@@ -86,6 +87,10 @@ sha1:
 	ret
 
 # process 512 bits/64 bytes
+#
+# in: ebp = scratch
+# in: esi = data
+# destroys: ecx, eax
 sha1_block:
 	.if SHA1_DEBUG
 		DEBUG "Pre process: "
@@ -194,6 +199,113 @@ sha1_block:
 	.endif
 
 	ret
+
+
+
+########################################################
+#### staged version
+# sha1_init
+# sha1_next
+# sha1_finish
+
+# in: ebx = sha1 state buffer: 360 bytes
+sha1_init:
+	push_	eax ebx ecx edx ebp
+	mov	ebp, ebx
+
+	SHA_A = 0
+	SHA_B = 4
+	SHA_C = 8
+	SHA_D = 12
+	SHA_E = 16
+
+	SHA_H0 = 20
+	SHA_H1 = 24
+	SHA_H2 = 28
+	SHA_H3 = 32
+	SHA_H4 = 36
+
+	SHA_W0 = 40
+	SHA_W79 = 40 * 79*4
+
+	mov	[ebp + SHA_H0], dword ptr 0x67452301
+	mov	[ebp + SHA_H1], dword ptr 0xEFCDAB89
+	mov	[ebp + SHA_H2], dword ptr 0x98BADCFE
+	mov	[ebp + SHA_H3], dword ptr 0x10325476
+	mov	[ebp + SHA_H4], dword ptr 0xC3D2E1F0
+
+	pop_	ebp edx ecx ebx eax
+	ret
+
+
+
+# in: ebx = sha1 state buffer
+# in: esi = source ptr (paddable to next 64byte/512bit boundary)
+# in: ecx = source len
+sha1_next:
+	push_	esi eax ecx edx ebp
+	mov	ebp, ebx
+
+	call	sha_pad
+
+	shr	ecx, 9	# 512 bits
+	inc	ecx
+0:	push	ecx
+	call	sha1_block
+	pop	ecx
+	loop	0b
+
+
+	.if SHA1_DEBUG
+		DEBUG_DWORD ecx, "sha1 padded len"
+		call	newline
+		call	sha_dump
+	.endif
+
+	pop_	ebp edx ecx eax esi
+	ret
+
+
+# in: ebx = sha1 state buffer
+# in: edi = pointer to 160 bits (20 bytes)
+sha1_finish:
+	# processing done: hash is H0,...H4
+	push_	esi eax
+	lea	esi, [ebx + SHA_H0]
+	.rept 5	# saves push, pop, 5x loop
+	# unrolled loop:
+	#   15 instr: 10 mem, 5 bswap
+	# loop:
+	#   22 instr: 12 mem, 5 bswap, 5 loop
+	lodsd
+	bswap	eax
+	stosd
+	.endr
+	sub	edi, 20# 5 dwords = 5 * 4 * 8 bits = 20 * 8 = 160 bits
+
+	.if SHA1_DEBUG
+		push_	edx ecx
+		print "SHA1: "
+		DEBUG_DWORD edi
+		mov	esi, edi
+		mov	ecx, 5
+	0:	lodsd
+		mov	edx, eax
+		bswap	edx
+		call	printhex8
+		call	printspace
+		loop	0b
+		call	newline
+		pop_	ecx edx
+	.endif
+
+	pop_	eax esi
+	ret
+
+
+#########################################
+# internal functions
+
 
 sha_k:	cmp	cl, 20
 	jb	sha_k0

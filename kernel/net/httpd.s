@@ -39,7 +39,12 @@ net_service_httpd_main:
 		call	socket_print
 		call	printspace
 	.endif
+
+	.if 0
+	call	httpd_sched_client # some es problem
+	.else
 	call	httpd_handle_client
+	.endif
 	pop	eax
 	jmp	0b
 
@@ -47,6 +52,14 @@ net_service_httpd_main:
 9:	printlnc 4, "httpd: failed to open socket"
 	ret
 
+httpd_sched_client:
+	call	SEL_kernelCall:0
+	PUSH_TXT "httpc-"
+	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING1
+	push	cs
+	push	dword ptr offset httpd_handle_client
+	call	schedule_task
+	ret
 
 # in: eax = socket
 # postcondition: socket closed.
@@ -329,6 +342,7 @@ net_service_tcp_http:
 	call	fs_open_
 	pop	edx
 	jc	2f
+
 	call	fs_handle_read_	# out: esi, ecx
 
 	# HACK

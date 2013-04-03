@@ -6,6 +6,7 @@
 .code32
 ##############################################################################
 NET_DEBUG = 0
+NET_QUEUE_DEBUG = 0
 NET_ARP_DEBUG = NET_DEBUG
 NET_IPV4_DEBUG = NET_DEBUG
 
@@ -232,6 +233,7 @@ net_buffer_get:
 .include "net/httpd.s"
 .include "net/smtp.s"
 .include "net/sip.s"
+.include "net/ssh.s"
 
 ###########################################################################
 # LLC - Logical Link Control
@@ -410,13 +412,13 @@ net_print_mac:
 # in: esi = udp or tcp frame (or ptr to sport, dport in network byte order)
 net_print_ip_pair:
 	add	edx, offset ipv4_src
-	add	esi, offset udp_dport
+	add	esi, offset udp_sport
 	call	net_print_ip_port
 	printc	8, "->"
 	add	edx, offset ipv4_dst - ipv4_src
-	add	esi, offset udp_sport - udp_dport
+	add	esi, offset udp_dport - udp_sport
 	call	net_print_ip_port
-	sub	edx, offset ipv4_src
+	sub	edx, offset ipv4_dst
 	sub	esi, offset udp_dport
 	ret
 
@@ -658,17 +660,242 @@ net_rx_queue_status:	.long 0
 net_rx_queue_args:	.space 8*4	# pushad; eax+edx, esi,ecx
 NET_RX_QUEUE_STRUCT_SIZE = .
 .data SECTION_DATA_BSS
-net_rx_queue:	.long 0
+net_rx_queue:		.long 0
+net_rx_queue_head:	.long 0
+net_rx_queue_tail:	.long 0
 .text32
+
+#
+# 0 |RW R  R  R |W          |W           |W
+# 0 |   W       |R  RW R  R |   W        |   W
+# 0 |      W    |      W    |R  R  RW R  |      W
+# 0 |         W |         W |         W  |R  R  R  RW
+
+# 0 1 1 0 0
+# 0 0 1 1 1
+# 0 0 1 1 1
+# 0 0 0 1 0
+
+# circular array
+# PRECONDITION:
+#   tail = starting point for inject
+# POSTCONDITION:
+#   tail = new starting point for inject
 # out: eax + edx
 net_rx_queue_newentry:
 	push	ecx
+	mov	eax, [net_rx_queue]
+	or	eax, eax
+	jz	1f
+
+	mov	ecx, NET_RX_QUEUE_STRUCT_SIZE
+	mov	edx, [net_rx_queue_tail]
+
+	# see if head is before tail
+	cmp	edx, [net_rx_queue_head]
+	jz	5f
+	ja	3f	# 0..head.=?.tail..cap
+.if NET_QUEUE_DEBUG
+	DEBUG "tail<-head"
+.endif
+#########
+	# 0..tail..head..capacity
+	# see if there is room between head..tail
+	#add	edx, ecx
+	#cmp	edx, [net_rx_queue_head]
+	#ja	4f	# no room!
+	
+	# since ! jae = jb, there is room.
+	jmp	2f	# 
+
+
+#########
+3:	# 0..head..tail..capacity
+.if NET_QUEUE_DEBUG
+	DEBUG "head->tail"
+.endif
+
+	# check if there is room between tail...capacity
+	cmp	edx, [eax + array_capacity]
+	jb	2f	# it'll fit	# XXX maybe jbe
+	# won't fit: no room between tail..capacity
+
+	# check if room between 0..head
+	cmp	dword ptr [net_rx_queue_head], 0
+#	jz	1f	# no room, expand array
+	jz	4f	# no room - drop
+
+	# we have room between 0..head
+	xor	edx, edx			# return index
+	jmp	2f
+
+# this'll append - assuming tail = [eax+array_index]
+1:	ARRAY_NEWENTRY [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, 4, 9f
+2:	add	ecx, edx
+	cmp	ecx, [eax + array_capacity]
+	jb	1f
+	xor	ecx, ecx
+1:	clc
+	mov	[net_rx_queue_tail], ecx	# record the new tail
+	mov	[eax + edx + net_rx_queue_status], dword ptr 1
+
+9:	pop	ecx
+	ret
+
+5:	# head = tail
+	# check if empty or full:
+	cmp	[eax + edx + net_rx_queue_status], dword ptr 0
+	jz	3b
+	# fallthrough
+4:	
+printlnc 4,"netq full";
+pushad;call net_rx_queue_print_;popad;
+stc;jmp 9b	# code below unstable
+# 0..tail=head..capacity: no room.
+	# expand array
+	# reorganize data
+	push	esi
+	push	edi
+	mov	esi, eax	# old [net_rx_queue]
+
+	mov	eax, [eax + array_capacity]
+	xor	edx, edx
+	div	ecx
+	call	array_new
+	mov	edi, eax	# edi = new array data
+
+	# copy head...capacity
+	mov	ecx, [esi + array_capacity]
+	sub	ecx, [net_rx_queue_head]
+	mov	[eax + array_index], ecx
+	rep	movsb
+	mov	dword ptr [net_rx_queue_head], 0
+
+	# append 0..tail
+	mov	esi, [net_rx_queue]
+	mov	ecx, [net_rx_queue_tail]
+	add	ecx, NET_RX_QUEUE_STRUCT_SIZE
+	add	[eax + array_index], ecx
+	rep	movsb
+
+	xchg	eax, [net_rx_queue]
+	call	mfree
+
+	pop	edi
+	pop	esi
+
+	jmp	1b
+
+# out: eax + edx
+# out: CF = no entry
+# EFFECT: move head to next
+net_rx_queue_get:
+	mov	eax, [net_rx_queue]
+	or	eax, eax
+	stc
+	jz	9f
+.if NET_QUEUE_DEBUG
+call newline
+pushcolor 7
+push ebx
+push esi
+xor esi,esi
+0: mov edx, [eax + esi + net_rx_queue_status]
+
+mov bl, 7
+cmp esi, [net_rx_queue_tail]
+jnz 2f
+add bl, 4
+2:
+cmp esi, [net_rx_queue_head]
+jnz 2f
+or bl, 0x10
+2:
+push ebx; color bl; pop ebx
+call printhex1
+color 7
+call printspace
+
+add esi, NET_RX_QUEUE_STRUCT_SIZE
+cmp esi, [eax + array_capacity]
+jb 0b
+pop esi
+pop ebx
+popcolor
+#pushad
+#call net_rx_queue_print_
+#popad
+.endif
+
+
+	mov	edx, [net_rx_queue_head]
+	cmp	[eax + edx + net_rx_queue_status], dword ptr 0
+	stc
+	jz	9f
+	push	ecx
+	lea	ecx, [edx + NET_RX_QUEUE_STRUCT_SIZE]
+	cmp	ecx, [eax + array_capacity]
+	jb	1f
+	xor	ecx, ecx
+1:	mov	[net_rx_queue_head], ecx
+.if NET_QUEUE_DEBUG
+	DEBUG_DWORD ecx,"queue next head"
+.endif
+	pop	ecx
+	clc
+.if NET_QUEUE_DEBUG
+	ret
+9:	DEBUG "net_rx_queue_get", 0x4f;
+	ret
+.else
+9:	ret
+.endif
+
+##############################################################################
+
+# out: eax + edx
+net_rx_queue_newentry_old$:
+	push	ecx
+	# this here will reorder the packets in reverse....
 	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 1f
 	cmp	[eax + edx + net_rx_queue_status], dword ptr 0
 	jz	2f
 	ARRAY_ENDL
 1:	ARRAY_NEWENTRY [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, 4, 9f
 2:	mov	[eax + edx + net_rx_queue_status], dword ptr 1
+9:	pop	ecx
+	ret
+
+
+# this one causes page fault after having processed first entry
+# out: eax + edx
+net_rx_queue_newentry_compact$:
+	push	ecx
+	mov	eax, [net_rx_queue]
+	or	eax, eax
+	jz	1f
+	cmp	[eax + net_rx_queue_status], dword ptr 0
+	jnz	1f	# first entry occupied, append
+	# first entry free - compact
+	push	edi
+	push	esi
+	mov	edi, eax
+	mov	ecx, NET_RX_QUEUE_STRUCT_SIZE
+	# find first nonfree
+0:	cmp	dword ptr [eax + ecx + net_rx_queue_status], 0
+	jnz	0f
+	add	ecx, NET_RX_QUEUE_STRUCT_SIZE
+	jmp	0b
+
+0:	# eax + ecx = first nonfree
+	lea	esi, [eax + ecx]
+	rep	movsb
+	pop	esi
+	pop	edi
+
+1:	ARRAY_NEWENTRY [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, 4, 9f
+	mov	[eax + edx + net_rx_queue_status], dword ptr 1
+
 9:	pop	ecx
 	ret
 
@@ -681,15 +908,41 @@ net_rx_packet:
 	push	eax
 	push	edx
 	push	esi
-	call	mdup
-	jc	8f
-0:	MUTEX_SPINLOCK NET, nolocklabel=0b
+cmp ecx, 2000
+jb 1f
+printc 4, "net_rx_packet: packet size too large: ";DEBUG_DWORD ecx
+int 3
+1:
+	MUTEX_SPINLOCK_ NET
 	call	net_rx_queue_newentry	# out: eax + edx
 	jnc	1f
-2:	MUTEX_UNLOCK NET
-	jmp	9f
+	MUTEX_UNLOCK_ NET
 
-1:	pushad
+########################################################
+9:	call	net_print_drop_msg$
+	printlnc 4, "queue full"
+
+0:	pop	esi
+	pop	edx
+	pop	eax
+	ret
+
+net_print_drop_msg$:
+	printc 4, "net: packet dropped: "
+	ret
+
+8:	call	net_print_drop_msg$
+	printlnc 4, "mdup error"
+	jmp	0b
+
+########################################################
+# we have a queue entry - set it up.
+# XXX FIXME TODO: possible bug: the queue entry is marked as reserved,
+# but not set up at this point. it might get scheduled.
+1:	call	mdup	# in: esi, ecx; out: esi
+	jc	8b
+
+	pushad
 	lea	edi, [eax + edx + net_rx_queue_args]
 	mov	esi, esp
 	mov	ecx, 8
@@ -701,11 +954,19 @@ net_rx_packet:
 	pop	esi
 	pop	edx
 	pop	eax
-	MUTEX_UNLOCK NET
-
+	MUTEX_UNLOCK_ NET
+	# fallthrough
+.data
+net_rx_queue_scheduled$:.byte 0
+.text32
 net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
+# TODO: dont sched if still running. use local mutex.
+	cmp	byte ptr [net_rx_queue_scheduled$], 0
+	jnz	1f
+	inc	byte ptr [net_rx_queue_scheduled$]
+
 	PUSH_TXT "netq"
-	push	dword ptr TASK_FLAG_RESCHEDULE # flags
+	push	dword ptr 0#TASK_FLAG_TASK#TASK_FLAG_RESCHEDULE # flags
 	push	cs
 	push	eax
 	mov	eax, offset net_rx_queue_handler
@@ -719,42 +980,62 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 #	jnc	1f
 #	call	0f
 #	printlnc 4, "schedule error"	# task already scheduled: happens often
-	ret
+1:	ret	# BUG: edx = [esp] = 00100900
 
-8:	call	0f
-	printlnc 4, "mdup error"
-90:	pop	esi
-	pop	edx
-	pop	eax
-	ret
 
-9:	call	0f
-	printlnc 4, "queue full"
-	jmp	90b
-
-0:	printc 4, "net: packet dropped: "
-	ret
-
+net_rx_queue_handler_again:
+	nop
+	#call	newline
+	#DEBUG_DWORD esp,"ENTRY:LOOP",0xb0;DEBUG_DWORD [esp]
+	#jmp	_foo
 
 net_rx_queue_handler:
-0:	MUTEX_SPINLOCK NET, nolocklabel=0b
+	#DEBUG_DWORD esp, "ENTRY:SCHED",0xb0;DEBUG_DWORD [esp]
+#_foo:
+	MUTEX_SPINLOCK_ NET
+
+.if 1
+	call	net_rx_queue_get
+	jnc	1f
+.else
 	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
-	cmp	[eax + edx + net_rx_queue_status], dword ptr 1
-	jz	1f
+	cmp	[eax + edx + net_rx_queue_status], dword ptr 0
+	jnz	1f
 	ARRAY_ENDL
-9:	MUTEX_UNLOCK NET
+9:	
+.endif
+	MUTEX_UNLOCK_ NET
+
+	# if we don't ever exit, do schedule here, then jump back:
+	# call schedule_near
+	# jmp net_rx_queue_handler
+
+	# TODO: have scheduler deal with semaphores, i.e., IO_WAIT and such.
+	
+	lock dec byte ptr [net_rx_queue_scheduled$]
+# for debug if error on ret
+#	DEBUG_DWORD esp, "q exit",0xb0
+#push ebp; lea ebp,[esp+4];DEBUG_DWORD [ebp];pop ebp
 	ret	# queue exhausted
+
 
 1:	sub	esp, 8*4
 	lea	esi, [eax + edx + net_rx_queue_args]
 	mov	edi, esp
 	mov	ecx, 8
 	rep	movsd
-	popad
+	popad	# esp ignored
 
 	mov	eax, [net_rx_queue]
 	mov	[eax + edx + net_rx_queue_status], dword ptr 0
-	MUTEX_UNLOCK NET
+
+#		DEBUG_DWORD edx,"removed"
+#		call newline
+#		pushad
+#		call net_rx_queue_print_
+#		popad
+
+	MUTEX_UNLOCK_ NET
 
 	call	net_rx_packet_task
 
@@ -771,30 +1052,72 @@ net_rx_queue_handler:
 	jmp	net_rx_queue_schedule
 9:
 .else
-	jmp	net_rx_queue_handler
+	jmp	net_rx_queue_handler_again
 .endif
 	ret
 
-
-
 net_rx_queue_print:
+	#MUTEX_SPINLOCK_ NET
+	call	net_rx_queue_print_
+	#MUTEX_UNLOCK NET
+	ret
+
+net_rx_queue_print_:
 	printc 11, "net_rx_queue: "
 	xor	ecx, ecx
 	xor	ebx, ebx
 	# count packets
-0:	MUTEX_SPINLOCK NET, nolocklabel=0b
 	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
 	add	ecx, [eax + edx + net_rx_queue_status]	# 1 indicates pkt in q
 	inc	ebx
 	ARRAY_ENDL
-9:	MUTEX_UNLOCK NET
+9:
 
 	mov	edx, ecx
 	call	printdec32
 	printcharc 11, '/'
 	mov	edx, ebx
 	call	printdec32
-	printlnc 11, " packets"
+	printc 11, " packets; head="
+	mov	edx, [net_rx_queue_head]
+	call	printhex8
+	printc 11, " tail="
+	mov	edx, [net_rx_queue_tail]
+	call	printhex8
+	mov	eax, [net_rx_queue]
+	printc 11, " index="
+	mov	edx, [eax + array_index]
+	call	printhex8
+	printc 11, " cap="
+	mov	edx, [eax + array_capacity]
+	call	printhex8
+	call	newline
+.if 1
+	mov	eax, [net_rx_queue]
+	or	eax, eax
+	jz	9f
+	xor	ecx, ecx
+
+0:	mov	edx, ecx
+	call	printhex8
+	print ": "
+	mov	edx, [eax + ecx + net_rx_queue_status]
+	call	printhex8
+	cmp	ecx, [net_rx_queue_head]
+	jnz	1f
+	printc 11, " head"
+1:
+	cmp	ecx, [net_rx_queue_tail]
+	jnz	1f
+	printc 11, " tail"
+1:
+	call	newline
+
+	add	ecx, NET_RX_QUEUE_STRUCT_SIZE
+	cmp	ecx, [eax + array_capacity]
+	jb	0b
+9:	
+.endif
 
 	ret
 .endif

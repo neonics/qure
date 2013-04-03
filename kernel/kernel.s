@@ -40,6 +40,9 @@ data_pci_nic:
 # .long driver_constructor
 # .long name
 # .long 0	# alignment - total size: 16 bytes
+.data SECTION_DATA_PCI_VID
+data_pci_vid_start:
+data_pci_vid:
 .data SECTION_DATA_FONTS
 data_fonts_start:
 .data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
@@ -114,6 +117,10 @@ include "am79c971.s"
 code_nic_end:
 include "net/net.s", net
 
+code_vid_start:
+include "vmware_svga2.s"
+code_vid_end:
+
 include "gfx.s", gfx
 include "hwdebug.s", hwdebug
 include "vmware.s", vmware
@@ -159,7 +166,6 @@ kmain:
 	.endif
 
 	call	paging_init
-
 
 	call	debug_load_symboltable	# a simple reference check and pointer calculation.
 
@@ -348,7 +354,8 @@ kmain:
 	call	cmd_dnsd
 	call	cmd_httpd
 	call	cmd_smtpd
-#	call	cmd_sipd
+	call	cmd_sshd
+	call	cmd_sipd
 
 
 OPEN_SHELL_DEFAULT = 0
@@ -500,6 +507,8 @@ data_str_end:
 data_shell_cmds_end:
 .data SECTION_DATA_PCI_NIC
 data_pci_nic_end:
+.data SECTION_DATA_PCI_VID
+data_pci_vid_end:
 .data SECTION_DATA_FONTS
 data_fonts_end:
 .data SECTION_DATA_BSS

@@ -917,6 +917,27 @@ pci_write_config:
 	in	eax, dx
 	ret
 
+# in: cx = pci addr
+# in: al = bar nr
+pci_get_bar:
+	push_	ecx ebx
+	mov	bl, al
+	shl	bl, 2
+	add	bl, PCI_CFG_BAR0
+	mov	ax, cx
+	call	pci_read_config
+	pop_	ebx ecx
+	ret
+
+pci_get_bar_addr:
+	call	pci_get_bar
+	test	al, 1
+	jz	1f
+	and	al, ~3
+	ret
+1:	and	al, ~15
+	ret
+
 pci_print_dev$:
 	inc	eax
 	jz	1f

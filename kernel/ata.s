@@ -1805,7 +1805,7 @@ atapi_packet_command:
 		PRINT " bytes "
 		pop	edx
 	.endif
-
+#DEBUG_DWORD edi,"READ", 0x2f
 	push	ecx
 	push	dx
 	add	dx, ATA_PORT_DATA

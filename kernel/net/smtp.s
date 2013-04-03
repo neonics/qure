@@ -32,6 +32,9 @@ net_service_smtpd_main:
 	mov	ebx, SOCK_LISTEN
 	call	socket_open
 	jc	9f
+	printc 11, "SMTP Daemon listening on "
+	call	socket_print
+	call	newline
 
 0:	mov	ecx, 10000
 	call	socket_accept

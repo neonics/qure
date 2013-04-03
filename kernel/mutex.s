@@ -5,6 +5,7 @@
 
 MUTEX_DEBUG = 1	# registers lock owners
 
+_MUTEX_LOCAL = 0	# experimental feature
 ################################################################
 # Mutex - mutual exclusion
 #
@@ -33,6 +34,10 @@ mutex_name_FS:		.asciz "FS"
 mutex_name_NET:		.asciz "NET"
 mutex_name_TCP_CONN:	.asciz "TCP_CONN"
 mutex_name_SOCK:	.asciz "SOCK"
+
+.tdata
+tls_mutex: .long 0
+.tdata_end
 .text32
 
 .macro YIELD
@@ -47,9 +52,63 @@ mutex_name_SOCK:	.asciz "SOCK"
 	.endif
 .endm
 
+
+
+
+.macro MUTEX_LOCAL_TEST name
+.if _MUTEX_LOCAL
+	push	eax
+	call	tls_get
+	bt	[eax + tls_mutex], MUTEX_\name
+	pop	eax
+.endif
+.endm
+
+.macro MUTEX_LOCAL_SETC_ name
+.if _MUTEX_LOCAL
+	push	eax
+	call	tls_get
+	.print "MUTEX_\name"
+	or	dword ptr [eax + tls_mutex], 1<< MUTEX_\name
+	pop	eax
+.endif
+.endm
+
+
+.macro MUTEX_LOCAL_SETC name
+.if _MUTEX_LOCAL
+	jnc	109f
+	MUTEX_LOCAL_SETC_ \name
+	stc
+109:
+.endif
+.endm
+
+.macro MUTEX_LOCAL_CLEARC_ name
+.if _MUTEX_LOCAL
+	push	eax
+	call	tls_get
+	and	dword ptr [eax + tls_mutex], 1#~(1<< MUTEX_\name)
+	pop	eax
+.endif
+.endm
+
+
+.macro MUTEX_LOCAL_CLEARC name
+.if _MUTEX_LOCAL
+	jc	109f
+	MUTEX_LOCAL_CLEARC_ \name
+	stc
+109:
+.endif
+.endm
+
+
+
 # out: CF = 1: fail, mutex was already locked.
 .macro MUTEX_LOCK name, nolocklabel=0, locklabel=0, debug=0
 	lock bts dword ptr [mutex], MUTEX_\name
+	MUTEX_LOCAL_SETC \name
 
 	.if MUTEX_DEBUG
 		jc	100f
@@ -75,7 +134,7 @@ mutex_name_SOCK:	.asciz "SOCK"
 # out: CF = 1: it was locked (ok); 0: another thread unlocked it (err)
 .macro MUTEX_UNLOCK name, debug=0
 	lock btr dword ptr [mutex], MUTEX_\name
-
+	MUTEX_LOCAL_CLEARC \name
 	.if MUTEX_DEBUG > 1
 		mov	[mutex_owner + MUTEX_\name * 4], dword ptr 0
 	.endif
@@ -90,8 +149,12 @@ mutex_name_SOCK:	.asciz "SOCK"
 
 
 .macro MUTEX_SPINLOCK_ name
-1999:	lock bts dword ptr [mutex], MUTEX_\name
+	jmp	1990f
+1999:	lock btr dword ptr [mutex], MUTEX_\name	# clear mutex on fail
+	YIELD
+1990:	lock bts dword ptr [mutex], MUTEX_\name
 	jc	1999b
+	MUTEX_LOCAL_SETC_ \name
 	call	1999f
 1999:	pop	dword ptr [mutex_owner + MUTEX_\name * 4]
 .endm
@@ -99,6 +162,7 @@ mutex_name_SOCK:	.asciz "SOCK"
 .macro MUTEX_UNLOCK_ name
 	pushf
 	lock btr dword ptr [mutex], MUTEX_\name
+	MUTEX_LOCAL_CLEARC_ \name
 	mov	dword ptr [mutex_owner + MUTEX_\name * 4], 0
 	popf
 .endm
@@ -115,9 +179,9 @@ mutex_name_SOCK:	.asciz "SOCK"
 .macro MUTEX_SPINLOCK name, nolocklabel=0, locklabel=0, debug=0
 	push	ecx
 	mov	ecx, 10
-101:	MUTEX_LOCK \name, locklabel=102f
+9101:	MUTEX_LOCK \name, 0, 9102f
 	YIELD
-	loop	101b
+	loop	9101b
 	.if \debug
 		printc 5, "MUTEX_SPINLOCK \name: fail"
 		.if MUTEX_DEBUG > 1
@@ -134,7 +198,7 @@ mutex_name_SOCK:	.asciz "SOCK"
 		.endif
 	.endif
 	stc
-102:	pop	ecx
+9102:	pop	ecx
 	.ifnc 0,\locklabel
 	jnc	\locklabel
 	.endif

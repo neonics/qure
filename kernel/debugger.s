@@ -701,14 +701,16 @@ debugger:
 	jz	9f
 	# the rest of the keys/commands has print output, so do newline:
 	call	newline
-	cmp	al, 'p'
+	cmp	al, 'p'	# print registers
 	jz	2f
-	cmp	al, 'h'
+	cmp	al, 'h'	# help
 	jz	1b
-	cmp	al, 's'
+	cmp	al, 's'	# scheduler (tasks)
 	jz	55f
-	cmp	al, 'm'
+	cmp	al, 'm'	# mutex
 	jz	69f
+	cmp	al, 'u'	# memory
+	jz	3f
 	jmp	6b
 
 10:	mov	edi, [ebp]
@@ -776,6 +778,8 @@ debugger:
 2:	call	debug_print_exception_registers$# printregisters
 	jmp	0b
 
+3:	call	print_handles$
+	jmp	0b
 
 # in: [esp+0] index
 # in: [esp+4] arrayref

@@ -386,7 +386,6 @@ vmware_chan_receive:
 	jz	vmware_chan_error$
 	cmp	edx, VMWARE_BD_MSG_TYPE_SENDPAYLOAD << 16
 	jne	vmware_chan_prot_error2$
-
 	mov	edi, [eax + vmware_buf_curptr$]
 	mov	[edi], ebx
 	add	[eax + vmware_buf_curptr$], dword ptr 4
@@ -398,6 +397,7 @@ vmware_chan_receive:
 
 ######## fast method: rep insb
 1:	mov	ecx, [eax + vmware_msg_len]
+DEBUG "fast"
 	mov	ebx, VMWARE_BD_HB_CMD_MESSAGE | (VMWARE_BD_MSG_ST_SUCCESS << 16)
 	mov	edx, [eax + vmware_chan_id]
 	mov	esi, [eax + vmware_chan_cookie + 0]
@@ -411,8 +411,9 @@ vmware_chan_receive:
 
 	.if VMWARE_DEBUG
 		call	vmware_chan_print_label$
-		printc	13, " RX "
-		call	nprintln
+		printc	13, " RX '"
+		call	nprint
+		printcharc 13, '\''
 	.endif
 
 	push	esi
@@ -420,6 +421,9 @@ vmware_chan_receive:
 	call	vmware_chan_receive_status$	# rpc call: finish receive message
 	pop	ecx
 	pop	esi
+	pushf
+	call	newline
+	popf
 	ret
 
 # in: eax = channel ptr
@@ -476,9 +480,11 @@ vmware_chan_print_label$:
 # in: esi, ecx = message
 vmware_chan_send:
 	.if VMWARE_DEBUG
+		DEBUG_DWORD eax
 		call	vmware_chan_print_label$
-		printc 14, " TX "
+		printc 14, " TX '"
 		call	nprint
+		printcharc 14, '\''
 	.endif
 	mov	[eax + vmware_buf_curptr$], esi
 	mov	[eax + vmware_msg_len_remain$], ecx
@@ -488,15 +494,19 @@ vmware_chan_send:
 	mov	edx, [eax + vmware_chan_id]
 	mov	esi, [eax + vmware_chan_cookie + 0]
 	mov	edi, [eax + vmware_chan_cookie + 4]
+
 	VMWARE_BDOOR_CALL retry=0b preserve=eax
 	test	ecx, VMWARE_BD_MSG_ST_HB << 16
+
 .if !VMWARE_DISABLE_HB
 	jnz	1f
 .endif
 ######## slow method
-2:	mov	ecx, [eax + vmware_buf_curptr$]
-	mov	ebx, [ecx]
-	mov	ecx, [vmware_msg_len_remain$]
+2:	mov	ecx, [eax + vmware_msg_len_remain$]
+	#jecxz	9f	# no payload
+	or ecx,ecx;jz 9f
+	mov	ebx, [eax + vmware_buf_curptr$]
+	mov	ebx, [ebx]
 	.if VMWARE_DEBUG > 1
 		DEBUG_DWORD ecx # len
 		DEBUG_DWORD ebx
@@ -510,6 +520,7 @@ vmware_chan_send:
 		pop	ebx
 		pop	eax
 	.endif
+	# use edx to mask ebx
 	cmp	ecx, 4
 	mov	edx, 1
 	jae	3f
@@ -528,19 +539,17 @@ vmware_chan_send:
 #	dec	eax
 #	js	3f
 #	and	ebx, 0x000000ff
-3:
-
-	mov	ecx, VMWARE_BD_CMD_MESSAGE | (VMWARE_BD_MSG_TYPE_SENDPAYLOAD << 16)
+3:	mov	ecx, VMWARE_BD_CMD_MESSAGE | (VMWARE_BD_MSG_TYPE_SENDPAYLOAD << 16)
 	mov	edx, [eax + vmware_chan_id]
 	mov	esi, [eax + vmware_chan_cookie + 0]
 	mov	edi, [eax + vmware_chan_cookie + 4]
-
 	VMWARE_BDOOR_CALL retry=0b preserve=eax
 	jz	vmware_chan_error_send$
 	add	[eax + vmware_buf_curptr$], dword ptr 4
 	sub	[eax + vmware_msg_len_remain$], dword ptr 4
 	ja	2b
 
+9:	call	newline
 	clc # just in case
 	ret
 
@@ -550,9 +559,11 @@ vmware_chan_send:
 	mov	ebp, [eax + vmware_chan_cookie + 0]
 	mov	edi, [eax + vmware_chan_cookie + 4]
 	mov	ecx, [eax + vmware_msg_len_remain$]
+	jecxz	9b # 9f is too far
 	mov	esi, [eax + vmware_buf_curptr$]
 	VMWARE_BDOOR_HB_OUT retry=0b preserve=eax
 	jz	vmware_chan_error_send$
+9:	call	newline
 	clc # just in case
 	ret
 
@@ -594,12 +605,78 @@ vmware_chan_prot_error2$:
 
 
 ##############################################################################
+vmware_tclo_poll:
+	mov	eax, offset vmware_chan_rpcin
+	LOAD_TXT ""
+	xor	ecx, ecx
+	call	vmware_chan_send
+	jc	9f
+	call	vmware_chan_receive
+	jc	9f
+	OK
+
+	print "received: "
+	DEBUG_DWORD ecx
+	call nprint
+
+.data
+vmw_msg_buf0$: .ascii "log Received: "
+vmw_msg_buf$: .space 512
+.text32
+push_	esi ecx
+mov	edi, offset vmw_msg_buf$
+rep	movsb
+mov byte ptr [edi], 0
+pop_	ecx esi
+
+push_	eax esi ecx
+mov	eax, offset vmware_chan_rpcout
+mov	esi, offset vmw_msg_buf0$
+call	strlen_
+call	vmware_chan_send
+pop_	ecx esi eax
+
+	# check for 'reset':
+	cmp	ecx, 5
+	jnz	1f
+	cmp	[esi], dword ptr ('r')|('e'<<8)|('s'<<16)|('e'<<24)
+	jnz	1f
+	cmp	word ptr [esi+4], 't'
+	jnz	1f
+	LOAD_TXT "OK ATR toolbox"
+	jmp	3f
+
+1:	# check for 'ping'
+#	cmp	ecx, 4 #msg size 5...?
+#	jnz	1f
+	cmp	[esi], dword ptr 'p'|('i'<<8)|('n'<<16)|('g'<<24)
+	jnz	1f
+	cmp	byte ptr [esi+4], 0
+	jz	2f
+
+1:	LOAD_TXT "DisplayTopology_Set ",edi
+	push_	ecx esi
+	mov	ecx, 20
+	repz	cmpsb
+	pop_	esi ecx
+	jnz	1f
+	# example: "DisplayTopology_Set 1 , 0 0 1920 1080"
+	jmp	3f
+
+# response
+1:	LOAD_TXT "ERROR Unknown command"
+	jmp	3f
+
+2:	LOAD_TXT "OK "
+3:	call	strlen_
+	call	vmware_chan_send
+
+9:	ret
+##############################################################################
 # in: esi = rpc message
 vmware_rpc_call:
-	call	strlen_
-	#inc	ecx
-
 	mov	eax, offset vmware_chan_rpcout
+	call	strlen_
 	call	vmware_chan_send
 	jc	9f
 	OK
@@ -655,8 +732,9 @@ cmd_vmcheck:
 	ret
 
 ######## check for message
-1:	mov	eax, offset vmware_chan_rpcin
-	call	vmware_chan_receive
+1:	#mov	eax, offset vmware_chan_rpcin
+	call	vmware_tclo_poll
+
 	mov	eax, offset vmware_chan_rpcout
 	call	vmware_chan_receive
 	ret
@@ -673,8 +751,10 @@ cmd_vmcheck:
 ######## send message
 3:	
 	# first check if there is a message
-	mov	eax, offset vmware_chan_rpcin
-	call	vmware_chan_receive
+	call	vmware_tclo_poll
+#	mov	eax, offset vmware_chan_rpcin
+#	call	vmware_chan_receive
+
 	mov	eax, offset vmware_chan_rpcout
 	call	vmware_chan_receive
 
@@ -687,6 +767,7 @@ cmd_vmcheck:
 
 	LOAD_TXT "log QuRe VMWare handler initialized"
 	call	vmware_rpc_call
+/*
 	LOAD_TXT "tools.set.version 2147483647" # 0x7fffffff
 	call	vmware_rpc_call
 	LOAD_TXT "tools.capability.features 4=1 5=1 6=1 7=1 25=1"
@@ -694,6 +775,19 @@ cmd_vmcheck:
 	LOAD_TXT "machine.id.get"
 	call	vmware_rpc_call
 	LOAD_TXT "tools.capability.hgfs_server toolbox 1"
+	call	vmware_rpc_call
+*/
+	LOAD_TXT "tools.capability.resolution_set 1"
+	call	vmware_rpc_call
+	LOAD_TXT "tools.capability.resolution_server toolbox 1"
+	call	vmware_rpc_call
+	LOAD_TXT "tools.capability.display_topology_set 1"
+	call	vmware_rpc_call
+	LOAD_TXT "tools.capability.color_depth_set 1"
+	call	vmware_rpc_call
+	LOAD_TXT "tools.capability.resolution_min 0 0"
+	call	vmware_rpc_call
+	LOAD_TXT "tools.capability.unity 1"
 	call	vmware_rpc_call
 
 	ret

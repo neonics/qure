@@ -528,6 +528,25 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 
 	call	debug_print_exception_registers$
 
+########
+	cmp	cx, 0x0e	# page fault: show mem
+	jnz	1f
+	print "MEM: used="
+	call mem_get_used
+	call printhex8
+	mov edx, eax
+	call printhex8
+	print " reserved: "
+	call mem_get_reserved
+	call printhex8
+	mov edx, eax
+	call printhex8
+	print " hi="
+	mov edx, [mem_heap_alloc_start]
+	call printhex8
+	call newline
+1:
+
 #######
 	mov	esi, edi	# remember original stack ptr
 	mov	ebx, ss

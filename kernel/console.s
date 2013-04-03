@@ -340,7 +340,9 @@ cmd_consoles:
 	pop	ecx
 	call	printhex8
 
-2:	add	edi, CONSOLE_KB_STRUCT_SIZE
+2:	DEBUG_DWORD esi;DEBUG_DWORD edi
+
+	add	edi, CONSOLE_KB_STRUCT_SIZE
 	add	esi, CONSOLE_STRUCT_SIZE
 
 	call	newline
@@ -349,3 +351,41 @@ cmd_consoles:
 	jbe	0b
 	ret
 .endif
+
+
+# Console Hardware:
+.data
+crt_io: .word 0x3b4	# better to call console_vga_init
+.text32
+console_vga_init:
+	mov	dx, 0x3cc
+	in	al, dx
+	test	al, 1
+	mov	dx, 0x3b4
+	jz	1f
+	add	dx, 0x020	# 3d4
+1:
+	mov	[crt_io], dx
+
+	ret
+
+VGA_CRTC_REG_CURSOR_LOC_LO = 0x0f
+VGA_CRTC_REG_CURSOR_LOC_HI = 0x0e
+
+console_set_cursor:
+	push_	dx eax
+	mov	dx, [crt_io]
+	mov	al, VGA_CRTC_REG_CURSOR_LOC_LO
+	out	dx, al
+	inc	dx
+	GET_SCREENPOS eax
+	out	dx, al
+	dec	dx
+	mov	al, byte ptr VGA_CRTC_REG_CURSOR_LOC_HI
+	out	dx, al
+	shr	ax, 8
+	inc	dx
+	out	dx, al
+
+	pop_	eax dx
+	ret

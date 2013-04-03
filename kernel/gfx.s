@@ -489,6 +489,53 @@ keybuf_clear:
 #############################################################################
 # 16 bit code
 .text16
+
+rm_dump_int_10:
+
+	push es
+	xor	si, si
+	mov	es, si
+	les	si, es:[0x6d * 4]
+
+mov si, 0x5b40
+
+	mov cx, 10
+	1:
+		push cx
+
+		mov dx, es
+		call printhex_16
+		sub [screen_pos], word ptr 2
+		mov al, ':'
+		call printchar_16
+		mov dx, si
+		call printhex_16
+		sub [screen_pos], word ptr 2
+		call printchar_16
+		mov al, ' '
+		call printchar_16
+		mov cx, 16
+		0:
+		mov dl, es:[si]
+		inc si
+		call printhex2_16
+		mov al, ' '
+		call printchar_16
+		loop 0b
+		call newline_16
+
+		pop cx
+	loop 1b
+
+	xor ax,ax
+	int 0x16
+
+	pop es
+	ret
+
+
+
+
 gfx_textmode:
 	mov	ax, 0x4f02
 	mov	bx, 3 # 80x25 640x400 text mode
@@ -524,19 +571,105 @@ vi_oemData:		.space 256
 VBE_INFO_BLOCK_SIZE = .
 
 
-
 .text16
+rm_trap_isr_register:
+	push	es
+	xor	ax, ax
+	mov	es, ax
+
+	mov	ax, offset rm_trap_isr
+	mov	es:[0x1 * 4 + 0 ], ax
+	mov	es:[0x1 * 4 + 2 ], cs
+	pop	es
+	ret
+
+mycount: .word 0
+rm_trap_isr:
+	push	bp
+	mov	bp, sp
+	push	ds
+	push	ax
+	push	dx
+
+	mov	ax, cs
+	mov	ds, ax
+
+	mov	dx, [bp + 4]
+	call	printhex_16
+	sub	word ptr [screen_pos], 2
+	mov	al, ':'
+	call	printchar_16
+	mov	dx, [bp + 2]
+	call	printhex_16
+
+	cmp	dx, 0x5b48
+	jz	3f
+	cmp	dx, 0x5b47
+	jnz	1f
+3:
+		push	es
+		push	bx
+		mov	dx, [bp + 4]
+		mov	es, dx
+		mov	bx, [bp + 2]
+		mov	dx, es:[bx]
+		print_16 "opcode="
+		call	printhex_16
+		pop	bx
+		pop	es
+	
+		print_16 "ss:sp="
+		mov	dx, ss
+		call	printhex_16
+		sub	[screen_pos], word ptr 2
+		mov	dx, sp
+		call	printhex_16
+
+		print_16 "bp="
+		mov	dx, bp
+		call	printhex_16
+
+		print_16 "[bp]="
+		mov	dx, [bp]
+		call	printhex_16
+
+		jmp 2f
+
+1:
+
+	inc 	word ptr [mycount]
+	cmp	word ptr [mycount], 8 * 20
+	jb	1f
+2:	xor	ax, ax
+	int	0x16
+	mov	word ptr [mycount], 0
+1:
+
+	pop	dx
+	pop	ax
+	pop	ds
+	pop	bp
+	iret
+
+
 vesa_video_mode: .word 0
 vesa_list_fb_modes:
 print_16 "realmode!"
+
+print_16 "ss:"; mov dx, ss; call printhex_16
+print_16 "sp:"; mov dx, sp; call printhex_16
+print_16 "ds:"; mov dx, ds; call printhex_16
+print_16 "es:"; mov dx, es; call printhex_16
+print_16 "cs:"; mov dx, cs; call printhex_16
+
 	mov	cs:[vesa_video_mode], word ptr 0
 
 	push	bp
 	push	es
 	mov	bp, sp
-	sub	sp, 512	# VBE 1.0: 256 bytes, 2+: 512 b
+	sub	sp, VBE_INFO_BLOCK_SIZE	# VBE 1.0: 256 bytes, 2+: 512 b
 	###############
-
+print_16 "A"
 	mov	di, ss
 	mov	es, di
 	mov	di, sp
@@ -545,12 +678,48 @@ print_16 "realmode!"
 	xor	ax, ax
 	rep	stosw
 	mov	di, sp
+
+print_16 "es:"; mov dx, es; call printhex_16
+print_16 "di:"; mov dx, di; call printhex_16
 	# set 'VBE2' to get VBE 3.0 info
 	# mov	es:[di + vi_vbeSignature], 'VBE2' # 'VESA'
+
+print_16 "B"
+xor ax,ax; int 0x16
+#call newline_16
+#call rm_dump_int_10
+
+#call rm_trap_isr_register
+#push bp
+#pushf
+#mov bp, sp
+#or word ptr [bp], 0x100	# trap flag
+#popf
 
 	mov	ax, 0x4f00	# get vbe controller information
 	int	0x10
 
+#	pushf
+#	push	cs
+#	push	word ptr offset 1f
+#	push	word ptr ss:[0x6d * 4 + 2]	# ss is 0
+#	push	word ptr ss:[0x6d * 4 + 0]	# ss is 0
+#	retf
+#1:
+#	#DATA32 lcall	0:[0x6d * 4]
+
+
+#pushf
+#and word ptr [bp], ~0x100
+#popf
+#pop bp
+
+#push es
+#mov ax, cs
+#mov es, ax
+#mov ds, ax
+#print_16 "C"
+#pop es
 	# print "VESA 2.0"
 
 	mov	al, es:[di + vi_vbeSignature +0]
@@ -608,7 +777,8 @@ print_16 "realmode!"
 0:	call	newline_16
 
 	###############
-	mov	sp, bp
+#	mov	sp, bp
+	add	sp, VBE_INFO_BLOCK_SIZE
 	pop	es
 	pop	bp
 print_16 "returning from realmode: "

@@ -207,13 +207,28 @@ buf_resize:
 		printc 5, ": "
 		pop edx
 	.endif
-
+push edi
+push ecx
+##
+push dword ptr [eax + buf_capacity]
 	sub	eax, 8
 	push	edx
 	add	edx, 8
-	call	mreallocz
+	call	mreallocz	# mrealloc: crashes vm sometimes
 	add	eax, 8
 	pop	dword ptr [eax + buf_capacity]
+mov ecx, [eax + buf_capacity] # new cap
+pop edi # old cap
+sub ecx, edi # added cap
+add edi, eax
+#
+push eax
+xor eax, eax
+rep stosb
+pop eax
+##
+pop ecx
+pop edi
 
 	.if BUF_DEBUG
 		push edx

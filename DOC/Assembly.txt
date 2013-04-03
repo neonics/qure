@@ -1,6 +1,7 @@
 FLAGS
 
-0 NT IOPL OF DF IF TF SF ZF 0 AF 0 PF 1 CF
+[ID VIP]  [VIF AC VM RF]  [0 NT IOPL]  [OF DF IF TF]  [SF ZF 0 AF]  [0 PF 1 CF]
+                     1          0             2             0             6
 
 
 0 	CF 	Carry flag 	S
@@ -83,7 +84,7 @@ JP/JPE		                 1	unsigned
 
 JA/JNBE		0 & 0			unsigned
 JBE/JNA		1 | 1			unsigned
-JG/JNLE		0 |     s == o		signed
+JG/JNLE		0 &     s == o		signed
 JLE/JNG		1 |	s != o		signed
 JGE/JNL			s == o		signed
 JL/JNGE			s != o		signed (unsigned on webpage)

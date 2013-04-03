@@ -140,6 +140,7 @@ PDPTE_AVAIL_MASK= 0b11 << 9
 
 .data SECTION_DATA_BSS
 page_directory_phys:	.long 0
+page_directory:		.long 0	# ds relative logical address
 page_tables_phys_end:	.long 0
 .text32
 
@@ -163,6 +164,7 @@ paging_init:
 	# have edi point to the ds relative address of the page directory
 	mov	edi, ebx
 	sub	edi, edx
+	mov	[page_directory], edi
 
 	# initialize page directory: each entry (indirectly) references 4 MB
 
@@ -196,6 +198,14 @@ paging_enable:
 	# tell the CPU where to find the page directory:
 	mov	cr3, ebx
 
+#	# see CPUID for availability:
+#	CR4_PAE = 1 << 5	# physical address extension (64gb,36 addr bits)
+#	CR4_PSE = 1 << 4	# page size extenstion (guess)
+#	reset PSE (page size extension?)
+	mov	ebx, cr4
+	or	ebx, 1 << 4	# set PSE
+	mov	cr4, ebx
+
 	# enable paging
 	mov	eax, cr0
 	or	eax, 0x80000000	# CR0_PAGING = 1 << 31
@@ -216,7 +226,95 @@ paging_disable:
 	mov	cr3, eax
 	ret
 
+##############################################################################
+
+# in: eax = physical address to identity map
+# in: ecx = size to map
+paging_idmap_4m:
+DEBUG "paging_idmap"
+DEBUG_DWORD ecx,"size"
+DEBUG_DWORD eax,"addr"
+	push_	edx eax ecx
+	add	ecx, 1024 * 4096 - 1
+	shr	ecx, 22		# divide by 4m; ecx is nr of 4m pages.
+
+	mov	edx, eax
+	and	edx, ~4095	# mask low 12 bits
+	shr	eax, 20		# divide by 1Mb (/4Mb * sizeof(dword))
+	and	al, ~3		# align to 4Mb
+DEBUG_DWORD ecx,"#4m pages"
+DEBUG_DWORD edx,"addr"
+DEBUG_DWORD eax,"PDE idx"
+call newline
+	/*
+push_ edx eax
+printc 11, "paging: identity map "
+xor	edx, edx
+mov	eax, [esp + 8]	# orig ecx
+call	print_size
+printc 11, " @ "
+mov	edx, [esp + 4]
+call	printhex8
+call	newline
+pop_ eax edx
+*/
+	# eax is index into page directory referring to the phys addr.
+	# edx is the phys addr.
+	add	eax, [page_directory]
+	or	dx, PDE_FLAG_R|PDE_FLAG_U|PDE_FLAG_P| PDE_FLAG_S
+0:	mov	[eax], edx
+	add	eax, 4
+	add	edx, 4096 * 1024
+#	loop	0b
+
+	call	paging_show_usage
+
+	pop_	ecx eax edx
+	ret
+
+# in: eax = physical address
+# in: edx = logical address to map physical address onto
+# in: ecx = size to map
+paging_map_4k:	# XXX FIXME TODO UNFINISHED
+	push_	esi edi
+
+	# 4k page dir, for 1024 entries of 4 Gb.
+	# first page table follows the page dir: [page_directory] + 4096.
+	# quick hack: we add a second page table at [page_directory} = 8192.
+
+	# first initialize the page table:
+	mov	edi, [page_directory]
+	add	edi, 8192
+
+		add	edi, 4096
+		mov	[page_tables_phys_end], edi
+		sub	edi, 4096
+	
+	push_	eax ecx
+	mov	ecx, 1024
+	and	eax, ~0b111111111111 # mask out low 12 bits for 4mb offset
+	or	eax, PTE_FLAG_R|PTE_FLAG_U|PTE_FLAG_P
+0:	stosd
+	add	eax, 4096
+	
+
+	pop_	ecx eax
+
+
+	shr	eax, 22	# >> (12 + 10) = / (4096 * 1024): 4Mb
+	mov	edi, [page_directory_phys]
+	add	edi, 8192|PDE_FLAG_R|PDE_FLAG_U|PDE_FLAG_P# edi is address of page table
+	# record the page table in the page directory:
+	mov	esi, [page_directory]
+	# the location in [esi] indicates for which page (eax*4) the table is.
+	mov	[esi + eax * 4], edi
+
+	pop_	edi esi
+	ret
+
+
 paging_show_usage:
+	pushad
 	GDT_GET_BASE ebx, ds
 	mov	esi, [page_directory_phys]
 		DEBUG_DWORD esi, "page_dir_phys"
@@ -236,6 +334,9 @@ paging_show_usage:
 	print	" PTE "
 	call	printhex8
 	call	newline
+
+	test	eax, PDE_FLAG_S
+	jnz	1f	# skip PTE
 
 .if 0##################
 	push	eax
@@ -315,8 +416,10 @@ paging_show_usage:
 1:	#loop	0b
 	dec	ecx
 	jnz	0b
+	popad
 	ret
 
+###
 8:	push	edi
 	push	ebx
 	mov	edi, [ebp - 4]

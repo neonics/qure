@@ -171,7 +171,11 @@ DEBUG_DWORD \r
 	.ifc esp,\r32
 	lea	edx, [esp + 8 + COLOR_STACK_SIZE]
 	.else
+	.ifc [esp],\r32
+	mov	edx, [esp + 8 + COLOR_STACK_SIZE]
+	.else
 	mov	edx, \r32
+	.endif
 	.endif
 	call	printhex8
 	pop	edx

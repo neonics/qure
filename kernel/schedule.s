@@ -161,6 +161,7 @@ task_stack_ss:	.long 0
 # these values are only used for jobs:
 .align 4	# for movsd (future modifications)
 task_regs:	.space TASK_REG_SIZE
+.align 4
 SCHEDULE_STRUCT_SIZE = .
 .data
 task_queue_sem:	.long -1	# -1: scheduling disabled
@@ -268,7 +269,7 @@ tls_task_idx:	.long 0	# not used - no tls setup in this file.
 .endif
 .endm
 
-SCHEDULE_PRINT_FREQUENCY = 5 #PIT_FREQUENCY	# in Hz
+SCHEDULE_PRINT_FREQUENCY =  PIT_FREQUENCY	# in Hz
 .data SECTION_DATA_BSS
 schedule_top_delay$: .long 0
 .text32
@@ -690,7 +691,7 @@ scheduler_get_task$:
 
 	mov	ecx, [eax + array_index]	# 8 loop check
 
-	test	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE | TASK_FLAG_SUSPENDED
+	test	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE #| TASK_FLAG_SUSPENDED
 	jz	1f
 2:	mov	[eax + edx + task_flags], dword ptr -1
 	jmp	0f
@@ -748,7 +749,10 @@ scheduler_get_task$:
 	ret
 # 8 loop handler
 9:	printlnc 4, "Task queue empty"
+	PUSHSTRING "ps"
+	mov	esi, esp
 	call	cmd_tasks
+	add	esp, 4
 	int 3
 	jmp 	halt
 
@@ -962,6 +966,10 @@ task_done:
 		DEBUGS [eax + edx + task_label], "done"
 	.endif
 	or	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE
+	add	edx, eax
+	xor	eax, eax
+	xchg	eax, [edx + task_stackbuf]
+	call	mfree
 
 	SEM_UNLOCK [task_queue_sem]
 	MUTEX_UNLOCK SCHEDULER
@@ -991,8 +999,22 @@ task_queue_newentry:
 	cmp	dword ptr [eax + edx + task_flags], -1
 	jz	1f
 	ARRAY_ENDL
-2:	ARRAY_NEWENTRY [task_queue], SCHEDULE_STRUCT_SIZE, 4, 1f
+2:	ARRAY_NEWENTRY [task_queue], SCHEDULE_STRUCT_SIZE, 4, 9f
+	DEBUG "+", 0x4f
+	push edi
+	push eax
+	push ecx
+	lea edi, [eax + edx]
+	xor eax, eax
+	mov ecx, SCHEDULE_STRUCT_SIZE / 4
+	rep stosd
+	pop ecx
+	pop eax
+	pop edi
 1:	ret
+9:	printlnc 4, "task_queue_newentry: malloc fail"
+	stc
+	ret
 
 
 # in: edx = task index
@@ -1175,6 +1197,14 @@ task_queue_get$:
 schedule_task:
 	cmp	dword ptr [task_queue_sem], -1
 	jz	8f
+push eax
+mov eax, cs
+and al, 3
+pop eax
+jz 1f
+call SEL_kernelCall:0
+1:
+
 	# copy regs to stack
 	pushad
 	pushd	ss
@@ -1212,6 +1242,9 @@ schedule_task:
 	jc	77f
 
 	mov	ebx, eax	# using lodsd: free eax
+#DEBUG_DWORD [ebx+edx+task_stackbuf]
+#add eax, edx
+#DEBUG_DWORD eax,"addr"
 	# copy registers
 	lea	edi, [ebx + edx + task_regs]
 	mov	esi, ebp
@@ -1277,7 +1310,12 @@ schedule_task:
 	jz	7f
 	.endif
 	# check if the entry already has a stack
+#DEBUG_DWORD [task_queue], "[q]",0x5f
+#lea eax, [ebx + edx + task_stackbuf]
+#sub eax, [task_queue]
+#DEBUG_DWORD eax,"offs"
 	mov	eax, [ebx + edx + task_stackbuf]
+#DEBUG_DWORD eax,"val", 0x5f
 	or	eax, eax
 	jnz	1f
 	# allocate a stack
@@ -1285,21 +1323,44 @@ schedule_task:
 	call	mallocz
 	jc	66f
 #### debugging:
-cmp eax, 0x00200000
-jb 2f
-int 3
-2:
+#cmp eax, 0x00300000
+#jb 2f
+#printc 4, "malloc error"	# to keep track
+#jmp 1f
+#2:
 ####
 	mov	[ebx + edx + task_stackbuf], eax
 1:
 
 #### debugging
-cmp eax, 0x00200000
-jb 1f
-int 3	# The bug is here. The task_stackbuf gets overwritten with at least
+#cmp eax, 0x00300000
+#jb 1f
+#pushad
+#call print_handles$
+#popad
+#pushad
+#DEBUG_DWORD [task_queue]
+#lea eax, [ebx + edx + task_stackbuf]
+#DEBUG_DWORD eax,"ptr"
+#mov eax, [task_queue]
+#sub eax, 8
+#call	mem_find_handle$
+#jc 2f
+#DEBUG "handle nr: "; call printdec32;call printspace;
+#mov edx, [ebx + handle_base]
+#call printhex8
+#printchar '-'
+#add edx, [ebx + handle_size]
+#call printhex8
+##call print_handle_$
+#jmp 3f
+#2: DEBUG "handle not found"
+#3:
+#popad
+#int 3	# The bug is here. The task_stackbuf gets overwritten with at least
 	# 4 bytes of root/www/index.html.
 #### XXXBUG
-1:
+#1:
 	.if SCHEDULE_CLEAN_STACK
 	push	eax
 	mov	edi, eax
@@ -1572,8 +1633,10 @@ schedule_print:
 	DEBUG_DWORD edx, "FLAGS"
 	DEBUG_DWORD [ebp+task_reg_eflags]
 	call printspace
-
+PUSHSTRING "top"
+mov esi, esp
 	call	cmd_tasks
+add esp, 4
 
 	POP_SCREENPOS
 	pop	edi
@@ -1587,8 +1650,11 @@ schedule_print:
 #############################################################################
 
 cmd_tasks:
+	push	ebp
+	mov	ebp, [esi]
+
 	pushcolor TASK_PRINT_BG_COLOR | 7
-	print_ "Tasks: "
+	print "Tasks: "
 	mov	ecx, [task_queue]
 	or	ecx, ecx
 	jz	9f
@@ -1606,7 +1672,7 @@ cmd_tasks:
 	call	printdec32
 .if SCHEDULE_JOBS
 .if SCHEDULE_ROUND_ROBIN
-	print_ " sched idx: "
+	print " sched idx: "
 	mov	eax, [task_index]
 	xor	edx, edx
 	div	ebx
@@ -1617,11 +1683,14 @@ cmd_tasks:
 
 	call	task_print_h$
 
+		cmp	dword ptr [ebp], 't'|('o'<<8)|('p'<<16)
+		jz	1f
 	printc_ TASK_PRINT_BG_COLOR | 15, "C "	# for current, see
 	mov	eax, [task_queue]
 	mov	ebx, [scheduler_current_task_idx]
 	call	task_print$
 	call	newline
+	1:
 
 	xor	ecx, ecx # index counter, saves dividing ebx by SCHED_STR_SIZE
 	ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, eax, ebx, 9f
@@ -1648,8 +1717,15 @@ cmd_tasks:
 
 2:	call	task_print$
 3:	inc	ecx
+		# if called as 'top', dont print all
+		cmp	dword ptr [ebp], 't'|('o'<<8)|('p'<<16)
+		jnz	1f
+		cmp	ecx, 20
+		ja	9f
+	1:
 	ARRAY_ENDL
 9:	popcolor
+	pop	ebp
 	ret
 
 
@@ -1666,9 +1742,13 @@ task_print_h$:
 .asciz "label... symbol"
 .endif
 .text32
+	push	eax
+	push	esi
 	mov	ah, TASK_PRINT_BG_COLOR | 11
 	mov	esi, offset 200b
 	call	printlnc
+	pop	esi
+	pop	eax
 	ret
 
 # in: eax + ebx = task
