@@ -28,7 +28,8 @@ FS_SRC = fs.s iso9660.s partition.s fat.s sfs.s
 GFX_SRC = gfx.s ../fonts/courier56.s
 
 kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s $(FS_SRC) $(NET_SRC) $(GFX_SRC) \
-		token.s shell.s Makefile ../lib/sha.s
+		token.s shell.s Makefile \
+		../lib/sha.s ../lib/base64.s
 		# ../lib/xml.s
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<

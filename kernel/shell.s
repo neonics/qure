@@ -2156,4 +2156,5 @@ cmd_sha1:
 	pop	ebp
 	ret
 
+.include "../lib/base64.s"
 .endif
