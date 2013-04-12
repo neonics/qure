@@ -154,6 +154,8 @@ SUBCLASS 0x05, 0x30, "ata",	"ATA (Chained DMA)"
 SUBCLASS 0x06, 0x00, "sata",	"Serial ATA (Direct Port Access)"
 SUBCLASS_EOL
 
+DEV_PCI_CLASS_NIC = 0x02
+DEV_PCI_CLASS_NIC_ETH = 0x0002
 sc02$:	# Class 2: Network Controller
 SUBCLASS 0x00, 0x00, "eth",	"Ethernet"
 SUBCLASS 0x01, 0x00, "",	"Token Ring"
@@ -164,6 +166,8 @@ SUBCLASS 0x05, 0x00, "",	"WorldFip"
 SUBCLASS 0x06, 0xFF, "",	"PICMG 2.14 Multi Computing"
 SUBCLASS_EOL
 
+DEV_PCI_CLASS_VID = 0x03
+DEV_PCI_CLASS_VID_VGA = 0x0003
 sc03$:	# Class 3: Display Controller
 SUBCLASS 0x00, 0x00, "display",	"VGA Compatible"
 SUBCLASS 0x00, 0x01, "",	"8512-Compatible"
@@ -262,6 +266,9 @@ SUBCLASS 0x40, 0x00, "fpu",	"Co-Processor"
 SUBCLASS_EOL
 
 sc0c$:
+DEV_PCI_CLASS_SERIAL = 0x0c
+DEV_PCI_CLASS_SERIAL_USB = 0x030c
+DEV_PCI_CLASS_SERIAL_USB_EHCI = 0x20030c
 SUBCLASS 0x00, 0x00, "",	"IEEE 1394 Controller (FireWire)"
 SUBCLASS 0x00, 0x10, "",	"IEEE 1394 Controller (1394 OpenHCI Spec)"
 SUBCLASS 0x01, 0x00, "",	"ACCESS.bus"
@@ -337,20 +344,168 @@ pci_device_class_names:
 .long dc0f$, sc0f$
 .long dc10$, sc10$
 .long dc11$, sc11$
+
+
+# PCI Driver stuff:
+.struct 0
+pci_driver_class: .byte 0
+pci_driver_subclass: .byte 0
+	.word 0
+pci_driver_vendor_id: .word 0
+pci_driver_device_id: .word 0
+pci_driver_shortname: .long 0
+pci_driver_longname: .long 0
+
+pci_driver_super_init: .long 0
+pci_driver_init: .long 0
+pci_driver_api_start: .long 0
+pci_driver_api_size: .long 0
+
+PCI_DRIVER_DECLARATION_SIZE = .
+
+.macro DECLARE_PCI_DRIVER pciclass, base, vendor, device, shortname, longname, init
+	.data SECTION_DATA_PCI_DRIVERINFO # \kind (NIC,VID,USB..ignore)
+	.long DEV_PCI_CLASS_\pciclass
+	.word \vendor, \device
+	.long 1199f	# shortname
+	.long 1198f	# longname
+
+	.long \base\()_obj_init
+	.long \init
+	.long \base\()_api
+	.long \base\()_api_end - \base\()_api
+	.data SECTION_DATA_STRINGS
+	1199:	.asciz "\shortname"
+	1198:	.asciz "\longname"
+	.text32
+.endm
+
+
 .text32
 
-# Size: 20 bytes
-.macro DECLARE_PCI_DRIVER kind, vendor, device, init, shortname, longname
-	.data SECTION_DATA_PCI_\kind
-	.word \vendor, \device
-	.long \init
-	.data SECTION_DATA_STRINGS
-	99:	.asciz "\shortname"
-	98:	.asciz "\longname"
-	.data SECTION_DATA_PCI_\kind
-	.long 99b
-	.long 98b
-.endm
+# in: bx = pci_class
+pci_list_drivers:
+	mov	esi, offset data_pci_driverinfo_start
+	jmp	1f
+0:	
+	cmp	bx, [esi + pci_driver_class]
+	jnz	2f
+
+	printc	11, "vendor "
+	mov	dx, [esi + pci_driver_vendor_id]
+	call	printhex4
+	printc	11, " device "
+	mov	dx, [esi + pci_driver_vendor_id]
+	call	printhex4
+	call	printspace
+
+	push	esi
+	pushcolor 14
+	mov	esi, [esi + pci_driver_shortname]
+	call	print
+	call	printspace
+	popcolor
+	pop	esi
+
+	pushcolor 15
+	push	esi
+	mov	esi, [esi + pci_driver_longname]
+	call	println
+	pop	esi
+	popcolor
+
+2:	add	esi, PCI_DRIVER_DECLARATION_SIZE
+
+1:	cmp	esi, offset data_pci_driverinfo_end
+	jb	0b
+	ret
+
+
+# NOTE! This method is optimized according to the device structure
+# above.
+#
+# in: ebx = pci_dev subclass object
+pci_find_driver:
+	# check for supported drivers
+	push	esi
+	push	eax
+
+	mov	esi, offset data_pci_driverinfo_start
+	jmp	1f
+
+0:	push	esi
+
+	lodsd	# pci class stuff
+	cmp	eax, [ebx + dev_pci_class]
+	jnz	2f
+	lodsd	# vendor | (device <<16)
+	cmp	eax, [ebx + dev_pci_vendor]
+	jz	0f
+
+2:	pop	esi
+	add	esi, PCI_DRIVER_DECLARATION_SIZE
+1:	cmp	esi, offset data_pci_driverinfo_end
+	jb	0b
+
+	.if 0 # PCI_DEV_DEBUG
+		push	edx
+		printc 12, "No driver for vendor "
+		mov	edx, [ebx + dev_pci_vendor]
+		call	printhex4
+		printc 12, " device "
+		shr	edx, 16
+		call	printhex4
+		call	newline
+		pop	edx
+	.endif
+8:	stc
+
+9:	pop	eax
+	pop	esi
+	ret
+
+	# Found driver
+0:	add	esp, 4	# 'pop' esi - not needed for loop anymore
+
+	lodsd	# short name
+	mov	[ebx + dev_drivername_short], eax
+	lodsd	# long name
+	mov	[ebx + dev_drivername_long], eax
+
+	lodsd	# obj_init method (base class constructor)
+	or	eax, eax
+	jz	1f	# sanity check - can't happen
+	add	eax, [realsegflat]
+	push	esi
+	call	eax
+	pop	esi
+
+1:	lodsd	# init method
+	or	eax, eax	# sanity check
+	jz	8b
+	add	eax, [realsegflat]
+	push	esi
+	call	eax
+	pop	esi
+	jc	9b
+
+	# relocate methods
+	push_	ecx edx
+	lodsd	# api
+	lea	edx, [ebx + edx]
+	lodsd	# api size
+	mov	ecx, eax
+	shr	ecx, 2
+
+	mov	eax, [realsegflat]
+0:	add	[edx + ecx * 4 - 4], eax
+	loop	0b
+
+	pop_	edx ecx
+	clc
+	jmp	9b
+
+	ret
 
 # in: al = eax = pci device class
 # in: dh = prog if

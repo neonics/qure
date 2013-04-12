@@ -33,16 +33,12 @@ data_concat_start:
 data_str_start:
 .data SECTION_DATA_SHELL_CMDS
 data_shell_cmds_start:
-.data SECTION_DATA_PCI_NIC
-data_pci_nic_start:
-data_pci_nic:
+.data SECTION_DATA_PCI_DRIVERINFO
+data_pci_driverinfo_start:
 # .word vendorId, deviceId
 # .long driver_constructor
 # .long name
 # .long 0	# alignment - total size: 16 bytes
-.data SECTION_DATA_PCI_VID
-data_pci_vid_start:
-data_pci_vid:
 .data SECTION_DATA_FONTS
 data_fonts_start:
 .data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
@@ -118,12 +114,16 @@ code_nic_end:
 include "net/net.s", net
 
 code_vid_start:
-include "vmware_svga2.s"
+include "vmware/svga2.s"
 code_vid_end:
+
+code_usb_start:
+include "usb.s"
+code_usb_end:
 
 include "gfx.s", gfx
 include "hwdebug.s", hwdebug
-include "vmware.s", vmware
+include "vmware/vmware.s", vmware
 ###################################
 
 .text32
@@ -505,10 +505,8 @@ data_concat_end:
 data_str_end:
 .data SECTION_DATA_SHELL_CMDS
 data_shell_cmds_end:
-.data SECTION_DATA_PCI_NIC
-data_pci_nic_end:
-.data SECTION_DATA_PCI_VID
-data_pci_vid_end:
+.data SECTION_DATA_PCI_DRIVERINFO
+data_pci_driverinfo_end:
 .data SECTION_DATA_FONTS
 data_fonts_end:
 .data SECTION_DATA_BSS

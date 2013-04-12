@@ -323,7 +323,7 @@ nic_i8254_rd_tail:	.long 0	#
 nic_i8254_td_tail:	.long 0	# 
 NIC_I8254_STRUCT_SIZE = .	# see dev.s/dev_pci_pre_constructor
 
-DECLARE_PCI_DRIVER NIC, 0x8086, 0x100e, i8254_init, "i8254x", "Intel 8254x PCI/PCI-X"
+DECLARE_PCI_DRIVER NIC_ETH, nic, 0x8086, 0x100e, "i8254x", "Intel 8254x PCI/PCI-X", i8254_init
 ############################################################################
 
 

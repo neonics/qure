@@ -170,7 +170,7 @@ RTL8139_CONFIG5	= 0xd8
 nic_rtl8139_desc_idx: .word 0
 NIC_RTL8139_STRUCT_SIZE = .
 
-DECLARE_PCI_DRIVER NIC, 0x10ec, 0x8139, rtl8139_init, "rtl8139", "Realtek 8139"
+DECLARE_PCI_DRIVER NIC_ETH, nic, 0x10ec, 0x8139, "rtl8139", "Realtek 8139", rtl8139_init
 ############################################################################
 .text32
 DRIVER_NIC_RTL8139_BEGIN = .

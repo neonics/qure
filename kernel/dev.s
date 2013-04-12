@@ -14,6 +14,10 @@ DEV_ATA_PRINT_BUS = 0
 .struct OBJ_STRUCT_SIZE	# variable length objects
 dev_name:		.space 16	# short device name (/dev/)
 
+# injected by pci.s/pci_find_driver
+dev_drivername_short:	.long 0
+dev_drivername_long:	.long 0
+
 dev_type:		.byte 0	# see device_classes/DEV_TYPE
 #dev_nr:		.byte 0 # device tpe-specific number (usb0, usb1)
 
@@ -50,7 +54,7 @@ dev_pci_device_id:	.word 0
 dev_pci_class:		.byte 0
 dev_pci_subclass:	.byte 0
 dev_pci_progif:		.byte 0	
-# dev_pci_revision:	.byte 0
+dev_pci_revision:	.byte 0
 DEV_PCI_STRUCT_SIZE = .
 
 ################################
@@ -443,26 +447,36 @@ dev_pci_constructor:
 	
 	call	sprintdec32
 
+	call	pci_find_driver
 
-	# lets see if it is a nic:
+.if 0
+		# lets see if it is a nic:
 
-	cmp	[ebx + dev_pci_class], word ptr 0x0002	# Ethernet NIC
-	jnz	0f
-	# the pre-constructor will have taken care of offering the right
-	# size for the structure.
+		cmp	[ebx + dev_pci_class], word ptr 0x0002	# Ethernet NIC
+		jnz	0f
+		# the pre-constructor will have taken care of offering the right
+		# size for the structure.
 
-	# it's a nic, check if we support it:
-	call	nic_constructor
-	jmp	9f
-0:
-# TODO: merge
+		# it's a nic, check if we support it:
+		call	nic_constructor
+		jmp	9f
+	0:
+	# TODO: merge
 
-	cmp	[ebx + dev_pci_class], word ptr 0x0003 # Display Adapter
-	jnz	0f
-	DEBUG "Is video device - calling vid_constructor"
-	DEBUG_DWORD (offset vid_constructor)
-	call	vid_constructor
-0:
+		cmp	[ebx + dev_pci_class], word ptr 0x0003 # Display Adapter
+		jnz	0f
+		DEBUG "Is video device - calling vid_constructor"
+		DEBUG_DWORD (offset vid_constructor)
+		call	vid_constructor
+		jmp	9f
+	0:
+
+		cmp	[ebx + dev_pci_class], word ptr 0x030c # USB
+		jnz	0f
+		call	usb_constructor
+
+	0:
+.endif
 9:	pop	edx
 	pop	edi
 	pop	esi

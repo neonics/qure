@@ -16,8 +16,10 @@ KERNEL_SRC = kernel.s defines.s macros.s debug.s debugger.s realmode.s print.s \
 	mutex.s console.s paging.s buffer.s
 
 HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s \
-	nic.s dev.s $(NIC_SRC) \
-	vmware.s vmware_svga2.s
+	nic.s dev.s usb.s $(NIC_SRC) $(VMWARE_SRC)
+
+VMWARE_SRC = vmware/vmware.s vmware/bdoor.s vmware/chan.s vmware/vix.s \
+	vmware/svga2.s
 
 NIC_SRC = rtl8139.s i8254.s am79c971.s
 

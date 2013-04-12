@@ -1199,9 +1199,11 @@ nprint:	or	ecx, ecx
 # out: esi += ecx, ecx = 0
 nprint_:
 	jecxz	9f
+	push	eax
 0:	lodsb
 	call	printchar
 	loop	0b
+	pop	eax
 9:	ret
 
 nprintln_:

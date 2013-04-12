@@ -3109,7 +3109,7 @@ cmd_mem$:
 		.endif
 		.data
 		99: .ascii "\indent\label: "
-		88: .space 20-(88b-99b), ' '
+		88: .space 22-(88b-99b), ' '
 		.byte 0
 		.text32
 		# print label
@@ -3212,7 +3212,7 @@ cmd_mem$:
 	#PRINT_MEMRANGE data_concat within data0's range
 	PRINT_MEMRANGE data_str
 	PRINT_MEMRANGE data_shell_cmds
-	PRINT_MEMRANGE data_pci_nic
+	PRINT_MEMRANGE data_pci_driverinfo
 	PRINT_MEMRANGE data_fonts
 	.if SECTION_DATA_SIGNATURE < SECTION_DATA_BSS
 	PRINT_MEMRANGE data_signature

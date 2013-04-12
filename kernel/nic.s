@@ -37,7 +37,7 @@ nic_api_ifup:	.long 0
 nic_api_ifdown:	.long 0
 nic_api_send:	.long 0
 nic_api_print_status: .long 0
-NIC_API_SIZE = . - nic_api
+nic_api_end:
 NIC_STRUCT_SIZE = .
 ############################################################################
 .data
@@ -227,16 +227,30 @@ nic_list_short:
 # NIC Base Class API
 
 nic_constructor:
+	DEBUG "DEPRECATED - nic_constructor"
 	LOAD_TXT "unknown", (dword ptr [ebx + nic_name])
 #	mov	[ebx + nic_name + 0], dword ptr ( 'u' | 'n'<<8|'k'<<16|'n'<<24)
 #	mov	[ebx + nic_name + 4], dword ptr ( 'o' | 'w'<<8|'n'<<16)
 
-	# fill in all method pointers
+	call	nic_obj_init
 
+	# fill in all method pointers
+	call	pci_find_driver
+
+	ret
+
+nic_obj_init:
+	DEBUG "NIC OBJ INIT"
 	mov	dword ptr [ebx + nic_api_send], offset nic_unknown_send
 	mov	dword ptr [ebx + nic_api_print_status], offset nic_unknown_print_status
 	mov	dword ptr [ebx + nic_api_ifup], offset nic_unknown_ifup
 	mov	dword ptr [ebx + nic_api_ifdown], offset nic_unknown_ifdown
+	ret
+
+
+
+.if 0
+	# OLD
 
 	# check for supported drivers
 
@@ -288,13 +302,13 @@ nic_constructor:
 	# relocate methods
 	push	ecx
 	mov	eax, [realsegflat]
-	mov	ecx, NIC_API_SIZE / 4
+	mov	ecx, DEV_PCI_NIC_API_SIZE / 4
 0:	add	[ebx + nic_api + ecx * 4 - 4], eax
 	loop	0b
 	pop	ecx
 	clc
 	jmp	9b
-
+.endif
 ###########################################
 ############################################
 # protected methods (to be called by subclasses)
@@ -446,37 +460,8 @@ cmd_nic_list:
 # Commandline Interface
 
 cmd_list_nic_drivers:
-	mov	esi, offset data_pci_nic # see pci.s DECLARE_PCI_DRIVER
-	jmp	1f
-0:	printc	11, "vendor "
-	lodsw
-	mov	dx, ax
-	call	printhex4
-	printc	11, " device "
-	lodsw
-	mov	dx, ax
-	call	printhex4
-	call	printspace
-	lodsd	# driver init
-
-	lodsd	# short name
-	push	esi
-	pushcolor 14
-	mov	esi, eax
-	call	print
-	call	printspace
-	popcolor
-	pop	esi
-
-	lodsd	# long name
-	pushcolor 15
-	push	esi
-	mov	esi, eax
-	call	println
-	pop	esi
-	popcolor
-1:	cmp	esi, offset data_pci_nic_end
-	jb	0b
+	mov	ebx, 0x0002
+	call	pci_list_drivers
 	ret
 
 cmd_ifup:

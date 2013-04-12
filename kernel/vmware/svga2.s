@@ -19,8 +19,7 @@ vid_fifo_size:	.long 0
 .align 4
 vid_api:
 vid_api_print_status: .long 0 # so that api len is not 0 - for loop.
-DEV_PCI_VID_API_SIZE = . - vid_api
-VID_STRUCT_SIZE = .
+vid_api_end:
 DEV_PCI_VID_STRUCT_SIZE = .
 # no data / vids:long 0 
 # no code / vid_init with copy.
@@ -28,9 +27,14 @@ DEV_PCI_VID_STRUCT_SIZE = .
 
 # code duplicated from 'nic_constructor'; TODO FIXME XXX : merge
 
+vid_obj_init:
+	mov	[ebx + vid_api_print_status], dword ptr offset println
+	ret
+
 # in: ebx = pci device object
 vid_constructor:
-	LOAD_TXT "unknown", (dword ptr [ebx + vid_name])
+	DEBUG "Deprecated - vid_constructor"
+	LOAD_TXT "unknown-vid", (dword ptr [ebx + vid_name])
 #	mov	[ebx + nic_name + 0], dword ptr ( 'u' | 'n'<<8|'k'<<16|'n'<<24)
 #	mov	[ebx + nic_name + 4], dword ptr ( 'o' | 'w'<<8|'n'<<16)
 
@@ -38,6 +42,10 @@ vid_constructor:
 
 	#mov	dword ptr [ebx + nic_api_ifdown], offset nic_unknown_ifdown
 
+	call	pci_find_driver
+	ret
+
+.if 0
 	# check for supported drivers
 
 	push	esi
@@ -94,7 +102,7 @@ vid_constructor:
 	pop	ecx
 	clc
 	jmp	9b
-
+.endif
 
 
 
@@ -112,7 +120,7 @@ vid_device_version: .byte 0
 .align 4
 VID_VMSVGA2_STRUCT_SIZE = .
 
-DECLARE_PCI_DRIVER VID, 0x15ad, 0x0405, vmwsvga2_init, "vmwsvga2", "VMWare SVGa II"
+DECLARE_PCI_DRIVER VID_VGA, vid, 0x15ad, 0x0405, "vmwsvga2", "VMWare SVGa II", vmwsvga2_init
 ############################################################################
 .text32
 DRIVER_VID_VMSVGA2_BEGIN = .

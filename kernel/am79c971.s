@@ -278,7 +278,7 @@ AM79C_REG_BCR_SWSTYLE	= 20	# p 183 lo byte 0 = 16 byte structures (descr etc)
 nic_am79c_init_block:	.long 0
 NIC_AM79C_STRUCT_SIZE = .
 
-DECLARE_PCI_DRIVER NIC, 0x1022, 0x2000, am79c971_init, "am79c971", "AMD 79C971 PCNet"
+DECLARE_PCI_DRIVER NIC_ETH, nic, 0x1022, 0x2000, "am79c971", "AMD 79C971 PCNet", am79c971_init
 ############################################################################
 .text32
 DRIVER_NIC_AM79C_BEGIN = .
