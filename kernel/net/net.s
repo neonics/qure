@@ -920,6 +920,7 @@ int 3
 
 ########################################################
 9:	call	net_print_drop_msg$
+	DEBUG_BYTE [net_rx_queue_scheduled$]
 	printlnc 4, "queue full"
 
 0:	pop	esi
@@ -961,9 +962,9 @@ net_rx_queue_scheduled$:.byte 0
 .text32
 net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 # TODO: dont sched if still running. use local mutex.
-	cmp	byte ptr [net_rx_queue_scheduled$], 0
-	jnz	1f
-	inc	byte ptr [net_rx_queue_scheduled$]
+	cmp	byte ptr [net_rx_queue_scheduled$], 1
+	jz	1f
+	lock inc	byte ptr [net_rx_queue_scheduled$]
 
 	PUSH_TXT "netq"
 	push	dword ptr 0#TASK_FLAG_TASK#TASK_FLAG_RESCHEDULE # flags
@@ -977,9 +978,10 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 		setc	al
 		DEBUG_BYTE al
 	.endif
-#	jnc	1f
+	jnc	1f
 #	call	0f
-#	printlnc 4, "schedule error"	# task already scheduled: happens often
+	DEBUG_BYTE [net_rx_queue_scheduled$]
+	printlnc 4, "schedule error"	# task already scheduled: happens often
 1:	ret	# BUG: edx = [esp] = 00100900
 
 
@@ -1012,7 +1014,15 @@ net_rx_queue_handler:
 
 	# TODO: have scheduler deal with semaphores, i.e., IO_WAIT and such.
 	
-	lock dec byte ptr [net_rx_queue_scheduled$]
+#	lock dec byte ptr [net_rx_queue_scheduled$]
+#	jnz	net_rx_queue_handler_again
+
+	yield
+	jmp	net_rx_queue_handler_again
+
+#	DEBUG "queue handler exiting"
+#	DEBUG_BYTE [net_rx_queue_scheduled$]
+
 # for debug if error on ret
 #	DEBUG_DWORD esp, "q exit",0xb0
 #push ebp; lea ebp,[esp+4];DEBUG_DWORD [ebp];pop ebp
