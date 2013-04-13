@@ -6,6 +6,7 @@
 VID_DEBUG = 1
 
 
+VID_STARTUP_CHECK = 0
 
 
 .struct DEV_PCI_STRUCT_SIZE
@@ -487,9 +488,6 @@ vmwsvga2_init:
 
 
 9:	call	newline
-	DEBUG "Press key to enter gfx mode (another to return to text)"
-	xor ax,ax
-	call keyboard
 
 	# TEST: set video mode.
 	# set up the fifo
@@ -586,12 +584,10 @@ vmwsvga2_init:
 	call	newline
 
 
+	# this will automatically sync/flush on vid mem write,
+	# as the FIFO doesn't work as expected yet.
+	VID_WRITE TRACES, 1
 
-	DEBUG "Press key to start blit"
-	xor ax,ax
-	call keyboard
-
-VID_WRITE TRACES, 1
 	push	es
 	mov	edi, SEL_flatDS
 	mov	es, edi
@@ -618,11 +614,8 @@ push	dword ptr [screen_update]
 	mov	[gfx_printchar_ptr], dword ptr offset gfx_printchar_8x16
 mov	[screen_update], dword ptr offset gfx_txt_screen_update
 
-
-
 	DEBUG_DWORD edi,"FB addr"
 	DEBUG_DWORD ecx,"screensize"
-
 
 pop	dword ptr [screen_update]
 
@@ -635,17 +628,8 @@ pop	dword ptr [screen_update]
 #	jnz	0b
 
 
-
-
-	DEBUG "Press key to return to textmode"
-	xor ax,ax
-	call keyboard
 	# disable SVGA, return to VGA. (textmode!)
 	VID_WRITE ENABLE, 0
-
-	DEBUG "Video test done, press key"
-	xor ax,ax
-	call keyboard
 
 	clc
 	pop	edx
