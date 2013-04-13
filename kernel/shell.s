@@ -203,6 +203,7 @@ SHELL_COMMAND "ramdisk"		cmd_ramdisk
 SHELL_COMMAND "consoles"	cmd_consoles
 .endif
 SHELL_COMMAND "sha1"		cmd_sha1
+SHELL_COMMAND "base64"		cmd_base64
 .data SECTION_DATA_SHELL_CMDS
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -2157,4 +2158,31 @@ cmd_sha1:
 	ret
 
 .include "../lib/base64.s"
+cmd_base64:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	9f
+	mov	ebx, esi	# remember for decode
+	mov	esi, eax
+	call	strlen
+	mov	ecx, eax
+	xor	edi, edi
+	call	base64_encode
+	mov	esi, edi
+	print "ENCODED: "
+	push	ecx
+	call	nprintln_
+	pop	ecx
+
+	mov	esi, edi
+	mov	edi, ebx
+	mov	byte ptr [edi], 0
+	call	base64_decode	# esi,ecx, edi
+
+	print "DECODED: "
+	mov	esi, ebx
+	call	println
+
+9:	ret
 .endif
