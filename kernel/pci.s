@@ -1034,13 +1034,13 @@ cont$:
 # in: bl = register/offset (4 byte align)
 # out: eax
 pci_read_config:
-
+	push	edx
 	# eax: |                      | bbbbbbbb  | 000 ddddd |
 	and	eax, 0x0000ff1f	# ah & 8 bits, al & 5 bits
 
 	shl	al, 3		# low 3 bits: func 0
 	shl	eax, 8		
-	and	bl, 0b11111100
+	and	bl, 0b11111100	# register dword align
 	mov	al, bl		# low 8 bits: register
 	or	eax, 1<<31
 
@@ -1050,11 +1050,13 @@ pci_read_config:
 	out	dx, eax
 	add	dx, 4
 	in	eax, dx
+	pop	edx
 	ret
 
 # in: ah = bus (8 bits) al = slot (5 bits)
 # in: bl = register (4 byte align)
 # in: edx = value to write
+# out: eax = value readback
 pci_write_config:
 	push	edx
 	and	eax, 0x0000ff1f
@@ -1067,9 +1069,10 @@ pci_write_config:
 	mov	dx, IO_PCI_CONFIG_ADDRESS
 	out	dx, eax
 	add	dx, 4
-	pop	eax
+	mov	eax, [esp]
 	out	dx, eax
 	in	eax, dx
+	pop	edx
 	ret
 
 # in: cx = pci addr
@@ -1091,6 +1094,29 @@ pci_get_bar_addr:
 	and	al, ~3
 	ret
 1:	and	al, ~15
+	ret
+
+
+# in: ax = pci addr ( bus << 8 | slot )
+pci_busmaster_enable:
+	push_	ebx edx ecx
+	mov	ecx, eax	# remember pci addr
+
+	mov	bl, PCI_CFG_STATUS_COMMAND
+	call	pci_read_config
+
+	or	al, PCI_CMD_BUSMASTER | PCI_CMD_IO_SPACE | PCI_CMD_MEM_SPACE
+	mov	edx, eax
+
+	mov	bl, PCI_CFG_STATUS_COMMAND
+	mov	eax, ecx
+	call	pci_write_config
+
+	test	al, PCI_CMD_BUSMASTER
+	jnz	0f
+	printlnc 4, "warning: PCI busmaster enable failed"
+
+0:	pop_	ecx edx ebx
 	ret
 
 pci_print_dev$:

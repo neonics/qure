@@ -521,6 +521,37 @@ dev_pci_print:
 	pop	esi
 	ret
 
+# in: ebx: device
+# in: al: pci configuration register
+# out: eax
+dev_pci_read_config:
+	push_	ebx edx
+	mov	bx, [ebx + dev_pci_addr]
+	xchg	ax, bx
+	call	pci_read_config	# in: ax=pci addr; bl = pci config reg
+	pop_	edx ebx
+	ret
+
+# in: ebx = device
+# in: al = pci config register
+# in: edx = value to write
+# out: eax = readback value
+dev_pci_write_config:
+	push	ebx
+	mov	bx, [ebx + dev_pci_addr]
+	xchg	ax, bx
+	call	pci_write_config
+	pop	ebx
+	ret
+
+# in: ebx = device
+dev_pci_busmaster_enable:
+	push	eax
+	mov	ax, [ebx + dev_pci_addr]
+	call	pci_busmaster_enable
+	pop	eax
+	ret
+
 #############################################################################
 # dev_ata class methods
 

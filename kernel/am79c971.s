@@ -373,7 +373,7 @@ am79c971_init:
 	jc	9f
 
 	call	am79c_hook_isr
-	call	am79c_enable_pci_busmaster
+	call	dev_pci_busmaster_enable
 
 	# reset
 	mov	dx, [ebx + dev_io]
@@ -507,45 +507,6 @@ am79c971_init:
 9:	pop	edx
 	pop	edx
 	pop	ebp
-	ret
-
-
-am79c_enable_pci_busmaster:
-	mov	ax, [ebx + dev_pci_addr]
-	push	ebx
-	mov	bl, 4
-	call	pci_read_config
-	pop	ebx
-
-	.if AM79C_DEBUG > 2
-		DEBUG "PCI Word 4:"
-		DEBUG_DWORD eax
-	.endif
-
-	or	al, PCI_CMD_BUSMASTER | PCI_CMD_IO_SPACE | PCI_CMD_MEM_SPACE
-	mov	edx, eax
-	mov	ax, [ebx + dev_pci_addr]
-	push	ebx
-	mov	bl, 4
-
-	.if AM79C_DEBUG > 2
-		DEBUG "Write: "
-		DEBUG_DWORD edx
-	.endif
-
-	call	pci_write_config
-	pop	ebx
-
-	mov	ax, [ebx + dev_pci_addr]
-	push	ebx
-	mov	bl, 4
-	call	pci_read_config
-	pop	ebx
-
-	.if AM79C_DEBUG > 2
-		DEBUG "Verify:"
-		DEBUG_DWORD eax
-	.endif
 	ret
 
 
