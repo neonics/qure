@@ -657,6 +657,9 @@ net_rx_packet:
 # (and possibly a stack) for each packet.
 .struct 0
 net_rx_queue_status:	.long 0
+	NET_RX_QUEUE_STATUS_FREE	= 0	# 
+	NET_RX_QUEUE_STATUS_RESERVED	= 1	# net_rx_queue_getentry sets this
+	NET_RX_QUEUE_STATUS_SCHEDULED	= 2	# queue entry is configured.
 net_rx_queue_args:	.space 8*4	# pushad; eax+edx, esi,ecx
 NET_RX_QUEUE_STRUCT_SIZE = .
 .data SECTION_DATA_BSS
@@ -737,14 +740,14 @@ net_rx_queue_newentry:
 	xor	ecx, ecx
 1:	clc
 	mov	[net_rx_queue_tail], ecx	# record the new tail
-	mov	[eax + edx + net_rx_queue_status], dword ptr 1
+	mov	[eax + edx + net_rx_queue_status], dword ptr NET_RX_QUEUE_STATUS_RESERVED
 
 9:	pop	ecx
 	ret
 
 5:	# head = tail
 	# check if empty or full:
-	cmp	[eax + edx + net_rx_queue_status], dword ptr 0
+	cmp	[eax + edx + net_rx_queue_status], dword ptr NET_RX_QUEUE_STATUS_FREE
 	jz	3b
 	# fallthrough
 4:	
@@ -829,9 +832,10 @@ popcolor
 
 
 	mov	edx, [net_rx_queue_head]
-	cmp	[eax + edx + net_rx_queue_status], dword ptr 0
+	cmp	[eax + edx + net_rx_queue_status], dword ptr NET_RX_QUEUE_STATUS_SCHEDULED
 	stc
-	jz	9f
+	# overlook the case NET_RX_QUEUE_STATUS_RESERVED as it will be SCHEDULED shortly
+	jnz	9f
 	push	ecx
 	lea	ecx, [edx + NET_RX_QUEUE_STRUCT_SIZE]
 	cmp	ecx, [eax + array_capacity]
@@ -852,52 +856,6 @@ popcolor
 .endif
 
 ##############################################################################
-
-# out: eax + edx
-net_rx_queue_newentry_old$:
-	push	ecx
-	# this here will reorder the packets in reverse....
-	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 1f
-	cmp	[eax + edx + net_rx_queue_status], dword ptr 0
-	jz	2f
-	ARRAY_ENDL
-1:	ARRAY_NEWENTRY [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, 4, 9f
-2:	mov	[eax + edx + net_rx_queue_status], dword ptr 1
-9:	pop	ecx
-	ret
-
-
-# this one causes page fault after having processed first entry
-# out: eax + edx
-net_rx_queue_newentry_compact$:
-	push	ecx
-	mov	eax, [net_rx_queue]
-	or	eax, eax
-	jz	1f
-	cmp	[eax + net_rx_queue_status], dword ptr 0
-	jnz	1f	# first entry occupied, append
-	# first entry free - compact
-	push	edi
-	push	esi
-	mov	edi, eax
-	mov	ecx, NET_RX_QUEUE_STRUCT_SIZE
-	# find first nonfree
-0:	cmp	dword ptr [eax + ecx + net_rx_queue_status], 0
-	jnz	0f
-	add	ecx, NET_RX_QUEUE_STRUCT_SIZE
-	jmp	0b
-
-0:	# eax + ecx = first nonfree
-	lea	esi, [eax + ecx]
-	rep	movsb
-	pop	esi
-	pop	edi
-
-1:	ARRAY_NEWENTRY [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, 4, 9f
-	mov	[eax + edx + net_rx_queue_status], dword ptr 1
-
-9:	pop	ecx
-	ret
 
 # in: ds = es = ss
 # in: ebx = nic
@@ -952,6 +910,7 @@ net_print_drop_msg$:
 #	mov	[edi-12], edx
 #	mov	[edi-28], esi
 	popad
+	mov	[eax + edx + net_rx_queue_status], dword ptr NET_RX_QUEUE_STATUS_SCHEDULED
 	pop	esi
 	pop	edx
 	pop	eax
@@ -1001,8 +960,8 @@ net_rx_queue_handler:
 	jnc	1f
 .else
 	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
-	cmp	[eax + edx + net_rx_queue_status], dword ptr 0
-	jnz	1f
+	cmp	[eax + edx + net_rx_queue_status], dword ptr NET_RX_QUEUE_STATUS_SCHEDULED
+	jz	1f
 	ARRAY_ENDL
 9:	
 .endif
