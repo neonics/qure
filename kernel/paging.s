@@ -231,9 +231,9 @@ paging_disable:
 # in: eax = physical address to identity map
 # in: ecx = size to map
 paging_idmap_4m:
-DEBUG "paging_idmap"
-DEBUG_DWORD ecx,"size"
-DEBUG_DWORD eax,"addr"
+#DEBUG "paging_idmap"
+#DEBUG_DWORD ecx,"size"
+#DEBUG_DWORD eax,"addr"
 	push_	edx eax ecx
 	add	ecx, 1024 * 4096 - 1
 	shr	ecx, 22		# divide by 4m; ecx is nr of 4m pages.
@@ -242,10 +242,10 @@ DEBUG_DWORD eax,"addr"
 	and	edx, ~4095	# mask low 12 bits
 	shr	eax, 20		# divide by 1Mb (/4Mb * sizeof(dword))
 	and	al, ~3		# align to 4Mb
-DEBUG_DWORD ecx,"#4m pages"
-DEBUG_DWORD edx,"addr"
-DEBUG_DWORD eax,"PDE idx"
-call newline
+#DEBUG_DWORD ecx,"#4m pages"
+#DEBUG_DWORD edx,"addr"
+#DEBUG_DWORD eax,"PDE idx"
+#call newline
 	/*
 push_ edx eax
 printc 11, "paging: identity map "
@@ -267,7 +267,7 @@ pop_ eax edx
 	add	edx, 4096 * 1024
 #	loop	0b
 
-	call	paging_show_usage
+	#call	paging_show_usage
 
 	pop_	ecx eax edx
 	ret
