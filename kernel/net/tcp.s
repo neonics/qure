@@ -1126,7 +1126,7 @@ pushad
 MUTEX_UNLOCK_ TCP_CONN
 call net_tcp_conn_list
 MUTEX_SPINLOCK_ TCP_CONN
-call print_handles$
+call mem_print_handles
 popad
 pushad
 DEBUG_DWORD [tcp_connections],"[conn]"
@@ -1144,7 +1144,7 @@ mov	eax, [tcp_connections]
 sub	eax, 8
 call	mem_find_handle$	# out: edx = handle nr; ebx = handle struct ptr
 jc	11f
-call	print_handle_$;
+call	mem_print_handle_$;
 jmp	12f
 
 11:	DEBUG "handle not found"

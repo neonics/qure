@@ -1336,7 +1336,7 @@ call SEL_kernelCall:0
 #cmp eax, 0x00300000
 #jb 1f
 #pushad
-#call print_handles$
+#call mem_print_handles
 #popad
 #pushad
 #DEBUG_DWORD [task_queue]
@@ -1352,7 +1352,7 @@ call SEL_kernelCall:0
 #printchar '-'
 #add edx, [ebx + handle_size]
 #call printhex8
-##call print_handle_$
+##call mem_print_handle_$
 #jmp 3f
 #2: DEBUG "handle not found"
 #3:

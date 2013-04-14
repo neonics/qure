@@ -778,7 +778,7 @@ debugger:
 2:	call	debug_print_exception_registers$# printregisters
 	jmp	0b
 
-3:	call	print_handles$
+3:	call	mem_print_handles
 	jmp	0b
 
 # in: [esp+0] index
