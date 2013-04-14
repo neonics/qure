@@ -761,17 +761,27 @@ _color_css$:
 	call	strlen_
 	call	socket_write
 
+SEND_BUFFER = 1
 	push	fs
+.if SEND_BUFFER
+	mov	ebx, ds
+	mov	fs, ebx
+	push	eax
+	call	console_get
+	mov	ebx, [eax + console_screen_buf]
+	pop	eax
+	mov	ecx, 25 * SCREEN_BUF_PAGES
+.else
 	mov	ebx, SEL_vid_txt
 	mov	fs, ebx
 	xor	ebx, ebx
-
 	mov	ecx, 25
+.endif
 0:	push	ecx
 #######
 	mov	ecx, 80
 	.data SECTION_DATA_BSS
-	_www_scr$: .space 80 * 13
+	_www_scr$: .space 80 * 32 # 13
 	.text32
 	mov	edi, offset _www_scr$
 	push	eax
@@ -817,6 +827,13 @@ _color_css$:
 2:	stosb
 	add	ebx, 2
 	loop	1b
+	# close the span; TODO FIXME: check whether one is open!
+	# (however better than now where EOL's are not closed!)
+	mov	[edi], dword ptr ('<'|'/'<<8|'s'<<16|'p'<<24)
+	add	edi, 4
+	mov	[edi], dword ptr ('a'|'n'<<8|'>'<<16)
+	add	edi, 3
+
 	mov	[edi], byte ptr '\n'
 	inc	edi
 	pop	eax
