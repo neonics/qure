@@ -18,6 +18,7 @@
 
 .intel_syntax noprefix
 .include "list.s"
+.include "ll.s"
 .data
 mem_heap_start:	.long 0, 0
 mem_heap_size:	.long 0, 0
@@ -375,14 +376,6 @@ find_by_size_r$:
 #
 #
 #
-.struct 0	# ll_info
-ll_value: .long 0
-ll_prev: .long 0
-ll_next: .long 0
-# ll_prev and ll_next, when their sign bit is 1, serve to mark the first/last
-# nodes.
-# This restricts the usage of pointers to be below 2Gb.
-#
 
 .struct 0
 # substruct ll_info: [base, prev, next] for fa
@@ -437,10 +430,6 @@ mem_handles: .long 0
 mem_numhandles: .long 0
 mem_maxhandles: .long 0
 mem_handles_handle: .long 0
-.struct 0
-ll_first: .long 0
-ll_last: .long 0
-.data
 # substructs: pairs of _first and _last need to be in this order!
 
 # free-by-address
@@ -873,6 +862,7 @@ malloc_internal_aligned$:	# can only be called from malloc_aligned!
 	call	ll_append$
 	add	esi, offset handle_size - handle_base
 	mov	edi, offset handle_ll_fs
+	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$	# insert
 	pop	edi
 
@@ -2026,7 +2016,10 @@ alloc_handles$:
 	push	edi
 	mov	edi, offset handle_ll_fa
 	add	esi, offset handle_base
+	push	ecx
+	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$
+	pop	ecx
 	sub	esi, offset handle_base
 	pop	edi
 
@@ -2170,7 +2163,10 @@ malloc_aligned:
 	push	edi
 	mov	edi, offset handle_ll_fa
 	add	esi, offset handle_base
+	push	ecx
+	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$
+	pop	ecx
 	sub	esi, offset handle_base
 	pop	edi
 
@@ -2264,7 +2260,10 @@ malloc:
 	push	edi
 	mov	edi, offset handle_ll_fa
 	add	esi, offset handle_base
+	push	ecx
+	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$
+	pop	ecx
 	sub	esi, offset handle_base
 	pop	edi
 
@@ -2605,6 +2604,7 @@ get_handle_by_base$:
 	add	esi, offset handle_base - offset handle_size
 	call	ll_unlink$
 	mov	edi, offset handle_ll_fh
+	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$
 
 	# eax is unchanged
@@ -2871,7 +2871,10 @@ handle_merge_fa$:
 	call	ll_unlink$
 	# add to the reusable handles list
 	mov	edi, offset handle_ll_fh
+	push	ecx
+	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$	# this does a loop on address, unneeded; call append instead?
+	pop	ecx
 	or	byte ptr [esi + ebx + handle_flags], MEM_FLAG_REUSABLE
 
 MERGE_RECURSE = 0
@@ -2906,7 +2909,10 @@ MERGE_RECURSE = 0
 .endif
 	mov	edi, offset handle_ll_fs
 	add	esi, offset handle_size
+	push	ecx
+	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$
+	pop	ecx
 	sub	esi, offset handle_size
 	stc
 	ret
@@ -2962,339 +2968,6 @@ MERGE_RECURSE = 0
 #   is required to also become > 0, and vice versa].
 #
 ###########################################################################
-
-
-##################################################### LINKED LIST ############
-#
-# in: ebx = handle index
-# in: esi = [mem_handles] + offset to ll_info within struct
-# 	offset to linked list info: [value, prev, next]
-#	[esi + ebx + ll_value]	= link_value (i.e. _base, _size)
-#	[esi + ebx + ll_prev]	= link_prev (i.e. _fa_prev, _fs_prev)
-#	[esi + ebx + ll_next]	= link_next (i.e. _fa_next, _fs_next)
-# in: edi = first/last list info pointer: [first, last]
-#
-# This routine inserts ebx into an ascending sorted list.
-ll_insert_sorted$:
-	push	edx
-	push	ecx
-	push	ebx
-	push	eax
-
-	mov	eax, [edi + ll_first]
-	cmp	eax, -1
-	jz	1f
-
-	######################################################
-	mov	edx, [esi + ebx + ll_value]
-	mov	ecx, [mem_maxhandles]
-
-0:	cmp	edx, [esi + eax + ll_value]
-	jb	2f	# insert before
-	mov	eax, [esi + eax + ll_next]
-	or	eax, eax
-	js	3f
-	loop	0b
-3:	# append to end of list
-	.if MEM_DEBUG
-	printc 3, "LAST"
-	.endif
-	# last -> ebx
-	mov	eax, ebx
-	xchg	eax, [edi + ll_last]
-	xchg	eax, ebx
-	# eax = old last, ebx = new last
-	# eax <-> ebx
-	mov	[esi + ebx + ll_next], eax
-	mov	[esi + eax + ll_prev], ebx
-
-	jmp	5f
-
-
-2:	# found base that is higher - prepend.
-	# x <-> eax <-> y
-	# x <-> ebx <-> eax <-> y
-	#
-	# eax.prev.next = ebx
-	# x -> ebx
-	# x <- eax <-> y
-	# ebx.next = eax
-	# x -> ebx -> eax <->y
-	# x        <- eax
-	# ebx.prev = eax.prev
-	# x <-> ebx -> eax <-> y
-	# eax.prev = ebx
-	# x <-> ebx <-> eax <->y
-	.if MEM_DEBUG > 1
-	push	edx
-	print "INSERT "
-	mov	edx, eax
-	HOTOI	edx
-	call	printdec32
-	printchar ' '
-	mov	edx, [esi + eax + ll_value]
-	call	printhex8
-	print " -> "
-	mov	edx, ebx
-	HOTOI	edx
-	call	printdec32
-	printchar ' '
-	mov	edx, [esi + ebx + ll_value]
-	call	printhex8
-	print " esi = "
-	mov	edx, esi
-	call	printhex8
-	pop	edx
-	.endif
-
-	.if MEM_DEBUG
-	printc 3, "PREPEND"
-	.endif
-
-#	or	eax, eax
-#	js	3f
-	mov	edx, [esi + eax + ll_prev] # edx = eax.prev
-	cmp	edx, -1
-	jnz	6f
-	# integrity check: assert edi+ll_first==eax
-	mov	[edi + ll_first], ebx
-4:	jmp	4f
-6:	mov	[esi + edx + ll_next], ebx # eax.prev.next = ebx
-4:	mov	[esi + eax + ll_prev], ebx # eax.prev = ebx
-	mov	[esi + ebx + ll_prev], edx # ebx.prev = eax.prev
-3:	mov	[esi + ebx + ll_next], eax # ebx.next = eax
-	jmp	5f
-	######################################################
-
-1:	# store it as the first handle
-	.if MEM_DEBUG
-	printc 3, "FIRST"
-	.endif
-	mov	[esi + ebx + ll_next], dword ptr -1
-	mov	[esi + ebx + ll_prev], dword ptr -1
-	mov	[edi + ll_first], ebx
-	mov	[edi + ll_last], ebx
-
-5:
-	pop	eax
-	pop	ebx
-	pop	ecx
-	pop	edx
-	ret
-
-LL_DEBUG = 0
-
-# in: esi = [mem_handles]
-# in: edi = offset of handle_??_first
-# in: ebx: handle to place in the list, still part of it
-ll_update_left$:
-	push	eax
-	push	ecx
-	push	edx
-
-	mov	ecx, [mem_numhandles]	# circular list protection
-	mov	edx, [esi + ebx + ll_value]
-	mov	eax, [esi + ebx + ll_prev]
-	cmp	eax, -1		# already first, dont move
-	jz	1f
-	cmp	edx, [esi + eax + ll_value]	# check the first
-	jae	1f				# no change
-	mov	eax, [esi + eax + ll_prev]
-
-0:	cmp	edx, [esi + eax + ll_value]
-	ja	2f
-	loop	0b
-	# first
-	call	ll_unlink$
-	call	ll_prepend$
-	jmp	1f
-
-2:	# insert
-	call	ll_unlink$
-	call	ll_insert_sorted$
-
-	# NOTE: should be ll_insert but this bugs at current.
-	# In a sense then, this entire method can be replaced with
-	# the unlink/update calls.
-
-
-#	call	ll_insert$ 
-	.if LL_DEBUG
-		push esi
-		sub	esi, [mem_handles]; DEBUG_DWORD esi, "upd L field"
-		mov	esi, [mem_handles]
-		dbg_ll_upd_L:
-		mov	[esi + ebx + handle_caller], dword ptr offset .
-		mov	ecx, ebx
-		HOTOI ecx
-		DEBUG_DWORD ecx,"update_left"
-		call newline
-		push	ebx
-		add	ebx, esi
-		call	mem_print_handle_2$
-		pop	ebx
-		pop	esi
-	.endif
-
-1:	pop	edx
-	pop	ecx
-	pop	eax
-	ret
-
-
-# in: esi, edi
-# in: ebx: handle to place in the list, still part of it
-ll_update_right$:
-	push	eax
-	push	ecx
-	push	edx
-
-	mov	ecx, [mem_numhandles]	# circular list protection
-	mov	edx, [esi + ebx + ll_value]
-	mov	eax, [esi + ebx + ll_next]
-	cmp	eax, -1		# already last, dont move
-	jz	1f
-	cmp	edx, [esi + eax + ll_value]	# check the first
-	jbe	1f				# no change
-	mov	eax, [esi + eax + ll_next]
-
-0:	cmp	edx, [esi + eax + ll_value]
-	ja	2f
-	loop	0b
-	# last
-	call	ll_unlink$
-	call	ll_append$
-	jmp	1f
-
-2:	# insert
-	call	ll_unlink$
-	#call	ll_insert$
-	call	ll_insert_sorted$
-
-	.if LL_DEBUG
-		dbg_ll_upd_R:
-		mov	ecx, [mem_handles]
-		mov	[ecx + ebx + handle_caller], dword ptr offset .
-		mov	ecx, ebx
-		HOTOI ecx
-		DEBUG_DWORD ecx,"update_right"
-	.endif
-
-1:	pop	edx
-	pop	ecx
-	pop	eax
-	ret
-
-
-# in: esi, edi
-# in: ebx
-ll_prepend$:
-	push	eax
-	mov	eax, ebx
-	xchg	[edi + ll_first], eax
-	or	eax, eax
-	js	1f
-	mov	[esi + ebx + ll_next], eax
-	mov	[esi + eax + ll_prev], ebx
-1:	pop	eax
-	ret
-
-# inserts ebx after eax.
-#
-# in: esi = array pointer + ll_value
-# in: ebx is record offset within array to append to
-# in: eax, record offset.
-# in: edi = ll struct pointer
-ll_insert$:
-ll_insert_after$:
-	push	edx
-	mov	edx, [esi + eax + ll_next]
-	or	edx, edx
-	jns	0f
-	mov	[edi + ll_last], ebx
-	jmp	1f
-0:	mov	[esi + edx + ll_prev], ebx
-1:	mov	[esi + ebx + ll_prev], eax
-	mov	[esi + ebx + ll_next], edx
-	mov	[esi + eax + ll_next], ebx
-	pop	edx
-	ret
-
-# inserts ebx before eax
-# in: edi = ll struct ptr
-ll_insert_before$:
-	push	edx
-	mov	edx, [esi + eax + ll_prev]
-	or	edx, edx
-	jns	0f
-	mov	[edi + ll_first], ebx
-	jmp	1f
-0:	mov	[esi + edx + ll_next], ebx
-1:	mov	[esi + ebx + ll_prev], edx
-	mov	[esi + ebx + ll_next], eax
-	mov	[esi + eax + ll_prev], ebx
-	pop	edx
-	ret
-
-# in: ebx = record offset, handle must have been unlinked!
-# in: esi = array offset + ll_value
-# in: edi = ll struct ptr
-ll_append$:
-	push	eax
-	mov	eax, [edi + ll_last]
-	or	eax, eax
-	jns	1f
-	mov	[edi + ll_first], ebx
-	jmp	3f
-1:	mov	[esi + eax + ll_next], ebx
-	mov	[esi + ebx + ll_prev], eax
-3:	mov	[edi + ll_last], ebx
-	pop	eax
-	ret
-
-# in: ebx = record ofset
-# in: esi = array offset + ll_value
-# in: edi = ll struct ptr
-ll_unlink$:
-	push	eax
-	push	edx
-	mov	eax, -1
-	mov	edx, eax
-	# eax = ebx.prev
-	# edx = ebx.next
-	xchg	eax, [esi + ebx + ll_prev]
-	xchg	edx, [esi + ebx + ll_next]
-
-	cmp	eax, -1			# is ebx.prev -1?
-	jnz	0f
-	cmp	edx, -1
-	jz	2f			# prev and next both -1
-	# ebx was the first
-3:	mov	[edi + ll_first], edx	# yes - mark ebx.next as first
-	jmp	1f
-0:	mov	[esi + eax + ll_next], edx
-1:
-	cmp	edx, -1
-	jnz	0f
-	mov	[edi + ll_last], eax
-	jmp	1f
-0:	mov	[esi + edx + ll_prev], eax
-1:
-	pop	edx
-	pop	eax
-	ret
-
-2:	# special case: both prev and next are -1.
-	# either the entry constituted the entire list, in which case
-	# ll_first == ll_last == ebx,
-	# or it was not part of the list.
-	cmp	ebx, [edi + ll_first]
-	jz	3b
-	cmp	ebx, [edi + ll_last]
-	jnz	1b
-	printlnc 4, "linked list was corrupt"
-	jmp	1b
-
 
 mem_debug:
 	.if MEM_DEBUG
