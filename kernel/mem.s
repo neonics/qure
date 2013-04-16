@@ -270,123 +270,19 @@ MEM_PRINT_HANDLES = 2	# 1 or 2: different formats.
 # before it). When removing that bottom node, the parent node must
 # be removed aswell, up to the top.
 #
-.if 0
-choose_direction$:
-	mov	ebx, [edi + ll_first]
-	mov	ebx, [esi + ebx + ll_value]
-	sub	ebx, eax
-	jns	1f	# the first is already big enough
-	mov	ecx, [edi + ll_last]
-	mov	ecx, [esi + ecx + ll_value]
-	sub	ecx, eax
-	js	2f	# the last is not big enough
-	add	ecx, ebx	# difference of difference
-	js	3f	# first difference is greater, go back from end
-			# last difference is greater, go right from start
-	# right:
-	mov	ebx, [edi + ll_first]
-	#...
-
-3:	mov	ebx, [edi + ll_prev]
-	#...
-	ret
-
-# uses temporary register edx to save one memory access per iteration.
-# in: eax = size, ebx = the first node to start searching from.
-# breadth-first search algorithm, no recursion:
-find_by_size_r$:
-0:	cmp	eax, [esi + ebx + ll_value]
-	jb	1f	# the smallest item can accommodate it
-	mov	edx, [esi + ebx + ll_next]
-	or	edx, edx
-	mov	ebx, edx
-	jns	0b	# there is a next, so continue
-	# eax preserved. When here, this is the last node, that is not
-	# large enough.
-	# If it is a reference node, it might have larger children.
-	# However, it would be most convenient to mark the last node,
-	# and not see it as a reference node, but as the node marking
-	# the biggest available size: the last node itself from handle_fa.
-	# The last node of handle_as would need to point to this in order
-	# to move left.
-	# as such, if the last node does not accommodate the size, abort.
-	stc
-	ret
-	# specialized code, uses handle_flags. Might generalize the location
-	# of the value, but not the test code. Might use ll_value2, but it
-	# would have to be indirectly provided [edi], as a const prevents
-	# interleaving the ll_next (break the struct).
-1:	test	[esi + ebx + handle_flags], MEM_FLAG_REFERENCE
-	jz	0f	# not a reference, found it!
-	# it's a reference. Going deeper.
-	# Option 1: does not keep track of the vertical path,
-	# and will not support node removal.
-	mov	ebx, [esi + ebx + handle_base]	# handle reference
-	jmp	0b
-
-0:	clc
-	ret
-
-# breadth first, using stack:
-# in: eax=size, ebx=starting node
-# out: ecx = depth of path
-# out: [esp - 4] = bottom reference node
-# out: [esp - 4 - ecx * 4] = top reference node
-find_by_size_r$:
-	xor	ecx, ecx
-
-0:	cmp	eax, [esi + ebx + ll_value]
-	jb	1f	# the smallest item can accommodate it
-	mov	edx, [esi + ebx + ll_next]
-	or	edx, edx
-	mov	ebx, edx
-	jns	0b	# there is a next, so continue
-
-	shl	ecx, 2
-	add	esp, ecx
-	shr	ecx, 2
-	stc
-	ret
-
-1:	test	[esi + ebx + handle_flags], MEM_FLAG_REFERENCE
-	jz	0f	# not a reference, found it!
-
-	push	ebx
-	inc	ecx
-	mov	ebx, [esi + ebx + handle_base]	# handle reference
-	jmp	0b
-
-0:	shl	ecx, 2
-	add	esp, ecx
-	shr	ecx, 2
-	clc
-	ret
-
-.endif
-
-# Now, with the above approach, unlinking an item from handle_fs directly,
-# would need to have another field pointing up.
-
-# The base list in the item is unused, except for base pointing to the
-# lower item.
-# A rewrite for using two linked list: see find_by_size_r$ below.
-
-
-#
-#
-#
-#
 
 .struct 0
 # substruct ll_info: [base, prev, next] for fa
 # NOTICE!!!!! handle_base is dependent to be 0 for optimization! Search for OPT
-handle_base: .long 0
+handle_ll_el_addr:
 handle_fa_prev: .long 0		# offset into [mem_handles]
 handle_fa_next: .long 0		# offset into [mem_handles]
+handle_base: .long 0
 # substruct ll_info: [size, prev, next] for fs
-handle_size: .long 0
+handle_ll_el_size:
 handle_fs_prev: .long 0		# offset into [mem_handles]
 handle_fs_next: .long 0		# offset into [mem_handles]
+handle_size: .long 0
 # rest:
 handle_flags: .byte 0	# 25
 	MEM_FLAG_ALLOCATED = 1
@@ -858,9 +754,9 @@ malloc_internal_aligned$:	# can only be called from malloc_aligned!
 	# insert the handle in the FS list.
 	push	edi
 	mov	edi, offset handle_ll_fa
-	add	esi, offset handle_base
+	add	esi, offset handle_ll_el_addr
 	call	ll_append$
-	add	esi, offset handle_size - handle_base
+	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
 	mov	edi, offset handle_ll_fs
 	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$	# insert
@@ -873,7 +769,6 @@ malloc_internal_aligned$:	# can only be called from malloc_aligned!
 
 	pop_	edi ecx ebx
 	pop	edx
-	DEBUG_DWORD eax,"jumping to malloc_internal"
 	jnc	malloc_internal$ # heap should be nicely aligned now.
 	ret
 
@@ -1074,11 +969,11 @@ mem_print_handles:
 	.if MEM_DEBUG
 		printc 4, " \listname["
 		push	edx
-		mov	edx, [edi]
+		mov	edx, [edi + ll_first]
 		HOTOI	edx
 		call	printdec32
 		printcharc 4, ','
-		mov	edx, [edi+ll_last]
+		mov	edx, [edi + ll_last]
 		HOTOI	edx
 		call	printdec32
 		pop	edx
@@ -1183,16 +1078,16 @@ mem_print_handles:
 	.endm
 
 	print	"U: "
-	LL_PRINT handle_fh_first, handle_base #, MEM_FLAG_REUSABLE
+	LL_PRINT handle_fh_first, handle_ll_el_addr #, MEM_FLAG_REUSABLE
 	LL_PRINTARRAY MEM_FLAG_REUSABLE, MEM_FLAG_REUSABLE
 	call	newline
 
 	PRINT	"A: "
-	LL_PRINT handle_fa_first, handle_base
+	LL_PRINT handle_fa_first, handle_ll_el_addr
 	LL_PRINTARRAY MEM_FLAG_REUSABLE, 0
 	call	newline
 	PRINT	"S: "
-	LL_PRINT handle_fs_first, handle_size
+	LL_PRINT handle_fs_first, handle_ll_el_size
 	LL_PRINTARRAY (MEM_FLAG_ALLOCATED|MEM_FLAG_REUSABLE), 0
 	call	newline
 
@@ -1295,18 +1190,21 @@ mem_print_handle_2$:
 	mov	edx, [ebx + handle_fs_next]
 	HOTOI	edx
 	call	printdec32
+	call	printspace
 
 	mov	edx, [ebx + handle_caller]
 	push	ebx
 	push	esi
 	push	edi
 	call	debug_getsymbol
-	jnc	1f
-	call	debug_get_preceeding_symbol
 	jc	1f
-	call	printspace
 	call	print
-1:
+	jmp	2f
+1:	call	debug_get_preceeding_symbol
+	jc	2f
+	call	print
+	printcharc_ 13,'+'
+2:
 	pop	edi
 	pop	esi
 	pop	ebx
@@ -1367,7 +1265,7 @@ mem_print_handle$:
 
 # prints the handles from a linked list (free, allocated).
 # in: ebx = [handle_ll_fa] | handle_ll_fs
-# in: edi = offset handle_base | offset handle_size
+# in: edi = offset handle_ll_el_addr | offset handle_ll_el_size
 mem_print_ll_handles$:
 
 	.if MEM_PRINT_HANDLES == 2
@@ -1403,14 +1301,14 @@ mem_print_ll_handles$:
 get_handle$:
 	# first check if we can reuse handles:
 	mov	ebx, [handle_fh_first]
-	or	ebx, ebx
-	js	0f
+	cmp	ebx, -1
+	jz	0f
 
 	push	edi
 	mov	edi, offset handle_ll_fh
-	#add	esi, offset handle_base OPT
+	add	esi, offset handle_ll_el_addr # OPT
 	call	ll_unlink$
-	#sub	esi, offset handle_base OPT
+	sub	esi, offset handle_ll_el_addr # OPT
 	pop	edi
 
 	and	[esi + ebx + handle_flags], byte ptr ~MEM_FLAG_REUSABLE
@@ -1426,6 +1324,8 @@ get_handle$:
 
 	HITO	ebx
 	mov	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
+	mov	[esi + ebx + handle_base], dword ptr 0
+	mov	[esi + ebx + handle_size], dword ptr 0
 	mov	[esi + ebx + handle_fs_next], dword ptr -1
 	mov	[esi + ebx + handle_fs_prev], dword ptr -1
 	mov	[esi + ebx + handle_fa_next], dword ptr -1
@@ -1563,9 +1463,9 @@ find_handle$:
 3:	or	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	push	edi
 	mov	edi, offset handle_ll_fs
-	add	esi, offset handle_size
+	add	esi, offset handle_ll_el_size
 	call	ll_unlink$
-	sub	esi, offset handle_size
+	sub	esi, offset handle_ll_el_size
 	pop	edi
 	clc
 	jmp	2b
@@ -1633,7 +1533,7 @@ MEM_SPLIT_DEBUG = 0
 	push_	edi eax
 	# prepend ebx to edx
 	mov	edi, offset handle_ll_fa
-	add	esi, offset handle_base
+	add	esi, offset handle_ll_el_addr
 	mov	eax, edx
 	call	ll_insert_before$
 
@@ -1644,14 +1544,14 @@ MEM_SPLIT_DEBUG = 0
 	# somewhere in the list (not necessarily at the beginning/ending).
 	# Since the handle has shrunk in size, only search left.
 	mov	edi, offset handle_ll_fs
-	add	esi, offset handle_size - offset handle_base
+	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
 	# ebx is the new handle - ignore it (but save it)
 	push	ebx
 	mov	ebx, edx
 	call	ll_update_left$	# shift old handle the free/size list
 	pop	ebx
 
-	sub	esi, offset handle_size
+	sub	esi, offset handle_ll_el_size
 
 	pop_	eax edi
 
@@ -1731,7 +1631,7 @@ DEBUG_DWORD eax,"remaining size"
 	# insert the NEW handle AFTER the old handle
 	push_	edi
 	mov	edi, offset handle_ll_fa
-	add	esi, offset handle_base
+	add	esi, offset handle_ll_el_addr
 	mov	eax, edx
 	call	ll_insert_after$	# insert new ebx after old edx (eax)
 
@@ -1745,14 +1645,14 @@ DEBUG_DWORD eax,"remaining size"
 	# In both cases, the old handle remains FREE and the new ALLOCATED,
 	# and in both cases, the size of the old handle shrinks.
 	mov	edi, offset handle_ll_fs
-	add	esi, offset handle_size - offset handle_base
+	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
 	# ebx is the new handle - ignore it (but save it)
 	push	ebx
 	mov	ebx, edx
 	call	ll_update_left$	# shift old handle the free/size list
 	pop	ebx
 
-	sub	esi, offset handle_size
+	sub	esi, offset handle_ll_el_size
 	pop_	edi
 
 	## return
@@ -1808,7 +1708,7 @@ DEBUG_DWORD eax,"remaining size"
 	push	eax
 	# prepend ebx to edx
 	mov	edi, offset handle_ll_fa
-	add	esi, offset handle_base
+	add	esi, offset handle_ll_el_addr
 	mov	eax, edx
 	call	ll_insert_before$
 	# the size list for unallocated memory needs to continue
@@ -1818,14 +1718,14 @@ DEBUG_DWORD eax,"remaining size"
 	# somewhere in the list (not necessarily at the beginning/ending).
 	# Since the list has shrunk in size, only search left.
 	mov	edi, offset handle_ll_fs
-	add	esi, offset handle_size - offset handle_base
+	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
 	# ebx is the new handle - ignore it (but save it)
 	push	ebx
 	mov	ebx, edx
 	call	ll_update_left$
 	pop	ebx
 
-	sub	esi, offset handle_size
+	sub	esi, offset handle_ll_el_size
 
 	pop	eax
 	pop	edi
@@ -1856,11 +1756,11 @@ DEBUG_DWORD eax,"remaining size"
 		popcolor
 	push	edi
 	mov	edi, offset handle_ll_fa
-	add	esi, offset handle_base
+	add	esi, offset handle_ll_el_addr
 	xchg	eax, ebx
 	call	ll_insert$
 	xchg	eax, ebx
-	sub	esi, offset handle_base
+	sub	esi, offset handle_ll_el_addr
 	pop	edi
 # sublevel 4: update list ordering
 	# since edx has shrunk in size, see if we need to move it
@@ -1962,9 +1862,9 @@ find_handle_linear$:
 	sub	ebx, esi
 	push	edi
 	mov	edi, offset handle_ll_fs
-	add	esi, offset handle_size
+	add	esi, offset handle_ll_el_size
 	call	ll_unlink$
-	sub	esi, offset handle_size
+	sub	esi, offset handle_ll_el_size
 	pop	edi
 	clc
 	pop	esi
@@ -1992,6 +1892,12 @@ alloc_handles$:
 	mov	ecx, [mem_maxhandles]
 	HITDS	ecx
 	rep	movsd
+		## clear the rest:
+		#mov	ecx, ALLOC_HANDLES * HANDLE_STRUCT_SIZE / 4
+		#push	eax
+		#xor	eax, eax
+		#rep	stosd
+		#pop	eax
 	pop	ecx
 	pop	edi
 
@@ -2003,26 +1909,29 @@ alloc_handles$:
 	pop	ebx
 
 1:
-	mov	[mem_handles], eax
+	mov	esi, eax
+	xchg	eax, [mem_handles]
 	add	[mem_maxhandles], dword ptr ALLOC_HANDLES
 
 	# reserve a handle
-	mov	esi, eax
 	call	get_handle$	# potential recursion
 	mov	[mem_handles_handle], ebx
-	pop	dword ptr [esi + ebx + handle_size]
-	mov	[esi + ebx + handle_base], eax
+	pop	dword ptr [esi + ebx + handle_size]	# the saved size
+	mov	[esi + ebx + handle_base], esi
+	mov	[esi + ebx + handle_caller], dword ptr offset alloc_handles$
 	or	[esi + ebx + handle_flags], byte ptr MEM_FLAG_HANDLE #1 << 7
 	push	edi
 	mov	edi, offset handle_ll_fa
-	add	esi, offset handle_base
+	add	esi, offset handle_ll_el_addr
 	push	ecx
 	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$
 	pop	ecx
-	sub	esi, offset handle_base
+	sub	esi, offset handle_ll_el_addr
 	pop	edi
 
+	# now mark the old memory region as free:
+	call	mfree	# see 1b for eax
 
 		.if MEM_DEBUG > 1
 		push	edx
@@ -2045,7 +1954,6 @@ alloc_handles$:
 
 	# When we're here, the handles are set up properly, at least one
 	# allocated for the handle structures themselves.
-	# Now allocate the lists:
 
 	pop	ebx
 	pop	eax
@@ -2141,12 +2049,12 @@ malloc_aligned:
 	call	get_handle$
 	jc	4f	# error: no more handles
 
+	mov	[esi + ebx + handle_size], eax
 	# register caller
 	push	edx
 	mov	edx, [esp + 3*4]	# edx+esi+ebx+ret
 	mov	[esi + ebx + handle_caller], edx
 	pop	edx
-
 
 .if 0
 	push	ecx
@@ -2162,12 +2070,12 @@ malloc_aligned:
 
 	push	edi
 	mov	edi, offset handle_ll_fa
-	add	esi, offset handle_base
+	add	esi, offset handle_ll_el_addr
 	push	ecx
 	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$
 	pop	ecx
-	sub	esi, offset handle_base
+	sub	esi, offset handle_ll_el_addr
 	pop	edi
 
 	# it is done.
@@ -2177,7 +2085,6 @@ malloc_aligned:
 	xchg	eax, ecx	# eax = size; ecx = remember ptr
 	call	align_handle$	# out: ebx
 	mov	eax, ecx	# restore ptr
-
 	clc
 
 1:	pop_	ecx esi ebx
@@ -2192,7 +2099,6 @@ malloc_aligned:
 .else
 # BUG
 	call	malloc_internal_aligned$
-	DEBUG_DWORD eax,"malloc_internal_aligned"
 	jnc	3f
 	DEBUG "malloc_internal_aligned error"
 	jmp	3f
@@ -2259,12 +2165,12 @@ malloc:
 
 	push	edi
 	mov	edi, offset handle_ll_fa
-	add	esi, offset handle_base
+	add	esi, offset handle_ll_el_addr
 	push	ecx
 	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$
 	pop	ecx
-	sub	esi, offset handle_base
+	sub	esi, offset handle_ll_el_addr
 	pop	edi
 
 	# register caller
@@ -2598,10 +2504,10 @@ get_handle_by_base$:
 	# Clear them both out.
 	mov	ebx, edi
 	mov	edi, offset handle_ll_fs
-	add	esi, offset handle_size
+	add	esi, offset handle_ll_el_size
 	call	ll_unlink$
 	mov	edi, offset handle_ll_fa
-	add	esi, offset handle_base - offset handle_size
+	add	esi, offset handle_ll_el_addr - offset handle_ll_el_size
 	call	ll_unlink$
 	mov	edi, offset handle_ll_fh
 	mov	ecx, [mem_maxhandles]
@@ -2867,7 +2773,7 @@ handle_merge_fa$:
 	# remove from the address list
 	mov	[esi + ebx + handle_base], dword ptr 0
 	mov	edi, offset handle_ll_fa
-	add	esi, offset handle_base
+	add	esi, offset handle_ll_el_addr
 	call	ll_unlink$
 	# add to the reusable handles list
 	mov	edi, offset handle_ll_fh
@@ -2883,13 +2789,13 @@ MERGE_RECURSE = 0
 	mov	ebx, eax
 .if MERGE_RECURSE
 #DEBUG "R",0x8f
-	sub	esi, offset handle_base
+	sub	esi, offset handle_ll_el_addr
 	mov	edi, -1	# loop
 	jmp	0b
 3:
 .else
 #DEBUG "!",0x8f
-	add	esi, offset handle_size - offset handle_base
+	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
 .endif
 	mov	edi, offset handle_ll_fs
 	# remove and insert:
@@ -2908,12 +2814,12 @@ MERGE_RECURSE = 0
 	je	3b
 .endif
 	mov	edi, offset handle_ll_fs
-	add	esi, offset handle_size
+	add	esi, offset handle_ll_el_size
 	push	ecx
 	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$
 	pop	ecx
-	sub	esi, offset handle_size
+	sub	esi, offset handle_ll_el_size
 	stc
 	ret
 
@@ -3288,13 +3194,13 @@ cmd_mem$:
 1:	test	dword ptr [ebp], CMD_MEM_OPT_HANDLES_A
 	jz	1f
 	mov	ebx, offset handle_ll_fa
-	mov	edi, offset handle_base
+	mov	edi, offset handle_ll_el_addr
 	call	mem_print_ll_handles$
 	jmp	2f
 1:	test	dword ptr [ebp], CMD_MEM_OPT_HANDLES_S
 	jz	1f
 	mov	ebx, offset handle_ll_fs
-	mov	edi, offset handle_size
+	mov	edi, offset handle_ll_el_size
 	call	mem_print_ll_handles$
 2:
 ######## print memory map
@@ -3531,7 +3437,6 @@ mallocz_aligned:
 	mov	ecx, eax
 	call	malloc_aligned
 	jc	9f
-	DEBUG_DWORD eax,"malloc_aligned"
 	push_	edi eax
 	push	ecx
 	and	cl, 3

@@ -85,9 +85,9 @@
 ll_first: .long 0
 ll_last: .long 0
 .struct 0	# fields required in the struct participating in a list.
-ll_value: .long 0	# used by ll_insert_sorted
 ll_prev: .long 0
 ll_next: .long 0
+ll_value: .long 0	# used by ll_insert_sorted
 .text32
 
 ##################################################### LINKED LIST ############
