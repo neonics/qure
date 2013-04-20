@@ -1070,12 +1070,6 @@ alloc_handles$:
 	pop	edi
 
 
-	# free the old handle
-	push	ebx
-	mov	ebx, [mem_handles_handle]
-	mov	[eax + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED | MEM_FLAG_UNK
-	pop	ebx
-
 1:
 	mov	esi, eax
 	xchg	eax, [mem_handles]
@@ -1099,7 +1093,10 @@ alloc_handles$:
 	pop	edi
 
 	# now mark the old memory region as free:
+	or	eax, eax	# only applies to first time
+	jz	1f
 	call	mfree	# see 1b for eax
+1:
 
 		.if MEM_DEBUG > 1
 		push	edx

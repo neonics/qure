@@ -1890,7 +1890,7 @@ cmd_mem$:
 	printlnc_ 12, "  -k   print kernel sizes"
 	printlnc_ 12, "    -a print physical addresses"
 	printlnc_ 12, "  -h   print malloc handles"
-	printlnc_ 12, "  -ha  print allocated malloc handles by address"
+	printlnc_ 12, "  -ha  print allocated/free malloc handles by address"
 	printlnc_ 12, "  -hs  print free malloc handles by size"
 	printlnc_ 12, "  -s   print code/data sections/images/memory map"
 	printlnc_ 12, "    -c print detailed code sections"
