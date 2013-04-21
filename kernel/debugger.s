@@ -746,7 +746,12 @@ debugger:
 	jmp	4b
 .endif
 
-55:	call	cmd_tasks
+55:	push	esi
+	PUSHSTRING "ps"
+	mov	esi, esp
+	call	cmd_tasks
+	add	esp, 4
+	pop	esi
 	jmp	0b
 
 69:	call	debugger_print_mutex$
