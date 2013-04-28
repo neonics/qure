@@ -143,6 +143,10 @@ SUBCLASS 0x00, 0x00, "display", "Non-VGA compatible"
 SUBCLASS 0x01, 0x00, "display", "VGA compatible"
 SUBCLASS_EOL
 
+DEV_PCI_CLASS_STORAGE = 0x01
+DEV_PCI_CLASS_STORAGE_SCSI	= 0x000001
+DEV_PCI_CLASS_STORAGE_IDE	= 0xFF0101
+
 sc01$:	# Class 1: Mass Storage
 SUBCLASS 0x00, 0x00, "sd",	"SCSI Bus"
 SUBCLASS 0x01, 0xFF, "ide",	"IDE"
@@ -175,6 +179,10 @@ SUBCLASS 0x01, 0x00, "",	"XGA"
 SUBCLASS 0x02, 0x00, "",	"3D"
 SUBCLASS_EOL
 
+DEV_PCI_CLASS_MM = 0x04
+DEV_PCI_CLASS_MM_VIDEO = 0x0004
+DEV_PCI_CLASS_MM_AUDIO = 0x0104
+DEV_PCI_CLASS_MM_PHONE = 0x0204
 sc04$:	# Class 4: Multimedia Device
 SUBCLASS 0x00, 0x00, "",	"Video Device"
 SUBCLASS 0x01, 0x00, "",	"Audio Device"
@@ -186,6 +194,9 @@ SUBCLASS 0x00, 0x00, "",	"RAM"
 SUBCLASS 0x01, 0x00, "",	"Flash"
 SUBCLASS_EOL
 
+DEV_PCI_CLASS_BRIDGE = 0x06
+DEV_PCI_CLASS_BRIDGE_PCI2PCI 	= 0x000406
+DEV_PCI_CLASS_BRIDGE_PCI2PCI_SD = 0x010406
 sc06$:	# Class 6: Bridges
 SUBCLASS 0x00, 0x00, "host",	"Host"
 SUBCLASS 0x01, 0x00, "isa",	"ISA"
@@ -273,9 +284,9 @@ SUBCLASS 0x00, 0x00, "",	"IEEE 1394 Controller (FireWire)"
 SUBCLASS 0x00, 0x10, "",	"IEEE 1394 Controller (1394 OpenHCI Spec)"
 SUBCLASS 0x01, 0x00, "",	"ACCESS.bus"
 SUBCLASS 0x02, 0x00, "",	"SSA"
-SUBCLASS 0x03, 0x00, "usb",	"USB (Universal Host Controller Spec)"
-SUBCLASS 0x03, 0x10, "usb",	"USB (Open Host Controller Spec)"
-SUBCLASS 0x03, 0x20, "usb",	"USB2 Host Controller (Intel Enhanced Host Controller Interface)"
+SUBCLASS 0x03, 0x00, "usb",	"USB (UHCS)" #Universal Host Controller Spec
+SUBCLASS 0x03, 0x10, "usb",	"USB (OHCS)" #Open Host Controller Spec
+SUBCLASS 0x03, 0x20, "usb",	"USB2 (Intel EHCI)" #Enhanced Host Controller Interface)"
 SUBCLASS 0x03, 0x80, "usb",	"USB"
 SUBCLASS 0x03, 0xFE, "usb",	"USB (Not Host Controller)"
 SUBCLASS 0x04, 0x00, "",	"Fibre Channel"
@@ -496,11 +507,12 @@ pci_find_driver:
 	lodsd	# api size
 	mov	ecx, eax
 	shr	ecx, 2
+	jz	1f
 
 	mov	eax, [realsegflat]
 0:	add	[edx + ecx * 4 - 4], eax
 	loop	0b
-
+1:
 	pop_	edx ecx
 	clc
 	jmp	9b
@@ -870,7 +882,7 @@ std$:	# Header Type 0
 	not	bh	# mask 0b11110000 or 0b11111100
 	pop	ecx
 
-		push	edi
+			push	edi
 
 	test	al, 1
 	jz	3f
@@ -952,6 +964,9 @@ std$:	# Header Type 0
 	mov	bl, 0x2c
 	mov	ax, cx
 	call	pci_read_config
+
+			mov	[edi + dev_pci_subvendor], eax
+
 	PRINTc	8, " SubSystem Vendor ID "
 	mov	edx, eax
 	call	printhex4
@@ -974,15 +989,41 @@ std$:	# Header Type 0
 	# 0x34: reserved db 3 dup(0), cap_ptr db 0
 	# test whether available
 	test	esi, PCI_STATUS_CAPABILITIES_LIST << 16
-	jz	4f
+#	jz	4f
 
 	mov	ax, cx
 	mov	bl, 0x34
 	call	pci_read_config
-	PRINTc	8, " Capabilities Pointer "
+	cmp	al, 0x40	# officially. usually 0 or 40
+	jb	4f
+44:	PRINTc	8, " Capabilities Pointer "
 	mov	dl, al
 	call	printhex2
 	call	newline
+
+	mov	bl, al
+	mov	ax, cx
+	DEBUG_BYTE bl
+	call	pci_read_config
+	mov	edx, eax
+	DEBUG "   CAPABILITY: "
+	call	printhex2
+	# 1: power management
+	# 2: agp
+	# 3: vital product data
+	# 4: slot id
+	# 5: message signaled interrupts
+	# 6: compactpci
+	DEBUG "next: " 
+	shr	edx, 8
+	call	printhex2
+	DEBUG "feature specific:"
+	shr	edx, 8
+	call	printhex4
+	call	newline
+	mov	bl, ah
+	or	bl, bl
+	jnz	44b
 4:	
 
 	# skip 0x38 - reserved
@@ -1131,4 +1172,96 @@ pci_print_dev$:
 	call	printhex
 	call	newline
 1:	ret
+
+
+
+
+#############################################################################
+# TEMPORARY HERE: some null-drivers for known devices at this time.
+.struct 0
+nulldev_api:
+nulldev_api_end:
+
+
+
+#Bus 00 Slot 00 Vendor 8086 7190 Command 0006 Status 0200
+DECLARE_PCI_DRIVER BRIDGE, nulldev, 0x8086, 0x7190, "i440", "Intel 440BX/ZX/DC Host Bridge", dev_pci_null_driver
+#Bus 00 Slot 01 Vendor 8086 7191 Command 011f Status 0220 Revision 01 Class 06.04.00 PCI-to-PCI Single functionPCI-to-CardBus Bridge
+DECLARE_PCI_DRIVER BRIDGE_PCI2PCI,    nulldev, 0x8086, 0x7191, "i440agp", "Intel 440 AGP Bridge", dev_pci_null_driver
+#Bus 00 Slot 07 Vendor 8086 7110 Command 0007 Status 0280 Revision 08 Class 06.01.00 ISA Bridge Device Multiple function General device SubSystem Vendor ID 15ad ID 1976
+DECLARE_PCI_DRIVER BRIDGE, nulldev, 0x8086, 0x7110, "i440", "Intel 440BX/ZX/DC Host Bridge", dev_pci_null_driver
+
+#Bus 00 Slot 0f Vendor 15ad 0405 Command 0003 Status 0290 Revision 00 Class 03.00.00 VGA Compatible Display Controller > VMWare SVGA II 
+# implemented in mware/svga2.s
+
+#Bus 00 Slot 10 Vendor 104b 1040 Command 0007 Status 0280 Revision 01 Class 01.00.00 SCSI Bus Mass Storage Controller Single function General device  SubSystem Vendor ID 104b ID 1040 
+DECLARE_PCI_DRIVER STORAGE_SCSI,      nulldev, 0x104b, 0x1040, "scsi???", "SCSI mass storage", dev_pci_null_driver
+# PCI to Cardbridge devices: (need t oimpl PCI config space read fully)
+
+#Bus 00 Slot 11 Vendor 15ad 0790 Command 0007 Status 0290 Revision 02 Class 06.04.01 PCI-to-PCI (Subtractive Decode) Bridge Device
+DECLARE_PCI_DRIVER BRIDGE_PCI2PCI_SD, nulldev, 0x15ad, 0x0790, "vmwbridge", "VMWare Bridge", dev_pci_null_driver
+
+
+# These are pci-to-cardbrige PCI config layouts - not implemented.
+#Bus 00 Slot 16 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Multiple functionPCI-to-CardBus Bridge
+#Bus 00 Slot 17 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Multiple functionPCI-to-CardBus Bridge
+#Bus 00 Slot 18 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Single function General device  SubSystem Vendor ID 15ad 1976
+DECLARE_PCI_DRIVER BRIDGE_PCI2PCI   , nulldev, 0x15ad, 0x07a0, "vmwbridge", "VMWare Bridge", dev_pci_null_driver
+#
+# 0c.03.00
+DECLARE_PCI_DRIVER SERIAL_USB       , nulldev, 0x15ad, 0x0774, "vmwusb", "VMWare USB UHCI", dev_pci_null_driver
+# subsys: 15ad 1976
+
+
+#Bus 02 Slot 01 Vendor 1022 2000 Command 0003 Status 0280 Revision 10 Class 02.00.00 Ethernet Network Controller SubSystem Vendor ID 1022 ID 2000
+#Bus 02 Slot 02 Vendor 1274 1371  Revision 02 Class 04.01.00 Audio Device Multimedia Controller Single function General device  SubSystem Vendor ID 1274 ID 1371
+DECLARE_PCI_DRIVER MM_AUDIO, nulldev, 0x1274, 0x1371, "audio", "Ensoniq AudioPCI-97", dev_pci_null_driver
+
+
+#Bus 02 Slot 03 Vendor 15ad 0770 Command 0002 Status 0000 Single function General device  SubSystem Vendor ID 15ad ID 0770 > EHCI Driver USB 2.14
+# Implemented in usb.s
+
+
+
+.text32
+nulldev_obj_init:
+	ret
+dev_pci_null_driver:
+	DEBUG "NULL Driver:"
+	push	esi
+	lea	esi, [ebx + dev_name]
+	call	print
+	DEBUG "driver:"
+	mov	esi, [ebx + dev_drivername_short]
+	call	print
+	DEBUG ":"
+	mov	esi, [ebx + dev_drivername_long]
+	call	print
+	cmp	[ebx + dev_pci_subvendor], word ptr 0x15ad
+	jnz	1f
+	cmp	[ebx + dev_pci_subdevice],word ptr  0x1976
+	jnz	1f
+	printc	11, "Virtual Machine"
+
+1:	pop	esi
+	call	println
+	ret
+
+
+
+
+
+
+#Bus 00 Slot 00 Vendor 8086 7190 Command 0006 Status 0200
+#Bus 00 Slot 01 Vendor 8086 7191 Command 011f Status 0220 Revision 01 Class 06.04.00 PCI-to-PCI Single functionPCI-to-CardBus Bridge
+#Bus 00 Slot 07 Vendor 8086 7110 Command 0007 Status 0280 Revision 08 Class 06.01.00 ISA Bridge Device Multiple function General device SubSystem Vendor ID 15ad ID 1976
+#Bus 00 Slot 0f Vendor 15ad 0405 Command 0003 Status 0290 Revision 00 Class 03.00.00 VGA Compatible Display Controller > VMWare SVGA II 
+#Bus 00 Slot 10 Vendor 104b 1040 Command 0007 Status 0280 Revision 01 Class 01.00.00 SCSI Bus Mass Storage Controller Single function General device  SubSystem Vendor ID 104b ID 1040 
+#Bus 00 Slot 11 Vendor 15ad 0790 Command 0007 Status 0290 Revision 02 Class 06.04.01 PCI-to-PCI (Subtractive Decode) Bridge Device
+#Bus 00 Slot 16 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Multiple functionPCI-to-CardBus Bridge
+#Bus 00 Slot 17 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Multiple functionPCI-to-CardBus Bridge
+#Bus 00 Slot 18 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Single function General device  SubSystem Vendor ID 15ad 1976
+#Bus 02 Slot 01 Vendor 1022 2000 Command 0003 Status 0280 Revision 10 Class 02.00.00 Ethernet Network Controller SubSystem Vendor ID 1022 ID 2000
+#Bus 02 Slot 02 Vendor 1274 1371  Revision 02 Class 04.01.00 Audio Device Multimedia Controller Single function General device  SubSystem Vendor ID 1274 ID 1371
+#Bus 02 Slot 03 Vendor 15ad 0770 Command 0002 Status 0000 Single function General device  SubSystem Vendor ID 15ad ID 0770 > EHCI Driver USB 2.14
 

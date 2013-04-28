@@ -51,6 +51,9 @@ dev_pci_addr:
 dev_pci_vendor:		.word 0
 dev_pci_device_id:	.word 0
 
+dev_pci_subvendor:	.word 0
+dev_pci_subdevice:	.word 0
+
 dev_pci_class:		.byte 0
 dev_pci_subclass:	.byte 0
 dev_pci_progif:		.byte 0	
@@ -647,4 +650,3 @@ cmd_dev_list:
 
 2:	printlnc 12, "dev_list: device system not initialized"
 	ret
-
