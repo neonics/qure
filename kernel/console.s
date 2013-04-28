@@ -202,6 +202,14 @@ scroll:
 	jz	4f
 	cmp	ax, K_PGUP
 	jz	5f
+	# don't fall out of scroll mode when these are pressed:
+	cmp	ax, K_LEFT_CONTROL	# same as right
+	jz	6f
+	cmp	ax, K_LEFT_ALT	# same as right
+	jz	6f
+	cmp	ax, K_LEFT_SHIFT
+	jz	6f
+
 	# not a scroll key: 
 	# trigger full redraw/buffer flush:
 	.if SCREEN_BUFFER_FIRST
@@ -214,7 +222,7 @@ scroll:
 	call	screen_buf_flush
 	.endif
 	mov	byte ptr [scrolling$], 0
-	stc	# mark key as not processed
+6:	stc	# mark key as not processed
 	jmp	9f
 
 3: # down 1 line
