@@ -1,36 +1,69 @@
-
 ###########################################################################
-# ARP Table
+# ARP Protocol
+#
+# RFC 826
+
+
+#########################################################################
+# ARP Table implementation
+
+# This flag when 0 optimizes the code for IPV4 only. Setting it to 1
+# uses a more generic arp table allowing for different protocol addresses.
+ARP_TABLE_GENERIC = 0
+
+
+ARP_TABLE_DEBUG = 0	# records callers
+
+NET_ARP_DEBUG = 0
+
 .struct 0
-arp_entry_mac:		.space 6
+arp_entry_mac:		.space 6	# only HW type ethernet supported
 arp_entry_ip:		.long 0
+.if ARP_TABLE_GENERIC
+			.long 0,0,0	# space for ipv6
+arp_entry_proto:	.word 0		# NET_ETH_IPV6 or NET_ETH_IPV6
+.endif
 arp_entry_status:	.byte 0
 	ARP_STATUS_NONE = 0
 	ARP_STATUS_REQ = 1
-	ARP_STATUS_RESP = 2
+	ARP_STATUS_RESOLVED = 2
+.if ARP_TABLE_DEBUG
+arp_entry_caller:	.long 0
+.endif
 ARP_ENTRY_STRUCT_SIZE = .
 .data
 arp_table: .long 0	# array
 .text32
 
+
 # in: eax = ip
 # out: ecx + edx
 # out: CF on out of memory
-arp_table_newentry:
+arp_table_newentry_ipv4:
 	push	eax
 	ARRAY_NEWENTRY [arp_table], ARP_ENTRY_STRUCT_SIZE, 4, 9f
 	mov	ecx, eax
-9:	pop	eax
+	mov	eax, [esp]
 
 	mov	[ecx + edx + arp_entry_status], byte ptr ARP_STATUS_NONE
 	mov	[ecx + edx + arp_entry_ip], eax
+.if ARP_TABLE_GENERIC
+	mov	[ecx + edx + arp_entry_proto], word ptr ETH_PROTO_IPV4
+.endif
+.if ARP_TABLE_DEBUG
+	mov	eax, [esp + 4]
+	mov	[ecx + edx + arp_entry_caller], eax
+.endif
+9:	pop	eax
 	ret
 
-# in: eax = ip
-# in: esi = mac ptr
-arp_table_put_mac:
+# Optimized for IPV4
+# in: eax = protocol address
+# in: esi = hardware address pointer (mac, 6 bytes)
+# in: ebx = [bit: can add] [15 bits: proto addr size=4] [word eth protocol ID]
+arp_table_put_mac_ipv4:
 	.if NET_ARP_DEBUG
-		printc 11, "arp_table_put_mac: "
+		printc 11, "arp_table_put_mac_ipv4: "
 		call net_print_ip
 		call printspace
 		call net_print_mac
@@ -39,12 +72,99 @@ arp_table_put_mac:
 	push	edx
 	push	ecx
 	ARRAY_LOOP [arp_table], ARP_ENTRY_STRUCT_SIZE, ecx, edx, 0f
+.if ARP_TABLE_GENERIC
+	cmp	word ptr [ecx + edx + arp_entry_proto], ETH_PROTO_IPV4
+	jnz	2f
+.endif
 	cmp	eax, [ecx + edx + arp_entry_ip]
 	jz	1f
-	ARRAY_ENDL
-0:	printc 6, "arp_table_put_mac: warning: no request: "
-	call	net_print_ip
-	call	newline
+2:	ARRAY_ENDL
+0:	
+	test	ebx, 1 << 31
+	jz	0f	# do not add
+	call	arp_table_newentry_ipv4
+1:	add	ecx, edx
+	mov	[ecx + arp_entry_ip], eax
+	mov	edx, [esi]
+	mov	[ecx + arp_entry_mac], edx
+	mov	dx, [esi + 4]
+	mov	[ecx + arp_entry_mac + 4], dx
+	mov	byte ptr [ecx + arp_entry_status], ARP_STATUS_RESOLVED
+.if ARP_TABLE_DEBUG
+	mov	eax, [esp + 12]
+	mov	[ecx + arp_entry_caller], eax
+.endif
+0:	pop	ecx
+	pop	edx
+	ret
+
+##########################################################################
+# Generic implementation for various protocol address sizes
+.if ARP_TABLE_GENERIC
+
+# out: ecx + edx
+# out: CF on out of memory
+arp_table_newentry:
+	push	eax
+	ARRAY_NEWENTRY [arp_table], ARP_ENTRY_STRUCT_SIZE, 4, 9f
+	mov	ecx, eax
+.if ARP_TABLE_DEBUG
+	mov	eax, [esp+4]
+	mov	[ecx + edx + arp_entry_caller], eax
+.endif
+9:	pop	eax
+	ret
+
+
+
+# in: eax = ipv6 ptr
+# in: esi = mac ptr
+arp_table_put_mac_ipv6:
+	push	ebx
+	mov	ebx, ETH_PROTO_IPV6 | (16 << 16)
+	call	arp_table_put
+	pop	ebx
+	ret
+
+
+# Searches the arp table for the matching protocol address (hardware
+# is not checked as only ethernet is supported).
+# If the address is found, the MAC is updated.
+# If it is not found, the highest bit of ebx is checked to see if the address
+# should be added.
+# in: eax = protocol address pointer
+# in: esi = hardware address pointer (mac, 6 bytes)
+# in: ebx = [bit: can add] [15 bits: protocol address size] [eth protocol ID]
+arp_table_put:
+	.if NET_ARP_DEBUG
+		printc 11, "arp_table_put_mac: "
+		push	eax
+		mov	eax, [eax]
+		call net_print_ip
+		pop	eax
+		call printspace
+		call net_print_mac
+		call newline
+	.endif
+	push	edx
+	push	ecx
+	push	esi
+	push	edi
+	ARRAY_LOOP [arp_table], ARP_ENTRY_STRUCT_SIZE, ecx, edx, 0f
+	cmp	bx, [edx + ecx + arp_entry_proto]
+	jnz	2f
+	push_	ecx edx
+	add	edx, ecx
+	mov	ecx, ebx
+	shr	ecx, 16+2	# assume sizeof(protocol addr) & 3 = 0
+	mov	esi, eax
+	lea	edi, [edx + arp_entry_ip]
+	repz	cmpsd
+	pop_	edx ecx
+	jz	1f
+2:	ARRAY_ENDL
+0:	test	ebx, 1 << 31
+	jz	0f	# do not add
 	call	arp_table_newentry
 1:	add	ecx, edx
 	mov	[ecx + arp_entry_ip], eax
@@ -52,11 +172,20 @@ arp_table_put_mac:
 	mov	[ecx + arp_entry_mac], edx
 	mov	dx, [esi + 4]
 	mov	[ecx + arp_entry_mac + 4], dx
-	mov	byte ptr [ecx + arp_entry_status], ARP_STATUS_RESP
+	mov	byte ptr [ecx + arp_entry_status], ARP_STATUS_RESOLVED
+.if ARP_TABLE_DEBUG
+	mov	eax, [esp+4+16]
+	mov	[ecx + edx + arp_entry_caller], eax
+.endif
+0:	pop	edi
+	pop	esi
 	pop	ecx
 	pop	edx
 	ret
 
+.endif
+
+#########################################################################
 
 arp_table_print:
 	push	esi
@@ -83,7 +212,7 @@ arp_table_print:
 	jnz	2f
 	printc  9, "requested "
 	jmp	3f
-2:	cmp	dl, ARP_STATUS_RESP
+2:	cmp	dl, ARP_STATUS_RESOLVED
 	jnz	2f
 	printc 10, "resolved  "
 	jmp	3f
@@ -94,11 +223,35 @@ arp_table_print:
 	call	net_print_mac
 	call	printspace
 
+.if ARP_TABLE_GENERIC
+	printc_ 11, "proto "
+	mov	dx, [ebx + ecx + arp_entry_proto]
+	call	printhex4
+	call	printspace
+
+	mov	ax, [ebx + ecx + arp_entry_proto]
+	cmp	ax, ETH_PROTO_IPV4
+	jz	3f
+	cmp	ax, ETH_PROTO_IPV6
+	jnz	2f	# no idea how to print
+	lea	eax, [ebx + ecx + arp_entry_ip]
+	call	net_print_ipv6
+	jmp	2f
+3:
+.endif
 	mov	eax, [ebx + ecx + arp_entry_ip]
 	call	net_print_ip
+.if ARP_TABLE_GENERIC
+2:
+.endif
+
+.if ARP_TABLE_DEBUG
+	mov	edx, [ebx + ecx + arp_entry_caller]
+	call	debug_printsymbol
+.endif
 	call	newline
 
-	add	ecx, 1 + 4 + 6
+	add	ecx, ARP_ENTRY_STRUCT_SIZE # 1 + 4 + 6
 1:	cmp	ecx, [ebx + array_index]
 	jb	0b
 
@@ -111,11 +264,15 @@ arp_table_print:
 
 # in: eax
 # out: ecx + edx
-arp_table_getentry_by_ip:
+arp_table_getentry_by_ipv4:
 	ARRAY_LOOP [arp_table], ARP_ENTRY_STRUCT_SIZE, ecx, edx, 9f
+.if ARP_TABLE_GENERIC
+	cmp	word ptr [ecx + edx + arp_entry_proto], ETH_PROTO_IPV4
+	jnz	1f
+.endif
 	cmp	eax, [ecx + edx + arp_entry_ip]
 	jz	0f
-	ARRAY_ENDL
+1:	ARRAY_ENDL
 9:	stc
 0:	ret
 
@@ -143,9 +300,9 @@ arp_opcode:	.word 0	# 1 = request, 2 = reply
 	ARP_OPCODE_REQUEST = 1 << 8
 	ARP_OPCODE_REPLY = 2 << 8
 # the data, for ipv4:
-arp_src_mac:	.space 6
+arp_src_mac:	.space 6	# this will also apply to ipv6 over ethernet.
 arp_src_ip:	.long 0
-arp_dst_mac:	.space 6
+arp_dst_mac:	.space 6	# here however, it will not.
 arp_dst_ip:	.long 0
 ARP_HEADER_SIZE = .
 .text32
@@ -248,91 +405,124 @@ net_arp_print:
 	ret
 
 
+
+# As per RFC.
 net_arp_handle:
+	push_	ebx edx
+
 	.if NET_ARP_DEBUG
 		printc 15, "ARP"
 	.endif
 
+	# check if the opcodes are known:
+	cmp	[esi + arp_opcode], word ptr ARP_OPCODE_REQUEST
+	jz	1f
+	cmp	[esi + arp_opcode], word ptr ARP_OPCODE_REPLY
+	jnz	91f
+1:
+
 	# check if it is for ethernet
 	cmp	word ptr [esi + arp_hw_type], ARP_HW_ETHERNET
-	jnz	0f
+	jnz	9f	# don't have any other hardware types as yet.
 
 	# proto size 4, hw size 6, proto 0800 (ipv4)
 	cmp	dword ptr [esi + arp_proto], 0x04060008
 	jz	4f
 	# proto size 0x10, hw size 6, proto 0x86dd (ipv6)
 	cmp	dword ptr [esi + arp_proto], 0x1006dd86
-	jnz	0f
+	jnz	9f
 
 6:	# IPv6
 	.if NET_ARP_DEBUG
 		printc 11, "IPv6"
 	.endif
-	jmp	0f
 
-4:	# IPv4.
+.if ARP_TABLE_GENERIC # requred for ipv6 support
+	# check if it is a local target
+	mov	edx, ( (16 << 16) | ETH_PROTO_IPV6 ) << 1	# will be shr 1
+	call	nic_get_by_ipv6
+	cmc
+	rcr	edx, 1
+	xchg	ebx, edx	# edx = nic, ebx = arp_table arg
+
+	push_	esi
+	# XXX FIXME: the arp_src_* fields happen to align, but the other fields
+	# will not due to the arp_src_ip not being 4 bytes.
+	lea	eax, [esi + arp_src_ip]
+	lea	esi, [esi + arp_src_mac]
+	call	arp_table_put
+	pop_	esi
+
+	# not supported yet, so no response.
+.endif
+	jmp	9f
+
+
+######### IPV4
+4:
 	.if NET_ARP_DEBUG
 		printc 11, "IPv4"
 	.endif
 
-	# check if it is request
-	cmp	word ptr [esi + arp_opcode], ARP_OPCODE_REQUEST
-	jz	1f
+	# flag = false;
+	# if proto type/sender address is in table, update it and set flag=true
+	# if target protocol address is local, 
+	#	if flag == false add proto type,sender proto/hw address.
+	# if opcode = request, respond.
+	#
+	# post conditions:
+	# - if the sender is unknown in the arp table and the target is not local,
+	#   the address will not be recorded.
+	# - if the sender is unknown and the target is local, it is added.
+	# - if the sender is known it is updated.
 
-	cmp	word ptr [esi + arp_opcode], ARP_OPCODE_REPLY
-	.if NET_ARP_DEBUG
-		jz	2f
-		printc 12, "Unknown opcode"
-		jmp	0f
-	2:
-	.else
-		jnz	0f
-	.endif
+	# This suggested algorithm requires to:
+	# 1) check the arp table for a match for ANY incoming arp packet,
+	#    and update the entry if found.
+	# 2) check if it is targeted towards a local address, and if so,
+	#    add the entry unless 1) has already added it.
+	# 3) (only when 2's condition succeeds) respond if it is a request.
 
-	.if NET_ARP_DEBUG
-		DEBUG "ARP"
-		mov	eax, [esi + arp_dst_ip]
-		call	net_print_ip
-		DEBUG ":"
-		mov	eax, [esi + arp_src_ip]
-		call net_print_ip
-		DEBUG "is at"
-		push esi
-		lea esi, [esi + arp_src_mac]
-		call net_print_mac
-		pop esi
-		call newline
-	.endif
+	# Changing the algorithm:
+	# 1) if the target is local, add or update the entry.
+	# 2) if it is not local, see if we had dealings with the address in the
+	#    past, by checking if the address is present in the arp table.
+	# 3) respond if needed.
 
-	# check if it is meant for us
-	push	esi
-	lea	esi, [esi + arp_dst_mac]
-	call	nic_get_by_mac
-	pop	esi
-	#call	nic_get_by_ipv4
-	jc	0f
+	# It is quite possible that existing communication can be disrupted
+	# by the MAC address being changed if it is spoofed.
+	# Assuming that the Ethernet hardware mac does not change, a first
+	# sanity check is to see whether the sender mac matches the sender eth
+	# address, and if so, allow updating.
+
+	# find out if it is a local target
+	mov	edx, ((4 << 16) | ETH_PROTO_IPV4)<<1	# ignored unless ARP_TABLE_GENERIC
+
 	mov	eax, [esi + arp_dst_ip]
-	cmp	eax, [ebx + nic_ip]
-	jz	3f
+	call	nic_get_by_ipv4	# in: eax
+	cmc
+	rcr	edx, 1
 
-	printc 4, "MAC/IP mismatch: packet="
-	call	net_print_ip
-	printc 4, " nic="
-	mov	eax, [ebx + nic_ip]
-	call	net_print_ip
-	call	newline
-	call	net_arp_print
-	stc
-	jmp	0f
-3:
-	# update arp table
+	xchg	edx, ebx	# edx = nic, ebx = arp_table arg
+
+	# now the highest bit of ebx indicates whether or not target is local,
+	# and thus, whether or not to add the entry to the table if it doesnt
+	# exist.
+
+	push	esi
 	mov	eax, [esi + arp_src_ip]
 	lea	esi, [esi + arp_src_mac]
-	call	arp_table_put_mac
-	clc
-	jmp	0f
+	call	arp_table_put_mac_ipv4	# in: eax, esi, ebx
+	pop	esi
 
-1:	# handle arp request
+	# check if it is a request directed at us. If it is not,
+	# even if it is a response to a prior request we made, it will have
+	# been processed. Therefore, only if it is a request respond.
+
+	test	ebx, 1 << 31	# local target
+	jz	9f		# nope.
+	cmp	word ptr [esi + arp_opcode], ARP_OPCODE_REQUEST
+	jnz	9f		# nope, done.
 
 	.if NET_ARP_DEBUG > 1
 		DEBUG "ARP who has"
@@ -343,15 +533,19 @@ net_arp_handle:
 		call net_print_ip
 		call newline
 	.endif
+	mov	ebx, edx	# restore nic
 	mov	eax, [esi + arp_dst_ip]
-	call	nic_get_by_ipv4
-	jc	0f
-
 	mov	eax, [ebx + nic_ip]
 	call	protocol_arp_response
 
-0:	ret
+9:	pop_	edx ebx
+	ret
 
+91:	printlnc 4, "arp: unknown opcode"
+	pushad
+	call	net_print_protocol
+	popad
+	jmp	9b
 
 
 
@@ -457,9 +651,9 @@ net_arp_resolve_ipv4:
 	call	net_route_get	# in: eax=ip; out: edx=gw ip/eax, ebx=nic
 	jc	9f
 	mov	eax, edx
-	call	arp_table_getentry_by_ip # in: eax; out: ecx + edx
+	call	arp_table_getentry_by_ipv4 # in: eax; out: ecx + edx
 	jc	0f
-	cmp	byte ptr [ecx + edx + arp_entry_status], ARP_STATUS_RESP
+	cmp	byte ptr [ecx + edx + arp_entry_status], ARP_STATUS_RESOLVED
 	jnz	2f
 	lea	esi, [ecx + edx + arp_entry_mac]
 
@@ -479,12 +673,15 @@ net_arp_resolve_ipv4:
 
 ########
 0:	# no entry in arp table. Check if we can make request.
-	call	arp_table_newentry	# in: eax; out: ecx + edx
+	call	arp_table_newentry_ipv4	# in: eax; out: ecx + edx
 	jc	1b	# out of mem
 
 2:###### have arp entry
 #	IN_ISR
 #	jc	9b
+
+	mov	ecx, 10
+0:
 	# in: ebx = nic
 	# in: eax = ip
 	# in: edx = arp table offset
@@ -494,6 +691,14 @@ net_arp_resolve_ipv4:
 	# in: eax = ip
 	# in: edx = arp table offset
 	call	arp_wait_response
+	jnc	1b
+	call	newline
+	pushad
+	call	arp_table_print
+	popad
+#	call	debugger_print_mutex$
+
+	loop	0b
 	jmp	1b
 
 
@@ -597,7 +802,7 @@ DEBUG "WARNING: IF=0"
 	jnz	0f
 	mov	ecx, 2000/18	# probably
 0:	mov	ebx, [arp_table]
-	cmp	byte ptr [ebx + edx + arp_entry_status], ARP_STATUS_RESP
+	cmp	byte ptr [ebx + edx + arp_entry_status], ARP_STATUS_RESOLVED
 	jz	0f
 	.if NET_ARP_DEBUG
 		printcharc 11, '.'

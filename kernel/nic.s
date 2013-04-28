@@ -170,6 +170,9 @@ nic_get_by_ipv4:
 2:	pop	esi
 	ret
 
+nic_get_by_ipv6:
+	stc
+	ret
 
 # in: esi = mac pointer
 # out: ebx = nic
@@ -241,6 +244,7 @@ nic_constructor:
 
 nic_obj_init:
 	DEBUG "NIC OBJ INIT"
+	call	newline
 	mov	dword ptr [ebx + nic_api_send], offset nic_unknown_send
 	mov	dword ptr [ebx + nic_api_print_status], offset nic_unknown_print_status
 	mov	dword ptr [ebx + nic_api_ifup], offset nic_unknown_ifup

@@ -219,6 +219,7 @@ net_buffer_get:
 .include "net/eth.s"
 .include "net/arp.s"
 .include "net/ipv4.s"
+.include "net/ipv6.s"
 #
 .include "net/route.s"
 .include "net/socket.s"
@@ -549,6 +550,7 @@ net_ipv6_handle:
 
 # in: esi = points to ethernet frame
 # in: ecx = packet size
+net_packet_print:
 net_print_protocol:
 	push	edi
 	PUSHCOLOR COLOR_PROTO_DATA
@@ -899,6 +901,7 @@ net_print_drop_msg$:
 # XXX FIXME TODO: possible bug: the queue entry is marked as reserved,
 # but not set up at this point. it might get scheduled.
 1:	call	mdup	# in: esi, ecx; out: esi
+net_rx_pkt:	# Debug symbol
 	jc	8b
 
 	pushad
@@ -950,14 +953,26 @@ net_rx_queue_handler_again:
 	#DEBUG_DWORD esp,"ENTRY:LOOP",0xb0;DEBUG_DWORD [esp]
 	#jmp	_foo
 
+NET_QUEUE_DEBUG2 = 0
+
 net_rx_queue_handler:
 	#DEBUG_DWORD esp, "ENTRY:SCHED",0xb0;DEBUG_DWORD [esp]
 #_foo:
+.if NET_QUEUE_DEBUG2
+	printcharc 0xa1,'1'
+.endif
 	MUTEX_SPINLOCK_ NET
+
+.if NET_QUEUE_DEBUG2
+	printcharc 0xa2,'2'
+.endif
 
 .if 1
 	call	net_rx_queue_get
 	jnc	1f
+.if NET_QUEUE_DEBUG2
+	printcharc 0xa3,'-'
+.endif
 .else
 	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
 	cmp	[eax + edx + net_rx_queue_status], dword ptr NET_RX_QUEUE_STATUS_SCHEDULED
@@ -967,6 +982,9 @@ net_rx_queue_handler:
 .endif
 	MUTEX_UNLOCK_ NET
 
+.if NET_QUEUE_DEBUG2
+	printcharc 0xa0,'0'
+.endif
 	# if we don't ever exit, do schedule here, then jump back:
 	# call schedule_near
 	# jmp net_rx_queue_handler
@@ -977,6 +995,10 @@ net_rx_queue_handler:
 #	jnz	net_rx_queue_handler_again
 
 	yield
+
+.if NET_QUEUE_DEBUG2
+	printcharc 0xa0,'<'
+.endif
 	jmp	net_rx_queue_handler_again
 
 #	DEBUG "queue handler exiting"
@@ -994,6 +1016,12 @@ net_rx_queue_handler:
 	mov	ecx, 8
 	rep	movsd
 	popad	# esp ignored
+.if NET_QUEUE_DEBUG2
+DEBUG "+",0xf0
+pushad
+call	net_print_protocol
+popad
+.endif
 
 	mov	eax, [net_rx_queue]
 	mov	[eax + edx + net_rx_queue_status], dword ptr 0
