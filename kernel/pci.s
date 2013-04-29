@@ -70,22 +70,23 @@ PCI_CMD_PARITY_ERROR_RESPONSE	= 0b00001000000	# 1=raise PERR#; 0=set status:15
 PCI_CMD_RESERVED		= 0b00010000000
 PCI_CMD_SERR_NR_ENABLE		= 0b00100000000
 PCI_CMD_FBB_ENABLE		= 0b01000000000	# fast back to back enable
-PCI_CMD_INTERRUPT_DISABLE	= 0b10000000000	
+PCI_CMD_INTERRUPT_DISABLE	= 0b10000000000
 
 
 # 16 bit
+# low 4 bits marked reserved in PCI 22 spec...
 PCI_STATUS_RESERVED			= 0b0000000000000011
 PCI_STATUS_INTERRUPT			= 0b0000000000000100
-PCI_STATUS_CAPABILITIES_LIST		= 0b0000000000001000
-PCI_STATUS_66_MHZ_CAPABLE		= 0b0000000000010000 # 0=33MHz
-PCI_STATUS_RESERVED2			= 0b0000000000100000
-PCI_STATUS_FBB_CAPABLE			= 0b0000000001000000
-PCI_STATUS_MASTER_DATA_PARITY_ERROR	= 0b0000000010000000
-PCI_STATUS_DEVSEL_TIMING		= 0b0000001100000000 # 0=fast,med,slow=2
-PCI_STATUS_TXD_TARGET_ABORT		= 0b0000010000000000 # signalled
-PCI_STATUS_RXD_TARGET_ABORT		= 0b0000100000000000 # received
-PCI_STATUS_RXD_MASTER_ABORT		= 0b0001000000000000
-PCI_STATUS_TXD_MASTER_ABORT		= 0b0010000000000000
+
+PCI_STATUS_CAPABILITIES_LIST		= 0b0000000000010000
+PCI_STATUS_66_MHZ_CAPABLE		= 0b0000000000100000 # 0=33MHz
+PCI_STATUS_RESERVED2			= 0b0000000001000000
+PCI_STATUS_FBB_CAPABLE			= 0b0000000010000000 # fast back-to-back
+PCI_STATUS_MASTER_DATA_PARITY_ERROR	= 0b0000000100000000
+PCI_STATUS_DEVSEL_TIMING_MASK		= 0b0000011000000000 # 0=fast,med,slow=2
+PCI_STATUS_TXD_TARGET_ABORT		= 0b0000100000000000 # signalled/transmitted
+PCI_STATUS_RXD_TARGET_ABORT		= 0b0001000000000000 # received
+PCI_STATUS_RXD_MASTER_ABORT		= 0b0010000000000000
 PCI_STATUS_TXD_SYSTEM_ERROR		= 0b0100000000000000
 PCI_STATUS_PARITY_ERROR			= 0b1000000000000000
 
@@ -195,6 +196,7 @@ SUBCLASS 0x01, 0x00, "",	"Flash"
 SUBCLASS_EOL
 
 DEV_PCI_CLASS_BRIDGE = 0x06
+DEV_PCI_CLASS_BRIDGE_ISA 	= 0x000106
 DEV_PCI_CLASS_BRIDGE_PCI2PCI 	= 0x000406
 DEV_PCI_CLASS_BRIDGE_PCI2PCI_SD = 0x010406
 sc06$:	# Class 6: Bridges
@@ -398,7 +400,7 @@ PCI_DRIVER_DECLARATION_SIZE = .
 pci_list_drivers:
 	mov	esi, offset data_pci_driverinfo_start
 	jmp	1f
-0:	
+0:
 	cmp	bx, [esi + pci_driver_class]
 	jnz	2f
 
@@ -616,7 +618,7 @@ pci_list_devices:
 	call	pci_clear_obj_counters
 
 	xor	cx, cx	# bus 0, dev 0
-loop$:	
+loop$:
 
 	mov	ax, cx	# bus, device
 	xor	bl, bl	# 0: device id, vendor
@@ -628,6 +630,7 @@ loop$:
 
 			push	eax	# remember device, vendor (pop as edi)
 	###################
+	call	newline
 	PRINTc	10, "Bus "
 	mov	dl, ch
 	COLOR	7
@@ -709,7 +712,7 @@ loop$:
 	rol	edx, 8	# prog if, rev id, class, subclass
 	call	printhex2
 	PRINTCHAR '.'
-		
+
 			mov	[edi + dev_pci_subclass], dl
 
 	rol	edx, 8	# rev id, class, subclass, prog if
@@ -719,7 +722,7 @@ loop$:
 
 	################################################################
 	ror	edx, 8	# prog if, rev, class, subclass
-	movzx	eax, dh	
+	movzx	eax, dh
 	cmp	eax, PCI_MAX_KNOWN_DEVICE_CLASS
 	ja	4f
 	PRINTCHAR ' '
@@ -755,7 +758,7 @@ loop$:
 	mov	ax, cx
 	call	pci_read_config
 
-	.if 0
+	.if 1
 	PRINTc	8, "   Cache Line Size "	# (optional) - word units
 	mov	edx, eax
 	COLOR	7
@@ -766,12 +769,12 @@ loop$:
 	COLOR	7
 	call	printhex2
 
-	# Header type specfices layout of data at address 16 (0x0c)
+	# Header type specfices layout of data at address 16 (0x10)
 	# x00: general device
 	# x01: PCI-to-PCI bridge
 	# x02: cardbus bridge
 	# bit 7: multiple functions (1)/single function (0)
-	PRINTc	8, " Header Type "		
+	PRINTc	8, " Header Type "
 	shr	edx, 8
 	COLOR	7
 	call	printhex2
@@ -797,12 +800,14 @@ loop$:
 
 	#################### detailed print of header type
 	# dh = header type field.
+	push	esi	# preserve command & status
 	LOAD_TXT " Single function"
 	test	dh, 0x80
 	jz	2f
 	LOAD_TXT " Multiple function"
 2:	COLOR 7
 	call	print
+	pop	esi
 	and	dh, 0x7f
 	jz	std$
 	cmp	dh, 1
@@ -810,13 +815,16 @@ loop$:
 	cmp	dh, 2
 	jz	cardbus$
 
+	printc 4, " Unknown header type: "
 	shr dx, 8
 	COLOR 4
 	call	printhex4
+	call	newline
+	jmp	cont$	# we don't know the layout beyond 0x10.
 
 # Header Type 2: PCI-to-CardBus bridge
 cardbus$:
-	PRINTLNc 	7, " PCI-to-CardBus Bridge"
+	PRINTLNc 	6, " PCI-to-CardBus Bridge"
 	# 0x10: dd cardbus socket/ExCa base address
 	# 0x14: dw secondary status, db reserved, db offset of cap list
 	# 0x18: latency timer, subordinate bus nr, cardbus nr, pci bus nr
@@ -835,20 +843,301 @@ cardbus$:
 
 # Header type 1
 pci2pci$:
-	PRINTLNc 	6, "PCI-to-CardBus Bridge"
-	jmp	cont$
-	
+	PRINTLNc 	7, " PCI-to-PCI Bridge"
+	call	pci_list_pcibridge$
+
+	jmp	0f
+
 std$:	# Header Type 0
 	PRINTc 	3, " General device"
 
 	# print 0x10-0x24 (inclusive): Base Address #0-#5
-	mov	bl, 16
-2:	mov	ax, cx
+	mov	bl, 0x10
+2:	call	pci_list_bar$
+	add	bl, 4
+	cmp	bl, 0x24
+	jbe	2b
+
+	# bl = 0x28
+	# 0x28: dd cardbus cis poiner
+
+	mov	ax, cx
+	call	pci_read_config
+	or	eax, eax
+	jz	4f
+	PRINTc	8, "   CIS Ptr " # Card Information Structure
+	mov	edx, eax
+	call	printhex8
+4:
+	call	newline
+
+	# 0x2c: subsystem id, subsystem vendor id
+	mov	bl, 0x2c
+	mov	ax, cx
+	call	pci_read_config
+
+			mov	[edi + dev_pci_subvendor], eax
+
+	PRINTc	8, " SubSystem Vendor ID "
+	mov	edx, eax
+	call	printhex4
+	shr	edx, 16
+	PRINTc	8, " ID "
+	call	printhex4
+
+	mov	ax, cx
+	mov	bl, 0x30
+	call	pci_read_config
+	or	eax, eax
+	jz	4f
+	PRINTc	8, " Expansion ROM BAR "
+	mov	edx, eax
+	call	printhex8
+4:
+	call	newline
+
+	##################################################
+	# 0x34: reserved db 3 dup(0), cap_ptr db 0
+	# test whether available
+	test	esi, PCI_STATUS_CAPABILITIES_LIST << 16
+	jz	4f
+
+	call	pci_list_caps$
+4:
+
+	# skip 0x38 - reserved
+
+	# 0x3c: max latency, min grant, interrupt pin, interrupt line
+	mov	ax, cx
+	mov	bl, 0x3c
+	call	pci_read_config
+	or	eax, eax
+	jz	0f
+	PRINTc	8, "   Interrupt Line "
+	mov	edx, eax
+	call	printhex2
+
+			mov	[edi + dev_irq], dx
+
+	PRINTc	8, "   Interrupt PIN "
+	shr	edx, 8
+	call	printhex2
+
+	PRINTc	8, "   Min Grant "
+	shr	edx, 8
+	call	printhex2
+
+	PRINTc	8, "   Max latency "
+	shr	edx, 8
+	call	printhex2
+
+	call	newline
+0:
+
+			mov	ebx, edi
+			push	ecx
+			call	[edi + dev_api_constructor]
+			pop	ecx
+
+###################
+cont$:
+1:	inc	cl
+	cmp	cl, 0x1f
+	jbe	loop$
+	xor	cl, cl
+	inc	ch
+	jnz	loop$
+
+	ret
+
+
+##### some reusable functions from pci_list above:
+pci_list_pcibridge$:
+.if 1
+	# layout: PCI-to-PCI.Bridge.Architecture.Specification.Rev1.1.pdf p25
+	# 0x10: BAR 0
+	# 0x14: BAR 1
+	# 0x18: [2nd Latency Timer][Subordinate Bus nr][secnd bus nr][prim bus nr]
+	# 0x1c: [word: 2nd status][byte:IO limit][byte:IO base]
+	# 0x20: [word: mem limit][word: mem base]
+	# 0x24: [prefetchable mem limit][prefetchable mem base]
+	# 0x28: prefetchable base upper 32 bits
+	# 0x2c: prefetchable limit upper 32 bits
+	# 0x30: [io limit upper 16][io base upper 16]
+	# 0x34: [reserved][byte: capabilities pointer]
+	# 0x38: expansion rom base address
+	# 0x3c: [word: bridge control][interrupt pin][interrupt line]
+	mov	bl, 0x10
+	call	pci_list_bar$
+	mov	bl, 0x14
+	call	pci_list_bar$
+# not printed, as VMWare's values are 0 up to 0x2c,
+# which returns the subsystem vendor id and device id,
+# and -1 afterwards.
+	mov	bl, 0x18
+	mov	ax, cx
+	call	pci_read_config
+	DEBUG_BYTE al, "prim bus"
+	DEBUG_BYTE ah, "2nd bus"
+	shr	eax, 16
+	DEBUG_BYTE al, "sub bus"
+	DEBUG_BYTE ah, "2nd lat timer"
+
+
+	mov	bl, 0x1c	# [word:status][byte io limit][byte io base]
+	mov	ax, cx
+	call	pci_read_config
+	mov	edx, eax
+	shr	edx, 16
+	printc 8, "2nd status"
+	call	printhex4
+	call	newline
+
+
+	print	"  IO Base="
+	push	edi
+	xor	dl, dl
+
+	# upper 4 bits = [15:12] of address; [11:0] = 0 for base, 0xffff for limit
+	mov	dh, al
+	and	dh, ~0b1111
+	and	al, 0b1111
+	jz	11f	# 16 bit
+
+	# read high 16 bits for base & limit
+	push	eax
+	push	edx
+	mov	bl, 0x30
+	mov	ax, cx
+	call	pci_read_config
+	mov	dx, ax
+	call	printhex4	# print 31:16 of io base
+	pop	edx
+	mov	edi, eax
+	pop	eax
+	shr	edi, 16
+11:	call	printhex4	# print 15:12 of io base
+
+	print " Limit="
+	mov	dh, ah
+	and	ah, 0b1111
+	jz	11f
+
+	mov	edx, edi
+	call	printhex4
+
+11:	or	dx, 0xfff
+	call	printhex4
+
+	pop	edi
+
+	call	newline
+
+	####
+
+
+	mov	bl, 0x20	# each word's [15:4] (12) is 31:20; 3:0 = 0
+	mov	ax, cx
+	call	pci_read_config
+	print "  Memory Base="
+	mov	dx, ax
+	#and	dl, ~0b1111
+	shl	edx, 16
+	call	printhex8
+
+	print " Limit="
+	mov	edx, eax
+	and	edx, 0xfff00000
+	call	printhex8
+	call	newline
+
+	# if the mem prefetch limit is less than the base, and no mmio,
+	# mem transactions are forwarded from the secondary to the primary.
+	print "  Prefetchable Memory: Base="
+	mov	bl, 0x24	# lo word: high 16 of mem base; hi word: limit
+	mov	ax, cx
+	call	pci_read_config
+	# both low 4 bit of each word must be 0b0000 for 32 bit
+	# or 0b1111 for 64 bit
+
+	mov	dl, al
+	and	al, ~0b1111
+	and	dl, 0b1111
+	jz	11f
+	# only 0b0000 and 0b0001 are allowed: 32 and 64 bit addressing.
+
+	push	eax
+	mov	bl, 0x28	# read high 32 bit of mem base
+	mov	ax, cx
+	call	pci_read_config
+	mov	edx, eax
+	pop	eax
+	call	printhex8
+	call	printspace
+11:
+	mov	dx, ax		# lo 4 bits is masked: hi 16 bits
+	shl	edx, 16
+	call	printhex8
+
+	shr	eax, 16
+	push	eax	# remember prefetchable memory limit low 16
+	print " Limit="
+
+	mov	dl, al
+	and	al, ~0b1111
+	and	dl, 0b1111
+	jz	11f
+	# assert dl = 0b1111
+
+	push	eax
+	mov	bl, 0x2c	# read high 32 bit of mem limit
+	mov	ax, cx
+	call	pci_read_config
+	mov	edx, eax
+	pop	eax
+	call	printhex8
+	call	printspace
+11:
+	pop	edx
+#	and	edx, 0xfff00000
+	or	edx, 0x000fffff
+	call	printhex8
+	call	newline
+
+	# 0x34: capabilities pointer (identical to header type=0)
+	call	pci_list_caps$
+
+
+	mov	bl, 0x38
+	mov	ax, cx
+	call	pci_read_config
+	DEBUG_DWORD eax, "expansion rom base address"
+	call	newline
+
+	# 0x3c: identical to standard header except for bridge control
+	mov	bl, 0x3c
+	mov	ax, cx
+	call	pci_read_config
+	DEBUG_BYTE al, "interrupt line"
+	DEBUG_BYTE ah, "interrupt pin"
+	shr	eax, 16
+	DEBUG_WORD ax, "bridge control"
+	call	newline
+.endif
+	ret
+
+
+
+# in: cx = pci address (bus etc)
+# in: bl = BARx pci address (BAR0 is usualy 0x10 / 16)
+# in: edi = dev ptr, to be updated with dev_io(_size) and dev_mmio(_size).
+#  the last match will be the one used.
+pci_list_bar$:
+	mov	ax, cx
 	call	pci_read_config
 
 	or	eax, eax
 	jz	4f
-
 ##
 	push	eax
 
@@ -860,7 +1149,7 @@ std$:	# Header Type 0
 
 	# IO BAR:
 	# bits 31:2:	4 byte aligned base address
-	# bit  1:	resered
+	# bit  1:	reserved
 	# bit  0:	1
 	PRINTc	8, "  BAR"
 	mov	dl, bl
@@ -927,7 +1216,7 @@ std$:	# Header Type 0
 	and	dl, bh
 	not	edx
 	inc	edx	# edx = memory/io size used
-	
+
 			mov	[edi], edx
 			pop	edi
 
@@ -941,135 +1230,81 @@ std$:	# Header Type 0
 	mov	ax, cx
 	call	pci_write_config
 
-##	
 4:
-	add	bl, 4
-	cmp	bl, 0x24
-	jbe	2b
+	ret
 
-	# bl = 0x28
-	# 0x28: dd cardbus cis poiner
 
-	mov	ax, cx
-	call	pci_read_config
-	or	eax, eax
-	jz	4f
-	PRINTc	8, "   CIS Ptr " # Card Information Structure
-	mov	edx, eax
-	call	printhex8
-4:
-	call	newline
-
-	# 0x2c: subsystem id, subsystem vendor id
-	mov	bl, 0x2c
-	mov	ax, cx
-	call	pci_read_config
-
-			mov	[edi + dev_pci_subvendor], eax
-
-	PRINTc	8, " SubSystem Vendor ID "
-	mov	edx, eax
-	call	printhex4
-	shr	edx, 16
-	PRINTc	8, " ID "
-	call	printhex4
-
-	mov	ax, cx
-	mov	bl, 0x30
-	call	pci_read_config
-	or	eax, eax
-	jz	0f
-	PRINTc	8, " Expansion ROM BAR "
-	mov	edx, eax
-	call	printhex8
-0:	
-	call	newline
-
-	##################################################
-	# 0x34: reserved db 3 dup(0), cap_ptr db 0
-	# test whether available
-	test	esi, PCI_STATUS_CAPABILITIES_LIST << 16
-#	jz	4f
-
+pci_list_caps$:
 	mov	ax, cx
 	mov	bl, 0x34
 	call	pci_read_config
 	cmp	al, 0x40	# officially. usually 0 or 40
 	jb	4f
-44:	PRINTc	8, " Capabilities Pointer "
+44:	PRINTc	8, " Capability @ "
 	mov	dl, al
 	call	printhex2
-	call	newline
 
 	mov	bl, al
+	and	bl, ~3	# low 2 bits are reserved
 	mov	ax, cx
-	DEBUG_BYTE bl
 	call	pci_read_config
 	mov	edx, eax
-	DEBUG "   CAPABILITY: "
+	printc	8, ": "
 	call	printhex2
-	# 1: power management
-	# 2: agp
-	# 3: vital product data
-	# 4: slot id
-	# 5: message signaled interrupts
-	# 6: compactpci
-	DEBUG "next: " 
+	# (ECN_ClassCodeCapID_Extraction_2010-04-28.pdf)
+	# 0x00: reserved
+	# 0x01: power management
+	# 0x02: agp
+	# 0x03: vital product data
+	# 0x04: slot numbering cap id: arg=word[chassis nr, expansion slot]
+	# 0x05: message signaled interrupts
+	# 0x06: compactpci
+	# 0x07: PCI-X 2.0+; args: [.word cmd_reg;] .long status,ecc_ctrl_st,ecc_1st,ecc_2nd,ecc_attr
+	# 0x08: hypertransport
+	# 0x09: vendor specific; byte after next ptr is length (eax & 0x00ff0000)
+	# 0x0a: debug port
+	# 0x0b: CompactPCI central resource control
+	# 0x0c: PCI hotplug
+	# 0x0d: pci bridge subsystem vendor id
+	# 0x0e: AGP 8x
+	# 0x0f: secure device
+	# 0x10: PCI express
+	# 0x11: MSI-X (message signalled interrupts)
+	# 0x12-0xff: reserved
+	printc 8, " next: " 
 	shr	edx, 8
 	call	printhex2
-	DEBUG "feature specific:"
+	printc 8, " arg: "
 	shr	edx, 8
 	call	printhex4
+	call	printspace
+
+	PRINTIF al, 0x01, "power management"
+	PRINTIF al, 0x02, "agp"
+	PRINTIF al, 0x03, "vital product data"
+	PRINTIF al, 0x04, "slot numbering"# cap id: arg=word[chassis nr, expansion slot]"
+	PRINTIF al, 0x05, "MSI"#message signaled interrupts"
+	PRINTIF al, 0x06, "CompactPCI"
+	PRINTIF al, 0x07, "PCI-X"# 2.0+; args: [.word cmd_reg;] .long status,ecc_ctrl_st,ecc_1st,ecc_2nd,ecc_attr"
+	PRINTIF al, 0x08, "HyperTransport"
+	PRINTIF al, 0x09, "Vendor Specific"#; byte after next ptr is length (eax & 0x00ff0000)"
+	PRINTIF al, 0x0a, "Debug Port"
+	PRINTIF al, 0x0b, "CompactPCI central resource control"
+	PRINTIF al, 0x0c, "PCI hotplug"
+	PRINTIF al, 0x0d, "pci bridge subsystem vendor id"
+	PRINTIF al, 0x0e, "AGP 8x"
+	PRINTIF al, 0x0f, "secure device"
+	PRINTIF al, 0x10, "PCI express"
+	PRINTIF al, 0x11, "MSI-X"# (message signalled interrupts)"
+
 	call	newline
-	mov	bl, ah
-	or	bl, bl
+	mov	al, ah
+	or	al, al
 	jnz	44b
-4:	
 
-	# skip 0x38 - reserved
+4:	ret
 
-	# 0x3c: max latency, min grant, interrupt pin, interrupt line
-	mov	ax, cx
-	mov	bl, 0x3c
-	call	pci_read_config
-	or	eax, eax
-	jz	0f
-	PRINTc	8, "   Interrupt Line "
-	mov	edx, eax
-	call	printhex2
 
-			mov	[edi + dev_irq], dx
-	
-	PRINTc	8, "   Interrupt PIN "
-	shr	edx, 8
-	call	printhex2
-
-	PRINTc	8, "   Min Grant "
-	shr	edx, 8
-	call	printhex2
-
-	PRINTc	8, "   Max latency "
-	shr	edx, 8
-	call	printhex2
-
-	call	newline
-0:
-
-			mov	ebx, edi
-			push	ecx	
-			call	[edi + dev_api_constructor]
-			pop	ecx
-
-###################
-cont$:
-1:	inc	cl
-	cmp	cl, 0x1f
-	jbe	loop$
-	xor	cl, cl
-	inc	ch	
-	jnz	loop$
-
-	ret
 
 # in: ah = bus (8 bits), al=slot (5 bits)
 # in: bl = register/offset (4 byte align)
@@ -1080,7 +1315,7 @@ pci_read_config:
 	and	eax, 0x0000ff1f	# ah & 8 bits, al & 5 bits
 
 	shl	al, 3		# low 3 bits: func 0
-	shl	eax, 8		
+	shl	eax, 8
 	and	bl, 0b11111100	# register dword align
 	mov	al, bl		# low 8 bits: register
 	or	eax, 1<<31
@@ -1189,28 +1424,40 @@ DECLARE_PCI_DRIVER BRIDGE, nulldev, 0x8086, 0x7190, "i440", "Intel 440BX/ZX/DC H
 #Bus 00 Slot 01 Vendor 8086 7191 Command 011f Status 0220 Revision 01 Class 06.04.00 PCI-to-PCI Single functionPCI-to-CardBus Bridge
 DECLARE_PCI_DRIVER BRIDGE_PCI2PCI,    nulldev, 0x8086, 0x7191, "i440agp", "Intel 440 AGP Bridge", dev_pci_null_driver
 #Bus 00 Slot 07 Vendor 8086 7110 Command 0007 Status 0280 Revision 08 Class 06.01.00 ISA Bridge Device Multiple function General device SubSystem Vendor ID 15ad ID 1976
-DECLARE_PCI_DRIVER BRIDGE, nulldev, 0x8086, 0x7110, "i440", "Intel 440BX/ZX/DC Host Bridge", dev_pci_null_driver
+DECLARE_PCI_DRIVER BRIDGE_ISA, nulldev, 0x8086, 0x7110, "ipiix4", "Intel PIIX4 ISA Host Bridge", dev_pci_null_driver
 
 #Bus 00 Slot 0f Vendor 15ad 0405 Command 0003 Status 0290 Revision 00 Class 03.00.00 VGA Compatible Display Controller > VMWare SVGA II 
 # implemented in mware/svga2.s
 
 #Bus 00 Slot 10 Vendor 104b 1040 Command 0007 Status 0280 Revision 01 Class 01.00.00 SCSI Bus Mass Storage Controller Single function General device  SubSystem Vendor ID 104b ID 1040 
 DECLARE_PCI_DRIVER STORAGE_SCSI,      nulldev, 0x104b, 0x1040, "scsi???", "SCSI mass storage", dev_pci_null_driver
-# PCI to Cardbridge devices: (need t oimpl PCI config space read fully)
+
+
+# VMWare
+
+#DECLARE_PCI_DRIVER VID_VGA          , nulldev, 0x15ad, 0x0405, "vmwsvga2", "VMWare SVGA II Adapter", dev_pci_null_driver
+DECLARE_PCI_DRIVER VID_VGA          , nulldev, 0x15ad, 0x0710, "vmwsvga", "VMWare SVGA Adapter", dev_pci_null_driver
+DECLARE_PCI_DRIVER NIC_ETH   ,        nulldev, 0x15ad, 0x0720, "vmxnet", "VMWare VMXNET Ethernet Controller", dev_pci_null_driver
+DECLARE_PCI_DRIVER BRIDGE   ,         nulldev, 0x15ad, 0x0740, "vmwci", "VMWare Communication Interface", dev_pci_null_driver
+DECLARE_PCI_DRIVER SERIAL_USB,        nulldev, 0x15ad, 0x0770, "vmwusb2.0", "VMWare USB2 EHCI Controller", dev_pci_null_driver
+
+DECLARE_PCI_DRIVER SERIAL_USB       , nulldev, 0x15ad, 0x0774, "vmwusb1.1", "VMWare USB 1.1 UHCI", dev_pci_null_driver
+# subsys: 15ad 1976
 
 #Bus 00 Slot 11 Vendor 15ad 0790 Command 0007 Status 0290 Revision 02 Class 06.04.01 PCI-to-PCI (Subtractive Decode) Bridge Device
-DECLARE_PCI_DRIVER BRIDGE_PCI2PCI_SD, nulldev, 0x15ad, 0x0790, "vmwbridge", "VMWare Bridge", dev_pci_null_driver
+DECLARE_PCI_DRIVER BRIDGE_PCI2PCI_SD, nulldev, 0x15ad, 0x0790, "vmwbridge", "VMWare PCI Bridge", dev_pci_null_driver
 
 
 # These are pci-to-cardbrige PCI config layouts - not implemented.
 #Bus 00 Slot 16 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Multiple functionPCI-to-CardBus Bridge
 #Bus 00 Slot 17 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Multiple functionPCI-to-CardBus Bridge
 #Bus 00 Slot 18 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Single function General device  SubSystem Vendor ID 15ad 1976
-DECLARE_PCI_DRIVER BRIDGE_PCI2PCI   , nulldev, 0x15ad, 0x07a0, "vmwbridge", "VMWare Bridge", dev_pci_null_driver
+DECLARE_PCI_DRIVER BRIDGE_PCI2PCI   , nulldev, 0x15ad, 0x07a0, "vmwbridge", "VMWare PCI Express Root Port", dev_pci_null_driver
+DECLARE_PCI_DRIVER NIC_ETH   ,        nulldev, 0x15ad, 0x07b0, "vmxnet3", "VMWare VMXNET3 Ethernet Controller", dev_pci_null_driver
+DECLARE_PCI_DRIVER STORAGE_SCSI   ,   nulldev, 0x15ad, 0x07c0, "vmwscsi", "VMWare PVSCSI SCSI Controller", dev_pci_null_driver
+DECLARE_PCI_DRIVER BRIDGE/*???*/  ,   nulldev, 0x15ad, 0x0801, "vmwi", "VMWare Virtual Machine Interface", dev_pci_null_driver
+# and subsys 15ad 8000 : hypervisor rom interface
 #
-# 0c.03.00
-DECLARE_PCI_DRIVER SERIAL_USB       , nulldev, 0x15ad, 0x0774, "vmwusb", "VMWare USB UHCI", dev_pci_null_driver
-# subsys: 15ad 1976
 
 
 #Bus 02 Slot 01 Vendor 1022 2000 Command 0003 Status 0280 Revision 10 Class 02.00.00 Ethernet Network Controller SubSystem Vendor ID 1022 ID 2000
@@ -1221,6 +1468,20 @@ DECLARE_PCI_DRIVER MM_AUDIO, nulldev, 0x1274, 0x1371, "audio", "Ensoniq AudioPCI
 #Bus 02 Slot 03 Vendor 15ad 0770 Command 0002 Status 0000 Single function General device  SubSystem Vendor ID 15ad ID 0770 > EHCI Driver USB 2.14
 # Implemented in usb.s
 
+#15ad VMWare
+#        0405  SVGA II Adapter
+#        0710  SVGA Adapter
+#        0720  VMXNET Ethernet Controller
+#        0740  Virtual Machine Communication Interface
+#        0770  USB2 EHCI Controller
+#        0774  USB1.1 UHCI Controller
+#        0790  PCI bridge
+#        07a0  PCI Express Root Port
+#        07b0  VMXNET3 Ethernet Controller
+#        07c0  PVSCSI SCSI Controller
+#        0801  Virtual Machine Interface
+#                15ad 0800  Hypervisor ROM Interface
+#
 
 
 .text32
@@ -1241,7 +1502,7 @@ dev_pci_null_driver:
 	jnz	1f
 	cmp	[ebx + dev_pci_subdevice],word ptr  0x1976
 	jnz	1f
-	printc	11, "Virtual Machine"
+	printc	11, " Virtual Machine"
 
 1:	pop	esi
 	call	println

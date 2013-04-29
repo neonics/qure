@@ -43,14 +43,6 @@ cmos_list:
 		call	printhex2
 	.endm
 
-	.macro PRINTIF reg, val, msg
-		cmp	\reg, \val
-		jne	9f
-		PRINT	"\msg"
-	9:
-	.endm
-
-
 0:	GET_SCREENPOS edi
 
 	# 0x0a: Read/Write

@@ -552,6 +552,13 @@ COLOR_STACK_SIZE = 2
 
 ####################
 
+.macro PRINTIF reg, val, msg
+	cmp	\reg, \val
+	jne	111f
+	PRINT	"\msg"
+111:
+.endm
+
 
 .macro PRINTFLAG reg, bit, msg, altmsg=0
 	test	\reg, \bit
