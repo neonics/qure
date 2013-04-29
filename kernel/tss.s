@@ -83,7 +83,7 @@ init_tss_16:
 
 	mov	[tss_SS0], word ptr SEL_compatDS
 	mov	[tss2_SS0], word ptr SEL_compatDS
-	mov	eax, [realsegflat] # XXX
+	mov	eax, [kernel_tss0_stack_top]	# setup by init_gdt_16
 	mov	[tss_ESP0], eax
 	sub	eax, 0x0200
 	mov	[tss2_ESP0], eax

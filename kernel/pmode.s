@@ -20,6 +20,7 @@ reloc$: .long 0
 codeoffset: .long 0
 database: .long 0
 kernel_location: .long 0
+kernel_tss0_stack_top: .long 0
 kernel_stack_top: .long 0
 bkp_reg_cs: .word 0
 bkp_reg_ds: .word 0

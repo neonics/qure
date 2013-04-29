@@ -576,24 +576,6 @@ init_gdt_16:
 	mov	[pm_idtr+2], eax
 
 
-	# Set up TSS
-
-	call	init_tss_16
-
-	mov	eax, offset TSS
-	add	eax, ebx
-
-	GDT_STORE_SEG GDT_tss
-	mov	eax, 104 #value doesnt really matter here it seems
-	GDT_STORE_LIMIT GDT_tss
-
-	mov	eax, offset TSS2
-	add	eax, ebx
-	GDT_STORE_SEG GDT_tss2
-	mov	eax, 104
-	GDT_STORE_LIMIT GDT_tss2
-
-
 	# Set up SS
 
 	xor	eax, eax
@@ -624,6 +606,8 @@ init_gdt_16:
 		call printhex8_16
 	.endif
 	sub	edx, [database]
+	mov	[kernel_tss0_stack_top], edx
+	add	edx, KERNEL_MIN_STACK_SIZE
 	mov	[kernel_stack_top], edx
 
 	.if DEBUG
@@ -659,6 +643,26 @@ init_gdt_16:
 	shl	eax, 4
 
 	GDT_STORE_SEG GDT_realmodeGS
+
+
+	# Set up TSS (must be done after kernel_stack_top)
+
+	call	init_tss_16
+
+	mov	eax, offset TSS
+	add	eax, ebx
+
+	GDT_STORE_SEG GDT_tss
+	mov	eax, 104 #value doesnt really matter here it seems
+	GDT_STORE_LIMIT GDT_tss
+
+	mov	eax, offset TSS2
+	add	eax, ebx
+	GDT_STORE_SEG GDT_tss2
+	mov	eax, 104
+	GDT_STORE_LIMIT GDT_tss2
+
+
 
 	# set the call gates
 	mov	eax, offset kernel_callgate
