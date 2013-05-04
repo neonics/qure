@@ -211,6 +211,8 @@ strncmp:push	edi
 # in: eax
 # out: eax
 strdup:
+	push	ebp
+	lea	ebp, [esp + 4]
 	push	esi
 	push	edi
 	push	ecx
@@ -218,17 +220,20 @@ strdup:
 	call	strlen
 	inc	eax
 	mov	ecx, eax
-	call	malloc
+	call	malloc_
 	mov	edi, eax
 	rep	movsb
 	pop	ecx
 	pop	edi
 	pop	esi
+	pop	ebp
 	ret
 
 # in: eax
 # out: eax, ecx
 strdupn:
+	push	ebp
+	lea	ebp, [esp + 4]
 	push	esi
 	push	edi
 	mov	esi, eax
@@ -236,30 +241,34 @@ strdupn:
 	push	eax
 	inc	eax
 	mov	ecx, eax
-	call	malloc
+	call	malloc_
 	mov	edi, eax
 	rep	movsb
 	pop	ecx
 	pop	edi
 	pop	esi
+	pop	ebp
 	ret
 
 # in: eax, ecx
 # out: eax
 strndup:
+	push	ebp
+	lea	ebp, [esp + 4]
 	push	esi
 	push	edi
 	push	ecx
 	mov	esi, eax
 	mov	eax, ecx
 	inc	eax
-	call	malloc
+	call	malloc_
 	mov	edi, eax
 	rep	movsb
 	mov	byte ptr [edi], 0
 	pop	ecx
 	pop	edi
 	pop	esi
+	pop	ebp
 	ret
 
 

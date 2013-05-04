@@ -574,6 +574,56 @@ COLOR_STACK_SIZE = 2
 112:
 .endm
 
+.macro _PRINTBITSHEX width
+	.if \width <=4
+	call	printhex1
+	.else
+		.if \width <= 8
+		call	printhex2
+		.else
+			.if \width <=16
+			call	printhex4
+			.else
+			call	printhex8
+			.endif
+		.endif
+	.endif
+.endm
+
+
+.macro PRINTBITSb reg, firstbit, width, msg=0
+	.ifnc 0,\msg
+	PRINTc	7, "\msg"
+	.endif
+	mov	dl, \reg
+	shr	dl, \firstbit
+	and	dl, (1 << \width) - 1
+	_PRINTBITSHEX \width
+	.endm
+
+.macro PRINTBITSw reg, firstbit, width, msg=0
+	.ifnc 0,\msg
+	PRINTc	7, "\msg"
+	.endif
+	mov	dx, \reg
+	shr	dx, \firstbit
+	and	dx, (1 << \width) - 1
+	_PRINTBITSHEX \width
+.endm
+
+.macro PRINTBITb reg, bit
+	mov	dl, \reg
+	and	dl, 1<<\bit
+	shr	dl, \bit
+	call	printhex1
+.endm
+
+.macro PRINTBITw reg, bit
+	mov	dx, \reg
+	and	dx, 1<<\bit
+	shr	dx, \bit
+	call	printhex1
+.endm
 
 
 .endif

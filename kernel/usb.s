@@ -359,7 +359,6 @@ usb_ehci_hook_isr:
 	mov	[usb_ehci_isr_dev], ebx	# XX direct mem offset
 	push	ebx
 	movzx	ax, byte ptr [ebx + dev_irq]
-DEBUG_BYTE al,"IRQ"
 	mov	[usb_ehci_isr_irq], al
 	add	ax, IRQ_BASE
 	mov	ebx, offset usb_ehci_isr

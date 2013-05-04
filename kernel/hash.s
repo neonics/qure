@@ -153,6 +153,13 @@ array_index: .long 0
 # in: eax = initial capacity
 # out: eax = pointer to BUF object.
 buf_new:
+	push	ebp
+	lea	ebp, [esp + 4]
+	call	buf_new_
+	pop	ebp
+	ret
+
+buf_new_:
 	push	eax
 
 	.if BUF_DEBUG
@@ -164,7 +171,7 @@ buf_new:
 	.endif
 
 	add	eax, 8
-	call	mallocz
+	call	mallocz_
 	pop	[eax]
 	mov	[eax + 4], dword ptr 0
 	add	eax, 8
@@ -175,7 +182,6 @@ buf_new:
 		call newline
 		pop edx
 	.endif
-
 	ret
 
 buf_free:
@@ -194,6 +200,13 @@ buf_grow:
 # in: edx = new size
 # out: eax = pointer to new buffer
 buf_resize:
+	push	ebp
+	lea	ebp, [esp + 4]
+	call	buf_resize_
+	pop	ebp
+	ret
+
+buf_resize_:
 	.if BUF_DEBUG
 		printc 5, "buf_resize("
 		call printdec32
@@ -202,7 +215,7 @@ buf_resize:
 		mov edx, eax
 		call printhex8
 		printc 5, " called from "
-		mov edx, [esp+4]
+		mov edx, [ebp]
 		call printhex8
 		printc 5, ": "
 		pop edx
@@ -214,7 +227,7 @@ push dword ptr [eax + buf_capacity]
 	sub	eax, 8
 	push	edx
 	add	edx, 8
-	call	mreallocz	# mrealloc: crashes vm sometimes
+	call	mreallocz_	# mrealloc: crashes vm sometimes
 	add	eax, 8
 	pop	dword ptr [eax + buf_capacity]
 mov ecx, [eax + buf_capacity] # new cap
@@ -258,11 +271,14 @@ array_appendcopy:
 # in: eax = initial entries
 # out: eax = base pointer
 array_new:
+	push	ebp
+	lea	ebp, [esp + 4]
 	push	edx
 	mul	ecx
 	# assume edx = 0
-	call	buf_new	# in: eax; out: eax
+	call	buf_new_	# in: eax; out: eax
 	pop	edx
+	pop	ebp
 	ret
 
 array_free:
@@ -274,6 +290,8 @@ array_free:
 # out: edx = relative offset
 # out: eax = base pointer (might be updated due to realloc)
 array_newentry:
+	push	ebp
+	lea	ebp, [esp + 4]
 	mov	edx, [eax + buf_index]
 	push	edx
 	add	edx, ecx
@@ -283,10 +301,11 @@ array_newentry:
 
 	add	edx, ecx # MTAB_ENTRY_SIZE
 	# optionally: increase grow size
-	call	buf_resize	# in: eax, out: eax
+	call	buf_resize_	# in: eax, out: eax
 	mov	edx, [eax + buf_index]
 0:	add	[eax + buf_index], ecx # dword ptr MTAB_ENTRY_SIZE
 	# REMEMBER: eax might be updated, so always store it after a call!
+	pop	ebp
 	ret
 
 .macro ARRAY_ITER_START base, index
@@ -305,21 +324,27 @@ array_newentry:
 # Pointer Array
 
 ptr_array_new:
+	push	ebp
+	lea	ebp, [esp + 4]
 	push	edx
 	shl	eax, 2
-	call	buf_new
+	call	buf_new_
 	pop	edx
+	pop	ebp
 	ret
 
 
 ptr_array_newentry:
+	push	ebp
+	lea	ebp, [esp + 4]
 	mov	edx, [eax + array_index]
 	cmp	edx, [eax + array_capacity]
 	jb	0f
 	add	edx, 4*4
-	call	buf_resize
+	call	buf_resize_
 	mov	edx, [eax + array_index]
 0:	add	[eax + array_index], dword ptr 4
+	pop	ebp
 	ret
 
 

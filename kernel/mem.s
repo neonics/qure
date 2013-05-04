@@ -783,7 +783,21 @@ mem_get_free:
 	sub	eax, [mem_heap_alloc_start]
 	ret
 
+# in: eax = size
+# out: eax
+# out: CF
 mallocz:
+	push	ebp
+	lea	ebp, [esp + 4]
+	call	mallocz_
+	pop	ebp
+	ret
+
+# in: eax = size
+# in: [ebp] = caller return
+# out: eax
+# out: CF
+mallocz_:
 	.if MEM_DEBUG2
 		DEBUG "mallocz ";
 		push edx; mov edx,[esp+4]; call debug_printsymbol; pop edx
@@ -791,7 +805,7 @@ mallocz:
 	push	ecx
 	mov	ecx, eax
 #DEBUG_DWORD ecx,"mallocz"
-	call	malloc
+	call	malloc_
 _mallocz_malloc_ret$:	# debug symbol
 	.if MEM_DEBUG2
 		DEBUG_DWORD eax; pushf; call newline; popf
@@ -864,6 +878,16 @@ popf
 # in: eax = size
 # in: edx = physical alignment (power of 2)
 malloc_aligned:
+	push	ebp
+	lea	ebp, [esp + 4]
+	call	malloc_aligned_
+	pop	ebp
+	ret
+
+# in: eax = size
+# in: ebp = caller return stack ptr
+# in: edx = physical alignment (power of 2)
+malloc_aligned_:
 	MUTEX_SPINLOCK MEM
 	push_	ebx esi
 
@@ -876,7 +900,7 @@ malloc_aligned:
 	mov	[esi + ebx + handle_size], eax
 	# register caller
 	push	edx
-	mov	edx, [esp + 3*4]	# edx+esi+ebx+ret
+	mov	edx, [ebp]#[esp + 3*4]	# edx+esi+ebx+ret
 	mov	[esi + ebx + handle_caller], edx
 	pop	edx
 
@@ -928,9 +952,23 @@ malloc_aligned:
 	jmp	3f
 .endif
 
+
+
 # in: eax = size
 # out: eax = base pointer
+# out: CF = out of mem
 malloc:
+	push	ebp
+	lea	ebp, [esp + 4]
+	call	malloc_
+	pop	ebp
+	ret
+
+# in: eax = size
+# in: ebp = stack pointer to caller return address
+# out: edx = base pointer
+# out: CF = out of mem
+malloc_:
 #DEBUG_REGSTORE
 	MUTEX_SPINLOCK MEM
 	.if MEM_DEBUG2
@@ -999,13 +1037,15 @@ malloc:
 
 	# register caller
 0:	push	edx
-	mov	edx, offset _mallocz_malloc_ret$
-	add	edx, [realsegflat]
-	cmp	edx, [esp + 20]
-	mov	edx, [esp + 24]
-	jz	5f
-	mov	edx, [esp + 20]	# edx+esi+ebx+ret
-5:	mov	[esi + ebx + handle_caller], edx
+#	mov	edx, offset _mallocz_malloc_ret$
+#	add	edx, [realsegflat]
+#	cmp	edx, [esp + 20]
+#	mov	edx, [esp + 24]
+#	jz	5f
+#	mov	edx, [esp + 20]	# edx+esi+ebx+ret
+#5:
+mov edx, [ebp]
+	mov	[esi + ebx + handle_caller], edx
 	pop	edx
 
 	clc
@@ -1064,6 +1104,8 @@ malloc:
 	jmp	\malloc
 1:
 ########
+	push	ebp
+	lea	ebp, [esp + 4]
 	MUTEX_LOCK MEM locklabel=1f
 	DEBUG "MREALLOC mutex fail"
 	pushad
@@ -1207,7 +1249,7 @@ malloc:
 
 	mov	eax, edx
 	MUTEX_UNLOCK_ MEM
-	call	\malloc
+	call	\malloc\()_
 	MUTEX_SPINLOCK_ MEM
 	# copy
 	or	ecx, ecx	# shouldnt happen if malloc checks for it.
@@ -1250,6 +1292,7 @@ malloc:
 		call mem_validate_handles
 		DEBUG "]", 0x6f
 	.endif
+	pop	ebp
 .endm
 
 
@@ -1265,7 +1308,23 @@ mrealloc:
 	.endif
 	ret
 
+# in: eax = old buffer
+# in: edx = new size
+# out: eax = new buffer
+# out: CF
 mreallocz:
+	push	ebp
+	lea	ebp, [esp + 4]
+	call	mreallocz_
+	pop	ebp
+	ret
+
+# in: eax = old buffer
+# in: edx = new size
+# in: [ebp] = caller
+# out: eax = new buffer
+# out: CF
+mreallocz_:
 .if 1
 	push	edi
 	push	esi
@@ -1273,7 +1332,7 @@ mreallocz:
 	####################
 	push	eax
 	mov	eax, edx
-	call	mallocz
+	call	mallocz_
 	jc	9f
 	mov	esi, [esp]
 	mov	edi, eax
@@ -1295,8 +1354,7 @@ mreallocz:
 	ret
 9:	pop	eax
 	jmp	0b
-.endif
-
+.else
 	.if MEM_DEBUG2
 		DEBUG_DWORD eax,"mrealloc";DEBUG_DWORD edx
 	.endif
@@ -1305,6 +1363,7 @@ mreallocz:
 		DEBUG_DWORD eax
 	.endif
 	ret
+.endif
 
 # in: eax = memory pointer
 mfree:
@@ -1482,10 +1541,12 @@ malloc_optimized:
 # in: esi = data
 # in: ecx = datalen
 # out: esi = new buffer containing data
-mdup:	push	eax
+mdup:	push	ebp
+	lea	ebp, [esp + 4]
+	push	eax
 
 	mov	eax, ecx
-	call	malloc
+	call	malloc_
 	jc	9f
 
 	push	eax
@@ -1503,6 +1564,7 @@ mdup:	push	eax
 	pop	esi
 
 9:	pop	eax
+	pop	ebp
 	ret
 
 ##############################################################################
@@ -1849,7 +1911,7 @@ cmd_mem$:
 	jz	2f
 
 	mov	ecx, offset code_print_start
-	.irp _, print,pmode,paging,debugger,pit,keyboard,console,mem,hash,string,scheduler,tokenizer,dev,pci,bios,cmos,ata,fs,partition,fat,sfs,iso9660,shell,nic,net,gfx,hwdebug,vmware,kernel
+	.irp _, print,pmode,paging,debugger,pit,keyboard,console,mem,hash,buffer,string,scheduler,tokenizer,dev,pci,bios,cmos,ata,fs,partition,fat,sfs,iso9660,shell,nic,net,vid,usb,gfx,hwdebug,vmware,kernel
 	PRINT_MEMRANGE code_\_\(), indent="  "
 	.endr
 
@@ -1959,7 +2021,7 @@ cmd_mem_print_graph$:
 mallocz_aligned:
 	push	ecx
 	mov	ecx, eax
-	call	malloc_aligned
+	call	malloc_aligned_
 	jc	9f
 	push_	edi eax
 	push	ecx

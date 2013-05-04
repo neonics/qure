@@ -35,14 +35,6 @@ cmos_list:
 	.endif
 	.endm
 
-	.macro PRINTBITS8 reg, firstbit, width, msg
-		PRINTc	7, "\msg"
-		mov	dl, \reg
-		shr	dl, \firstbit
-		and	dl, (1 << \width) - 1
-		call	printhex2
-	.endm
-
 0:	GET_SCREENPOS edi
 
 	# 0x0a: Read/Write
@@ -51,12 +43,12 @@ cmos_list:
 	mov	dl, al
 	call	printhex2
 	PRINTFLAG dl, 1<<7, " | Update Cycle in progress"
-	PRINTBITS8 al, 0, 4, " | Rate Selection: "	# 6
+	PRINTBITSb al, 0, 4, " | Rate Selection: "	# 6
 	PRINTIF	dl, 0b0000, " None"
 	PRINTIF	dl, 0b0011, " 122 microsec (minimum) (8197 Hz)"
 	PRINTIF	dl, 0b1111, " 500 millisec (2 Hz)/500 microsec (2000 Hz)"
 	PRINTIF	dl, 0b0110, " 976.562 microsec (1024 Hz)"
-	PRINTBITS8 al, 4, 3, " | 22 Stage divider: "	# 2
+	PRINTBITSb al, 4, 3, " | 22 Stage divider: "	# 2
 	PRINTIF dl, 2, " 32768 Hz time base"
 	call	newline
 

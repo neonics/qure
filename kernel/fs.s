@@ -750,6 +750,7 @@ fs_new_handle$:
 	or	eax, eax
 	jnz	1f
 	call	array_new
+	jc	9f
 	mov	[fs_handles$], eax
 0:	cmp	[eax + edx + fs_handle_label], dword ptr -1
 	jz	9f
@@ -1084,9 +1085,9 @@ fs_close:	# fs_free_handle
 	mov	ebx, [eax + edx + fs_handle_dir]
 	push	edi
 	lea	edi, [eax + edx + fs_handle_dirent]
-	push	eax
+	push_	eax edx
 	FS_HANDLE_CALL_API close, ecx
-	pop	eax
+	pop_	edx eax
 	pop	edi
 
 	# free parent handles:

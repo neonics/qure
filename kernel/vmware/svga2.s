@@ -6,7 +6,7 @@
 VID_DEBUG = 1
 
 
-VID_STARTUP_CHECK = 0
+VID_STARTUP_CHECK = 1
 
 
 .struct DEV_PCI_STRUCT_SIZE
@@ -118,6 +118,9 @@ VMSVGA2_DEBUG = 0
 .align 4
 vid_capabilities:	.long 0	# SVGA_CAP_* bits
 vid_device_version: .byte 0
+vid_txtmode_bpp:	.byte 0
+vid_txtmode_w:		.long 0
+vid_txtmode_h:		.long 0
 .align 4
 VID_VMSVGA2_STRUCT_SIZE = .
 
@@ -470,7 +473,6 @@ vmwsvga2_init:
 	PRINTFLAG eax, SVGA_CAP_GMR, "GMR "
 	PRINTFLAG eax, SVGA_CAP_TRACES, "TRACES "
 1:
-
 	# IRQ setup
 	test	eax, SVGA_CAP_IRQMASK
 	jz	1f
@@ -502,6 +504,14 @@ vmwsvga2_init:
 		# but needs to happen before the fifo enable.
 
 		mov	dx, [ebx + dev_io]
+
+		VID_READ WIDTH
+		mov	[ebx + vid_txtmode_w], eax
+		VID_READ HEIGHT
+		mov	[ebx + vid_txtmode_h], eax
+		VID_READ BITS_PER_PIXEL
+		mov	[ebx + vid_txtmode_bpp], al
+
 		VID_WRITE WIDTH, 1024
 		VID_WRITE HEIGHT, 768
 		VID_WRITE BITS_PER_PIXEL, 32
@@ -586,8 +596,10 @@ vmwsvga2_init:
 
 	# this will automatically sync/flush on vid mem write,
 	# as the FIFO doesn't work as expected yet.
+	test	dword ptr [ebx + vid_capabilities], SVGA_CAP_TRACES
+	jz	1f
 	VID_WRITE TRACES, 1
-
+1:
 	push	es
 	mov	edi, SEL_flatDS
 	mov	es, edi
@@ -618,6 +630,7 @@ mov	[screen_update], dword ptr offset gfx_txt_screen_update
 	DEBUG_DWORD ecx,"screensize"
 
 pop	dword ptr [screen_update]
+	call	newline
 
 #	call	svga_fifo_cmd_update
 #	VID_WRITE SYNC, 1
@@ -630,6 +643,9 @@ pop	dword ptr [screen_update]
 
 	# disable SVGA, return to VGA. (textmode!)
 	VID_WRITE ENABLE, 0
+	#VID_WRITE WIDTH, [ebx+vid_txtmode_w]
+	#VID_WRITE HEIGHT, [ebx+vid_txtmode_h]
+	#VID_WRITE BITS_PER_PIXEL, [ebx+vid_txtmode_bpp]
 
 	clc
 	pop	edx
@@ -641,7 +657,6 @@ vmwsvga2_hook_isr:
 	mov	[vmwsvga2_isr_dev], ebx	# XX direct mem offset
 	push	ebx
 	movzx	ax, byte ptr [ebx + dev_irq]
-DEBUG_BYTE al,"IRQ"
 	mov	[vmwsvga2_isr_irq], al
 	add	ax, IRQ_BASE
 	mov	ebx, offset vmwsvga2_isr
