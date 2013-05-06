@@ -112,13 +112,13 @@ fs_iso9660_mount:
 	call	mallocz
 	mov	edi, eax
 	pop	eax
-	jc	9f
+	jc	91f
 
 	mov	[edi + fs_obj_disk], ax
 	mov	[edi + fs_obj_class], dword ptr offset fs_iso9660_class
 
 	call	atapi_read_capacity # in: al; out: edx:eax, ecx=blocklen, ebx=lba
-	jc	9f
+	jc	92f
 
 	mov	[edi + fs_obj_p_end_lba], ebx
 	mov	[edi + fs_obj_p_size_sectors], ebx
@@ -174,11 +174,20 @@ fs_iso9660_mount:
 	jc	6f
 	mov	[eax + iso_root_dir], ebx
 .endif
-9:	ret
+	#printlnc 0xf0, "iso9660_mount: ok"
+	clc
+	ret
+91:	printlnc 4, "iso9660_mount: malloc fail"
+	stc
+	ret
+92:	printlnc 4, "iso9660_mount: get capacity fail"
+	stc
+	ret
 
 # error: deallocate buffers
 # in: edi = fs_struct
-6:	mov	eax, [edi + iso_path_table]
+6:	printlnc 4, "iso9660_mount: read path table/load dir fail"
+	mov	eax, [edi + iso_path_table]
 	call	mfree
 7:	mov	eax, [edi + iso_prim_vol_desc]
 	call	mfree
