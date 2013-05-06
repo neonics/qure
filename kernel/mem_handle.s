@@ -1,5 +1,9 @@
 .intel_syntax noprefix
 
+MEM_HANDLE_ALIGN_DEBUG = 0
+MEM_HANDLE_SPLIT_DEBUG = 0
+
+
 .struct 0
 # substruct ll_info: [base, prev, next] for fa
 # NOTICE!!!!! handle_base is dependent to be 0 for optimization! Search for OPT
@@ -539,30 +543,41 @@ find_handle_aligned$:
 align_handle$:
 	push_	edi edx ecx
 
-DEBUG "align_handle"
-DEBUG_DWORD eax,"size"
-DEBUG_DWORD edx,"align"
-DEBUG_DWORD esi
-DEBUG "pre:"
-pushad; call mem_print_handles; popad
+	.if MEM_HANDLE_ALIGN_DEBUG > 1
+		DEBUG "align_handle"
+		DEBUG_DWORD eax,"size"
+		DEBUG_DWORD edx,"align"
+		DEBUG_DWORD esi
+		DEBUG "pre:"
+		pushad; call mem_print_handles; popad
+	.endif
 	# have ecx be the new base
 	GDT_GET_BASE edi, ds
 	mov	ecx, [esi + ebx + handle_base]
-DEBUG_DWORD ecx,"logical base"
+	.if MEM_HANDLE_ALIGN_DEBUG > 1
+		DEBUG_DWORD ecx,"logical base"
+	.endif
 	sub	ecx, edi
-DEBUG_DWORD ecx,"phys base"
+	.if MEM_HANDLE_ALIGN_DEBUG > 1
+		DEBUG_DWORD ecx,"phys base"
+	.endif
 	dec	edx
 	add	ecx, edx
 	not	edx
 	and	ecx, edx
-DEBUG_DWORD ecx, "aligned phys base"
+	.if MEM_HANDLE_ALIGN_DEBUG > 1
+		DEBUG_DWORD ecx, "aligned phys base"
+	.endif
+
 	jz	1f		# already aligned
 	add	ecx, edi	# ecx = phys aligned ds rel base
-DEBUG_DWORD ecx,"logical aligned base"
+	.if MEM_HANDLE_ALIGN_DEBUG > 1
+		DEBUG_DWORD ecx,"logical aligned base"
+		DEBUG_DWORD eax
+	.endif
 	# now split the handle: shrink the current handle to the slack size eax
 	# and return a new handle succeeding it with the remaining size.
 
-DEBUG_DWORD eax;
 	push	eax
 	mov	eax, ecx	# new base
 	sub	eax, [esi + ebx + handle_base]	# eax = alignment slack
@@ -570,8 +585,11 @@ DEBUG_DWORD eax;
 	call	mem_split_handle_tail$
 	pop	eax
 
-DEBUG_DWORD eax; DEBUG "post split tail"
-pushad; call mem_print_handles; popad
+	.if MEM_HANDLE_ALIGN_DEBUG > 1
+		DEBUG_DWORD eax
+		DEBUG "post split tail"
+		pushad; call mem_print_handles; popad
+	.endif
 	# NOTE: depending on the handle's base address, the slack size
 	# varies. Therefore, the new handle will most likely be larger
 	# than required.
@@ -661,9 +679,7 @@ find_handle$:
 mem_split_handle_head$:
 	push_	edx ecx
 
-MEM_SPLIT_DEBUG = 0
-
-	.if MEM_SPLIT_DEBUG
+	.if MEM_HANDLE_SPLIT_DEBUG
 		DEBUG "head: old, new";call newline;
 		add	ebx, esi;
 		call	mem_print_handle_2$
@@ -673,7 +689,7 @@ MEM_SPLIT_DEBUG = 0
 	mov	edx, ebx	# backup
 	call	get_handle$	# already marked MEM_FLAG_ALLOCATED
 
-	.if MEM_SPLIT_DEBUG
+	.if MEM_HANDLE_SPLIT_DEBUG
 		add	ebx, esi
 		call	mem_print_handle_2$
 		sub	ebx, esi
@@ -723,7 +739,7 @@ MEM_SPLIT_DEBUG = 0
 
 	pop_	eax edi
 
-	.if MEM_SPLIT_DEBUG
+	.if MEM_HANDLE_SPLIT_DEBUG
 		DEBUG "updated: old, new";call newline;
 		push	ebx
 		lea	ebx, [edx + esi]
@@ -770,7 +786,9 @@ MEM_SPLIT_DEBUG = 0
 mem_split_handle_tail$:
 	push_	edx ecx eax
 	mov	edx, ebx	# backup
-	DEBUG_DWORD eax,"shrinkto"
+	.if MEM_HANDLE_SPLIT_DEBUG
+		DEBUG_DWORD eax,"shrinkto"
+	.endif
 	call	get_handle$	# already marked MEM_FLAG_ALLOCATED
 	# debug markings
 	or	byte ptr [esi + ebx + handle_flags], MEM_FLAG_DBG_SPLIT # 8
@@ -780,16 +798,24 @@ mem_split_handle_tail$:
 
 	# edx = handle to split, ebx = handle to return, eax = size
 	mov	ecx, [esi + edx + handle_base]
-DEBUG_DWORD ecx,"old base"
+	.if MEM_HANDLE_SPLIT_DEBUG
+		DEBUG_DWORD ecx,"old base"
+	.endif
 	add	ecx, eax
-DEBUG_DWORD eax,"shrink to"
-DEBUG_DWORD ecx, "new base"
+	.if MEM_HANDLE_SPLIT_DEBUG
+		DEBUG_DWORD eax,"shrink to"
+		DEBUG_DWORD ecx, "new base"
+	.endif
 	mov	[esi + ebx + handle_base], ecx	# NEW base at old.base + eax
 	mov	ecx, eax
 	xchg	eax, [esi + edx + handle_size]	# old handle size reduced TO desired size
-DEBUG_DWORD eax,"old size"
+	.if MEM_HANDLE_SPLIT_DEBUG
+		DEBUG_DWORD eax,"old size"
+	.endif
 	sub	eax, ecx			# eax = remaining size
-DEBUG_DWORD eax,"remaining size"
+	.if MEM_HANDLE_SPLIT_DEBUG
+		DEBUG_DWORD eax,"remaining size"
+	.endif
 	mov	[esi + ebx + handle_size], eax	# NEW size is remaining size.
 
 
