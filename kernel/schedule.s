@@ -385,15 +385,15 @@ scheduler_init:
 	mov	[eax + edx + task_registrar], esi
 	mov	[eax + edx + task_stack_ss], ss # esp updated in scheduler
 
+	mov	dword ptr [task_queue_sem], 0
+	btr	dword ptr [mutex], MUTEX_SCHEDULER
+
 		LOAD_TXT "sched.debug"
 		LOAD_TXT "0", edi
 		mov	eax, offset scheduler_debug_var_changed
 		add	eax, [realsegflat]
 		mov	[edi], byte ptr '0' + SCHEDULE_DEBUG_TOP
 		call	shell_variable_set
-
-	mov	dword ptr [task_queue_sem], 0
-	btr	dword ptr [mutex], MUTEX_SCHEDULER
 	ret
 
 9:	printlnc 4, "No more tasks"
@@ -459,7 +459,7 @@ schedule_far:
 
 # scheduling disabled:
 9:	DEBUG "Scheduling disabled: caller="
-	push edx; mov edx, [esp]; call debug_printsymbol;pop edx
+	push edx; mov edx, [esp+4]; call printhex8;call printspace; call debug_printsymbol;pop edx
 	hlt
 	ret
 # KEEP WITH NEXT!
