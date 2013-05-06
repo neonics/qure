@@ -612,6 +612,9 @@ fs_root_nextentry$:
 
 	cmp	ebx, -2	# /dev
 	jnz	9f
+.if 1
+jmp 9f
+.else
 
 1:	mov	byte ptr [edi + fs_dirent_attr], 0x04 # system
 	mov	eax, [devices]
@@ -633,6 +636,7 @@ fs_root_nextentry$:
 	add	ecx, [eax + ecx + obj_size]
 	clc
 	ret
+.endif
 
 0:	mov	byte ptr [edi + fs_dirent_attr], 0x10
 	or	ecx, ecx

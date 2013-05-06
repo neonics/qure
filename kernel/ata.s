@@ -43,6 +43,7 @@ ATA_PORT_SECTOR_COUNT	= 2	# Interrupt Reason register (DRQ)
   ATAPI_DRQ_DATAIN		= 0b010
   ATAPI_DRQ_DATAOUT		= 0b000
   ATAPI_DRQ_CMDOUT		= 0b001
+  ATAPI_DRQ_CMDIN		= 0b011
 
 ATA_PORT_ADDRESS1	= 3	# sector	/ LBA lo
 ATA_PORT_ADDRESS2	= 4	# cylinder low	/ LBA mid    Byte Count
@@ -63,22 +64,23 @@ ATA_PORT_COMMAND	= 7	# write
   ATA_COMMAND_PIO_READ			= 0x20	# LBA28 w/retry; +1=w/o retry
   ATA_COMMAND_PIO_READ_LONG		= 0x22	# w/retry; +1=w/o retry
   ATA_COMMAND_PIO_READ_EXT		= 0x24	# LBA48
-  ATA_COMMAND_DMA_READ_EXT		= 0x25
+  ATA_COMMAND_DMA_READ_EXT		= 0x25	# LBA48
   ATA_COMMAND_PIO_WRITE			= 0x30	# LBA28 w/retry; +1=w/o retry
   ATA_COMMAND_PIO_WRITE_LONG		= 0x32	# w/retry; +1=w/o retry
   ATA_COMMAND_PIO_WRITE_EXT		= 0x34	# LBA48
-  ATA_COMMAND_DMA_WRITE_EXT		= 0x35
+  ATA_COMMAND_DMA_WRITE_EXT		= 0x35	# LBA48
   ATA_COMMAND_PIO_READ_MULTIPLE		= 0xc4	# see word 47 and 59 of IDENTIFY
   ATA_COMMAND_PIO_WRITE_MULTIPLE	= 0xc5	# for sectors per block
   ATA_COMMAND_SET_MULTIPLE_MODE		= 0xc6	# sets nr of sectors/block
-  ATA_COMMAND_DMA_READ			= 0xc8
-  ATA_COMMAND_DMA_WRITE			= 0xca
+  ATA_COMMAND_DMA_READ			= 0xc8	# LBA28
+  ATA_COMMAND_DMA_WRITE			= 0xca	# LBA28
   ATA_COMMAND_CACHE_FLUSH		= 0xe7
   ATA_COMMAND_CACHE_FLUSH_EXT		= 0xea
   ATA_COMMAND_IDENTIFY			= 0xec
 
   ATAPI_COMMAND_PACKET			= 0xa0
   ATAPI_COMMAND_IDENTIFY		= 0xa1
+  ATAPI_COMMAND_SRST			= 0x08	# soft reset
   # PACKET Command opcodes:
   ATAPI_OPCODE_READ_CAPACITY		= 0x25
   ATAPI_OPCODE_READ			= 0xa8
@@ -516,27 +518,50 @@ ata_list_drives:
 ata_irq: .byte 0
 .text32
 ata_isr1:
-	.if ATA_DEBUG > 3
-	DEBUG "ATA ISR1"
-	.endif
+	push_	eax edx
+	xor	ah, ah	# ATA0
 	jmp	1f
 ata_isr2:
-	.if ATA_DEBUG > 3
-	DEBUG "ATA ISR2"
-	.endif
-1:	push	eax
-	push	ds
-	mov	ax, SEL_compatDS
-	mov	ds, ax
+	push_	eax edx
+	mov	ah, 1	# ATA1
+1:	push	ds
+	mov	edx, SEL_compatDS
+	mov	ds, edx
 	.if ATA_DEBUG > 2
 		printc 0xcf, "ATA_ISR"
+		mov	dl, al
+		call	printhex1
+
+		.if 0
+			call	ata_get_ports2$	# in: ah; out edx
+
+			add	dx, ATA_PORT_STATUS
+			in	al, dx
+			sub	dx, ATA_PORT_STATUS
+			call	ata_print_status$
+
+			ATA_INB SECTOR_COUNT # DRQ reason
+			call	ata_print_drq_reason$
+		.endif
 	.endif
+
+# INTRQ (device interrupt), ATA-2 spec, 5.2.10:
+# cleared by:
+# - assertion of RESET
+# - setting SRST of device control register
+# - writing the command register
+# - reading the status register
+
+# INTRQ asserted:
+# - PIO mode: begining of each data block
+# - DMA mode: on completion.
+#
 	inc	byte ptr [ata_irq]
 	mov	al, 0x20
 	out	IO_PIC2, al
 	out	IO_PIC1, al
 	pop	ds
-	pop	eax
+	pop_	edx eax
 	iret
 
 # in: al = (ata bus << 1) | drive (0 or 1)
@@ -643,12 +668,18 @@ ata_list_drive:
 		push	eax
 		push	edx
 		push	ecx
+	.if 1
+		mov	eax, offset class_dev_ata
+		call	class_newinstance
+		mov	esi, eax
+	.else
 		mov	al, DEV_TYPE_ATA
 		mov	cl, bl
 		call	dev_getinstance
 		jnc	1f
 		call	dev_newinstance
 	1:	lea	esi, [eax + edx]
+	.endif
 		mov	[esi + dev_ata_device], bl
 		push	ebx
 		mov	ebx, esi
@@ -1082,6 +1113,14 @@ ata_print_bits$:
 	test	al, al
 	jnz	0b
 	PRINT_END
+	ret
+
+ata_print_drq_reason$:
+	DEBUG "DRQ Reason:"
+	DEBUG_BYTE al
+	PRINTFLAG al, ATAPI_DRQ_CoD, "CMD", "DATA"
+	PRINTFLAG al, ATAPI_DRQ_IO, "IN", "OUT"
+	PRINTFLAG al, ATAPI_DRQ_RELEASE, "RELEASE"
 	ret
 
 

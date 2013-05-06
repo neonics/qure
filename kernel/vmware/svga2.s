@@ -5,126 +5,24 @@
 
 VID_DEBUG = 1
 
-
 VID_STARTUP_CHECK = 1
 
-
-.struct DEV_PCI_STRUCT_SIZE
-.align 4
-vid_name:	.long 0
-# dev_io
-vid_fb_addr:	.long 0
-vid_fb_size:	.long 0
-vid_fifo_addr:	.long 0
-vid_fifo_size:	.long 0
-.align 4
-vid_api:
-vid_api_print_status: .long 0 # so that api len is not 0 - for loop.
-vid_api_end:
-DEV_PCI_VID_STRUCT_SIZE = .
-# no data / vids:long 0 
-# no code / vid_init with copy.
-.text32
-
-# code duplicated from 'nic_constructor'; TODO FIXME XXX : merge
-
-vid_obj_init:
-	mov	[ebx + vid_api_print_status], dword ptr offset println
-	ret
-
-# in: ebx = pci device object
-vid_constructor:
-	DEBUG "Deprecated - vid_constructor"
-	LOAD_TXT "unknown-vid", (dword ptr [ebx + vid_name])
-#	mov	[ebx + nic_name + 0], dword ptr ( 'u' | 'n'<<8|'k'<<16|'n'<<24)
-#	mov	[ebx + nic_name + 4], dword ptr ( 'o' | 'w'<<8|'n'<<16)
-
-	# fill in all method pointers
-
-	#mov	dword ptr [ebx + nic_api_ifdown], offset nic_unknown_ifdown
-
-	call	pci_find_driver
-	ret
-
-.if 0
-	# check for supported drivers
-
-	push	esi
-	push	eax
-
-	# see pci.s DECLARE_PCI_DRIVER macro, and kernel.s top and bottom
-	mov	esi, offset data_pci_vid
-	jmp	1f
-0:	lodsd	# vendor | (device <<16)
-	cmp	eax, [ebx + dev_pci_vendor]
-	jz	0f
-	lodsd	# driver init
-	lodsd	# short name
-	lodsd	# long name
-1:	cmp	esi, offset data_pci_vid_end
-	jb	0b
-
-#	.if NIC_DEBUG
-#		push	edx
-#		printc 12, "No driver for vendor "
-#		mov	edx, [ebx + dev_pci_vendor]
-#		call	printhex4
-#		printc 12, " device "
-#		shr	edx, 16
-#		call	printhex4
-#		call	newline
-#		pop	edx
-#	.endif
-8:	stc
-
-9:	pop	eax
-	pop	esi
-	ret
-
-	# Found driver
-0:	lodsd	# init method
-	or	eax, eax	# sanity check
-	jz	8b
-	add	eax, [realsegflat]
-	push	esi
-	call	eax
-	pop	esi
-	jc	9b
-
-	lodsd	# short name
-	mov	[ebx + vid_name], eax
-
-	# relocate methods
-	push	ecx
-	mov	eax, [realsegflat]
-	mov	ecx, DEV_PCI_VID_API_SIZE / 4
-0:	add	[ebx + vid_api + ecx * 4 - 4], eax
-	loop	0b
-	pop	ecx
-	clc
-	jmp	9b
-.endif
-
-
-
-
-
-
 VMSVGA2_DEBUG = 0
+
+.text32
 ############################################################################
 # structure for the device object instance:
 # append field to nic structure (subclass)
-.struct DEV_PCI_VID_STRUCT_SIZE
-.align 4
-vid_capabilities:	.long 0	# SVGA_CAP_* bits
-vid_device_version: .byte 0
-vid_txtmode_bpp:	.byte 0
-vid_txtmode_w:		.long 0
-vid_txtmode_h:		.long 0
-.align 4
-VID_VMSVGA2_STRUCT_SIZE = .
+DECLARE_CLASS_BEGIN vmwsvga2, vid
+vmwsvga2_capabilities:	.long 0	# SVGA_CAP_* bits
+vmwsvga2_device_version:	.byte 0
+vmwsvga2_txtmode_bpp:	.byte 0
+vmwsvga2_txtmode_w:		.long 0
+vmwsvga2_txtmode_h:		.long 0
+DECLARE_CLASS_METHOD dev_api_constructor, vmwsvga2_init, OVERRIDE
+DECLARE_CLASS_END vmwsvga2
 
-DECLARE_PCI_DRIVER VID_VGA, vid, 0x15ad, 0x0405, "vmwsvga2", "VMWare SVGa II", vmwsvga2_init
+DECLARE_PCI_DRIVER VID_VGA, vmwsvga2, 0x15ad, 0x0405, "vmwsvga2", "VMWare SVGa II"
 ############################################################################
 .text32
 DRIVER_VID_VMSVGA2_BEGIN = .
@@ -387,15 +285,17 @@ VMWSVGA2_NUM_VIDEO_MODES = (. - vmwsvga2_vid_modes)/4
 ###############################################################################
 
 # in: dx = base port
-# in: ebx = pci nic object
+# in: ebx = pci object
 vmwsvga2_init:
 	push_	ebp edx eax
 	push	dword ptr [ebx + dev_io]
 	mov	ebp, esp
 
 	I "VMWare SVGA II Init"
+	DEBUG_DWORD ebx
 
-	mov	cx, [ebx + dev_pci_addr]
+	mov	ecx, [ebx + dev_pci_addr]
+	DEBUG_DWORD ecx,"pci_addr"
 
 	xor	al, al
 	call	pci_get_bar_addr
@@ -427,7 +327,7 @@ vmwsvga2_init:
 	jmp	9f
 1:	print "SVGA device version: "
 	movzx	edx, cl
-	mov	[ebx + vid_device_version], cl
+	mov	[ebx + vmwsvga2_device_version], cl
 	call	printhex1
 	call	newline
 
@@ -441,7 +341,6 @@ vmwsvga2_init:
 	DEBUG_DWORD eax,"fifo size"
 	call	newline
 
-
 	# enable in paging:
 	mov	ecx, [ebx + vid_fb_size]
 	mov	eax, [ebx + vid_fb_addr]
@@ -452,10 +351,10 @@ vmwsvga2_init:
 	call	paging_idmap_4m
 
 	# version 1+ functions:
-	cmp	byte ptr [ebx + vid_device_version], 1
+	cmp	byte ptr [ebx + vmwsvga2_device_version], 1
 	jbe	1f
 	VID_READ CAPABILITIES
-	mov	[ebx + vid_capabilities], eax
+	mov	[ebx + vmwsvga2_capabilities], eax
 	print "Capabilities: "
 
 	PRINTFLAG eax, SVGA_CAP_RECT_COPY, "RECT_COPY "
@@ -506,11 +405,11 @@ vmwsvga2_init:
 		mov	dx, [ebx + dev_io]
 
 		VID_READ WIDTH
-		mov	[ebx + vid_txtmode_w], eax
+		mov	[ebx + vmwsvga2_txtmode_w], eax
 		VID_READ HEIGHT
-		mov	[ebx + vid_txtmode_h], eax
+		mov	[ebx + vmwsvga2_txtmode_h], eax
 		VID_READ BITS_PER_PIXEL
-		mov	[ebx + vid_txtmode_bpp], al
+		mov	[ebx + vmwsvga2_txtmode_bpp], al
 
 		VID_WRITE WIDTH, 1024
 		VID_WRITE HEIGHT, 768
@@ -547,7 +446,7 @@ vmwsvga2_init:
 
 
 
-	test	dword ptr [ebx + vid_capabilities], SVGA_CAP_EXTENDED_FIFO
+	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_EXTENDED_FIFO
 	jz	1f
 	# check: SVGA_FIFO_GUEST_3D_HWVERSION < SVGA_FIFO_MIN - assume ok here.
 #	mov	[edi + SVGA_FIFO_GUEST_3D_HWVERSION], SVGA3D_HWVERSION_CURRENT
@@ -560,7 +459,7 @@ vmwsvga2_init:
 	VID_WRITE CONFIG_DONE, 1
 
 	# do an IRQ sanity check
-	test	dword ptr [ebx + vid_capabilities], SVGA_CAP_IRQMASK
+	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_IRQMASK
 	jz	1f
 	DEBUG "Test IRQFLag for FENCE"
 	VID_WRITE IRQMASK, SVGA_IRQFLAG_ANY_FENCE
@@ -596,7 +495,7 @@ vmwsvga2_init:
 
 	# this will automatically sync/flush on vid mem write,
 	# as the FIFO doesn't work as expected yet.
-	test	dword ptr [ebx + vid_capabilities], SVGA_CAP_TRACES
+	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_TRACES
 	jz	1f
 	VID_WRITE TRACES, 1
 1:
@@ -643,9 +542,9 @@ pop	dword ptr [screen_update]
 
 	# disable SVGA, return to VGA. (textmode!)
 	VID_WRITE ENABLE, 0
-	#VID_WRITE WIDTH, [ebx+vid_txtmode_w]
-	#VID_WRITE HEIGHT, [ebx+vid_txtmode_h]
-	#VID_WRITE BITS_PER_PIXEL, [ebx+vid_txtmode_bpp]
+	#VID_WRITE WIDTH, [ebx+vmwsvga2_txtmode_w]
+	#VID_WRITE HEIGHT, [ebx+vmwsvga2_txtmode_h]
+	#VID_WRITE BITS_PER_PIXEL, [ebx+vmwsvga2_txtmode_bpp]
 
 	clc
 	pop	edx

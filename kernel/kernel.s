@@ -33,6 +33,10 @@ data_concat_start:
 data_str_start:
 .data SECTION_DATA_SHELL_CMDS
 data_shell_cmds_start:
+.data SECTION_DATA_CLASSES
+data_classes_start:
+.data SECTION_DATA_CLASS_METHODS
+data_class_methods_start:
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_start:
 # .word vendorId, deviceId
@@ -91,6 +95,8 @@ include "fs.s"
 include "shell.s"
 DEFINE = 1
 
+include "oo.s", oo
+
 include "dev.s", dev
 include "pci.s", pci
 include "bios.s", bios
@@ -120,6 +126,9 @@ code_vid_end:
 code_usb_start:
 include "usb.s"
 code_usb_end:
+
+include "i440.s"	# Intel i440 PCI Host Bridge
+include "ipiix4.s"	# Intel PIIX4 ISA/IDE/USB/AGP Bridge
 
 include "gfx.s", gfx
 include "hwdebug.s", hwdebug
@@ -189,6 +198,14 @@ kmain:
 
 	call	newline
 
+	.if 0 # Use this when mem overwrite is detected
+		println "Enabling Breakpoint"
+		DEBUG_DWORD esp
+		mov	eax, 0x000111b8
+		mov	bl, 1
+		call	breakpoint_set_memwrite
+	.endif
+
 # debug scroll:
 #	PRINT "This is a filler line to have the next line not start at a line bounary."
 #	PRINT "this text is meant to be longer than a line to see whether or not this gets scrolled properly, or whether a part is missing at the end, or whether the source index gets offset besides a line bounary."
@@ -241,6 +258,19 @@ kmain:
 	call	newline
 
 	call	mem_init
+
+MEM_TEST = 0
+SCHEDULE_EARLY = 0
+
+.if MEM_TEST
+	SCHEDULE_EARLY = 1
+	I "Enabling scheduler"
+	call	scheduler_init; dbg_kernel_init$:	# debug symbol
+	OK
+
+	call	mem_test$
+.endif
+
 .if SHOWOFF
 	MORE
 .endif
@@ -310,9 +340,14 @@ kmain:
 	call	newline
 	COLOR 7
 
+	###################################################################
+	# when this is placed right after mem_init, NIC doesn't work
+.if !SCHEDULE_EARLY
 	I "Enabling scheduler"
 	call	scheduler_init; dbg_kernel_init$:	# debug symbol
 	OK
+.endif
+	###################################################################
 
 
 	I "Mounting root filesystem: "
@@ -505,6 +540,10 @@ data_concat_end:
 data_str_end:
 .data SECTION_DATA_SHELL_CMDS
 data_shell_cmds_end:
+.data SECTION_DATA_CLASSES
+data_classes_end:
+.data SECTION_DATA_CLASS_METHODS
+data_class_methods_end:
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_end:
 .data SECTION_DATA_FONTS

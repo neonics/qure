@@ -439,3 +439,178 @@ BUG: memleak: netq: does not drop packets when queue is full.
 
 	new BUG: net_rx_queue not scheduled after reorg. probablyh
 	becase of the 'inc' .. result is packet queue always full.
+
+TODO: IDE UDMA Busmastering.
+	Implementing the Intel PIIX4 IDE controller.
+	This controller will substitute for the direct legacy ATA interface.
+	All calls to ata/atapi_read* etc. must be redirected to use a disk_*
+	method, or, opening some generic block device interface, which will
+	for now be dev_ide.
+
+	First hack: have ata.s use UDMA through a global constant dev_ide.
+
+	UPDATE: this failed, reverted.
+
+TODO: reorganize OO with dev, pci, ata etc.
+
+	Current status: added oo.s with DECLARE_CLASS_BEGIN/END macros.
+	They create a class DECLARATION using a struct relative to SUPER,
+	and a class DEFINITION in DATA_SECTION_CLASSES.
+
+	DECLARE_PCI_DRIVER often uses the base class for a particular
+	device as it declares the _api. The object size there is 
+	not correct for the subclass.
+
+	The api methods are at current specifiable in two ways.
+	The first is in the class structure itself. These will
+	be copied in dev_newinstance to the dev_api structure,
+	which then must match.
+	The second way is to only specify in _api, and have the
+	object instantiators fill in the methods in the object.
+
+	PLAN:
+	- add DECLARE_CLASS_METHODS macro to use between START/END.
+	- deprecate dev_get_class_info, or use it as a proxy. Its
+	  input is al=DEV_TYPE_..., which is then translated to a class
+	  pointer using a local array. The new API would take a direct
+	  pointer to the class definition.
+
+	- deprecate the class_pre_constructor which yields the class' 
+	  proper object size; this information is now recorded in the 
+	  class definition.
+	- update DECLARE_PCI_DRIVER by removing any class information
+	  except for the class definition pointer. This mainly
+	  involves removing the _api/_api_end information,
+	  and updating all DECLARE_PCI_DRIVER invocations to use
+	  the implementatino class rather than the interface class
+	  (such as vmwsvga2 instead of vid, or nic_am79c instead of nic).
+	  
+
+	CURRENT STATUS UPDATE:
+	
+	Implemented inheritable classes in oo.s, calling using DECLARE_CLASS_*
+	SECTION_DATA_CLASSES contains fixed-size class definitions.
+	SECTION_DATA_CLASS_METHODS contains method pointers; the first dword
+	is the offset into the object where the pointer is to be copied. If 0,
+	it progresses from class_vptr.
+	
+	class_newinstance allocates the object by checking the class_object_size
+	field. Then it copies the method pointers, if present, and preserves
+	the values if they are already stored in the obj. Then it proceeds
+	up the class hierarchy, copying but preserving the method pointers.
+
+	The class_newinstance ONLY DOES THIS: allocate, and fill in method ptrs.
+	It does NOT call any constructors.
+
+	In pci.s, dev_api_constructor is called after the pci configuration
+	registers have been read, and the data entered in the object, which
+	is constructed as soon as the class and vendor/device ids have been
+	read.
+
+	PCI
+	---
+	The object construction in PCI goes as follows:
+	1) read pci vendor/device id (reg 0) and remember on stack
+	2) read, print, and discart reg 4
+	3) read pci class/subclass/progif (reg 8)
+	4) call pci_find_driver to match vendor/pci_class information
+	5) (if found, fetch the pci_driver_class class definition pointer,
+	    else use class_dev_pci to at least store the info)
+	   and call class_newinstance (in both cases).
+	6) proceed to read pci configuration info, storing the relevant parts
+	   in the dev_pci part of the class which all drivers must extend.
+	7) when all the data is read, dev_api_constructor is called.
+	   DISPUTABLE: this may need to be changed to dev_pci_api_constructor.
+	
+	NOTE: only one constructor is called, as there is as yet no standard
+	way to call constructors implemented.
+
+	NOTE: steps 1 and 3 (reading the vendor/device and pci-class stuff)
+	are needed for a factory method (i.e., finding the pci_driver and 
+	instantiating it: steps 4 and 5).
+
+	NOTE: Step 6, the gathering of pci configuration data, can be seen
+	as preparing the arguments for the constructor call in 7.
+
+	Object instantiation then is split into two stages:
+	1) bare-bone allocation and set-up: class_newinstance
+	2) constructing/initializing the object.
+
+	These have been split, to avoid the need to have a duplicate of
+	dev_pci on the stack, containing the argument for the constructor,
+	which would then also become a factory method. Before the constructor
+	can be called, the object must have been allocated.
+
+	WHAT WORKS:
+	- ata and atapi work, as they are called directly from fs.
+	- am79c971 driver gets initialized in the OO way.
+
+	WHAT DOESN'T WORK;
+	- networking is down, due to the [devices] being bypassed, which
+	is used by [nics]. At current the objects are not stored.
+	- most drivers need calls to DECLARE_CLASS_METHOD api,impl,OVERRIDE,
+	  and so effectively only ata/atapi work.
+
+	PLAN:
+	- continue to deprecate devices.
+	- implement an object pool using a ptr_array, perhaps using a field
+	in the class definition to keep track of objects of the same class.
+	- alternate is to also traverse the extension hierarchy and update
+	the parent class instance pools, as, the am79c object will be in it's
+	own class, alone, whereas it's parent is dev_nic, which remains empty
+	except for this approach.
+	- implement hierarchical constructor calls, by reserving one dword
+	  that cannot be overridden, and perhaps one for the destructor.
+	  Perhaps follow the custom route and let the subclass call the parent
+	  constructor.
+	  (addendm to earlier NOTE: following the hierarchical super() calls,
+	  the top call could allocate the object. Further, the PCI config reading
+	  can then be done in the constructor of dev_pci; all that is needed
+	  is to know the pci class, and vendor stuff, to find the implementing
+	  class - and thus it's size).
+	- having hierarchical calls, the class_dev default constructor
+	  could add the object to the [devices] pool.
+	- similarly for NICs.
+
+
+	UPDATE: nics work properly. Approach is to check all objects
+	in [class_instances] to see if they extend from nic, and if so,
+	add a pointer to them in the [nics] ptr_array.
+
+	The 'dev' commandline utility does not work, since [devices]
+	has been removed entirely.
+
+TODO: PCI BM IDE and ATA
+	At current PCI is not required in order to operate ATA.
+	The PCI code now implements the PIIX4, which (throug hardcodings
+	the ATA ports according to the spec) provides another API access
+	point to ATA. 
+
+	The ata_list_drives that initializes ATA should be bypassed
+	in case an IDE device operating the same ports is initialized.
+	Since the ATA driver supports 8 drives, whereas the IDE driver
+	only supports 4 (and it is expected that if more than 4 drives
+	are available that there will be 2 IDE devices), 
+	the ATA code can then check class_disk or something to see whether
+	the drive is already registered.
+	Another approach is to reuse the current ATA code as is from
+	the IDE driver, which marks the drives as configured,
+	and thus the second call has no effect ("listdrives"->ata_list_drives)
+
+
+FIXED: BUG: am79c doesnt work. CSR0 TXON/RXON are not on;
+	CSR15(MODE) 0x80 (PORTSEL0) not remembered and set to 0;
+	then init/IDON, after that, CSR15 is 0xf.
+	TODO(done):check with clean checkout.
+	(TXON/RXON are not set until STRT in clean checkout;
+	this is broken; but setting PORTSEL0 fixes this (IENA/RXON/TXON/STRT),
+	but, network is broken (no arp, no ISRs).
+
+	I suspect the init block is wrong, or perhaps something overwritten.
+
+	UPDATE: turns out that the init block must be dword aligned.
+
+TODO: am79c971 isr loops more often than needed.
+	The infinite-loop check runs its course, even when there are no
+	interrupt-reason bits set. It then seems that for every NIC ISR,
+	the code is executed 100 times.

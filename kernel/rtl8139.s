@@ -166,11 +166,12 @@ RTL8139_CONFIG5	= 0xd8
 ############################################################################
 # structure for the RTL8139 device object instance:
 # append field to nic structure (subclass)
-.struct NIC_STRUCT_SIZE
+DECLARE_CLASS_BEGIN nic_rtl8139, nic
 nic_rtl8139_desc_idx: .word 0
-NIC_RTL8139_STRUCT_SIZE = .
+DECLARE_CLASS_METHOD dev_api_constructor, rtl8139_init, OVERRIDE
+DECLARE_CLASS_END nic_rtl8139
 
-DECLARE_PCI_DRIVER NIC_ETH, nic, 0x10ec, 0x8139, "rtl8139", "Realtek 8139", rtl8139_init
+DECLARE_PCI_DRIVER NIC_ETH, nic_rtl8139, 0x10ec, 0x8139, "rtl8139", "Realtek 8139"
 ############################################################################
 .text32
 DRIVER_NIC_RTL8139_BEGIN = .
@@ -255,7 +256,7 @@ rtl8139_init:
 	mov	[ebx + nic_rx_buf], ecx
 
 	# register a name
-	LOAD_TXT "rtl8139", (dword ptr [ebx + nic_name]);
+	LOAD_TXT "rtl8139", (dword ptr [ebx + dev_drivername_short]);
 
 	# fill in the methods
 	mov	dword ptr [ebx + nic_api_send], offset rtl8139_send

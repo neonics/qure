@@ -9,11 +9,9 @@ IFCONFIG_OLDSKOOL = 0
 
 NIC_DEBUG = 0
 ############################################################################
-.struct DEV_PCI_STRUCT_SIZE
-.align 4
+DECLARE_CLASS_BEGIN nic, dev_pci
 nic_status:	.word 0
 	NIC_STATUS_UP = 1
-nic_name:	.long 0
 nic_mac:	.space 6
 nic_mcast:	.space 8
 nic_ip:		.long 0
@@ -32,13 +30,12 @@ nic_network:	.long 0
 .endif
 # API - method pointers
 .align 4
-nic_api:
-nic_api_ifup:	.long 0
-nic_api_ifdown:	.long 0
-nic_api_send:	.long 0
-nic_api_print_status: .long 0
-nic_api_end:
-NIC_STRUCT_SIZE = .
+DECLARE_CLASS_METHODS
+DECLARE_CLASS_METHOD nic_api_ifup,	0
+DECLARE_CLASS_METHOD nic_api_ifdown,	0
+DECLARE_CLASS_METHOD nic_api_send,	0
+DECLARE_CLASS_METHOD nic_api_print_status, 0
+DECLARE_CLASS_END nic
 ############################################################################
 .data
 nics:	.long 0	# ptr_array of device offsets
@@ -50,9 +47,58 @@ nics:	.long 0	# ptr_array of device offsets
 .text32
 # set up the NIC shortlist
 # out: eax = [nics]
-# out: ebx = [devices]
 # out: CF
 nic_init:
+	mov	eax, [nics]
+	or	eax, eax
+	jnz	9f
+	# iterate the class_instances to find nics
+	push_	esi edx ebx
+	mov	esi, [class_instances]
+	or	esi, esi
+	jz	91f
+	mov	ebx, esi	# base ptr
+	add	ebx, [ebx + array_index]	# last offset
+########
+0:	lodsd
+	mov	edx, [eax + obj_class]
+###	# instanceof
+2:	cmp	edx, dword ptr offset class_nic
+	jz	1f
+	mov	edx, [edx + class_super]
+	or	edx, edx
+	jnz	2b
+	jmp	3f	# done with hierarchy
+###
+1:	# match
+	push	eax
+	PTR_ARRAY_NEWENTRY [nics], 1, 92f
+	add	edx, eax
+	pop	eax
+	mov	[edx], eax
+###
+3:	cmp	esi, ebx	# check next object
+	jb	0b
+########
+8:	mov	eax, [nics]
+	pop_	ebx edx esi
+9:	ret
+
+91:	printlnc 4, "nic_init: class_instances null"
+	stc
+	jmp	8b
+92:	printlnc 4, "nic_init: out of memory"
+	stc
+	jmp	8b
+
+# set up the NIC shortlist
+# out: eax = [nics]
+# out: ebx = [devices]
+# out: CF
+nic_init_OLD:
+.if 1
+ret
+.else
 	push	ecx
 	push	edx
 
@@ -92,6 +138,7 @@ nic_init:
 2:	printlnc 4, "nic_init: no devices"
 	stc
 	jmp	0b
+.endif
 
 # in: eax = nic index (not offset!)
 # out: eax + edx = nic pointer
@@ -104,9 +151,10 @@ nic_getobject:
 	cmp	edx, [eax + array_index]
 	cmc
 	jc	1f
-	add	ebx, [eax + edx]
+	#add	ebx, [eax + edx]
+	mov	ebx, [eax + edx]
 	.if NIC_DEBUG
-		DEBUG "found nic object"
+		DEBUG_DWORD ebx, "found nic object"
 		call	dev_print
 		call	newline
 	.endif
@@ -126,6 +174,8 @@ nic_get_by_network:
 	push	edi
 	mov	esi, eax
 	call	nic_init	# out: eax, ebx
+	jc	9f
+	xor	ebx, ebx	# used to be base addr for *[nic] ptr's
 	ARRAY_ITER_START eax, edx
 	mov	ecx, [eax + edx]
 	mov	edi, esi
@@ -152,7 +202,7 @@ nic_get_by_ipv4:
 	mov	esi, eax
 	call	nic_init	# out: eax = [nics], ebx = [devices]
 	jc	2f
-
+	xor	ebx, ebx	# used to be base addr for *[nic] ptr's
 	push	edx
 	push	ecx
 	ARRAY_ITER_START eax, edx
@@ -180,6 +230,7 @@ nic_get_by_mac:
 	push	eax
 	call	nic_init	# out: eax = nics, ebx = devices
 	jc	2f
+	xor	ebx, ebx	# used to be base addr for *[nic] ptr's
 
 	push	edx
 	push	ecx
@@ -195,11 +246,9 @@ nic_get_by_mac:
 	pop	edi
 	jz	0f
 	PTR_ARRAY_ITER_NEXT eax, edx, ref = ecx
-
 	stc
 	jmp	1f
 0:	add	ebx, ecx
-
 1:	pop	ecx
 	pop	edx
 
@@ -229,90 +278,6 @@ nic_list_short:
 ############################################################################
 # NIC Base Class API
 
-nic_constructor:
-	DEBUG "DEPRECATED - nic_constructor"
-	LOAD_TXT "unknown", (dword ptr [ebx + nic_name])
-#	mov	[ebx + nic_name + 0], dword ptr ( 'u' | 'n'<<8|'k'<<16|'n'<<24)
-#	mov	[ebx + nic_name + 4], dword ptr ( 'o' | 'w'<<8|'n'<<16)
-
-	call	nic_obj_init
-
-	# fill in all method pointers
-	call	pci_find_driver
-
-	ret
-
-nic_obj_init:
-	DEBUG "NIC OBJ INIT"
-	call	newline
-	mov	dword ptr [ebx + nic_api_send], offset nic_unknown_send
-	mov	dword ptr [ebx + nic_api_print_status], offset nic_unknown_print_status
-	mov	dword ptr [ebx + nic_api_ifup], offset nic_unknown_ifup
-	mov	dword ptr [ebx + nic_api_ifdown], offset nic_unknown_ifdown
-	ret
-
-
-
-.if 0
-	# OLD
-
-	# check for supported drivers
-
-	push	esi
-	push	eax
-
-	# see pci.s DECLARE_PCI_DRIVER macro, and kernel.s top and bottom
-	mov	esi, offset data_pci_nic
-	jmp	1f
-0:	lodsd	# vendor | (device <<16)
-	cmp	eax, [ebx + dev_pci_vendor]
-	jz	0f
-	lodsd	# driver init
-	lodsd	# short name
-	lodsd	# long name
-1:	cmp	esi, offset data_pci_nic_end
-	jb	0b
-
-	.if NIC_DEBUG
-		push	edx
-		printc 12, "No driver for vendor "
-		mov	edx, [ebx + dev_pci_vendor]
-		call	printhex4
-		printc 12, " device "
-		shr	edx, 16
-		call	printhex4
-		call	newline
-		pop	edx
-	.endif
-8:	stc
-
-9:	pop	eax
-	pop	esi
-	ret
-
-	# Found driver
-0:	lodsd	# init method
-	or	eax, eax	# sanity check
-	jz	8b
-	add	eax, [realsegflat]
-	push	esi
-	call	eax
-	pop	esi
-	jc	9b
-
-	lodsd	# short name
-	mov	[ebx + nic_name], eax
-
-	# relocate methods
-	push	ecx
-	mov	eax, [realsegflat]
-	mov	ecx, DEV_PCI_NIC_API_SIZE / 4
-0:	add	[ebx + nic_api + ecx * 4 - 4], eax
-	loop	0b
-	pop	ecx
-	clc
-	jmp	9b
-.endif
 ###########################################
 ############################################
 # protected methods (to be called by subclasses)
@@ -397,7 +362,7 @@ nic_unknown_ifdown:
 0:	pushcolor 12
 	print	"nic_"
 	push	esi
-	mov	esi, [ebx + nic_name]
+	mov	esi, [ebx + dev_drivername_short]
 	color	7
 	call	print
 	pop	esi
@@ -420,10 +385,24 @@ cmd_nic_list:
 	jc	2f
 
 	xor	ecx, ecx
-0:	call	dev_print
+0:	call	nic_print
+
+	inc	ecx
+	mov	eax, ecx
+	call	nic_getobject
+	jnc	0b
+
+	ret
+2:	println "No NICs"
+	ret
+
+# in: ebx = device
+nic_print:
+	push_	eax esi
+	call	dev_print
 	call	printspace
 
-	mov	esi, [ebx + nic_name]
+	mov	esi, [ebx + dev_drivername_short]
 	call	print
 
 	print	" MAC "
@@ -450,14 +429,7 @@ cmd_nic_list:
 	pop	edx
 	pop	ebx
 	pop	ecx
-
-	inc	ecx
-	mov	eax, ecx
-	call	nic_getobject
-	jnc	0b
-
-	ret
-2:	println "No NICs"
+	pop_	esi eax
 	ret
 
 ############################################################################
@@ -492,7 +464,7 @@ cmd_ifconfig:
 	jc	9f
 
 	push	esi
-	mov	esi, [ebx + nic_name]
+	mov	esi, [ebx + dev_drivername_short]
 	pushcolor 9
 	call	print
 	call	printspace

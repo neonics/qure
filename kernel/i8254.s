@@ -313,7 +313,7 @@ tdesc_special:	.word 0
 	.endm
 
 ############################################################################
-.struct NIC_STRUCT_SIZE
+DECLARE_CLASS_BEGIN nic_i8254, nic
 nic_i8254_buf:		.long 0	# the malloced buffer
 nic_i8254_rd_buf:	.long 0	# receive descriptor
 nic_i8254_td_buf:	.long 0 # transmit descriptor
@@ -321,17 +321,17 @@ nic_i8254_rx_buf:	.long 0
 nic_i8254_tx_buf:	.long 0
 nic_i8254_rd_tail:	.long 0	# 
 nic_i8254_td_tail:	.long 0	# 
-NIC_I8254_STRUCT_SIZE = .	# see dev.s/dev_pci_pre_constructor
+DECLARE_CLASS_METHOD dev_api_constructor, i8254_init, OVERRIDE
+DECLARE_CLASS_END nic_i8254
 
-DECLARE_PCI_DRIVER NIC_ETH, nic, 0x8086, 0x100e, "i8254x", "Intel 8254x PCI/PCI-X", i8254_init
+DECLARE_PCI_DRIVER NIC_ETH, nic_i8254, 0x8086, 0x100e, "i8254x", "Intel 8254x PCI/PCI-X"
 ############################################################################
 
 
 .text32
 # in: ebx = pci nic object
 i8254_init:
-
-	LOAD_TXT "i8254", (dword ptr [ebx + nic_name])
+	LOAD_TXT "i8254", (dword ptr [ebx + dev_drivername_short])
 
 	mov	dword ptr [ebx + nic_api_send], offset i8254_send
 	mov	dword ptr [ebx + nic_api_print_status], offset i8254_print_status

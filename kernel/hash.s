@@ -365,7 +365,8 @@ ptr_array_newentry:
 # Variable Length Object Array
 
 .struct 0
-obj_size: .long 0
+obj_class:	.long 0
+obj_size:	.long 0
 OBJ_STRUCT_SIZE = .
 .text32
 

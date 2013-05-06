@@ -274,11 +274,16 @@ AM79C_REG_BCR_SWSTYLE	= 20	# p 183 lo byte 0 = 16 byte structures (descr etc)
 ############################################################################
 # structure for the AM79C971 device object instance:
 # append field to nic structure (subclass)
-.struct NIC_STRUCT_SIZE
+DECLARE_CLASS_BEGIN nic_am79c, nic
 nic_am79c_init_block:	.long 0
-NIC_AM79C_STRUCT_SIZE = .
+DECLARE_CLASS_METHOD dev_api_constructor, am79c971_init, OVERRIDE
+DECLARE_CLASS_METHOD nic_api_send,	am79c971_send, OVERRIDE
+DECLARE_CLASS_METHOD nic_api_print_status, am79c971_print_status, OVERRIDE
+DECLARE_CLASS_METHOD nic_api_ifup,	am79c971_ifup, OVERRIDE
+DECLARE_CLASS_METHOD nic_api_ifdown,	am79c971_ifdown, OVERRIDE
+DECLARE_CLASS_END nic_am79c
 
-DECLARE_PCI_DRIVER NIC_ETH, nic, 0x1022, 0x2000, "am79c971", "AMD 79C971 PCNet", am79c971_init
+DECLARE_PCI_DRIVER NIC_ETH, nic_am79c, 0x1022, 0x2000, "am79c971", "AMD 79C971 PCNet"
 ############################################################################
 .text32
 DRIVER_NIC_AM79C_BEGIN = .
@@ -289,9 +294,8 @@ DRIVER_NIC_AM79C_BEGIN = .
 	.ifnes "\val", "eax"
 	mov	eax, \val
 	.endif
-	.if AM79C_DEBUG > 2
-		DEBUG "W \which"
-		DEBUG_DWORD eax
+	.if AM79C_DEBUG > 3
+		DEBUG_DWORD eax, "W \which"
 	.endif
 	out	dx, eax
 .endm
@@ -300,9 +304,8 @@ DRIVER_NIC_AM79C_BEGIN = .
 	mov	dx, [ebx + dev_io]
 	add	dx, AM79C_\which
 	in	eax, dx
-	.if AM79C_DEBUG > 2
-		DEBUG "R \which"
-		DEBUG_DWORD eax
+	.if AM79C_DEBUG > 3
+		DEBUG_DWORD eax, "R \which"
 	.endif
 .endm
 
@@ -310,9 +313,8 @@ DRIVER_NIC_AM79C_BEGIN = .
 	mov	dx, [ebx + dev_io]
 	add	dx, AM79C_\which
 	in	ax, dx
-	.if AM79C_DEBUG > 2
-		DEBUG "R \which"
-		DEBUG_WORD ax
+	.if AM79C_DEBUG > 3
+		DEBUG_WORD ax, "R \which"
 	.endif
 .endm
 
@@ -353,19 +355,12 @@ DRIVER_NIC_AM79C_BEGIN = .
 
 ###############################################################################
 
-# in: dx = base port
 # in: ebx = pci nic object
 am79c971_init:
 	push	ebp
 	push	edx
 	push	dword ptr [ebx + dev_io]
 	mov	ebp, esp
-
-	# fill in the methods
-	mov	dword ptr [ebx + nic_api_send], offset am79c971_send
-	mov	dword ptr [ebx + nic_api_print_status], offset am79c971_print_status
-	mov	dword ptr [ebx + nic_api_ifup], offset am79c971_ifup
-	mov	dword ptr [ebx + nic_api_ifdown], offset am79c971_ifdown
 
 	call	am79c_read_mac_aprom	# needed for the PADR in INIT buffer
 
@@ -429,7 +424,6 @@ am79c971_init:
 	AM79C_READ_CSR CSR4
 	or	eax, AM79C_CSR4_APAD_XMT | AM79C_CSR4_TXSTRTM
 	AM79C_WRITE_CSR CSR4, eax
-
 	###########################################
 
 	# initialize
@@ -445,8 +439,13 @@ am79c971_init:
 0:
 	test	eax, AM79C_CSR0_IDON
 	jz	0f
-	OK
 	AM79C_WRITE_CSR CSR0, eax	# clear the IDON bit
+	AM79C_READ_CSR CSR_MODE
+	cmp	eax, AM79C_MODE_PORTSEL0
+	jnz	2f
+	OK
+	jmp	1f
+2:	printlnc 4, " Error"
 	jmp	1f
 0:	printlnc 4, " Timeout"
 1:
@@ -589,13 +588,14 @@ am79c_init_padr: .space 6	# physical address
 am79c_init_ladr: .space 8	# logical address
 am79c_init_rdra: .long 0	# receive descriptor ring address
 am79c_init_tdra: .long 0	# transmit descriptor ring address
-AM79C_INIT_BLOCK_SIZE = .
+AM79C_INIT_BLOCK_SIZE = .	# 28 bytes
 .text32
 	
 	mov	eax, AM79C_INIT_BLOCK_SIZE
-	call	malloc
+	mov	edx, 4
+	call	mallocz_aligned
 	jc	9f
-	mov	[ebx + nic_am79c_init_block], eax
+	mov	[ebx + nic_am79c_init_block], eax	# dword aligned
 
 #	mov	dword ptr [eax + am79c_init_mode], AM79C_MODE_PORTSEL0 | AM79C_MODE_PROMISC | ((LOG2_TX_BUFFERS&0xf)<<28)|((LOG2_RX_BUFFERS&0xf)<<20)
 	mov	word ptr [eax + am79c_init_mode], AM79C_MODE_PORTSEL0 #| AM79C_MODE_PROMISC
@@ -994,12 +994,12 @@ am79c971_isr:
 	.if AM79C_DEBUG
 		printc 0xf5, "NIC ISR"
 	.endif
-	.if 0 #AM79C_DEBUG > 2
+	.if AM79C_DEBUG > 2
 		pushad
 		call	am79c971_print_status
 		popad
 	.endif
-	.if 0 #AM79C_DEBUG
+	.if AM79C_DEBUG > 2
 		pushad
 		call	am79c_print_rx_desc
 		popad
@@ -1014,6 +1014,7 @@ am79c971_isr:
 	.if AM79C_DEBUG
 		push	eax
 		and	eax, 0xff00	# hi byte=int flags, lo byte = status
+		# might want jz here.
 		call	am79c_print_csr0_
 		pop	eax
 	.endif
@@ -1204,6 +1205,10 @@ am79c971_print_status:
 	call	am79c_print_csr0
 	call	am79c_print_csr3
 	call	am79c_print_csr4
+	.if AM79C_DEBUG
+		AM79C_READ_CSR CSR_MODE
+		DEBUG_DWORD eax,"CSR15(MODE=0x80?)"
+	.endif
 	ret
 
 
@@ -1328,7 +1333,7 @@ am79c_dumpregs:
 	call	am79c_printregs
 	call	newline
 	inc	ecx
-	cmp	ecx, 2 # 7
+	cmp	ecx, 2
 	jbe	0b
 	ret
 

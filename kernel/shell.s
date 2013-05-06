@@ -205,6 +205,7 @@ SHELL_COMMAND "consoles"	cmd_consoles
 .endif
 SHELL_COMMAND "sha1"		cmd_sha1
 SHELL_COMMAND "base64"		cmd_base64
+SHELL_COMMAND "classes"		cmd_classes
 .data SECTION_DATA_SHELL_CMDS
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list

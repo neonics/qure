@@ -5,25 +5,16 @@
 
 USB_DEBUG = 1
 
-
-.struct DEV_PCI_STRUCT_SIZE
-.align 4
+DECLARE_CLASS_BEGIN usb, dev_pci
 usb_name:	.long 0
-.align 4
-usb_api:
-usb_api_print_status: .long 0 # so that api len is not 0 - for loop.
-usb_api_end:
-DEV_PCI_USB_STRUCT_SIZE = .
+DECLARE_CLASS_END usb
 .text32
-
-usb_obj_init:
-	ret
 
 
 ############################################################################
 # structure for the device object instance:
 # append field to nic structure (subclass)
-.struct DEV_PCI_USB_STRUCT_SIZE
+DECLARE_CLASS_BEGIN usbh_ehci, usb
 usb_ehci_cap_regbase:	.long 0
 usb_ehci_op_regbase:	.long 0
 usb_ehci_nports:	.byte 0
@@ -37,10 +28,10 @@ usb_ehci_alist_buf:	.long 0	# mallocced, for freeing
 usb_ehci_alist:		.long 0	# 4k hardware aligned ds relative
 
 usb_ehci_dev_companion:	.long 0	# USB 1.1 UHCI or OHCI
-.align 4
-VID_USB_EHCI_STRUCT_SIZE = .
+DECLARE_CLASS_METHOD dev_api_constructor, usb_vmw_ehci_init, OVERRIDE
+DECLARE_CLASS_END usb_ehci
 
-DECLARE_PCI_DRIVER SERIAL_USB_EHCI, usb, 0x15ad, 0x0770, "vmw-ehci", "VMWare EHCI USB Host Controller", usb_vmw_ehci_init
+DECLARE_PCI_DRIVER SERIAL_USB_EHCI, usb_ehci, 0x15ad, 0x0770, "vmw-ehci", "VMWare EHCI USB Host Controller"
 ############################################################################
 .text32
 
@@ -310,13 +301,13 @@ usb_ehci_print_ports:
 	mov	edx, fs:[esi + USB_EHCI_REG_PORTSC + eax]
 	call	printhex8
 	call	printspace
-	PRINTFLAG edx, 1<<22,"WAKE_OVERCURRENT"	# WKOC_E
-	PRINTFLAG edx, 1<<21,"WAKE_DISCONNECT"	# WKDSCNNT_E
-	PRINTFLAG edx, 1<<20,"WAKE_CONNECT"	# WKCNNT_E
+	PRINTFLAG edx, 1<<22,"WAKE_OVERCURRENT "	# WKOC_E
+	PRINTFLAG edx, 1<<21,"WAKE_DISCONNECT "	# WKDSCNNT_E
+	PRINTFLAG edx, 1<<20,"WAKE_CONNECT "	# WKCNNT_E
 	# 19:16: port test control
 	# 15:14: port indicator control (led) 0=off;1=amber;2=green;3=undef
-	PRINTFLAG edx, 1<<13,"PORT_OWN_EHCI","PORT_OWN_COMPANION"
-	PRINTFLAG edx, 1<<12,"PORT_POWER"# HCSPARAMS.PPC ? 1=no control,pwr up : pwr
+	PRINTFLAG edx, 1<<13,"PORT_OWN_EHCI ","PORT_OWN_COMPANION "
+	PRINTFLAG edx, 1<<12,"PORT_POWER "# HCSPARAMS.PPC ? 1=no control,pwr up : pwr
 	# 11:10: line status: (only meaningful if PORT_POWER = 1
 	# 0b00=SE0 (not low speed, perform EHCI reset)
 	# 0b10=J-state (not lowspeed, perform EHCI reset)
@@ -324,20 +315,20 @@ usb_ehci_print_ports:
 	# 0b11=undefined
 
 	# RW, control:
-	PRINTFLAG edx, 1 << 8, "PORT_RESET"
-	PRINTFLAG edx, 1 << 7, "PORT_SUSPEND"
+	PRINTFLAG edx, 1 << 8, "PORT_RESET "
+	PRINTFLAG edx, 1 << 7, "PORT_SUSPEND "
 		#port enable<<1|suspend:
 		# 0?	disable
 		# 10	enable
 		# 11	suspend
-	PRINTFLAG edx, 1 << 6, "PORT_FORCE_RESUME" # 0=no resume(K state)
+	PRINTFLAG edx, 1 << 6, "PORT_FORCE_RESUME " # 0=no resume(K state)
 
-	PRINTFLAG edx, 1 << 5, "PORT_OVERCURRENT_CHANGE"	# RWC
-	PRINTFLAG edx, 1 << 4, "PORT_OVERCURRENT_ACTIVE"	# RO
-	PRINTFLAG edx, 1 << 3, "PORT_ENABLED_CHANGE"		# RWC
-	PRINTFLAG edx, 1 << 2, "PORT_ENABLED"			# RW
-	PRINTFLAG edx, 1 << 1, "PORT_CONNECTED_CHANGE"		# RWC
-	PRINTFLAG edx, 1 << 0, "PORT_CONNECTED"		# RWC
+	PRINTFLAG edx, 1 << 5, "PORT_OVERCURRENT_CHANGE "	# RWC
+	PRINTFLAG edx, 1 << 4, "PORT_OVERCURRENT_ACTIVE "	# RO
+	PRINTFLAG edx, 1 << 3, "PORT_ENABLED_CHANGE "		# RWC
+	PRINTFLAG edx, 1 << 2, "PORT_ENABLED "			# RW
+	PRINTFLAG edx, 1 << 1, "PORT_CONNECTED_CHANGE "		# RWC
+	PRINTFLAG edx, 1 << 0, "PORT_CONNECTED "		# RWC
 
 
 	call	newline
