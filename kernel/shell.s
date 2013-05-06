@@ -191,6 +191,7 @@ SHELL_COMMAND "gpf"		cmd_gpf
 SHELL_COMMAND "debug"		cmd_debug
 SHELL_COMMAND "pic"		cmd_pic
 SHELL_COMMAND "ints",		cmd_int_count
+SHELL_COMMAND "int",		cmd_int
 SHELL_COMMAND "gdt"		cmd_print_gdt
 SHELL_COMMAND "cr",		cmd_cr
 SHELL_COMMAND "sline",		cmd_sline
@@ -1682,6 +1683,24 @@ cmd_ping_gateway:
 	call	cmd_ping
 	ret
 
+cmd_int:
+	lodsd
+	lodsd
+	call	htoi
+	jc	9f
+	cmp	eax, 0xff
+	ja	9f
+	mov	[1f], al
+	jmp	2f
+2:	jmp	2f
+2:
+		.byte 	0xcd
+	1:	.byte 0
+
+	ret
+9:	printlnc 4, "usage: int <int_nr_hex_max_ff>"
+	ret
+
 cmd_gpf:
 	printc 0xcf, "Generating GPF"
 	mov edx, esp
@@ -1816,6 +1835,33 @@ cmd_pic:
 	mov	dx, ax
 	call	printbin16
 	call	newline
+	.data SECTION_DATA_STRINGS
+	1: .asciz "TIMR","KEYB","CASC","COM2","COM1","LPT2","FPLY","LPT1"
+	.asciz "RTC\0", "FRE1", "FRE2","FRE3","PS2M","FPU\0", "ATA0","ATA1"
+	.text32
+	mov	edx, IRQ_BASE
+	mov	esi, offset 1b
+0:	shr	ax, 1
+	jc	1f	# carry means masked/disabled
+	call	printhex2
+	call	printspace
+	call	print
+	call	printspace
+	.if IRQ_PROXIES
+	push	edx
+	shl	edx, 4
+	mov	edx, [irq_proxies + edx + 2]
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+	pop	edx
+	call	newline
+	.endif
+1:	inc	dx
+	add	esi, 5
+	cmp	dx, IRQ_BASE + 0xf
+	jbe	0b
+9:	call	newline
 	ret
 
 cmd_ramdisk:
