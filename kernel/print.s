@@ -401,7 +401,7 @@ COLOR_STACK_SIZE = 2
 
 # for printf
 .macro PUSHSTRING s
-	PUSH_TXT \s
+	PUSH_TXT "\s"
 .endm
 
 
@@ -466,7 +466,7 @@ COLOR_STACK_SIZE = 2
 
 
 .macro PRINT msg=esi
-	.ifnc esi,\msg
+	.ifnes "esi","\msg"
 	PUSH_TXT "\msg"
 	call	_s_print
 	.else
