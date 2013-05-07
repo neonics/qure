@@ -608,6 +608,7 @@ ata_list_drive:
 	COLOR 7
 	call	ata_get_ports2$	# out: edx = [DCR, Base]
 
+	mov	bh, al
 	add	al, ah
 	add	al, ah
 	mov	bl, al
@@ -650,7 +651,7 @@ ata_list_drive:
 	mov	dl, ah
 	call	printhex1
 	PRINTc	15, " Drive "
-	mov	dl, al
+	mov	dl, bh
 	call	printhex1
 	PRINTc	15, ": "
 	pop	dx

@@ -608,22 +608,29 @@ fs_root_close$:
 # out: edx = directory name
 fs_root_nextentry$:
 	cmp	ebx, -1	# /
-	jz	0f
+	jz	1f
 
 	cmp	ebx, -2	# /dev
 	jnz	9f
-.if 1
-jmp 9f
-.else
 
-1:	mov	byte ptr [edi + fs_dirent_attr], 0x04 # system
-	mov	eax, [devices]
-	or	eax, eax
+########
+	mov	byte ptr [edi + fs_dirent_attr], 0x04 # system
+	mov	esi, [class_instances]
+	or	esi, esi
 	jz	9f
-	cmp	ecx, [eax + array_index]
-	jae	9f
 
-	lea	esi, [eax + ecx + dev_name]
+	mov	edx, offset class_dev
+0:
+	cmp	ecx, [esi + array_index]
+	jae	9f
+	# skip objects until a dev is found
+	mov	eax, [esi + ecx]
+	call	class_instanceof
+	jz	2f
+	add	ecx, 4
+	jmp	0b
+2:
+	lea	esi, [eax + dev_name]
 	push	edi
 	push	ecx
 	call	strlen_
@@ -633,12 +640,12 @@ jmp 9f
 	pop	ecx
 	pop	edi
 
-	add	ecx, [eax + ecx + obj_size]
+	add	ecx, 4 #[eax + ecx + obj_size]
 	clc
 	ret
-.endif
 
-0:	mov	byte ptr [edi + fs_dirent_attr], 0x10
+########
+1:	mov	byte ptr [edi + fs_dirent_attr], 0x10
 	or	ecx, ecx
 	jnz	1f
 	mov	[edi + fs_dirent_name + 0], byte ptr '/'

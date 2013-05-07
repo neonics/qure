@@ -245,6 +245,21 @@ class_init_vptr$:
 	jmp	1b
 
 
+# in: eax = object ptr
+# in: edx = class ptr
+# out: ZF = 1 if eax's class or superclass is the class in edx
+class_instanceof:
+	push	eax
+	mov	eax, [eax + obj_class]
+0:	cmp	eax, edx
+	jz	1f
+	mov	eax, [eax + class_super]
+	or	eax, eax
+	jnz	0b
+	inc	eax	# clear ZF
+1:	pop	eax
+	ret
+
 
 cmd_classes:
 	mov	esi, offset data_classes_start
@@ -255,7 +270,58 @@ cmd_classes:
 	add	esi, [esi + class_def_size]
 1:	cmp	esi, offset data_classes_end
 	jb	0b
+	ret
+
+# in: eax = string ptr
+# out: eax = class definition pointer
+class_get_by_name:
+	push_	esi edi ecx ebx
+	mov	ebx, offset data_classes_start
+0:	mov	edx, [ebx + class_name]
+	call	strcmp	# in: eax, edx; out: flags
+	jz	1f
+	add	ebx, [ebx + class_def_size]
+	cmp	ebx, offset data_classes_end
+	jb	0b
+	stc
+0:	pop_	ebx ecx edi esi
+	ret
+1:	mov	eax, ebx
+	jmp	0b
+
+
+cmd_objects:
+	xor	edx, edx	# the class def ptr to compare with
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	1f
+	call	class_get_by_name
+	jc	9f
+	mov	edx, eax
+1:
+	# list classes
+	mov	edi, [class_instances]
+	PTR_ARRAY_ITER_START edi, ecx, eax
+	or	edx, edx
+	jz	2f
+	call	class_instanceof
+	jnz	1f
+2:
+	push	edx
+	mov	edx, eax
+	call	printhex8
+	pop	edx
+	call	printspace
+	mov	ebx, [eax + obj_class]
+	mov	esi, [ebx + class_name]
+	call	print
 	call	newline
+1:	PTR_ARRAY_ITER_NEXT edi, ecx, eax
+0:	ret
+9:	printc 4, "Unknown class: "
+	mov	esi, eax
+	call	println
 	ret
 
 _print_class$:

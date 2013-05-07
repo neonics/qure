@@ -244,9 +244,11 @@ dev_ata_match_instance:
 	cmp	[eax + edx + dev_ata_device], cl
 	ret
 
+# in: ebx = dev_ata obj ptr
 dev_ata_constructor:
 	push	ecx
 	mov	[ebx + dev_name], dword ptr 'h' | ('d'<<8)
+	mov	cl, [ebx + dev_ata_device]
 	add	cl, 'a'
 	mov	[ebx + dev_name + 2], cl
 
@@ -314,16 +316,15 @@ cmd_dev:
 	ret
 
 cmd_dev_list:
-.if 0
-	mov	eax, [devices]
-	or	eax, eax
-	jz	2f
-	OBJ_ARRAY_ITER_START eax, edx
-	lea	ebx, [eax + edx]
+	mov	esi, [class_instances]
+	mov	edx, offset class_dev
+	PTR_ARRAY_ITER_START esi, ecx, eax
+	call	class_instanceof
+	jnz	1f
+	mov	ebx, eax
 	call	dev_print
 	call	newline
-	OBJ_ARRAY_ITER_NEXT eax, edx
-.endif
+1:	PTR_ARRAY_ITER_NEXT esi, ecx, eax
 	ret
 
 2:	printlnc 12, "dev_list: device system not initialized"
