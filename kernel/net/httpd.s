@@ -100,8 +100,6 @@ httpd_handle_client:
 # out: [CF=0] ZF = 1: have a complete request; 0: request incomplete
 # out: edi: end of request
 http_check_request_complete:
-#DEBUG "check_request_complete:"
-#call nprintln
 	push	ecx
 	mov	edi, esi
 0:	mov	al, '\n'
@@ -258,10 +256,6 @@ net_service_tcp_http:
 		ret
 ###################################################
 
-1:	cmp	word ptr [edx], '/'
-	jnz	1f
-	LOAD_TXT "/index.html", edx
-
 1:
 	# serve custom file:
 	.data SECTION_DATA_STRINGS
@@ -317,8 +311,6 @@ net_service_tcp_http:
 	mov	esi, edx
 	inc	esi	# skip leading /
 	call	fs_update_path	# edi=base/output, esi=rel
-	# strip last char
-	mov	byte ptr [edi-1], 0
 
 	# check whether path is still in docroot:
 	mov	esi, offset www_docroot$
@@ -328,7 +320,22 @@ net_service_tcp_http:
 	mov	esi, offset www_code_404$
 	jnz	www_err_response
 
-	.if NET_HTTP_DEBUG > 1
+	# now, if it is a directory, append index.html
+	push	eax
+	mov	eax, offset www_file$
+	call	fs_stat_
+	jc	2f	# takes care of pop eax
+	test	al, FS_DIRENT_ATTR_DIR
+	pop	eax
+	jz	1f
+
+	mov	edi, offset www_file$
+	LOAD_TXT "./index.html"
+	call	fs_update_path
+	# no need to check escape from docroot.
+1:
+
+	.if 1 # NET_HTTP_DEBUG > 1
 		printc 13, "Serving file: '"
 		mov	esi, offset www_file$
 		call	print
@@ -379,7 +386,16 @@ net_service_tcp_http:
 	push	esi	# [ebp - 8]  orig buf
 	push	ecx	# [ebp - 12] orig buflen
 
-	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
+	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: "
+	call	strlen_
+	call	socket_write
+
+	mov	esi, offset www_file$
+	call	http_get_mime	# out: esi
+	call	strlen_
+	call	socket_write
+
+	LOAD_TXT "\r\nConnection: close\r\n\r\n"
 	call	strlen_
 	call	socket_write
 
@@ -425,6 +441,64 @@ net_service_tcp_http:
 	pop	ebp
 	ret
 
+.data SECTION_DATA_STRINGS
+_mime_text_html$:	.asciz "text/html"
+_mime_text_css$:	.asciz "text/css"
+_mime_text_javascript$:	.asciz "text/javascript"
+_mime_image_jpeg$:	.asciz "image/jpeg"
+_mime_image_png$:	.asciz "image/png"
+_mime_image_gif$:	.asciz "image/gif"
+_mime_application_unknown$: .asciz "application/unknown"
+
+.data
+mime_table:
+	STRINGPTR "html";	.long _mime_text_html$
+	STRINGPTR "css";	.long _mime_text_css$
+	STRINGPTR "js";		.long _mime_text_javascript$
+	STRINGPTR "png";	.long _mime_image_png$
+	STRINGPTR "jpg";	.long _mime_image_jpeg$
+	STRINGPTR "jpeg";	.long _mime_image_jpeg$
+	STRINGPTR "gif";	.long _mime_image_gif$
+	.long 0;		.long _mime_application_unknown$
+.text32
+
+# in: esi
+# out: esi
+http_get_mime:
+	push_	edi eax ecx edx
+	call	strlen_
+	mov	edx, ecx
+
+	lea	edi, [esi + ecx]
+	mov	al, '.'
+	std
+	repnz	scasb
+	cld
+	jnz	9f
+
+	add	edi, 2
+	add	ecx, 2
+
+	mov	esi, edi
+	sub	edx, ecx	# edx = len of filename extension
+
+	mov	eax, offset mime_table
+0:	mov	esi, [eax]
+	or	esi, esi
+	jz	9f
+	push	edi
+	mov	ecx, edx
+	repz	cmpsb
+	pop	edi
+	jz	1f
+	add	eax, 8
+	jmp	0b
+1:	mov	esi, [eax + 4]
+
+0:	pop_	edx ecx eax edi
+	ret
+9:	mov	esi, offset _mime_application_unknown$
+	jmp	0b
 
 # in: esi = header
 # in: ecx = header len

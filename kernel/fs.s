@@ -1150,10 +1150,16 @@ fs_stat:
 	push	edx
 	xor	edx, edx
 	call	fs_open
-	pop	edx
 	jc	9f
+	LOCK_READ [fs_handles_sem]
+	mov	edx, [fs_handles$]
+	push	dword ptr [edx + eax + fs_handle_dirent + fs_dirent_attr] # byte
+	UNLOCK_READ [fs_handles_sem]
 	call	fs_close
-9:	ret
+	pop	eax
+	and	eax, 0xff
+9:	pop	edx
+	ret
 
 
 fs_open_:
