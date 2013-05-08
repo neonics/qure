@@ -120,14 +120,14 @@ net_ipv4_tcp_print:
 # TCP Connection management
 #
 TCP_CONN_REUSE_TIMEOUT	= 30 * 1000	# 30 seconds
-TCP_CONN_BUFFER_SIZE	= 2048
+TCP_CONN_BUFFER_SIZE	= 2 * 1500 # 2048
 .struct 0
 # Buffers: not circular, as NIC's need contiguous region.
 # The recv and send buf contain the data to be PSH'd.
 tcp_conn_recv_buf:	.long 0	# malloc'd address
 tcp_conn_recv_buf_size:	.long 0	# malloc'd size
 tcp_conn_recv_buf_start:.long 0	# start of buffered data
-tcp_conn_recv_buf_len:  .long 0	# length of buffered data 
+tcp_conn_recv_buf_len:  .long 0	# length of buffered data
 
 tcp_conn_send_buf:	.long 0	# malloc'd address
 tcp_conn_send_buf_size:	.long 0	# malloc'd size
@@ -931,8 +931,8 @@ net_tcp_handle_payload$:
 	add	eax, [tcp_connections]
 	add	[eax + tcp_conn_remote_seq], ecx
 
-	call newline
 	.if NET_TCP_DEBUG > 1
+		call newline
 		DEBUG "rx payload",0xa0
 		DEBUG_DWORD [eax+tcp_conn_recv_buf_start],"start",0xa0
 		DEBUG_DWORD [eax+tcp_conn_recv_buf_len],"len",0xa0
@@ -1106,87 +1106,127 @@ net_tcp_sendbuf:
 	push	edi
 	push	ebx
 	push	edx
-
 ########
 0:	MUTEX_SPINLOCK_ TCP_CONN
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	mov	ebx, [tcp_connections]
 	add	ebx, eax
 
-	# buf_start allows to put the eth/ip/tcp headers in the buffer to
-	# avoid copying the data yet again.
+	call	_append$	# out: esi,ecx updated.
 
-#DEBUG_DWORD [ebx+tcp_conn_send_buf]
-#DEBUG_DWORD [ebx+tcp_conn_send_buf_start]
-#DEBUG_DWORD [ebx+tcp_conn_send_buf_len]
-	mov	edi, [ebx + tcp_conn_send_buf]
-cmp edi, 0x00300000
-jb 1f
-pushad
-MUTEX_UNLOCK_ TCP_CONN
-call net_tcp_conn_list
-MUTEX_SPINLOCK_ TCP_CONN
-call mem_print_handles
-popad
-pushad
-DEBUG_DWORD [tcp_connections],"[conn]"
-DEBUG_DWORD eax,"idx"
-DEBUG_DWORD ebx
-DEBUG_DWORD edi,"buf"
-lea eax, [ebx + tcp_conn_send_buf]
-DEBUG_DWORD eax,"!!!"
-call newline
-
-mov edx, [esp + 32 + 12]
-DEBUG_DWORD edx;  call debug_printsymbol;call newline # callgate
-
-mov	eax, [tcp_connections]
-sub	eax, 8
-call	mem_find_handle$	# out: edx = handle nr; ebx = handle struct ptr
-jc	11f
-call	mem_print_handle_$;
-jmp	12f
-
-11:	DEBUG "handle not found"
-12:
-
-int 3
-popad
-1:
-	mov	edx, [ebx + tcp_conn_send_buf_start]
-	add	edx, [ebx + tcp_conn_send_buf_len]
-	add	edi, edx
-#	sub	edx, [ebx + tcp_conn_send_buf_size]
-	sub	edx, 1536 - ETH_HEADER_SIZE-IPV4_HEADER_SIZE-TCP_HEADER_SIZE
-	# edi = end of data to send so far
-	# edx = remaining buffer length
-
-	cmp	ecx, edx
-	mov	edx, 0	# don't modify CF
-	jb	1f	# it will fit
-	sub	ecx, edx
-	xchg	edx, ecx	# ecx = remaining buf len, edx=data not in buf
-1:	# ecx = data to copy into  buf
-	# edx = data that won't fit in buf
-
-	add	[ebx + tcp_conn_send_buf_len], ecx
-	rep	movsb	# BUG: tcp_conn_sendbuf page fault
-
-	mov	ecx, [ebx + tcp_conn_send_buf_len]
 	MUTEX_UNLOCK TCP_CONN
 ########
-	cmp	ecx, 1024	# search TCP_MAX_PAYLOAD_SIZE MTU PACKET_SIZE
+	jecxz	0f		# all data copied to buffer
+
+	# data doesn't fit.
+	mov	edx, ecx	# backup remaining data
+
+	call	net_tcp_sendbuf_flush_partial$
+
 	mov	ecx, edx
-	jb	1f		# still room in buffer, dont send yet.
-	# enough data to send.
-	call	net_tcp_sendbuf_flush
-	# buf empty (as it is exactly one packet size)
 	or	ecx, ecx
 	jnz	0b	# go again
 
-1:	pop	edx
+0:	pop	edx
 	pop	ebx
 	pop	edi
+	ret
+
+# PRECONDITION: TCP_CONN locked
+# in: ebx = tcp_conn
+# in: esi = data to append
+# in: ecx = size of data to append
+# out: ecx = remaining data to be appended
+# out: esi = ptr to remaining data to be appended
+_append$:
+	# buf_start allows to put the eth/ip/tcp headers in the buffer to
+	# avoid copying the data yet again.
+	mov	edx, [ebx + tcp_conn_send_buf_start]
+	add	edx, [ebx + tcp_conn_send_buf_len]
+	# edx = offset where to append data.
+	mov	edi, [ebx + tcp_conn_send_buf]
+	add	edi, edx
+#	sub	edx, [ebx + tcp_conn_send_buf_size]
+##	sub	edx, 1536 - ETH_HEADER_SIZE-IPV4_HEADER_SIZE-TCP_HEADER_SIZE
+	#sub	edx, ETH_HEADER_SIZE+IPV4_HEADER_SIZE+TCP_HEADER_SIZE
+
+	# edi = end of data to send so far
+
+	neg	edx
+	add	edx, [ebx + tcp_conn_send_buf_size]
+	# edx = remaining buffer length
+
+	cmp	ecx, edx
+	jb	1f	# it will fit; make edx(remaining)=0
+
+	xchg	edx, ecx
+	# ecx = data that can be copied
+	# edx = total data
+	sub	edx, ecx
+	jmp	2f
+	# edx = data that doesn't fit
+
+1:	xor	edx, edx
+	# ecx = data to copy into  buf
+2:	# edx = data that won't fit in buf
+	add	[ebx + tcp_conn_send_buf_len], ecx
+	rep	movsb
+	mov	ecx, edx
+	ret
+
+# uses tcp_conn_send_buf*
+# in: eax = tcp conn idx
+# effect: sends as much max-sized packets as are in the buffer,
+# then compacts the buffer.
+net_tcp_sendbuf_flush_partial$:
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE, TCP_CONN
+
+	push_	ebx ecx edx esi edi
+
+0:	MUTEX_SPINLOCK_ TCP_CONN
+
+	mov	ebx, [tcp_connections]
+	add	ebx, eax
+
+	mov	esi, [ebx + tcp_conn_send_buf]
+	add	esi, [ebx + tcp_conn_send_buf_start]
+
+	mov	ecx, [ebx + tcp_conn_send_buf_len]
+	sub	ecx, 1420
+	js	1f
+	mov	[ebx + tcp_conn_send_buf_len], ecx
+	mov	ecx, 1420
+	jz	3f
+	add	[ebx + tcp_conn_send_buf_start], ecx
+	jmp	2f
+3:	mov	[ebx + tcp_conn_send_buf_start], dword ptr 0
+	jmp	2f
+
+1:
+	xor	ecx,ecx
+	xor	esi, esi
+	xchg	esi, [ebx + tcp_conn_send_buf_start]
+	or	esi, esi
+	jz	2f	# buf already compacted
+	mov	ecx, [ebx + tcp_conn_send_buf_len]
+	mov	edi, [ebx + tcp_conn_send_buf]
+	add	esi, edi
+	mov	edx, ecx
+	and	ecx, 3
+	rep	movsb
+	mov	ecx, edx
+	shr	ecx, 2
+	rep	movsd
+2:	MUTEX_UNLOCK_ TCP_CONN
+
+
+	jecxz	1f
+
+	xor	dx, dx # no tcp flags
+	call	net_tcp_send
+	jmp	0b
+
+1:	pop_	edi esi edx ecx ebx
 	ret
 
 
@@ -1215,7 +1255,9 @@ net_tcp_sendbuf_flush:
 	mov	[ebx + tcp_conn_send_buf_len], ecx
 	mov	ecx, 1420
 	add	[ebx + tcp_conn_send_buf_start], ecx
-1:	MUTEX_UNLOCK_ TCP_CONN
+	jmp	2f
+1:	mov	[ebx + tcp_conn_send_buf_start], dword ptr 0
+2:	MUTEX_UNLOCK_ TCP_CONN
 
 	jecxz	1f
 	mov	dx, TCP_FLAG_PSH # | 1 << 8	# nocopy
