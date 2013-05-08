@@ -237,7 +237,7 @@ ATA_ID_UDMA:			.word 0
 ATA_ID_FLAGS2:			.word 0 
 	# 1<<12: 1 = 80-pin cable (only works for master (0) drive)
 .struct 200
-ATA_ID_MAX_LBA_EXT:		.word 0		# 200
+ATA_ID_MAX_LBA_EXT:		.word 0		# 200 [used as .long 0,0]
 .struct 256
 ATA_ID_VENDOR_SPEC2:		.space 64 	# 256	64
 ATA_ID_RESERVED7:		.word 0 	# 320
@@ -354,6 +354,9 @@ ata_get_drive_info:
 # in: al = ata drive (bus<<1 + drive)
 # out: edx:eax = drive capacity in bytes
 ata_get_capacity:
+	movzx	eax, al
+	cmp	[ata_drive_types + eax], byte ptr TYPE_ATAPI
+	jz	atapi_get_capacity
 	call	ata_get_drive_info
 	jc	ata_err_unknown_disk$
 	mov	edx, [eax + ata_driveinfo_capacity + 4]
@@ -825,16 +828,21 @@ read$:	call	print
 		mov	[esi-2], ax
 		loop	0b
 		pop	ecx
+		push	ecx
+		cli	# just in case - system expects cld
+		std
+		dec	esi
+	0:	lodsb
+		cmp	al, ' '
+		jnz	1f
+		mov	[esi+1], byte ptr 0
+		loop	0b
+	1:	cld
+		sti
+		pop	ecx
 		pop	esi
 
-		PRINT_START
-	0:	lodsb
-		stosw
-		cmp	al, ' '	# if current char is not space, update pos
-		je	1f
-		SET_SCREENPOS edi
-	1:	loop	0b
-		PRINT_END ignorepos=1	# effectively trim space
+		call	print
 	.endm
 
 	PRINTc	15, "Model: "
@@ -886,6 +894,7 @@ read$:	call	print
 	.if ATA_DEBUG
 		PRINT	" ATAPI "
 	.endif
+	mov	[edi + ata_driveinfo_sectorsize], dword ptr 2048
 	jmp	2f
 0:	.if ATA_DEBUG
 		PRINT	" Reserved "
@@ -1033,6 +1042,19 @@ read$:	call	print
 
 	mov	edx, [parameters_buffer$ + ATA_ID_LBA28_SECTORS]
 	mov	[edi + ata_driveinfo_lba28_sectors], edx
+
+	mov	eax, [edi + ata_driveinfo_capacity + 0]
+	add	eax, [edi + ata_driveinfo_capacity + 4]
+	# not zero || (zero & carry)
+	jc	1f
+	jnz	2f
+1:	# cap is zero, use lba28
+	xchg	eax, edx
+	shld	edx, eax, 9
+	shl	eax, 9
+	mov	[edi + ata_driveinfo_capacity + 4], edx
+	mov	[edi + ata_driveinfo_capacity + 0], eax
+2:
 	call	newline
 	###
 
@@ -1624,9 +1646,11 @@ atapi_read_capacity:
 	dec	ebx
 
 	.if ATAPI_DEBUG
+		pushf
 		PRINT " Capacity: "
 		call	print_size
 		call	newline
+		popf
 	.endif
 
 1:	pop	edi
