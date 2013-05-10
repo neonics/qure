@@ -187,12 +187,10 @@ disk_load_partition_table$:
 	jc	1f
 
 	push	eax
-	call	ata_get_geometry
+	call	ata_get_hs_geometry
 	pop	eax
-
 	call	disk_br_verify$	# in: ecx, esi
 	jc	2f
-
 	add	esi, 446
 	clc
 
@@ -467,7 +465,7 @@ cmd_fdisk:
 	cmp	[esi + 4], dword ptr 0
 	jne	1f
 fdisk_print_usage$:
-0:	printlnc 12, "Usage: fdisk [-l] [cmd] [args] <drive>"
+0:	printlnc 12, "Usage: fdisk [-l] <drive> [cmd] [args]"
 	printlnc 12, " -l:    large: use 255 heads in CHS/LBA calculations"
 	printlnc 12, "        for harddisks larger than 0x100000 sectors (512Mb)"
 	printlnc 12, "  cmd:  list - the default; lists the partition table"
@@ -510,6 +508,9 @@ fdisk_print_usage$:
 	or	eax, eax
 	jz	1f
 
+	CMD_ISARG "list"
+	jz	1f
+
 	CMD_ISARG "init"
 	mov	ebx, offset fdisk_cmd_init$
 	jz	1f
@@ -517,10 +518,11 @@ fdisk_print_usage$:
 	# check for command
 	printc	12, "illegal command: "
 	push	esi
-	mov	esi, [esi]
+	mov	esi, eax
 	call	println
 	pop	esi
 	stc
+	pop	eax
 	jmp	0b
 
 1:	pop	eax
@@ -557,8 +559,8 @@ fdisk_print_usage$:
 	call	printdec32
 	println	" heads)"
 	.else
-	push	eax
 	push	ebx
+	push	eax
 	call	ata_get_drive_info
 	mov	ebx, eax
 	printc	9, " geometry: "
@@ -570,9 +572,24 @@ fdisk_print_usage$:
 	printcharc_ 9, '/'
 	movzx	edx, word ptr [ebx + ata_driveinfo_s]
 	call	printdec32
-	call	newline
-	pop	ebx
+	mov	al, [esp]
+	call	ata_get_hs_geometry
+	cmp	cl, 255
+	jnz	1f
+	printc_	9, " ("
+	mov	edx, 1023
+	call	printdec32
+	printcharc_ 9, '/'
+	mov	dx, cx
+	call	printdec32
+	printcharc_ 9, '/'
+	mov	edx, ecx
+	shr	edx, 16
+	call	printdec32
+	printcharc_ 9, ')'
+1:	call	newline
 	pop	eax
+	pop	ebx
 	.endif
 	pop	edx
 
@@ -587,10 +604,9 @@ DEBUG_BYTE al
 1:
 	call	disk_read_partition_tables
 	jc	0f
-
 	mov	ebx, [esi + buf_index]
 	shr	ebx, 4
-	call	ata_get_geometry
+	call	ata_get_hs_geometry
 	call	disk_ptables_print$
 	ret
 0:	printlnc 12, "error reading partition tables"
@@ -598,9 +614,6 @@ DEBUG_BYTE al
 
 # in: dx = ax = partition/drive
 fdisk_cmd_init$:
-DEBUG "fdisk_cmd_init$"
-DEBUG_DWORD esi
-
 	mov	edi, 0x99
 	mov	edx, eax
 
@@ -619,6 +632,10 @@ DEBUG_DWORD esi
 	mov	eax, edx
 
 	printlnc 11, "fdisk initialize"
+	push	eax
+	call	ata_get_hs_geometry	# get ecx
+	pop	eax
+	DEBUG_DWORD ecx
 
 	xor	ebx, ebx	# first sector
 	call	disk_load_partition_table$	# out: esi = ptable in MBR/EBR
@@ -626,10 +643,7 @@ DEBUG_DWORD esi
 	printlnc 4, "Error loading partition table"
 	jmp	1f
 0:	mov	ebx, 4
-	push	eax
-	call	ata_get_geometry
-	pop	eax
-	call	disk_ptables_print$
+		call	disk_ptables_print$
 	printlnc 0xcf, "WARNING: Overwriting partition table!"
 1:
 	print	"Writing bootsector to "
@@ -657,24 +671,28 @@ DEBUG_DWORD esi
 	mov	[esi + 446 + PT_LBA_START], dword ptr 1
 	push	eax
 	call	ata_get_capacity
+DEBUG "cap"
 DEBUG_DWORD edx
 DEBUG_DWORD eax
+call newline
+.if 1
+	shrd	eax, edx, 9
+	shr	edx, 9
+.else
 	mov	al, dl
 	ror	eax, 8
 	shr	edx, 8
 	shr	edx, 1
 	sar	eax, 1
-DEBUG_DWORD edx
-DEBUG_DWORD eax
+.endif
 	or	edx, edx
 	jz	2f
 	printlnc 12, "Warning: Disk capacity too large, truncating"
 	mov	eax, -1
 2:	mov	[esi + 446 + PT_SECTORS], eax
-DEBUG_DWORD ecx
-DEBUG_DWORD eax
+	mov	al, [esp]	# restore drive nr
+	call	ata_get_hs_geometry	# in: al; out: ecx
 	call	lba_to_chs
-DEBUG_DWORD eax
 	mov	[esi + 446 + PT_CHS_END], eax
 	pop	eax
 	mov	[esi + 446 + PT_LBA_START], dword ptr 1 # chs_end overwrites
@@ -893,7 +911,7 @@ disk_get_partition:
 
 	push	ecx
 	push	eax
-	call	ata_get_geometry
+	call	ata_get_hs_geometry
 	pop	eax
 	call	disk_br_verify$
 
@@ -1154,7 +1172,6 @@ chs_to_lba:
 	jnz	0f	# when CHS = 0, also return LBA 0 (as CHS 0 is invalid)
 	ret
 0:
-
 	push	edx
 	push	ebx
 
@@ -1274,13 +1291,11 @@ lba_to_chs:
 	push	ecx
 
 	inc	eax
-
 	# eax = max 24 bits
 	mov	ebx, ecx		# max sectors
 	shr	ebx, 16
 	xor	edx, edx
 	div	ebx
-
 	# dl = sectors
 	# eax = max 18 bits, clear edx
 	# eax = cyl * maxheads + head
@@ -1288,11 +1303,10 @@ lba_to_chs:
 	mov	cl, dl		# cl = sectors
 	xor	edx, edx
 	div	ebx
-
 	# dl = heads
 	# eax = max 10 bits, cyl
 
-.if 1 # DEBUG_CHS
+.if 0 # DEBUG_CHS
 push edx
 print "H="
 call printhex8

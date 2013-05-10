@@ -365,33 +365,68 @@ ata_get_capacity:
 
 # in: al = drive
 # out: eax = max cylinders
-# out: cx = maxsectors << 16 | max heads
+# out: ecx = maxsectors << 16 | max heads
 ata_get_geometry:
-.if 1
 	call	ata_get_drive_info
 	jc	0f
 
 	mov	cx, [eax + ata_driveinfo_s]
 	shl	ecx, 16
 	mov	cx, [eax + ata_driveinfo_h]
-	mov	eax, [eax + ata_driveinfo_c]
-
-.else
-	mov	ecx, 16 | ( 64 << 16 )
-
-	call	ata_get_capacity	# out: edx:eax
-	jc	0f
-
-	# check if capacity >= 512 mb:
-	LBA_H16_LIM = 1024 * 16 * 63 * 512	# fc000<<9: 0x1f800000
-	cmp	eax, LBA_H16_LIM
-	jb	1f
-	mov	cx, 255
-1:	clc
-.endif
+	movzx	eax, word ptr [eax + ata_driveinfo_c]
 0:
 	ret
 
+# in: al = drive
+# out: ecx = max sectors << 16 | max heads
+# Note: This method returns partition-table corrected CHS, where
+# when cylinders > 1023, nr heads is 255, returned as 254 (since 0 is counted).
+# Cylinder 0 and Head 0 are counted, and thus the actual nr of cyls and heads
+# is 1 more than the returned value. Maybe.
+# assume 512 byte sector.
+ata_get_hs_geometry:
+	push_	ebx edx eax
+
+# CHS MAX VALUES: 1023 / 255 / 63
+# CHS MAX COUNT:  1024 / 256 / 63	( sector 0 is invalid )
+
+	call	ata_get_drive_info
+	jc	9f
+	mov	ebx, eax
+
+	mov	edx, [ebx + ata_driveinfo_capacity + 4]
+	mov	eax, [ebx + ata_driveinfo_capacity + 0]
+	shrd	eax, edx, 9
+	shr	eax, 9
+
+	or	edx, edx	# 2 Tb check
+	jnz	91f
+	# eax is nr sectors. Max 4G sectors, or 2Tb.
+	cmp	eax, 1<<24
+	jae	92f
+
+	# disk is < 8Gb, we can use CHS.
+
+	mov	cx, [ebx + ata_driveinfo_s]
+	shl	ecx, 16
+	# we'll assume that max sectors remains <= 63
+
+	mov	cx, [ebx + ata_driveinfo_h]
+	cmp	word ptr [ebx + ata_driveinfo_c], 1024
+	jb	1f
+	# cylinders more than 1024, so use 255 (or 254) heads.
+	mov	cx, 255
+1:
+
+2:	clc
+9:	pop_	eax edx ebx
+	ret
+91:	printlnc 4, "disk geo > 2Tb; cannot use CHS"
+	stc
+	jmp	9b
+92:	printlnc 4, "disk geo > 8Gb; better not use CHS"
+	stc
+	jmp	9b
 
 
 ata_list_drives:
@@ -999,7 +1034,6 @@ read$:	call	print
 		call	printhex8
 	.endif
 	pop	eax
-
 
 	mov	dx, [parameters_buffer$ + ATA_ID_AP_NUM_CYLINDERS]
 	mov	[edi + ata_driveinfo_c], dx

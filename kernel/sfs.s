@@ -113,7 +113,6 @@ sfs_mount:
 	mov	ecx, eax
 	shr	ecx, 5
 	inc	ecx
-
 	mov	eax, ecx
 	inc	eax
 	shr	eax, 1
@@ -124,6 +123,7 @@ sfs_mount:
 	xchg	eax, edi
 
 0:	add	edi, 512
+	mov	[edi + fs_obj_class], dword ptr offset fs_sfs_class
 	jmp	9f
 
 8:	mov	eax, edi
@@ -251,9 +251,48 @@ load_blk:
 9:	
 	ret
 
+# in: eax = fs_instance structure
+# in: ebx = parent dir handle, -1 for root
+# in: esi = asciz dir/file name
+# in: edi = fs dir entry struct (to be filled)
+# out: ebx = dir handle
 sfs_open:
-sfs_close:
-sfs_read:
-sfs_nextentry:
+	cmp	ebx, -1
+	jnz	1f
+
+	# root dir/file
+	cmp	word ptr [esi], '/'
+	jnz	2f
+	# open root itself.
+	mov	[edi + fs_dirent_attr], byte ptr 0x10
+	mov	[edi + fs_dirent_name], word ptr '/'
+	mov	[edi + fs_dirent_size], dword ptr 0
+	mov	[edi + fs_dirent_size+4], dword ptr 0
+	clc
+	ret	# ebx remains -1
+
+1:	# not root
+2:	# open a file/dir in the root dir.
+	call	sfs_find_entry$
 	ret
 
+sfs_close:
+	ret
+sfs_read:
+	ret
+
+# in: eax = fs instance
+# in: ebx = dir handle
+# in: ecx = cur entry
+# in: edi = fs dir entry
+# out: ecx = next entry, or -1
+# out: edx = dir name (obsolete)
+sfs_nextentry:
+	mov	ecx, -1
+	stc
+	ret
+
+
+sfs_find_entry$:
+	stc
+	ret
