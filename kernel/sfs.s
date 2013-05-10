@@ -8,17 +8,22 @@ SFS_PARTITION_TYPE = 0x99	# or 69 or 96
 SFS_MAGIC = ( 'S' | 'F' << 8 | 'S' << 16 | '0' << 24)
 
 #############################################################################
-.data
-fs_sfs_class:
-STRINGPTR "sfs"
-.long sfs_mount, sfs_umount, sfs_open, sfs_close, sfs_nextentry, sfs_read
-.struct FS_OBJ_STRUCT_SIZE # runtime struct
+DECLARE_CLASS_BEGIN fs_sfs, fs
 sfs_disk:		.byte 0
 sfs_partition:		.byte 0
 sfs_partition_start_lba:.long 0, 0
 sfs_partition_size_lba:	.long 0, 0
-sfs_buffers:		
+sfs_blk0:		.space 512
+sfs_buffers:
+#	mov	eax, 512 + (512-SFS_VOL_STRUCT_SIZE) + SFS_STRUCT_SIZE
 SFS_STRUCT_SIZE = .
+DECLARE_CLASS_METHOD fs_api_mount,	sfs_mount, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_umount,	sfs_umount, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_open,	sfs_open, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_close,	sfs_close, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_nextentry,	sfs_nextentry, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_read,	sfs_read, OVERRIDE
+DECLARE_CLASS_END fs_sfs
 
 ###############################
 .struct 0
@@ -88,8 +93,8 @@ sfs_mount:
 	jnz	9f
 
 	push	eax
-	mov	eax, 512 + (512-SFS_VOL_STRUCT_SIZE) + SFS_STRUCT_SIZE
-	call	mallocz
+	mov	eax, offset class_fs_sfs
+	call	class_newinstance
 	mov	edi, eax
 	pop	eax
 	jc	9f
@@ -97,22 +102,24 @@ sfs_mount:
 	mov	ecx, 1	# 1 sector
 	mov	ebx, [esi + PT_LBA_START]
 	push	edi
+	add	edi, offset sfs_blk0
 	call	ata_read
 	pop	edi
 	jc	9f
 
-	cmp	[edi + sfs_vol_magic], dword ptr SFS_MAGIC
+	cmp	[edi + sfs_blk0 + sfs_vol_magic], dword ptr SFS_MAGIC
 	stc
 	jnz	9f
-	mov	eax, [edi + sfs_vol_num_entries]
+	mov	eax, [edi + sfs_blk0 + sfs_vol_num_entries]
 	cmp	eax, dword ptr (512-SFS_VOL_STRUCT_SIZE)/16
 	jbe	0f
 
+.if 0
 	# entries span multiple sectors - calculate the number of sectors
 
 	mov	ecx, eax
-	shr	ecx, 5
-	inc	ecx
+	shr	ecx, 5	# 32 bytes per entry
+	inc	ecx	# 
 	mov	eax, ecx
 	inc	eax
 	shr	eax, 1
@@ -123,11 +130,11 @@ sfs_mount:
 	xchg	eax, edi
 
 0:	add	edi, 512
-	mov	[edi + fs_obj_class], dword ptr offset fs_sfs_class
 	jmp	9f
 
 8:	mov	eax, edi
 	call	mfree
+.endif
 9:	pop	edx
 	ret
 

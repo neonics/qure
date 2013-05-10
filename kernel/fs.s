@@ -136,7 +136,9 @@ mtab_init:
 	jc	1f
 	mov	[eax], word ptr '/'
 	mov	[ebx + edx + mtab_mountpoint], eax
-	mov	[ebx + edx + mtab_fs_instance], dword ptr offset fs_root_instance
+	mov	eax, offset class_fs_root
+	call	class_newinstance
+	mov	[ebx + edx + mtab_fs_instance], eax#dword ptr offset fs_root_instance
 1:	pop	eax
 ###
 2:	pop	edx
@@ -272,8 +274,8 @@ cmd_mount$:
 	call	printspace
 	pushcolor 9
 	mov	esi, [eax + mtab_fs_instance]
-	mov	esi, [esi + fs_obj_class]
-	mov	esi, [esi + fs_api_label]
+	mov	esi, [esi + obj_class]
+	mov	esi, [esi + class_name]#fs_api_label]
 	call	print
 	popcolor
 	call	printspace
@@ -330,13 +332,29 @@ fs_load$:
 	push	ebx
 	push	ecx
 	push	edx
-	ARRAY_LOOP [fs_classes], 4, ebx, edx, 9f
-	mov	ecx, [ebx + edx]
+	mov	edx, offset class_fs
+	ARRAY_LOOP [class_dyn_definitions], 4, ebx, ecx, 9f
+	push	eax
+	mov	eax, [ebx + ecx]
+	call	class_extends
+	pop	eax
+	jnz	1f
+pushad
+mov esi, [ebx + ecx]
+call _print_class$
+popad
+.if 0
 	push	ebx
-	push	edx
-	call	[ecx + fs_api_mount]
+	push	ecx
+	mov	ecx, [ebx + ecx]	# class def ptr
+#	call	[ecx + fs_api_mount]
 	pop	edx
 	pop	ebx
+.else
+	push	dword ptr [ebx + ecx]
+	push	dword ptr offset fs_api_mount
+	call	class_invoke_static
+.endif
 	jnc	0f
 1:	ARRAY_ENDL
 
@@ -371,8 +389,8 @@ mtab_print$:
 	call	printspace
 	color 14
 	mov	esi, [ebx + ecx + mtab_fs_instance]
-	mov	esi, [esi + fs_obj_class]
-	mov	esi, [esi + fs_api_label]
+	mov	esi, [esi + obj_class]
+	mov	esi, [esi + class_name]
 	call	print
 	color 7
 	printc_	8, " (disk "
@@ -449,86 +467,68 @@ cmd_umount$:
 # in: ebx = fs-specific handle from previous call or -1 for root directory
 ###################################################
 .struct 0
-fs_api_label:	.long 0	# short filesystem name
-# in: ax: al = disk ah = partition
-# in: esi = partition table pointer
-# out: eax: class instance (object)
-fs_api_mount:	.long 0	# constructor; in: ax = part/disk, esi = part info
-fs_api_umount:	.long 0 # destructor
-# in: eax = fs_instance
-# in: ebx = parent/current directory handle (-1 for root)
-# in: esi = asciz file/dirname pointer
-# in: edi = fs dir entry struct
-# out: ebx = fs specific handle
-fs_api_open:	.long 0
-fs_api_close:	.long 0
-fs_api_nextentry:.long 0
-fs_api_read:	.long 0	# ebx=filehandle, edi=buf, ecx=size
-FS_API_NUM_METHODS = (. - fs_api_mount) / 4
-FS_API_STRUCT_SIZE = .
-
 ###################################################
-# fs_obj 
-.struct 0
-fs_obj_class:		.long 0	# pointer to fs_class (array of fs_api methods)
+DECLARE_CLASS_BEGIN fs
 fs_obj_disk:		.byte 0
 fs_obj_partition:	.byte 0
 fs_obj_sector_size:	.long 0 # 512 for ATA, 2048 for ATAPI generally
 fs_obj_p_start_lba:	.long 0, 0
 fs_obj_p_size_sectors:	.long 0, 0
 fs_obj_p_end_lba:	.long 0, 0
-fs_obj_methods:		.space FS_API_STRUCT_SIZE
-FS_OBJ_STRUCT_SIZE = .
-###################################################
-.data
-fs_classes:	.long 0	# ptr_array of class_ptr
+fs_obj_label:		.long 0	# short filesystem name
+# in: ax: al = disk ah = partition
+# in: esi = partition table pointer
+# out: eax: class instance (object)
+DECLARE_CLASS_METHOD fs_api_mount, 0	# in: ax = part/disk, esi = part info
+DECLARE_CLASS_METHOD fs_api_umount, 0	# destructor
+# in: eax = fs_instance
+# in: ebx = parent/current directory handle (-1 for root)
+# in: esi = asciz file/dirname pointer
+# in: edi = fs dir entry struct
+# out: ebx = fs specific handle
+DECLARE_CLASS_METHOD fs_api_open, 0
+DECLARE_CLASS_METHOD fs_api_close, 0
+DECLARE_CLASS_METHOD fs_api_nextentry, 0
+DECLARE_CLASS_METHOD fs_api_read, 0	# ebx=filehandle, edi=buf, ecx=size
+
+DECLARE_CLASS_END fs
 ###################################################
 .text32
 
 fs_init:
-	mov	ecx, 8
-	mov	eax, 3
-	call	array_new
-	mov	[fs_classes], eax
+	# leave for now...
+	mov	eax, offset class_fs_root
+	call	class_register
 
-	mov	ebx, offset fs_root_class
-	call	fs_register_class
+	mov	eax, offset class_fs_fat16
+	call	class_register
 
-	mov	ebx, offset fs_fat16_class
-	call	fs_register_class
+	mov	eax, offset class_fs_iso9660
+	call	class_register
 
-	mov	ebx, offset fs_iso9660_class
-	call	fs_register_class
-
-	mov	ebx, offset fs_sfs_class
-	call	fs_register_class
+	mov	eax, offset class_fs_sfs
+	call	class_register
 	ret
 
 
 fs_list_filesystems:
-	ARRAY_LOOP [fs_classes], 4, eax, ebx, 9f
+	mov	edx, offset class_fs
+	ARRAY_LOOP [class_dyn_definitions], 4, ebx, ecx, 9f
+	mov	eax, [ebx + ecx]
+	call	class_extends	# eax extends ... edx?
+	jnz	1f
+
 	printc	11, "fs: "
 	mov	edx, [eax + ebx]
 	call	printhex8
 	call	printspace
 	pushcolor 14
-	mov	esi, [edx + fs_api_label]
+	mov	esi, [edx + class_name]
 	call	println
 	popcolor
-	ARRAY_ENDL
+
+1:	ARRAY_ENDL
 9:	ret
-
-
-fs_register_class:
-	call	ptr_array_newentry
-	mov	[fs_classes], eax
-	add	edx, eax
-	mov	[edx], ebx	# class ptr
-	mov	edx, [realsegflat]
-	mov	ecx, FS_API_NUM_METHODS
-0:	add	[ebx + ecx * 4 - 4], edx
-	loop	0b
-	ret
 
 
 fs_mount:
@@ -538,18 +538,17 @@ fs_unmount:
 	ret
 
 #############################################################################
-.data
-fs_root_class:	# declaration of fs_api for fs_root class
-	STRINGPTR "root"
-	.long fs_root_mount$
-	.long fs_root_umount$
-	.long fs_root_open$
-	.long fs_root_close$
-	.long fs_root_nextentry$
-	.long fs_root_read$
+DECLARE_CLASS_BEGIN fs_root, fs
+DECLARE_CLASS_METHOD fs_api_mount, fs_root_mount$, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_umount, fs_root_umount$, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_open, fs_root_open$, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_close, fs_root_close$, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_nextentry, fs_root_nextentry$, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_read, fs_root_read$, OVERRIDE
+DECLARE_CLASS_END fs_root
 
 fs_root_instance:
-.long fs_root_class
+.long class_fs_root	# leave for now.. no object data.
 
 .text32
 fs_root_mount$:
@@ -625,8 +624,11 @@ fs_root_nextentry$:
 	jae	9f
 	# skip objects until a dev is found
 	mov	eax, [esi + ecx]
+	DEBUG_DWORD eax
 	call	class_instanceof
 	jz	2f
+	mov eax, [eax + obj_class]
+	push dword ptr [eax + class_name]; call _s_print
 	add	ecx, 4
 	jmp	0b
 2:
@@ -894,13 +896,15 @@ fs_handle_getname:
 		add	eax, [mtab]
 		mov	eax, [eax + mtab_fs_instance]
 		# locate the method
-		mov	\reg, [eax + fs_obj_class]
-		call	[\reg + fs_api_\api]
-		#mov	\reg, [\reg + fs_api_\api]
-		#clc
-		#jecxz	99f	# root
-#		add	\reg, [realsegflat]
-		#call	\reg	# in: eax, ebx
+#		mov	\reg, [eax + obj_class]
+#		call	[\reg + fs_api_\api]
+		call	[eax + fs_api_\api]
+
+#		#mov	\reg, [\reg + fs_api_\api]
+#		#clc
+#		#jecxz	99f	# root
+##		add	\reg, [realsegflat]
+#		#call	\reg	# in: eax, ebx
 	99:	
 	.endm
 # in: eax = handle index
@@ -1379,11 +1383,21 @@ handle_pathpart$:
 	add	eax, [edi + fs_handle_mtab_idx]
 	mov	eax, [eax + mtab_fs_instance]	# in: eax = fs_instance
 
-	mov	edx, [eax + fs_obj_class]	# for call
+#	mov	edx, [eax + fs_obj_class]	# for call
 	mov	ebx, [edi + fs_handle_dir]	# in: ebx = directory handle 
 	push	edi
 	add	edi, offset fs_handle_dirent	# in: edi = fs dir entry struct
-	call	[edx + fs_api_open]
+#	call	[edx + fs_api_open]
+DEBUG_DWORD eax
+pushad
+call	_obj_print_methods$
+mov	esi, [eax + obj_class]
+call	_print_class$
+mov	esi, [esi + class_super]
+call	_print_class$
+popad
+DEBUG_DWORD [eax+fs_api_open]
+	call	[eax + fs_api_open]
 	pop	edi
 	#################################################
 	mov	esp, ebp

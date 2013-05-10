@@ -35,8 +35,6 @@ data_str_start:
 data_shell_cmds_start:
 .data SECTION_DATA_CLASSES
 data_classes_start:
-.data SECTION_DATA_CLASS_METHODS
-data_class_methods_start:
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_start:
 # .word vendorId, deviceId
@@ -542,8 +540,8 @@ data_str_end:
 data_shell_cmds_end:
 .data SECTION_DATA_CLASSES
 data_classes_end:
-.data SECTION_DATA_CLASS_METHODS
-data_class_methods_end:
+.data SECTION_DATA_CLASSES_END
+data_classdata_end:
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_end:
 .data SECTION_DATA_FONTS

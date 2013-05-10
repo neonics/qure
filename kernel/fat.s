@@ -75,17 +75,8 @@ FS_FAT_DEBUG = 0
 
 ############################################################################
 # fs_fat class - virtual method pointers:
-.data
-fs_fat16_class:
-STRINGPTR "fat16"
-.long fs_fat16b_mount	# constructor
-.long fs_fat16b_umount	# destructor
-.long fs_fat16_open
-.long fs_fat16_close
-.long fs_fat_nextentry
-.long fs_fat16_read
-
-.struct FS_OBJ_STRUCT_SIZE
+DECLARE_CLASS_BEGIN fs_fat16, fs
+fat_vbr:		.space 512	# volume boot record
 fat_rootdir_buf$:	.long 0	# size: root_size_sectors * sectorsize
 fat_rootdir_bufsize$:	.long 0
 fat_buf$:		.long 0
@@ -101,8 +92,13 @@ fat_sectors$:		.long 0		# sectors per fat
 fat_root_lba$:		.long 0
 fat_root_size_sectors$:	.long 0 # (511+ root_numentries * 32) / 512
 fat_user_lba$:		.long 0	# first data sector
-FAT_STRUCT_SIZE = .
-
+DECLARE_CLASS_METHOD fs_api_mount,	fs_fat16b_mount, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_umount,	fs_fat16b_umount, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_open,	fs_fat16_open, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_close,	fs_fat16_close, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_nextentry,	fs_fat_nextentry, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_read,	fs_fat16_read, OVERRIDE
+DECLARE_CLASS_END fs_fat16
 
 #########################################################
 # fat directory entry format
@@ -184,14 +180,18 @@ fs_fat16b_mount:
 	ret
 
 0:	push	esi
-	# allocate fat structure + sector
+
+	# instantiate the object
 	push	eax
-	mov	eax, 512 + FAT_STRUCT_SIZE
-	call	mallocz
+	mov	eax, offset class_fs_fat16
+	call	class_newinstance
 	mov	edi, eax
 	pop	eax
+	jc	91f
 	mov	[edi + fs_obj_disk], ax
-	add	edi, FAT_STRUCT_SIZE
+
+	add	edi, offset fat_vbr
+
 	# load sector
 	push	eax
 	push	ebx
@@ -204,16 +204,14 @@ fs_fat16b_mount:
 	pop	ecx
 	pop	ebx
 	pop	eax
+	jc	92f
 
-	jc	1f
 	call	fs_fat16b_verify_vbr
-	jc	1f
+	jc	93f
 
 	mov	esi, edi
-	sub	edi, FAT_STRUCT_SIZE
+	sub	edi, offset fat_vbr
 	call	fs_fat16_calculate
-
-	mov	[edi + fs_obj_class], dword ptr offset fs_fat16_class
 
 	# allocate a cluster buffer
 	push	eax
@@ -304,7 +302,17 @@ fs_fat16b_mount:
 
 1:	pop	esi
 	ret
+9:	printc 4, "fat16_mount: "
+	call	println
+	stc
+	jmp	1b
 
+91:	LOAD_TXT "class_newinstance fail"
+	jmp	9b
+92:	LOAD_TXT "read vbr fail"
+	jmp	9b
+93:	LOAD_TXT "vbr verify fail"
+	jmp	9b
 
 .struct 11
 BPB_BYTES_PER_SECTOR: .word 0

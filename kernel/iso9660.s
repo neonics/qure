@@ -75,18 +75,7 @@ iso9660_dr_dir_name:
 # struct length: word_align( 32 + [iso9660_dr_dir_name_len] )
 
 ##############################################################################
-.data
-fs_iso9660_class:
-STRINGPTR "iso9660"
-.long fs_iso9660_mount
-.long fs_iso9660_umount
-.long fs_iso9660_open
-.long fs_iso9660_close
-.long fs_iso9660_nextentry
-.long fs_iso9660_read
-
-##############################################################################
-.struct FS_OBJ_STRUCT_SIZE
+DECLARE_CLASS_BEGIN fs_iso9660, fs
 iso_prim_vol_desc:	.long 0
 iso_path_table:		.long 0
 iso_path_table_size:	.long 0
@@ -94,7 +83,15 @@ iso_path_table_size:	.long 0
 iso_root_dir:		.long 0
 iso_root_dir_size:	.long 0
 .endif
-ISO9660_STRUCT_SIZE = .
+
+DECLARE_CLASS_METHOD fs_api_mount,	fs_iso9660_mount, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_umount,	fs_iso9660_umount, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_open,	fs_iso9660_open, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_close,	fs_iso9660_close, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_nextentry,	fs_iso9660_nextentry, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_read,	fs_iso9660_read, OVERRIDE
+
+DECLARE_CLASS_END fs_iso9660
 
 ##############################################################################
 .text32
@@ -108,14 +105,13 @@ fs_iso9660_mount:
 	jnz	1f
 
 	push	eax
-	mov	eax, ISO9660_STRUCT_SIZE
-	call	mallocz
+	mov	eax, offset class_fs_iso9660
+	call	class_newinstance
 	mov	edi, eax
 	pop	eax
 	jc	91f
 
 	mov	[edi + fs_obj_disk], ax
-	mov	[edi + fs_obj_class], dword ptr offset fs_iso9660_class
 
 	call	atapi_read_capacity # in: al; out: edx:eax, ecx=blocklen, ebx=lba
 	jc	92f
