@@ -46,7 +46,7 @@ CLASS_METHOD_STRUCT_SIZE = 12
 class_definitions:	# idem to data_classes_start
 .data
 class_instances:	.long 0	# aka objects
-class_dyn_definitions:	.long 0 # ptr_array of dynamically registered class defs
+#class_dyn_definitions:	.long 0 # ptr_array of dynamically registered class defs
 
 .text32
 # in: eax = class_ definition pointer
@@ -217,7 +217,7 @@ class_init_vptr_OLD$:
 # in: eax = object
 # in: esi = class def
 class_init_vptr$:
-	.if 1#OO_DEBUG
+	.if OO_DEBUG
 		call	newline
 		DEBUG "class_init_vptr$ "
 		push dword ptr [esi + class_name]
@@ -253,7 +253,6 @@ class_init_vptr$:
 	lodsd	# target (override) or name (decl)
 	lodsd	# function offset
 	stosd	# store in vptr
-	print "declare "
 	loop	0b
 	pop	esi
 	jmp	1f
@@ -300,11 +299,13 @@ class_init_vptr$:
 	jmp	2f	# skip
 3:
 	###############
+	.if OO_DEBUG
 		print "override @"
 		call	printhex8
 		print ": "
 		push edx; mov edx, eax; call printhex8; pop edx
 		call	printspace
+	.endif
 	add	eax, [realsegflat]
 	cmp	[ebx + edx], dword ptr 0
 	jnz	2f	# don't override,already filled in (sub->super iter)
@@ -392,6 +393,7 @@ class_instanceof:
 # in: eax = class def ptr to be checked (subclass)
 # in: edx = class def ptr to be checked against (superclass)
 # out: ZF = 1 if eax extends from, or is, edx
+# out: CF = 0 always
 class_extends:
 	push	eax
 0:	cmp	eax, edx
@@ -415,9 +417,9 @@ class_invoke_static:
 	# quick hack: don't record the object instance.
 	push	esi
 	mov	esi, eax
-	mov	eax, [esi + class_object_size]
+	mov	eax, [eax + class_object_size]
 	call	mallocz
-	jc	9f
+	jc	91f
 	mov	[eax + obj_class], esi
 0:	call	class_init_vptr$
 	mov	esi, [esi + class_super]
@@ -425,6 +427,7 @@ class_invoke_static:
 	jnz	0b
 	pop	esi
 	##############
+#pushad; mov esi, [eax+obj_class];call _obj_print_methods$; popad
 
 # not called - replaced by above code - due to ptr array containing obsolete entry.
 #	call	class_newinstance	# in: eax; out: eax
@@ -433,19 +436,30 @@ class_invoke_static:
 	# the methods are filled in, so now we can call.
 	mov	edx, [ebp] 	# method ptr
 	mov	edx, [eax + edx]
-	DEBUG_DWORD edx,"method offs"
+	.if OO_DEBUG
+		DEBUG_DWORD edx,"method offs"
+	.endif
 	mov	[ebp], edx	# replace
 	call	mfree
 	jc	9f
+
+	or	edx, edx
+
 	pop_	edx eax
+	jnz	1f
+	printlnc 4, "error: can't call virtual method (ptr=0)"
+	jmp	0f
+1:
 	# all registers restored. [ebp] contains the method:
 	call	[ebp]
 0:	pop	ebp
 	ret	8	# pop class, method
+91:	pop	esi
 9:	printlnc 4, "class_invoke_static: newinstance fail"
 	pop_	edx eax
 	jmp	0b
 
+.if 0 # Disabled for now - tested to work
 # Dynamically registers a class, as opposed to built-in classes defined
 # in DATA_SECTION_CLASSES.
 # in: eax = pointer to class definition
@@ -461,6 +475,40 @@ class_register:
 9:	printlnc 4, "error registering class"
 	stc
 	jmp	0b
+.endif
+
+# in: STACKARG: method to call for each iteration (popped on behalf of caller)
+# Signature of the method being called:
+#	in: STACKARG: class def ptr (caller pop)
+#	out: CF = 1: abort iteration
+#
+# Usage:
+#
+# 	push dword ptr offset my_method
+#	call	class_iterate_classes
+#	ret
+#
+# my_method:
+#	mov	eax, [esp + 4]	# class def ptr
+#	ret
+#
+class_iterate_classes:
+	push	ebp
+	lea	ebp, [esp + 8]
+	push	eax
+	mov	eax, offset data_classes_start
+	jmp	1f
+0:	push_	eax		# preserve, and pass as argument
+	mov	eax, [esp + 4]	# restore original value of eax
+	call	[ebp]
+	pop_	eax
+	jc	2f
+	add	eax, [eax + class_def_size]
+1:	cmp	eax, offset data_classes_end
+	jb	0b
+2:	pop	eax
+	pop	ebp
+	ret	4
 
 
 cmd_classes:

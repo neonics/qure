@@ -329,42 +329,46 @@ cmd_mount$:
 # in: esi = partition info
 # out: edi = fs info pointer
 fs_load$:
-	push	ebx
-	push	ecx
+	push_	ebx edx
+	xor	bl, bl	# 1 indicates successful mount
+	mov	edx, offset _fs_load_iter$
+	add	edx, [realsegflat]
 	push	edx
-	mov	edx, offset class_fs
-	ARRAY_LOOP [class_dyn_definitions], 4, ebx, ecx, 9f
-	push	eax
-	mov	eax, [ebx + ecx]
-	call	class_extends
-	pop	eax
-	jnz	1f
-pushad
-mov esi, [ebx + ecx]
-call _print_class$
-popad
-.if 0
-	push	ebx
-	push	ecx
-	mov	ecx, [ebx + ecx]	# class def ptr
-#	call	[ecx + fs_api_mount]
-	pop	edx
-	pop	ebx
-.else
-	push	dword ptr [ebx + ecx]
-	push	dword ptr offset fs_api_mount
-	call	class_invoke_static
-.endif
-	jnc	0f
-1:	ARRAY_ENDL
+	call	class_iterate_classes
+	or	bl, bl
+	jnz	0f
 
 9:	printlnc 4, "unsupported filesystem"
 	stc
 
-0:	pop	edx
-	pop	ecx
-	pop	ebx
+0:	pop_	edx ebx
 	ret
+
+_fs_load_iter$:
+	push	ebp
+	lea	ebp, [esp + 8]
+
+	push_	eax edx
+	mov	edx, offset class_fs
+	mov	eax, [ebp]
+	cmp	edx, eax
+	jz	9f	# class_fs is abstract, skip
+	call	class_extends	# out: assume CF = 0
+	pop_	edx eax
+	jnz	1f
+
+	push	dword ptr [ebp]	# class def ptr
+	push	dword ptr offset fs_api_mount
+	call	class_invoke_static	# out: CF = 0: mount ok
+	cmc	# CF = 1: mount ok
+	jnc	1f	# CF = 0: keep iterating
+	mov	bl, 1	# CF = 1: abort iteration, bl=mount success
+
+1:	pop	ebp
+	ret
+
+9:	pop_	edx eax
+	jmp	1b
 
 
 mtab_print$:
@@ -496,7 +500,7 @@ DECLARE_CLASS_END fs
 .text32
 
 fs_init:
-	# leave for now...
+.if 0 # disabled for now - statically defined
 	mov	eax, offset class_fs_root
 	call	class_register
 
@@ -508,27 +512,36 @@ fs_init:
 
 	mov	eax, offset class_fs_sfs
 	call	class_register
+.endif
 	ret
 
-
 fs_list_filesystems:
+	mov	edx, offset _fs_iter_m$
+	add	edx, [realsegflat]
+	push	edx
+	call	class_iterate_classes
+	ret
+
+# in: eax = class def ptr
+# out: CF = 1: stop iteration
+_fs_iter_m$:
+	mov	eax, [esp + 4]
 	mov	edx, offset class_fs
-	ARRAY_LOOP [class_dyn_definitions], 4, ebx, ecx, 9f
-	mov	eax, [ebx + ecx]
-	call	class_extends	# eax extends ... edx?
+	cmp	eax, edx
+	jz	1f		# skip fs class itself
+	call	class_extends	# eax extends ... edx
 	jnz	1f
 
 	printc	11, "fs: "
-	mov	edx, [eax + ebx]
+	mov	edx, eax
 	call	printhex8
 	call	printspace
 	pushcolor 14
-	mov	esi, [edx + class_name]
+	mov	esi, [eax + class_name]
 	call	println
 	popcolor
-
-1:	ARRAY_ENDL
-9:	ret
+1:	clc	# keep iterating
+	ret
 
 
 fs_mount:
@@ -1383,20 +1396,9 @@ handle_pathpart$:
 	add	eax, [edi + fs_handle_mtab_idx]
 	mov	eax, [eax + mtab_fs_instance]	# in: eax = fs_instance
 
-#	mov	edx, [eax + fs_obj_class]	# for call
 	mov	ebx, [edi + fs_handle_dir]	# in: ebx = directory handle 
 	push	edi
 	add	edi, offset fs_handle_dirent	# in: edi = fs dir entry struct
-#	call	[edx + fs_api_open]
-DEBUG_DWORD eax
-pushad
-call	_obj_print_methods$
-mov	esi, [eax + obj_class]
-call	_print_class$
-mov	esi, [esi + class_super]
-call	_print_class$
-popad
-DEBUG_DWORD [eax+fs_api_open]
 	call	[eax + fs_api_open]
 	pop	edi
 	#################################################
