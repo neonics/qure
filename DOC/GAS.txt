@@ -42,3 +42,17 @@ schedule.s:164: Error: here is the start of the unterminated conditional
 
 
 	The .endif is not parsed!
+
+
+Runtime errors
+--------------
+
+	mov	al, [16]
+	mov	al, byte [16]
+	mov	al, byte ptr [16]
+
+
+  0:   a0 10 00 00 00          mov    al, [0x10]
+  5:   a0 11 00 00 00          mov    al, [0x11]	!!!!
+  a:   a0 10 00 00 00          mov    al, [0x10]
+

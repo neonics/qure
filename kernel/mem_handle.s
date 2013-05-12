@@ -540,6 +540,7 @@ find_handle_aligned$:
 	pop	eax
 	jc	9f
 
+# in: ebx = handle
 align_handle$:
 	push_	edi edx ecx
 
@@ -547,12 +548,16 @@ align_handle$:
 		DEBUG "align_handle"
 		DEBUG_DWORD eax,"size"
 		DEBUG_DWORD edx,"align"
-		DEBUG_DWORD esi
+		DEBUG_DWORD [esi+ebx+handle_base],"base"
+		DEBUG_DWORD [esi+ebx+handle_size],"size"
 		DEBUG "pre:"
 		pushad; call mem_print_handles; popad
 	.endif
+
 	# have ecx be the new base
-	GDT_GET_BASE edi, ds
+
+	GDT_GET_BASE ecx, ds
+	mov	edi, ecx
 	mov	ecx, [esi + ebx + handle_base]
 	.if MEM_HANDLE_ALIGN_DEBUG > 1
 		DEBUG_DWORD ecx,"logical base"

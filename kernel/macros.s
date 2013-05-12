@@ -99,6 +99,10 @@ _TLS_SIZE = .
 .endm
 
 .macro R8H r
+	GET_INDEX \r, eax,ebx,ecx,edx
+	.if _INDEX < 0
+		.error "\r must be one of eax,ebx,ecx,edx"
+	.endif
 	.if \r == eax
 		_R8H = ah
 	.endif
@@ -114,6 +118,10 @@ _TLS_SIZE = .
 .endm
 
 .macro R8L r
+	GET_INDEX \r, eax,ebx,ecx,edx
+	.if _INDEX < 0
+		.error "\r must be one of eax,ebx,ecx,edx"
+	.endif
 	.if \r == eax
 		_R8L = al
 	.endif
@@ -140,6 +148,18 @@ _TLS_SIZE = .
 	.endif
 	.if \r == edx
 		_R16 = dx
+	.endif
+	.if \r == esi
+		_R16 = si
+	.endif
+	.if \r == edi
+		_R16 = di
+	.endif
+	.if \r == ebp
+		_R16 = bp
+	.endif
+	.if \r == esp
+		_R16 = sp
 	.endif
 .endm
 

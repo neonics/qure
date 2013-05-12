@@ -291,14 +291,15 @@ xor \target,\target
 	mov	esi, \sel
 	and	esi, ~7
 	_R32 = \target
+	_R16 = -1
 	R16 \target
 	R8H \target
 	R8L \target
 
-	mov	_R8H, [GDT + esi + 7]
-	mov	_R8L, [GDT + esi + 4]
+	mov	_R8H, byte ptr [GDT + esi + 7]
+	mov	_R8L, byte ptr [GDT + esi + 4]
 	shl	_R32, 16
-	mov	_R16, [GDT + esi + 2]
+	mov	_R16, word ptr [GDT + esi + 2]
 	pop	esi
 .endm
 
