@@ -574,9 +574,35 @@ http_parse_header_line$:
 	repz	cmpsb
 	pop	esi
 	pop	ecx
+	jz	2f
+
+	LOAD_TXT "Referer: ", edi
+	push_	ecx esi
+	mov	ecx, 9
+	repz	cmpsb
+	pop_	esi ecx
 	jnz	9f
 
-	# found Host header line
+	# found referer header:
+	add	esi, 9
+	sub	ecx, 9
+	.if 1
+		push_	ecx eax esi
+		mov	edi, esi
+		mov	al, '\n'
+		repnz	scasb
+		jnz	3f
+		print "Referer: "
+		mov	ecx, edi
+		sub	ecx, esi
+		call	nprint
+		jmp	4f
+	3:	printc 4, "referer: no eol"
+	4:	pop_	esi eax ecx
+	.endif
+
+
+2:	# found Host header line
 	add	esi, 6		# skip "Host: "
 	sub	ecx, 6
 	mov	ebx, esi	# start of hostname
