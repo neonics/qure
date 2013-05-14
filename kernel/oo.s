@@ -52,6 +52,8 @@ class_instances:	.long 0	# aka objects
 # in: eax = class_ definition pointer
 # out: eax = instance
 class_newinstance:
+	push	ebp
+	lea	ebp, [esp + 4]	# for mallocz_
 #pushad
 #DEBUG "CLASSES:";call newline; call cmd_classes
 #popad
@@ -59,7 +61,7 @@ class_newinstance:
 	push	esi
 	mov	esi, eax
 	mov	eax, [esi + class_object_size]
-	call	mallocz
+	call	mallocz_	# register caller of current method
 	jc	9f
 	mov	[eax + obj_class], esi
 .if OO_DEBUG
@@ -87,6 +89,7 @@ class_newinstance:
 	pop	edx
 
 0:	pop	esi
+	pop	ebp
 	ret
 9:	printlnc 4, "class_newinstance: out of memory"
 	stc
