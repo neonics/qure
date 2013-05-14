@@ -142,9 +142,11 @@ tcp_conn_local_addr:	.long 0	# NEEDS to be adjacent to tcp_conn_remote_addr
 tcp_conn_remote_addr:	.long 0	# ipv4 addr
 tcp_conn_local_port:	.word 0
 tcp_conn_remote_port:	.word 0
+tcp_conn_local_seq_base:.long 0
 tcp_conn_local_seq:	.long 0
-tcp_conn_remote_seq:	.long 0
 tcp_conn_local_seq_ack:	.long 0
+tcp_conn_remote_seq_base:.long 0
+tcp_conn_remote_seq:	.long 0
 tcp_conn_remote_seq_ack:.long 0
 tcp_conn_sock:		.long 0	# -1 = no socket; peer socket
 tcp_conn_handler:	.long 0	# -1 or 0 = no handler
@@ -557,10 +559,13 @@ net_tcp_conn_list:
 	call	newline
 
 	.if 1
+	cmp	dword ptr [esi + ebx + tcp_conn_send_buf], 0
+	jz	1f
 		DEBUG_DWORD [esi+ebx+tcp_conn_send_buf],"tx buf"
 		DEBUG_DWORD [esi+ebx+tcp_conn_send_buf_start],"start"
 		DEBUG_DWORD [esi+ebx+tcp_conn_send_buf_len],"len"
 		call	newline
+	1:
 	.endif
 
 	call	printspace
@@ -574,6 +579,21 @@ net_tcp_conn_list:
 	call	printhex8
 
 	printc 13, " remote"
+	.if 1
+	mov	eax, [esi + ebx + tcp_conn_remote_seq_base]
+
+	printc 8, " seq "
+	mov	edx, [esi + ebx + tcp_conn_remote_seq]
+	sub	edx, eax
+	call	printhex8
+
+	printc 8, " ack "
+	mov	edx, [esi + ebx + tcp_conn_remote_seq_ack]
+	sub	edx, eax
+	call	printhex8
+
+	.else
+
 	printc 8, " seq "
 	mov	edx, [esi + ebx + tcp_conn_remote_seq]
 	call	printhex8
@@ -581,11 +601,16 @@ net_tcp_conn_list:
 	mov	edx, [esi + ebx + tcp_conn_remote_seq_ack]
 	call	printhex8
 
-	printc 14, " hndlr "
-	mov	edx, [esi + ebx + tcp_conn_handler]
+	printc 8, " base "
+	mov	edx, [esi + ebx + tcp_conn_remote_seq_base]
 	call	printhex8
+	.endif
 
-	#call	newline	# already at eol
+#	printc 14, " hndlr "
+#	mov	edx, [esi + ebx + tcp_conn_handler]
+#	call	printhex8
+
+	call	newline
 
 	ARRAY_ENDL
 9:	MUTEX_UNLOCK TCP_CONN
@@ -1048,6 +1073,7 @@ net_tcp_conn_update_ack:
 	push	ebx
 	add	eax, [tcp_connections]
 	mov	ebx, [esi + tcp_ack_nr]
+	bswap	ebx
 	mov	[eax + tcp_conn_local_seq_ack], ebx
 	movzx	ebx, byte ptr [eax + tcp_conn_state]
 	# see if ACK is for FIN
@@ -1338,9 +1364,11 @@ net_tcp_send:
 	push	edi
 	push	ecx
 	push	eax
-	mov	ecx, TCP_HEADER_SIZE
+	mov	ecx, (TCP_HEADER_SIZE) & 3
 	xor	eax, eax
 	rep	stosb
+	mov	ecx, (TCP_HEADER_SIZE) >> 2
+	rep	stosd
 	pop	eax
 	pop	ecx
 	pop	edi
@@ -1399,7 +1427,12 @@ net_tcp_send:
 	push	edi
 	push	ecx
 	add	edi, TCP_HEADER_SIZE
+	mov	edx, ecx
+	and	ecx, 3
 	rep	movsb
+	mov	ecx, edx
+	shr	ecx, 2
+	rep	movsd
 	pop	ecx
 	pop	edi
 	pop	esi
@@ -1618,9 +1651,11 @@ net_tcp_handle_syn$:
 	# add tcp header
 	push	edi
 	push	ecx
-	mov	ecx, _TCP_HLEN
-	xor	al, al
+	mov	ecx, _TCP_HLEN & 3
+	xor	eax, eax
 	rep	stosb
+	mov	ecx, _TCP_HLEN >> 2
+	rep	stosd
 	pop	ecx
 	pop	edi
 
@@ -1630,12 +1665,14 @@ net_tcp_handle_syn$:
 
 	mov	eax, [esi + tcp_seq]
 	bswap	eax
-	inc	eax
 	MUTEX_SPINLOCK_ TCP_CONN
 		push	edx
 		mov	edx, [ebp - 4]
 		add	edx, [tcp_connections]
+		mov	[edx + tcp_conn_remote_seq_base], eax
+	inc	eax
 		mov	[edx + tcp_conn_remote_seq_ack], eax
+		DEBUG_DWORD eax,"tcp_conn_remote_seq_ack"
 		or	[edx + tcp_conn_state], byte ptr TCP_CONN_STATE_SYN_RX
 	bswap	eax
 	mov	[edi + tcp_ack_nr], eax
