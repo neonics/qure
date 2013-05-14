@@ -44,5 +44,6 @@ alias qemu-pcnet "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Q
 alias qemu-dos "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -no-reboot -hda hdd-dos.raw -hdb hdd0.raw"
 
 alias qemu-vmware "c:/apps/qemu-1.3.50-x64/qemu-system-x86_64.exe -vga vmware -hda hdd0-qemu.raw -hdb hdd-dos-qemu.raw -cdrom os.iso" -boot d -net nic,model=rtl8139  -net tap,ifname=tap-bridge # -no-reboot
+alias qemu-nonet "c:/apps/qemu-1.3.50-x64/qemu-system-x86_64.exe -vga std -hda hdd0-qemu.raw -hdb hdd-dos-qemu.raw -cdrom os.iso" -boot d -net nic,model=rtl8139
 ###################
 alias bkp 'tar cvfz \!*.tgz `git st | cut -c3-|xargs`'
