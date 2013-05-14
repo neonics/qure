@@ -201,3 +201,57 @@ breakpoint_set_memwrite:
 breakpoint_set_code:
 	printlnc 0xe4, "code breakpoint not implemented yet"
 	ret
+
+
+# called from idt.s interrupt handler for int 1.
+# The purpose is to check for breakpoint conditions more complex than
+# a simple write/read.
+#
+# out: CF = 1: ignore the interrupt
+debugger_handle_int:
+	# debugger condition check.
+	# hardcode test: assume breakpoint
+	mov	edx, dr6	# debug status reg
+	test	dl, 0b1111	# check for breakpoint (only valid if dr7....etc)
+	jz	1f
+	# hardcoded: dr0; can be dr0..dr3
+	mov	edx, dr0
+	#DEBUG_DWORD edx
+	GDT_GET_BASE eax, ds
+	sub	edx, eax
+	#DEBUG_DWORD edx
+	mov	edx, [edx]# get the value
+	cmp	edx, 0x20657669	# this is the check!
+	stc	# tell caller to ignore the interrupt
+	jnz	9f
+	DEBUG_DWORD edx
+
+	DEBUG_DWORD dr6
+	DEBUG_DWORD dr3
+	DEBUG_DWORD dr2
+	DEBUG_DWORD dr1
+	DEBUG_DWORD dr0
+	call	newline
+	# dr6: ffff 0ff1
+	# ffff | BT BS BD | 0 11111111 | B3 B2 B1 B0
+	# ffff |     0         f       f        1
+	# ffff | BT BS BD 0 | 1111 | 1111 | B3 B2 B1 B0
+	#       ---------dh-------- --------dl---------
+	mov edx, dr6	# debug status reg
+	PRINTFLAG dl, 1<<0, "B0 "
+	PRINTFLAG dl, 1<<1, "B1 "
+	PRINTFLAG dl, 1<<2, "B2 "
+	PRINTFLAG dl, 1<<3, "B3 "
+	PRINTFLAG dh, 1<<5, "BD "
+	PRINTFLAG dh, 1<<6, "BS "
+	PRINTFLAG dh, 1<<7, "BT "
+	mov	edx, dr0
+	DEBUG_DWORD edx
+	GDT_GET_BASE eax, ds
+	sub	edx, eax
+	DEBUG_DWORD edx
+	DEBUG_DWORD [edx]
+	call	newline
+
+1:	clc
+9:	ret

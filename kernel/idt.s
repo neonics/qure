@@ -230,6 +230,12 @@ jmp_table_target:
 	mov	es, eax
 	cld
 
+	cmp	word ptr [SR_INT], 1	# debugger
+	jnz	1f
+	call	debugger_handle_int
+	jc	9f
+1:
+
 	PUSHCOLOR 8
 	PRINT "(ISR "
 	movzx	edx, word ptr [SR_INT]	# interrupt number from jumptable
@@ -613,7 +619,7 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 
 	POPCOLOR
 	call	newline
-	pop	edx
+9:	pop	edx
 	pop	ebx
 	pop	esi
 	pop	edi
