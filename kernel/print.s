@@ -312,12 +312,6 @@ COLOR_STACK_SIZE = 2
 	call	screen_buf_flush
 	.endif
 
-	.if 1 # NEW!
-		mov	edi, [realsegflat]
-		add	edi, [screen_update]
-		call	edi
-	.endif
-
 	.if VIRTUAL_CONSOLES
 	pop	eax
 	.endif
@@ -1120,7 +1114,14 @@ screen_buf_flush:
 	pop	ecx
 	pop	esi
 	pop	edi
-9:	ret
+9:	
+
+	.if 1 # NEW!
+		mov	edi, [realsegflat]
+		add	edi, [screen_update]
+		call	edi
+	.endif
+	ret
 .endif
 
 ############################## PRINT ASCII ####################

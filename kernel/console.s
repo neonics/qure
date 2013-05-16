@@ -268,6 +268,11 @@ scroll:
 	rep	movsb
 	pop	esi
 	pop	es
+	pushad
+	mov	edi, [screen_update]
+	add	edi, [realsegflat]
+	call	edi
+	popad
 	#pop	dword ptr [tls]
 
 	cmp	esi, SCREENBUF_DISPLAY_END

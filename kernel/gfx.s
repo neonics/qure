@@ -2,7 +2,7 @@
 
 .text32
 
-cmd_gfx:
+cmd_gfx_VBE:
 	call	cls	# some scroll bug in realmode causes kernel reboot
 
 	mov	eax, [esi+ 4]
@@ -79,13 +79,104 @@ call	newline
 
 .data
 gfx_palette_16:
-.long 0x000000, 0xaa0000, 0x00aa00, 0xaa5500, 0x0000aa, 0xaa00aa, 0x00aaaa, 0xaaaaaa
-.long 0x555555, 0xff5555, 0x55ff55, 0xffff55, 0x5555ff, 0xff55ff, 0x55ffff, 0xffffff
+.long 0x000000, 0x0000aa, 0x00aa00, 0x00aaaa, 0xaa0000, 0xaa00aa, 0xaa5500, 0xaaaaaa
+.long 0x555555, 0x5555ff, 0x55ff55, 0x55ffff, 0xff5555, 0xff55ff, 0xffffff, 0xffffff
 
+gfx_last_scroll_lines$: .long 0
 .text32
-
 # event handler: called from PRINT_END macro through [screen_update]
 gfx_txt_screen_update:
+	push	gs
+	push	es
+	push	ecx
+	push	esi
+	push	edi
+	push	eax
+	push	edx
+	push	ebx
+
+.if VIRTUAL_CONSOLES
+	call	console_get
+	mov	ebx, eax
+
+#	xor	edx, edx
+#	mov	eax, [ebx + console_screen_pos]
+#	sub	eax, 160*25
+#	jns	1f
+#	xor	eax, eax
+#1:
+
+	mov	eax, SCREEN_BUF_SIZE - 160*25
+	mov	esi, [ebx + console_screen_buf]
+
+	# a little scroll check.
+	cmp	byte ptr [scrolling$], 0
+	jz	1f
+	mov	eax, [scroll_pos$]
+1:
+	#mov	ecx, 25
+	#div	ecx
+	# eax = lines
+	# edx = rest
+	add	esi, eax	# +screen_buf_size -160*25
+	mov	edi, SEL_flatDS
+	mov	es, edi
+	mov	edi, [vidfbuf]
+.else
+	mov	esi, SEL_flatDS
+	mov	es, esi
+	mov	edi, [vidfbuf]
+	mov	esi, [screen_sel]
+	mov	gs, esi
+	xor	esi, esi
+.endif
+
+	mov	ecx, 25
+0:	push	ecx
+########
+	push	edi
+	mov	ecx, 80
+		xor	ebx, ebx
+1:
+.if VIRTUAL_CONSOLES
+	lodsw
+.else
+	mov	ax, gs:[esi]
+	add	esi, 2
+.endif
+	movzx	ebx, ah
+	shr	bl, 4
+	mov	ebx, [gfx_palette_16 + ebx * 4]
+
+	movzx	edx, ah
+	and	dl, 0x0f	# only fg color for now
+	mov	edx, [gfx_palette_16 + edx * 4]
+	call	gfx_printchar_8x16 # gfx_printchar
+	loop	1b
+	pop	edi
+	mov	eax, 16#[fontheight]
+	mul	dword ptr [vidw]
+	mul	dword ptr [vidb]
+	add	edi, eax
+########
+	pop	ecx
+	loop	0b
+
+	pop	ebx
+	pop	edx
+	pop	eax
+	pop	edi
+	pop	esi
+	pop	ecx
+	pop	es
+	pop	gs
+	ret
+
+
+
+# event handler: called from PRINT_END macro through [screen_update]
+# this one only copies what's already on the screen, doesnt use te buffer.
+gfx_txt_screen_update_OLD:
 	push	gs
 	push	es
 	push	ecx
@@ -106,11 +197,17 @@ gfx_txt_screen_update:
 ########
 	push	edi
 	mov	ecx, 80
+		xor	ebx, ebx
 1:	mov	ax, gs:[esi]
 	add	esi, 2
+
+	movzx	ebx, ah
+	shr	bl, 4
+	mov	ebx, [gfx_palette_16 + ebx * 4]
+
 	movzx	edx, ah
 	and	dl, 0x0f	# only fg color for now
-	mov	edx, [gfx_palette_16 + edx]
+	mov	edx, [gfx_palette_16 + edx * 4]
 	call	gfx_printchar_8x16 # gfx_printchar
 	loop	1b
 	pop	edi
@@ -235,7 +332,7 @@ gfx_fill_bg32:
 	movzx	ecx, word ptr [vidh]
 	div	ecx
 	mov	edx, eax
-	
+
 	push	edi
 	mov	edi, [vidfbuf]
 	##
@@ -343,7 +440,7 @@ gfx_printstring:
 	pop	edi
 ######################
 	ret
-	
+
 gfx_printchar:
 	push	ebx
 	mov	ebx, [gfx_printchar_ptr]
@@ -355,6 +452,7 @@ gfx_printchar:
 #######################################################################
 # in: al = char
 # in: edx = fg color
+# in: ebx = bg color
 .data
 curfont: .long 0
 fontwidth: .long 0
@@ -362,6 +460,7 @@ fontheight: .long 0
 .text32
 gfx_printchar_8x16:
 	push	ebx
+
 	push	eax
 	push	edx
 	movzx	eax, byte ptr [vidbpp]
@@ -386,18 +485,24 @@ gfx_printchar_8x16:
 	mov	ecx, 16	# 16 lines
 2:	lodsb
 	mov	ah, al
+
+	push	ebx
+	mov	ebx, [esp + 12]	# bg color
 	.rept 8 # 8 bits per scanline
 	add	ah, ah
 	jnc	1f
 	mov	es:[edi], edx
 	jmp	3f
-1:	cmp	edx, 0x01000000
-	jb	3f
+1:	#cmp	edx, 0x01000000
+	#jb	3f
 	# some alpha thing
+	mov	dword ptr es:[edi], ebx
 3:
-add	edi, 4	# 32 bpp
-	
+	add	edi, 4	# 32 bpp
+
 	.endr
+	pop	ebx
+
 	add	edi, ebx
 	dec	ecx
 	jnz	2b
@@ -617,7 +722,7 @@ rm_trap_isr:
 		call	printhex_16
 		pop	bx
 		pop	es
-	
+
 		print_16 "ss:sp="
 		mov	dx, ss
 		call	printhex_16
@@ -742,7 +847,7 @@ xor ax,ax; int 0x16
 	call	printchar_16
 
 	print_16 " Video memory: "
-	mov	dx, es:[di + vi_totalMemory]	
+	mov	dx, es:[di + vi_totalMemory]
 	.if 0
 	shl	dx, 6
 	call	printdec_16
@@ -983,7 +1088,7 @@ nop
 	pop	bp
 	pop	es
 
-	
+
 	mov	ax, 0x4f02
 	mov	bx, cs:[vesa_video_mode] # VID_MODE
 	or	bx, (1 << 14) #| (1<<15) # 14=linear fb, 15=clear mem
@@ -1046,7 +1151,7 @@ vesa_scan_pmid:
 	printlnc 12, "no vesa PMID block found"
 	jmp	9f
 
-0:	
+0:
 	sub	edi, 4
 	println "PMID block found"
 	DEBUG_DWORD ecx
@@ -1110,8 +1215,8 @@ vesa_scan_pmid:
 
 .data SECTION_DATA_FONTS
 fonts4k:
-.if 0
 .incbin "../fonts/4k/standard.fnt"
+.if 0
 .incbin "../fonts/4k/8x10.fnt"
 .incbin "../fonts/4k/8x11snsf.fnt"
 .incbin "../fonts/4k/8x14.fnt"
@@ -1185,4 +1290,3 @@ font_courier56:
 .incbin "../fonts/courier56.bin"
 
 .text32
-.code32
