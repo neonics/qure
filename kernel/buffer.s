@@ -51,13 +51,11 @@ buffer_write:
 	add	[eax + buffer_index], ecx
 	mov	dl, cl
 	shr	ecx, 2
-	jz	1f
 	rep	movsd
-1:	mov	cl, dl
+	mov	cl, dl
 	and	cl, 3
-	jz	1f
 	rep	movsb
-1:	clc
+	clc
 0:	pop	edx
 	pop	ecx
 	pop	esi
@@ -79,13 +77,11 @@ buffer_compact$:
 	add	esi, eax
 	mov	dl, cl
 	shr	ecx, 2
-	jz	1f
 	rep	movsd
-1:	mov	cl, dl
+	mov	cl, dl
 	and	cl, 3
-	jz	1f
 	rep	movsb
-1:	
+
 	xchg	ecx, [eax + buffer_start]
 	sub	[eax + buffer_index], ecx
 	pop	ecx
@@ -100,7 +96,7 @@ buffer_put_byte:
 	jmp	buffer_put_$
 
 # in: eax
-# in: dx
+# in: edx
 buffer_put_dword:
 	push	ecx
 	mov	ecx, 4
