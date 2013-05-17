@@ -207,6 +207,9 @@ SHELL_COMMAND "sha1"		cmd_sha1
 SHELL_COMMAND "base64"		cmd_base64
 SHELL_COMMAND "classes"		cmd_classes
 SHELL_COMMAND "objects"		cmd_objects
+SHELL_COMMAND "ph"		cmd_ping_host
+SHELL_COMMAND "svga"		cmd_svga
+SHELL_COMMAND "xml"		cmd_xml
 .data SECTION_DATA_SHELL_CMDS
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -1685,6 +1688,18 @@ cmd_ping_gateway:
 	call	cmd_ping
 	ret
 
+cmd_ping_host:
+	.data
+	0:
+	STRINGPTR "ping"
+	STRINGPTR "192.168.1.10"
+	STRINGNULL
+	.text32
+	mov	eax, offset 0b
+	mov	esi, eax
+	call	cmd_ping
+	ret
+
 cmd_int:
 	lodsd
 	lodsd
@@ -2233,4 +2248,6 @@ cmd_base64:
 	call	println
 
 9:	ret
+
+.include "../lib/xml.s"
 .endif
