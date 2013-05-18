@@ -1231,6 +1231,7 @@ nprintln:
 # in: ecx = max len
 nprintc:
 	jecxz	1f
+	push_	esi ecx edx
 	PRINT_START -1
 	jmp	2f
 1:	ret
@@ -1239,18 +1240,20 @@ nprintc:
 # in: ecx = max len
 nprint:	or	ecx, ecx
 	jz	1f
+	push_	esi ecx edx
 	PRINT_START
-2:	push	esi
-	push	ecx
+2:		mov	dl, 80
 0:	lodsb
 	or	al, al
 	jz	0f
 	stosw
+		dec	dl; jz	2f; 3:
 	loop	0b
-0:	pop	ecx
-	pop	esi
-	PRINT_END
+0:	PRINT_END
+	pop_	edx ecx esi
 1:	ret
+
+		2: mov	dl, 80; PRINT_END; PRINT_START; jmp 3b
 
 # in: esi = string
 # in: ecx = exact len to print
@@ -1278,21 +1281,26 @@ printlnc:
 
 # in: ah = color
 # in: esi = string
-printc:	PRINT_START c=ah
-	push	esi
+printc: push_	esi edx
+	PRINT_START c=ah
+		mov	dl, 80
 	jmp	1f
-print:	PRINT_START
-	push	esi
+print:	push_	esi edx
+	PRINT_START
+		mov	dl, 80
 	jmp	1f
 
 0:	stosw
+		dec	dl; jz 2f; 3:
 1:	lodsb
 	test	al, al
 	jnz	0b
 
-	pop	esi
 	PRINT_END
+	pop_	edx esi
 	ret
+
+		2: PRINT_END;PRINT_START; mov dl, 80; jmp 3b
 
 sprint:	push	esi
 	jmp	1f
@@ -1306,14 +1314,32 @@ sprint:	push	esi
 	ret
 
 print_:
+.if 0
+	push	eax
+0:	lodsb
+	or	al, al
+	jz	1f
+	call	printchar
+	jmp	0b
+1:	pop	eax
+	ret
+.else
+		push	edx
+		mov	dl, 40
 	PRINT_START
 	jmp	1f
 0:	stosw
+		jmp	2f
+		3:
 1:	lodsb
 	test	al, al
 	jnz	0b
 	PRINT_END
+		pop	edx
 	ret
+
+		2: PRINT_END; PRINT_START; mov dl, 40; jmp 3b
+.endif
 
 println_:
 	call	print_
