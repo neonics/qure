@@ -1,12 +1,17 @@
 .intel_syntax noprefix
 .text32
+XML_DEBUG = 1
 
 XML_T_OPEN	= 1
 XML_T_CLOSE	= 2
 XML_T_SINGULAR	= 4
-XML_T_ATTR	= 8
+XML_T_PI	= 8
+XML_T_COMMENT	= 16
+XML_T_ATTR	= 64
 
 # in: esi, ecx
+# out: edi = parsed buf (mfree)
+# out: ecx = parsed buf size
 xml_parse:
 	push	ebp
 	mov	ebp, esp
@@ -20,7 +25,10 @@ xml_parse:
 	mov	edi, esi
 
 0:	mov	al, '<'	
-DEBUG_DWORD ecx
+DEBUG_DWORD ecx;
+.if XML_DEBUG > 1
+	DEBUG_DWORD esi; DEBUG_DWORD edi
+.endif
 	repnz	scasb
 	jnz	91f
 	DEBUG "<"
@@ -49,6 +57,76 @@ DEBUG_DWORD ecx
 # ebp	stack
 
 	lea	esi, [edi - 2]	# tagname end
+##	# check for xml-processing-instruction
+	cmp	[edx], byte ptr '?'
+	jnz	2f
+	cmp	[esi], byte ptr '?'
+	jnz	93f
+	inc	edx	# tag start
+#	dec	esi	# tag end
+#	dec	edx
+#	inc	esi
+	sub	ecx, 2	# not sure about this..
+	dec	edi	# another dec is done @ 1f
+#	sub	edi, 2	# still used for attrs
+	.if XML_DEBUG > 1
+		push_ ecx esi
+		mov	ecx, esi
+		sub	ecx, edx
+		DEBUG_DWORD ecx
+		mov	esi, edx
+		pushcolor 0xa0
+		call nprint;
+		popcolor
+		pop_ esi ecx
+	.endif
+	mov	ah, XML_T_PI
+	jmp	1f
+2:
+##	# check for comment
+	cmp	[edx-1], dword ptr ('<')|('!'<<8)|('-'<<16)|('-'<<24)
+	jnz	2f
+	# now, the end tag may not be proper if the comment encloses tags.
+	# find the end of the comment:
+	# scan for '--', it must not occur unless followed by '>'.
+	lea	edi, [edx + 4]	# 3?
+	DEBUG_DWORD ecx
+	push	ecx
+	mov	al, '-'
+44:	repnz	scasb
+	jnz	4f
+	DEBUG_DWORD ecx, "Match"
+	PRINTCHAR [edi-2]
+	PRINTCHAR [edi-1]
+	PRINTCHAR [edi]
+	PRINTCHAR [edi+1]
+	PRINTCHAR [edi+2]
+	scasb
+	jnz	44b
+	cmp	byte ptr [edi], '>'
+	jnz	44b
+4:	pop	ecx
+	jnz	94f
+	DEBUG "found comment close"
+
+	inc	edi		# end of comment tag
+	lea	esi, [edi -3]	# end of comment content
+	add	edx, 3		# start of comment content
+	mov	ah, XML_T_COMMENT
+	.if XML_DEBUG > 1
+		push_ esi ecx
+		mov	ecx, esi
+		sub	ecx, edx
+		mov	esi, edx
+		pushcolor 9
+		call nprint
+		popcolor
+		pop_ ecx esi
+	.endif
+	jmp	3f	# no attrs
+
+2:
+##
 
 	mov	ah, XML_T_SINGULAR
 	cmp	byte ptr [edi -1], '/'
@@ -66,11 +144,16 @@ DEBUG_DWORD ecx
 	jmp	3f
 
 1:	# attributes allowed:
+		dec	edi
 	push	ecx
 	push	edi
 	mov	ecx, esi#edi
 	sub	ecx, edx
 	mov	edi, edx
+	.if XML_DEBUG > 1
+		DEBUG_DWORD ecx,"WHITE";DEBUG_DWORD esi;DEBUG_DWORD edx
+		push esi; mov esi, edi; pushcolor 0xf0;call nprint;popcolor;pop esi
+	.endif
 	mov	al, ' '
 	repnz	scasb	# edi = end or space.
 	jnz	2f
@@ -84,7 +167,19 @@ DEBUG_DWORD ecx
 	PRINTFLAG ah, XML_T_OPEN, "OPEN"
 	PRINTFLAG ah, XML_T_CLOSE, "CLOSE"
 	PRINTFLAG ah, XML_T_SINGULAR, "SING"
+	PRINTFLAG ah, XML_T_PI, "PI"
+	PRINTFLAG ah, XML_T_COMMENT, "COMMENT"
 	PRINTFLAG ah, XML_T_ATTR, "ATTR"
+
+	.if XML_DEBUG > 1
+		push_ esi ecx;
+		mov	ecx, edi
+		sub	ecx, edx
+		mov	esi, edx
+		DEBUG_DWORD ecx,"PURPLE";DEBUG_DWORD edi;DEBUG_DWORD edx
+		pushcolor 0xd0;call nprint;popcolor;
+		pop_ ecx esi
+	.endif
 
 	push	eax
 	and	ah, ~XML_T_ATTR	# don't pass the ATTR flag - local use
@@ -104,7 +199,10 @@ DEBUG_DWORD ecx
 ############
 
 	DEBUG "done"
-0:	mov	esp, ebp
+0:	mov	edx, ebx
+	mov	edi, [ebp - 4] # start of outbuf
+	sub	edx, edi
+	mov	esp, ebp
 	pop	ebp
 	ret
 
@@ -125,6 +223,12 @@ DEBUG_DWORD ecx
 	call	printdec32
 	jmp	1b
 
+93:	printc 4, "xml_parse: malformed xml-processing-instruction"
+	jmp	1b
+
+94:	printc 4, "xml_parse: malformed comment"
+	jmp	1b
+
 # in: ah = XML_T_*
 # in: edi = end of tag
 # in: esi = end of tag name
@@ -136,7 +240,22 @@ xml_store_tagname$:
 	push	ecx
 	push	esi
 	push	edi
+test ah, XML_T_COMMENT
+jz 1f
 
+	mov	ecx, esi
+	sub	ecx, edx
+	mov	edi, ebx
+	# comment tag format: byte type, dword len, data
+	mov	al, ah
+	stosb
+	mov	eax, ecx
+	stosd
+	mov	esi, edx
+	rep	movsb
+	jmp	10f
+
+1:
 	mov	ecx, esi #edi
 	sub	ecx, edx
 	#dec	ecx
@@ -173,7 +292,7 @@ xml_store_tagname$:
 	jz	9f
 	stosb
 	loop	0b
-	mov	ebx, edi
+10:	mov	ebx, edi
 	clc
 
 0:	pop	edi
@@ -194,33 +313,55 @@ xml_store_tagname$:
 
 # in: ah = XML_T_*
 # in: edi = end of tag
-# in: esi = end of tag name
+# in: esi = end of tag name / start of attribute area (whitespace,...)
 # in: edx = start of tag name
 # in: ebx = out ptr
 # out: ebx = new out ptr
 xml_process_attrs$:
 	push_	ecx edx esi
+	.if XML_DEBUG > 1
 		#dec edi
+		call newline
 		DEBUG "@"
+		DEBUG_DWORD edi,"edi/end"
+		DEBUG_DWORD esi
 		mov al, [edi]
 		call printcharc
+	.endif
 	mov	ecx, edi
 	sub	ecx, esi
-	dec	ecx
+#	dec	ecx
 	jle	9f
+	.if XML_DEBUG > 1
+		push esi
+		pushcolor 0xe0
+		DEBUG_DWORD ecx
+		call nprint
+		popcolor
+		pop esi
+	.endif
 
 	#lea	edi, [esi + 1]
 0:	# skip whitespace
-DEBUG_DWORD ecx,"WS"
 	lodsb
-call printcharc
+	.if XML_DEBUG > 1
+		DEBUG_DWORD ecx,"WS"
+
+		mov ah, 0x4f
+		call printcharc
+		push edx; mov dl, al; call printhex2;pop edx
+	.endif
 	cmp	al, ' '
+	jz	1f
+	cmp	al, '\t'
 	jz	1f
 	cmp	al, '\r'
 	jz	1f
 	cmp	al, '\n'
 	jnz	2f
-1:	loop	0b
+1:	
+	#loop	0b
+	dec ecx; jnz 0b
 	jmp	9f
 2:	dec	esi
 	mov	edi, esi
@@ -230,15 +371,19 @@ call printcharc
 	mov	al, '='
 	repnz	scasb
 	jnz	91f
+	.if XML_DEBUG
 		mov	esi, edx
 		push	ecx
 		mov	ecx, edi
 		sub	ecx, edx
 		dec	ecx
 		# TODO: check: ZF = attr name len = 0
+		pushcolor 0xf0
 		call	nprint
+		popcolor
 		call	printspace
 		pop	ecx
+	.endif
 	
 	mov	al, [edi]
 	cmp	al, '"'
@@ -253,14 +398,18 @@ call printcharc
 	repnz	scasb
 	jnz	91f
 
+	.if XML_DEBUG
 		push	ecx
 		mov	esi, edx
 		mov	ecx, edi
 		sub	ecx, edx
 		dec	ecx
+		pushcolor 0xf1
 		call	nprint
+		popcolor
 		call	printspace
 		pop	ecx
+	.endif
 
 	mov	esi, edi
 	or	ecx, ecx
@@ -285,8 +434,110 @@ call printcharc
 	jmp	9b
 
 ############################
+xml_print_indent$:
+	push	ecx
+	lea	ecx, [ebx *2]
+	jecxz	9f
+0:	call	printspace
+	loop	0b
+9:	pop	ecx
+	ret
+
+xml_handle_parsed$:
+	mov	esi, edi
+	xor	ebx, ebx	# depth
+0:	
+	DEBUG_WORD dx
+	dec	edx
+	js	9f
+	lodsb
+	mov	ah, al
+
+########
+	# todo: shift, adc/sbb optimize
+	test	ah, XML_T_CLOSE
+	jz	1f
+	dec	ebx
+	js	92f
+1:
+	call	xml_print_indent$
+
+	test	ah, XML_T_OPEN
+	jz	1f
+	inc	ebx
+1:	
+
+########
+########
+
+	PRINTFLAG ah, XML_T_OPEN, "OPEN"
+	PRINTFLAG ah, XML_T_CLOSE, "CLOSE"
+	PRINTFLAG ah, XML_T_SINGULAR, "SING"
+	PRINTFLAG ah, XML_T_PI, "PI"
+	PRINTFLAG ah, XML_T_COMMENT, "COMMENT"
+	PRINTFLAG ah, XML_T_ATTR, "ATTR"
+
+	test	ah, XML_T_COMMENT
+	jz	1f
+	sub	edx, 4
+	jl	91f
+	lodsd
+	mov	ecx, eax
+	sub	edx, eax
+	jl	91f
+	call	nprintln_
+	jmp	0b
+
+1:	
+
+	dec	edx
+	jle	91f
+	lodsb
+	movzx	ecx, al
+	sub	edx, ecx
+	jl	91f
+
+#########
+	test	ah, XML_T_OPEN | XML_T_CLOSE
+	jz	1f
+	printcharc 14, '<'
+	test	ah, XML_T_CLOSE
+	jz	1f
+	printcharc 14, '/'
+1:
+#########
+	pushcolor 15
+	call	nprint_
+	popcolor
+########
+	test	ah, XML_T_OPEN | XML_T_CLOSE
+	jz	1f
+	printcharc 14, '>'
+1:
+########
+
+
+	call	newline
+	jmp	0b
+
+
+9:	ret
+
+91:	printc 4, "xml parsed buffer malformed"
+	call	printhex8
+	call	newline
+	ret
+92:	printlnc 4, "xml: more close than open"
+	ret
+############################
 
 cmd_xml:
+	.if 0
+LOAD_TXT "OEUIEICMOEIRCTMORIEUTOIEOIRTJDMLKDSLKDSFLKJDFSJLKDSFJLKDSFJLKDSFJLKDSFLJKSDFJLKDsflkdsfljkdsflkjdsfjlkdsflkdsfjlkdsfjlkdsfjlkdflkdfjlklkdsfkfjldkdjldsfjklfdsjlkDFSJLKDFSJLKDFSJLKDFJLKDSFJLKFDSJLKFDJLKDFSJLKDFJLKDFJLKDFKJLDFJLKDFJKLDFSKJLDSFjlkdfsjlkdfsjlk END"
+call strlen_
+call nprint
+ret
+	.endif
 	lodsd
 	lodsd
 	or	eax, eax
@@ -294,7 +545,9 @@ cmd_xml:
 	jz	10f
 	.else
 	jnz 1f
-	LOAD_TXT "/d/www/index.html", eax
+	LOAD_TXT "/a/www/www.neonics.com/content/index.xml", eax
+	mov	dl, [boot_drive]
+	add	[eax+1], dl	# won't work for 2nd invocation
 1:
 	.endif
 
@@ -304,6 +557,8 @@ cmd_xml:
 	jc	8f
 	push	eax
 	call	xml_parse
+	printlnc 11, "parsed:"
+	call	xml_handle_parsed$
 	pop	eax
 8:	call	fs_close
 9:	ret
