@@ -7,6 +7,7 @@ XML_T_CLOSE	= 2
 XML_T_SINGULAR	= 4
 XML_T_PI	= 8
 XML_T_COMMENT	= 16
+XML_T_TEXT	= 32
 XML_T_ATTR	= 64
 
 # in: esi, ecx
@@ -23,12 +24,22 @@ xml_parse:
 	mov	ebx, eax	# ebx = outbuf
 	push	esi		# [ebp - 8] = xml in start
 	mov	edi, esi
+	push	ecx		# [ebp - 12] = xml in len
 
 0:	mov	al, '<'	
 DEBUG_DWORD ecx;
 .if XML_DEBUG > 1
 	DEBUG_DWORD esi; DEBUG_DWORD edi
 .endif
+
+	mov	esi, edi	# remember start
+push ecx
+cmp ecx, 20
+jb 1f
+mov ecx, 20
+1:
+call nprint
+pop ecx
 	repnz	scasb
 	jnz	91f
 	DEBUG "<"
@@ -46,14 +57,31 @@ DEBUG_DWORD ecx;
 ############
 # edi = end of tag
 # edx = start of tag
+# esi = end of prev tag
+
+	# store text:
+	push_	ecx edi
+	mov	ecx, edx
+	dec	ecx
+	sub	ecx, esi
+	jz	1f
+	mov	edi, ebx
+	mov	al, XML_T_TEXT
+	stosb
+	mov	eax, ecx
+	stosd
+	rep	movsb
+	mov	ebx, edi
+1:	pop_	edi ecx
+
 
 
 # eax	ah=flags
 # ebx	out
-# ecx	remaining
-# edx	tag start
-# esi	tagname end
-# edi	tag end
+# ecx	
+# edx	tag start (after initial <), will become tag content start
+# esi	tag content end
+# edi	tag end - parser position
 # ebp	stack
 
 	lea	esi, [edi - 2]	# tagname end
@@ -63,12 +91,11 @@ DEBUG_DWORD ecx;
 	cmp	[esi], byte ptr '?'
 	jnz	93f
 	inc	edx	# tag start
-#	dec	esi	# tag end
-#	dec	edx
-#	inc	esi
-	sub	ecx, 2	# not sure about this..
-	dec	edi	# another dec is done @ 1f
-#	sub	edi, 2	# still used for attrs
+
+	# edx = tag content start
+	# esi = tag content end
+	# edi = tag end
+
 	.if XML_DEBUG > 1
 		push_ ecx esi
 		mov	ecx, esi
@@ -112,6 +139,10 @@ DEBUG_DWORD ecx;
 	inc	edi		# end of comment tag
 	lea	esi, [edi -3]	# end of comment content
 	add	edx, 3		# start of comment content
+	# edx tag content start
+	# esi tag content end
+	# edi parser pos
+
 	mov	ah, XML_T_COMMENT
 	.if XML_DEBUG > 1
 		push_ esi ecx
@@ -123,6 +154,8 @@ DEBUG_DWORD ecx;
 		popcolor
 		pop_ ecx esi
 	.endif
+	mov	ecx, esi
+	sub	ecx, edx
 	jmp	3f	# no attrs
 
 2:
@@ -131,53 +164,37 @@ DEBUG_DWORD ecx;
 	mov	ah, XML_T_SINGULAR
 	cmp	byte ptr [edi -1], '/'
 	jz	1f
+
 	inc	esi
 
 	mov	ah, XML_T_OPEN
 	cmp	byte ptr [edx], '/'
 	jnz	1f
-
-	mov	ah, XML_T_CLOSE
 	inc	edx
-	dec	ecx
+	mov	ah, XML_T_CLOSE
 	# no attributes allowed
+	mov	ecx, esi
+	sub	ecx, edx
 	jmp	3f
 
-1:	# attributes allowed:
-		dec	edi
-	push	ecx
-	push	edi
-	mov	ecx, esi#edi
-	sub	ecx, edx
-	mov	edi, edx
-	.if XML_DEBUG > 1
-		DEBUG_DWORD ecx,"WHITE";DEBUG_DWORD esi;DEBUG_DWORD edx
-		push esi; mov esi, edi; pushcolor 0xf0;call nprint;popcolor;pop esi
-	.endif
-	mov	al, ' '
-	repnz	scasb	# edi = end or space.
-	jnz	2f
-	or	ah, XML_T_ATTR
-	lea	esi, [edi - 1]	# tagname end
-2:	
-	pop	edi
-	pop	ecx
-
+1:	call	xml_check_for_attrs$
 3:
 	PRINTFLAG ah, XML_T_OPEN, "OPEN"
 	PRINTFLAG ah, XML_T_CLOSE, "CLOSE"
 	PRINTFLAG ah, XML_T_SINGULAR, "SING"
 	PRINTFLAG ah, XML_T_PI, "PI"
+	PRINTFLAG ah, XML_T_TEXT, "TEXT"
 	PRINTFLAG ah, XML_T_COMMENT, "COMMENT"
 	PRINTFLAG ah, XML_T_ATTR, "ATTR"
 
-	.if XML_DEBUG > 1
+	.if 1#XML_DEBUG > 1
+		DEBUG "{"
 		push_ esi ecx;
-		mov	ecx, edi
-		sub	ecx, edx
+#		mov	ecx, esi
+#		sub	ecx, edx
 		mov	esi, edx
-		DEBUG_DWORD ecx,"PURPLE";DEBUG_DWORD edi;DEBUG_DWORD edx
-		pushcolor 0xd0;call nprint;popcolor;
+		pushcolor 0xd0;call nprint;popcolor; # pink
+		DEBUG "}"
 		pop_ ecx esi
 	.endif
 
@@ -189,11 +206,15 @@ DEBUG_DWORD ecx;
 	test	ah, XML_T_ATTR
 	jz	1f
 		DEBUG "attrs"
-		call xml_process_attrs$
+		add	edx, ecx
+		call xml_process_attrs$	# modifies eax, ebx
 		jc	0f
 1:
 		call	newline
-	or	ecx, ecx
+	
+	mov	ecx, [ebp - 12]	# in buf len
+	add	ecx, [ebp - 8]	# in buf start
+	sub	ecx, edi
 	jg	0b
 
 ############
@@ -234,6 +255,7 @@ DEBUG_DWORD ecx;
 # in: esi = end of tag name
 # in: edx = start of tag name
 # in: ebx = out ptr
+# in: ecx = tagname len
 # out: ebx = new out ptr
 xml_store_tagname$:
 	push	eax
@@ -256,11 +278,11 @@ jz 1f
 	jmp	10f
 
 1:
-	mov	ecx, esi #edi
-	sub	ecx, edx
-	#dec	ecx
-	DEBUG_DWORD ecx
-	jle	91f
+	#mov	ecx, esi #edi
+	#sub	ecx, edx
+	##dec	ecx
+	DEBUG_DWORD ecx,"TAG"
+	#jle	91f
 	cmp	ecx, 255
 	ja	92f
 
@@ -311,27 +333,57 @@ jz 1f
 	jmp	0b
 
 
+# in: edx = tag content start
+# in: esi = tag content end
+# out: ecx = len of tagname (1..(esi-edx))
+xml_check_for_attrs$:
+	# attributes allowed:
+	#	dec	edi
+	push_	edi edx
+	mov	ecx, esi
+	sub	ecx, edx	# ecx = tag content len
+	mov	edi, edx
+	mov	edx, ecx
+	.if 1#XML_DEBUG > 1
+		DEBUG_DWORD ecx,"WHITE";DEBUG_DWORD esi;DEBUG_DWORD edx
+		printchar [esi]
+		push esi; mov esi, edi; pushcolor 0xf0;call nprint;popcolor;pop esi
+	.endif
+	mov	al, ' '
+	repnz	scasb	# edi = end or space.
+	jnz	2f
+	or	ah, XML_T_ATTR
+	dec	edx
+	
+2:	neg	ecx
+	add	ecx, edx
+	pop_	edx edi
+	ret
+
+
+
+# in: edx = start of attribute data (possibly whitespace)
 # in: ah = XML_T_*
-# in: edi = end of tag
-# in: esi = end of tag name / start of attribute area (whitespace,...)
-# in: edx = start of tag name
+# in: edi = end of tag (ignore)
+# in: esi = end of tag content
 # in: ebx = out ptr
 # out: ebx = new out ptr
 xml_process_attrs$:
-	push_	ecx edx esi
+	push_	edi ecx edx esi
 	.if XML_DEBUG > 1
 		#dec edi
 		call newline
 		DEBUG "@"
-		DEBUG_DWORD edi,"edi/end"
+		DEBUG_DWORD edx
 		DEBUG_DWORD esi
 		mov al, [edi]
 		call printcharc
 	.endif
-	mov	ecx, edi
-	sub	ecx, esi
-#	dec	ecx
+	mov	ecx, esi
+	sub	ecx, edx
 	jle	9f
+	mov	esi, edx
+
 	.if XML_DEBUG > 1
 		push esi
 		pushcolor 0xe0
@@ -416,7 +468,7 @@ xml_process_attrs$:
 	jg	0b
 
 	clc
-9:	pop_	esi edx ecx
+9:	pop_	esi edx ecx edi
 	ret
 
 91:	printc 4, "malformed attribute"
@@ -474,10 +526,11 @@ xml_handle_parsed$:
 	PRINTFLAG ah, XML_T_CLOSE, "CLOSE"
 	PRINTFLAG ah, XML_T_SINGULAR, "SING"
 	PRINTFLAG ah, XML_T_PI, "PI"
+	PRINTFLAG ah, XML_T_TEXT, "TEXT"
 	PRINTFLAG ah, XML_T_COMMENT, "COMMENT"
 	PRINTFLAG ah, XML_T_ATTR, "ATTR"
 
-	test	ah, XML_T_COMMENT
+	test	ah, XML_T_COMMENT | XML_T_TEXT
 	jz	1f
 	sub	edx, 4
 	jl	91f
