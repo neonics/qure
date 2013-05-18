@@ -2,6 +2,42 @@
 .text32
 XML_DEBUG = 1
 
+#######################################
+# Binary XML output format:
+#
+# byte		flags	# only one flag used at a time
+# byte/dword	len	# DWORD for COMMENT, TEXT
+# len		data	# tag/attr/pi name, comment, text
+# dword		len	# only present for ATTR
+# len		data	# only present for ATTR
+#
+# XML:
+#
+# <abc>hello<a xmlns="http://"/></abc>
+#
+# Parsed:
+#
+# .byte XML_T_OPEN
+# .byte 3
+# .ascii "abc"
+#
+# .byte XML_T_TEXT
+# .long 5
+# .ascii "hello"
+#
+# .byte XML_T_SINGULAR
+# .byte 1
+# .ascii "a"
+#
+# .byte XML_T_ATTR
+# .byte 5
+# .ascii "xmlns"
+# .long 7
+# .ascii "http://"
+#
+# .byte XML_T_CLOSE
+# .byte 3
+# .ascii "abc"
 XML_T_OPEN	= 1
 XML_T_CLOSE	= 2
 XML_T_SINGULAR	= 4
@@ -17,7 +53,7 @@ xml_parse:
 	push	ebp
 	mov	ebp, esp
 
-	mov	eax, ecx
+	mov	eax, ecx	# NOTE! this value may not work for all xml!
 	call	buf_new
 	jc	90f
 	push	eax		# [ebp - 4] = out buffer
@@ -33,13 +69,15 @@ DEBUG_DWORD ecx;
 .endif
 
 	mov	esi, edi	# remember start
-push ecx
-cmp ecx, 20
-jb 1f
-mov ecx, 20
-1:
-call nprint
-pop ecx
+	.if XML_DEBUG > 1
+		push ecx
+		cmp ecx, 20
+		jb 1f
+		mov ecx, 20
+		1:
+		call nprint
+		pop ecx
+	.endif
 	repnz	scasb
 	jnz	91f
 	DEBUG "<"
@@ -211,6 +249,7 @@ pop ecx
 		jc	0f
 1:
 		call	newline
+		DEBUG_DWORD ebx
 	
 	mov	ecx, [ebp - 12]	# in buf len
 	add	ecx, [ebp - 8]	# in buf start
@@ -219,10 +258,13 @@ pop ecx
 
 ############
 
-	DEBUG "done"
 0:	mov	edx, ebx
+	DEBUG "done"
+DEBUG_DWORD ebx
 	mov	edi, [ebp - 4] # start of outbuf
+	DEBUG_DWORD edi
 	sub	edx, edi
+	DEBUG_DWORD edx
 	mov	esp, ebp
 	pop	ebp
 	ret
@@ -237,7 +279,7 @@ pop ecx
 	jmp	0b
 
 91:	printlnc 4, "no tags"
-	jmp	1b
+	jmp	0b#1b
 
 92:	printc 4, "xml_parse: format error: malformed tag at byte "
 	sub	edx, [ebp - 8]
@@ -393,7 +435,6 @@ xml_process_attrs$:
 		pop esi
 	.endif
 
-	#lea	edi, [esi + 1]
 0:	# skip whitespace
 	lodsb
 	.if XML_DEBUG > 1
@@ -436,6 +477,28 @@ xml_process_attrs$:
 		call	printspace
 		pop	ecx
 	.endif
+
+######	# store the tag name
+	push_	edi ecx
+	mov	esi, edx
+	mov	ecx, edi
+	sub	ecx, edx
+	dec	ecx
+	cmp	ecx, 255
+	stc
+	ja	1f
+	mov	al, XML_T_ATTR
+	mov	ah, cl
+	mov	edi, ebx
+	stosw
+	rep	movsb
+	xor	eax, eax
+	stosd	# the length of the value
+	clc	# unsure if needed
+	mov	ebx, edi
+1:	pop_	ecx edi
+	jc	94f
+######
 	
 	mov	al, [edi]
 	cmp	al, '"'
@@ -463,6 +526,20 @@ xml_process_attrs$:
 		pop	ecx
 	.endif
 
+######## # store the value
+	push_	edi ecx
+	mov	esi, edx
+	mov	ecx, edi
+	sub	ecx, edx
+	dec	ecx
+	lea	edi, [ebx - 4]	# overwrite the len
+	mov	eax, ecx
+	stosd
+	rep	movsb
+	mov	ebx, edi
+	pop_	ecx edi
+########
+
 	mov	esi, edi
 	or	ecx, ecx
 	jg	0b
@@ -485,6 +562,11 @@ xml_process_attrs$:
 	stc
 	jmp	9b
 
+94:	printlnc 4, "tag name too long (>255)"
+	call	newline
+	stc
+	jmp	9b
+	
 ############################
 xml_print_indent$:
 	push	ecx
@@ -499,6 +581,7 @@ xml_handle_parsed$:
 	mov	esi, edi
 	xor	ebx, ebx	# depth
 0:	
+	DEBUG_DWORD esi
 	DEBUG_WORD dx
 	dec	edx
 	js	9f
@@ -511,6 +594,8 @@ xml_handle_parsed$:
 	jz	1f
 	dec	ebx
 	js	92f
+#	jns	1f
+#	xor ebx, ebx
 1:
 	call	xml_print_indent$
 
@@ -521,6 +606,7 @@ xml_handle_parsed$:
 
 ########
 ########
+	DEBUG_BYTE ah
 
 	PRINTFLAG ah, XML_T_OPEN, "OPEN"
 	PRINTFLAG ah, XML_T_CLOSE, "CLOSE"
@@ -541,9 +627,32 @@ xml_handle_parsed$:
 	call	nprintln_
 	jmp	0b
 
-1:	
+1:	test	ah, XML_T_ATTR
+	jz	1f
 
 	dec	edx
+	jl	91f
+	lodsb
+	movzx	ecx, al
+	sub	edx, ecx
+	jl	91f
+	pushcolor 10
+	call	nprint_
+	popcolor
+	printc 14, "=\""
+
+	sub	edx, 4
+	jl	91f
+	lodsd
+	mov	ecx, eax
+	sub	edx, eax
+	jl	91f
+	call	nprint_
+	printcharc 14, '"'
+	jmp	0b
+
+
+1:	dec	edx
 	jle	91f
 	lodsb
 	movzx	ecx, al
