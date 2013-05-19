@@ -54,7 +54,7 @@ xml_parse:
 	mov	ebp, esp
 
 	mov	eax, ecx	# NOTE! this value may not work for all xml!
-	call	buf_new
+	call	mallocz
 	jc	90f
 	push	eax		# [ebp - 4] = out buffer
 	mov	ebx, eax	# ebx = outbuf
@@ -709,7 +709,8 @@ ret
 	jnz 1f
 	LOAD_TXT "/a/www/www.neonics.com/content/index.xml", eax
 	mov	dl, [boot_drive]
-	add	[eax+1], dl	# won't work for 2nd invocation
+	add	dl, 'a'
+	mov	[eax+1], dl
 1:
 	.endif
 
@@ -720,7 +721,10 @@ ret
 	push	eax
 	call	xml_parse
 	printlnc 11, "parsed:"
+	push	edi
 	call	xml_handle_parsed$
+	pop	eax
+	call	mfree
 	pop	eax
 8:	call	fs_close
 9:	ret
