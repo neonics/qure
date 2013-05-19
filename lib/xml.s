@@ -27,7 +27,7 @@ XML_IMPL_STRINGTABLE = 1
 # .long 5
 # .ascii "hello"
 #
-# .byte XML_T_SINGULAR
+# .byte XML_T_OPEN|XML_T_CLOSE
 # .byte 1
 # .ascii "a"
 #
@@ -42,7 +42,6 @@ XML_IMPL_STRINGTABLE = 1
 # .ascii "abc"
 XML_T_OPEN	= 1
 XML_T_CLOSE	= 2
-XML_T_SINGULAR	= 4
 XML_T_PI	= 8
 XML_T_COMMENT	= 16
 XML_T_TEXT	= 32
@@ -255,8 +254,8 @@ DEBUG_DWORD ecx;
 2:
 ##
 
-	mov	ah, XML_T_SINGULAR
-	cmp	byte ptr [edi -1], '/'
+	mov	ah, XML_T_OPEN | XML_T_CLOSE
+	cmp	byte ptr [esi], '/'
 	jz	1f
 
 	inc	esi
@@ -275,20 +274,15 @@ DEBUG_DWORD ecx;
 3:
 	PRINTFLAG ah, XML_T_OPEN, "OPEN"
 	PRINTFLAG ah, XML_T_CLOSE, "CLOSE"
-	PRINTFLAG ah, XML_T_SINGULAR, "SING"
 	PRINTFLAG ah, XML_T_PI, "PI"
 	PRINTFLAG ah, XML_T_TEXT, "TEXT"
 	PRINTFLAG ah, XML_T_COMMENT, "COMMENT"
 	PRINTFLAG ah, XML_T_ATTR, "ATTR"
 
-	.if 1#XML_DEBUG > 1
-		DEBUG "{"
+	.if XML_DEBUG > 1
 		push_ esi ecx;
-#		mov	ecx, esi
-#		sub	ecx, edx
 		mov	esi, edx
 		pushcolor 0xd0;call nprint;popcolor; # pink
-		DEBUG "}"
 		pop_ ecx esi
 	.endif
 
@@ -299,13 +293,14 @@ DEBUG_DWORD ecx;
 	jc	92f
 	test	ah, XML_T_ATTR
 	jz	1f
-		DEBUG "attrs"
 		add	edx, ecx
 		call xml_process_attrs$	# modifies eax, ebx
 		jc	2f
 1:
 		call	newline
+	.if XML_DEBUG > 1
 		DEBUG_DWORD ebx
+	.endif
 	
 	mov	ecx, [ebp + SV_XMLINLEN]	# in buf len
 	add	ecx, [ebp + SV_XMLIN]	# in buf start
@@ -667,12 +662,13 @@ xml_process_attrs$:
 	
 ############################
 xml_print_indent$:
-	push	ecx
+	push_	ecx eax
 	lea	ecx, [ebx *2]
 	jecxz	9f
-0:	call	printspace
+	mov	ax, (1<<8)|4
+0:	call	printcharc
 	loop	0b
-9:	pop	ecx
+9:	pop_	eax ecx
 	ret
 
 xml_handle_parsed$:
@@ -687,8 +683,8 @@ xml_handle_parsed$:
 
 ########
 	# todo: shift, adc/sbb optimize
-	test	ah, XML_T_CLOSE
-	jz	1f
+	cmp	ah, XML_T_CLOSE
+	jnz	1f
 	dec	ebx
 	js	92f
 #	jns	1f
@@ -696,8 +692,8 @@ xml_handle_parsed$:
 1:
 	call	xml_print_indent$
 
-	test	ah, XML_T_OPEN
-	jz	1f
+	cmp	ah, XML_T_OPEN
+	jnz	1f
 	inc	ebx
 1:	
 
@@ -708,7 +704,6 @@ xml_handle_parsed$:
 
 	PRINTFLAG ah, XML_T_OPEN, "OPEN"
 	PRINTFLAG ah, XML_T_CLOSE, "CLOSE"
-	PRINTFLAG ah, XML_T_SINGULAR, "SING"
 	PRINTFLAG ah, XML_T_PI, "PI"
 	PRINTFLAG ah, XML_T_TEXT, "TEXT"
 	PRINTFLAG ah, XML_T_COMMENT, "COMMENT"
@@ -795,8 +790,8 @@ xml_handle_parsed$:
 
 	#########
 		printcharc 14, '<'
-		test	ah, XML_T_CLOSE
-		jz	2f
+		cmp	ah, XML_T_CLOSE
+		jnz	2f
 		printcharc 14, '/'
 	2:	test	ah, XML_T_PI
 		jz	2f
@@ -883,10 +878,11 @@ xml_handle_parsed$:
 		jz	2f
 		printcharc 14, '?'
 	2:
-		test	ah, XML_T_OPEN | XML_T_CLOSE | XML_T_PI
-		jz	2f
-		printcharc 14, '>'
+		cmp	ah, XML_T_OPEN | XML_T_CLOSE
+		jnz	2f
+		printcharc 14, '/'
 	2:
+		printcharc 14, '>'
 	########
 
 	call	newline
@@ -921,7 +917,8 @@ ret
 	jz	10f
 	.else
 	jnz 1f
-	LOAD_TXT "/a/www/www.neonics.com/content/index.xml", eax
+	#LOAD_TXT "/a/www/www.neonics.com/content/index.xml", eax
+	LOAD_TXT "/a/www/www.neonics.com/style/layout.xsl", eax
 	mov	dl, [boot_drive]
 	add	dl, 'a'
 	mov	[eax+1], dl
