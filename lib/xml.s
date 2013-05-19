@@ -47,6 +47,7 @@ XML_T_PI	= 8
 XML_T_COMMENT	= 16
 XML_T_TEXT	= 32
 XML_T_ATTR	= 64
+XML_T_ATTR_DQ	= 128
 
 ########################################
 # new idea:
@@ -363,10 +364,22 @@ jz 1f
 	# comment tag format: byte type, dword len, data
 	mov	al, ah
 	stosb
+	mov	esi, edx
+.if XML_IMPL_STRINGTABLE
+	mov	eax, [ebp + SV_OUTSTRING_CUR]
+	stosd
+	mov	ebx, edi
+	mov	edi, eax
 	mov	eax, ecx
 	stosd
-	mov	esi, edx
 	rep	movsb
+	mov	[ebp + SV_OUTSTRING_CUR], edi
+.else
+	mov	eax, ecx
+	stosd
+	rep	movsb
+	mov	ebx, edi
+.endif
 	jmp	10f
 
 1:
@@ -558,7 +571,11 @@ xml_process_attrs$:
 	stc
 	ja	1f
 	mov	al, XML_T_ATTR
-	mov	ah, cl
+	cmp	byte ptr [edi], '"'
+	jnz	2f
+	or	al, XML_T_ATTR_DQ
+	PRINTC 0xb0, "DQ"
+2:	mov	ah, cl
 	mov	edi, ebx
 	stosw
 	rep	movsb
@@ -688,7 +705,7 @@ xml_handle_parsed$:
 .endif
 
 ##
-	test	ah, XML_T_COMMENT | XML_T_TEXT
+	test	ah, XML_T_TEXT
 	jz	1f
 	sub	edx, 4
 	jl	91f
@@ -697,6 +714,30 @@ xml_handle_parsed$:
 	sub	edx, eax
 	jl	91f
 	call	nprintln_
+	jmp	0b
+
+##
+1:	
+	test	ah, XML_T_COMMENT
+	jz	1f
+	sub	edx, 4
+	jl	91f
+	lodsd
+.if XML_IMPL_STRINGTABLE
+	printc 14, "<!--"
+	push	esi
+	mov	esi, eax
+	lodsd
+	mov	ecx, eax
+	call	nprint_
+	pop	esi
+	printlnc 14, "-->"
+.else
+	mov	ecx, eax
+	sub	edx, eax
+	jl	91f
+	call	nprintln_
+.endif
 	jmp	0b
 
 ##
@@ -709,6 +750,8 @@ xml_handle_parsed$:
 	movzx	ecx, al
 	sub	edx, ecx
 	jl	91f
+
+	printc 0xf0, "ATTR_OUT_OF_LINE "
 	pushcolor 10
 	call	nprint_
 	popcolor
@@ -785,20 +828,29 @@ xml_handle_parsed$:
 	movzx	ecx, al
 	sub	edx, ecx
 	jl	11f
-	pushcolor 10
-	call	printspace
-	call	nprint_
-	popcolor
-	printc 14, "=\""
-
+		pushcolor 10
+		call	printspace
+		call	nprint_
+		popcolor
+		printcharc 14, '='
 	sub	edx, 4
 	jl	11f
+	push	eax
 	lodsd
 	mov	ecx, eax
 	sub	edx, eax
+	pop	eax
 	jl	11f
+
+	test	ah, XML_T_ATTR_DQ
+	mov	ax, '\'' | (14<<8)
+	jz	12f
+	mov	al, '"'
+12:	call	printcharc
+
+
 	call	nprint_
-	printcharc 14, '"'
+	call	printcharc
 	jmp	10b
 
 11:	pop_	eax
