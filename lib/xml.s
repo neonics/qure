@@ -151,10 +151,21 @@ DEBUG_DWORD ecx;
 	mov	edi, ebx
 	mov	al, XML_T_TEXT
 	stosb
+.if XML_IMPL_STRINGTABLE
+	mov	eax, [ebp + SV_OUTSTRING_CUR]
+	stosd
+	mov	ebx, edi
+	mov	edi, eax
+	mov	eax, ecx
+	stosd
+	rep	movsb
+	mov	[ebp + SV_OUTSTRING_CUR], edi
+.else
 	mov	eax, ecx
 	stosd
 	rep	movsb
 	mov	ebx, edi
+.endif
 1:	pop_	edi ecx
 
 
@@ -710,11 +721,21 @@ xml_handle_parsed$:
 	sub	edx, 4
 	jl	91f
 	lodsd
+.if XML_IMPL_STRINGTABLE
+	push	esi
+	mov	esi, eax
+	lodsd
+	mov	ecx, eax
+	call	nprintln_
+	pop	esi
+.else
 	mov	ecx, eax
 	sub	edx, eax
 	jl	91f
 	call	nprintln_
+.endif
 	jmp	0b
+
 
 ##
 1:	
@@ -723,21 +744,21 @@ xml_handle_parsed$:
 	sub	edx, 4
 	jl	91f
 	lodsd
-.if XML_IMPL_STRINGTABLE
 	printc 14, "<!--"
+.if XML_IMPL_STRINGTABLE
 	push	esi
 	mov	esi, eax
 	lodsd
 	mov	ecx, eax
 	call	nprint_
 	pop	esi
-	printlnc 14, "-->"
 .else
 	mov	ecx, eax
 	sub	edx, eax
 	jl	91f
-	call	nprintln_
+	call	nprint_
 .endif
+	printlnc 14, "-->"
 	jmp	0b
 
 ##
