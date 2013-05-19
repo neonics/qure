@@ -2,6 +2,8 @@
 .text32
 XML_DEBUG = 1
 
+XML_IMPL_STRINGTABLE = 1
+
 #######################################
 # Binary XML output format:
 #
@@ -46,6 +48,33 @@ XML_T_COMMENT	= 16
 XML_T_TEXT	= 32
 XML_T_ATTR	= 64
 
+########################################
+# new idea:
+#
+# 2 buffers, the first containing a compact structure.
+# the second containing the strings.
+#
+# FIRST BUFFER
+#
+# Each entry will be similar to the idea before, except that
+# instead of a string length followed by a string, this will be
+# a string pointer into the second buffer.
+#
+# SECOND BUFFER
+#
+# This buffer contains entries: a dword indicating the length
+# followed by the (asciz) string with that length. The length does
+# not include the trailing zero, which is there for easy printing.
+#
+# 
+# TRANSITION
+#
+# The first step in the transition is to store tagnames
+# in the stringtable. In this first step, no effort is exerted to remove
+# duplicates, as this can only be done efficiently using a sorted hash.
+#
+#
+
 # in: esi, ecx
 # out: edi = parsed buf (mfree)
 # out: ecx = parsed buf size
@@ -53,14 +82,29 @@ xml_parse:
 	push	ebp
 	mov	ebp, esp
 
-	mov	eax, ecx	# NOTE! this value may not work for all xml!
+	SV_XMLIN	= -4
+	SV_XMLINLEN	= -8
+	SV_OUTBUF	= -12
+	SV_OUTSTRING	= -16
+	SV_OUTSTRING_CUR= -20
+
+	push	esi		# [ebp - 4] = xml in start
+	mov	edi, esi
+	push	ecx		# [ebp - 8] = xml in len
+
+
+	mov	eax, ecx
 	call	mallocz
 	jc	90f
-	push	eax		# [ebp - 4] = out buffer
+	push	eax		# [ebp - 12] = out buffer
 	mov	ebx, eax	# ebx = outbuf
-	push	esi		# [ebp - 8] = xml in start
-	mov	edi, esi
-	push	ecx		# [ebp - 12] = xml in len
+
+	mov	eax, ecx
+	call	mallocz
+	jc	95f
+	push	eax		# [ebp - 16] = out stringtab
+	push	eax		# [ebp - 20] = out stringtab cur pos
+
 
 0:	mov	al, '<'	
 DEBUG_DWORD ecx;
@@ -246,43 +290,48 @@ DEBUG_DWORD ecx;
 		DEBUG "attrs"
 		add	edx, ecx
 		call xml_process_attrs$	# modifies eax, ebx
-		jc	0f
+		jc	2f
 1:
 		call	newline
 		DEBUG_DWORD ebx
 	
-	mov	ecx, [ebp - 12]	# in buf len
-	add	ecx, [ebp - 8]	# in buf start
+	mov	ecx, [ebp + SV_XMLINLEN]	# in buf len
+	add	ecx, [ebp + SV_XMLIN]	# in buf start
 	sub	ecx, edi
 	jg	0b
 
 ############
 
-0:	mov	edx, ebx
+2:	mov	edx, ebx
 	DEBUG "done"
-DEBUG_DWORD ebx
-	mov	edi, [ebp - 4] # start of outbuf
-	DEBUG_DWORD edi
+	mov	edi, [ebp + SV_OUTBUF] # start of outbuf
 	sub	edx, edi
-	DEBUG_DWORD edx
-	mov	esp, ebp
+
+0:	mov	esp, ebp
 	pop	ebp
 	ret
 
-1:	mov	eax, [ebp - 4]
-	call	buf_free
+1:	mov	eax, [ebp + SV_OUTBUF]
+	call	mfree
+	mov	eax, [ebp + SV_OUTSTRING]
+	call	mfree
 	stc
 	jmp	0b
+
+
+95:	# 2nd alloc fail, free first:
+	mov	eax, [ebp + SV_OUTBUF]
+	call	mfree
+	# fallthrough
 
 90:	printlnc 4, "xml_parse: out of memory"
 	stc
 	jmp	0b
-
 91:	printlnc 4, "no tags"
-	jmp	0b#1b
+	jmp	2b
 
 92:	printc 4, "xml_parse: format error: malformed tag at byte "
-	sub	edx, [ebp - 8]
+	sub	edx, [ebp + SV_XMLIN]
 	call	printdec32
 	jmp	1b
 
@@ -298,6 +347,7 @@ DEBUG_DWORD ebx
 # in: edx = start of tag name
 # in: ebx = out ptr
 # in: ecx = tagname len
+# in: ebp = SV_ basepointer
 # out: ebx = new out ptr
 xml_store_tagname$:
 	push	eax
@@ -325,14 +375,27 @@ jz 1f
 	##dec	ecx
 	DEBUG_DWORD ecx,"TAG"
 	#jle	91f
+
+	mov	edi, ebx
+	mov	esi, edx
+
+.if XML_IMPL_STRINGTABLE
+	mov	al, ah
+	stosb
+	mov	eax, [ebp + SV_OUTSTRING_CUR]
+	stosd
+	mov	ebx, edi
+	mov	edi, eax
+	mov	eax, ecx
+	stosd
+.else
 	cmp	ecx, 255
 	ja	92f
 
-	mov	edi, ebx
 	mov	al, cl
 	xchg	al, ah
 	stosw		# flags, tagname len
-	mov	esi, edx
+.endif
 	# tag name:
 	# invalid characters: <, >, /,  , ', ", &, ;
 0:	lodsb
@@ -356,7 +419,14 @@ jz 1f
 	jz	9f
 	stosb
 	loop	0b
-10:	mov	ebx, edi
+10:	
+.if XML_IMPL_STRINGTABLE
+	xor	al, al
+	stosb
+	mov	[ebp + SV_OUTSTRING_CUR], edi
+.else
+	mov	ebx, edi
+.endif
 	clc
 
 0:	pop	edi
@@ -581,8 +651,7 @@ xml_handle_parsed$:
 	mov	esi, edi
 	xor	ebx, ebx	# depth
 0:	
-	DEBUG_DWORD esi
-	DEBUG_WORD dx
+#	DEBUG_DWORD esi; DEBUG_WORD dx
 	dec	edx
 	js	9f
 	lodsb
@@ -606,6 +675,7 @@ xml_handle_parsed$:
 
 ########
 ########
+.if XML_DEBUG > 1
 	DEBUG_BYTE ah
 
 	PRINTFLAG ah, XML_T_OPEN, "OPEN"
@@ -615,7 +685,9 @@ xml_handle_parsed$:
 	PRINTFLAG ah, XML_T_TEXT, "TEXT"
 	PRINTFLAG ah, XML_T_COMMENT, "COMMENT"
 	PRINTFLAG ah, XML_T_ATTR, "ATTR"
+.endif
 
+##
 	test	ah, XML_T_COMMENT | XML_T_TEXT
 	jz	1f
 	sub	edx, 4
@@ -627,6 +699,7 @@ xml_handle_parsed$:
 	call	nprintln_
 	jmp	0b
 
+##
 1:	test	ah, XML_T_ATTR
 	jz	1f
 
@@ -649,39 +722,107 @@ xml_handle_parsed$:
 	jl	91f
 	call	nprint_
 	printcharc 14, '"'
+	call	newline
 	jmp	0b
 
+##
+1:	test	ah, XML_T_OPEN | XML_T_CLOSE | XML_T_PI
+	jz	1f
 
-1:	dec	edx
-	jle	91f
+	#########
+		printcharc 14, '<'
+		test	ah, XML_T_CLOSE
+		jz	2f
+		printcharc 14, '/'
+	2:	test	ah, XML_T_PI
+		jz	2f
+		printcharc 14, '?'
+	2:
+	#########
+
+.if XML_IMPL_STRINGTABLE
+	sub	edx, 4
+	jl	91f
+	push	eax
+	lodsd	# string ptr
+#	DEBUG_DWORD eax,"STRINGPTR"
+
+		push_	esi
+		mov	esi, eax
+		lodsd
+		mov	ecx, eax
+		pushcolor 15
+		call	nprint
+		popcolor
+		pop_	esi
+	pop	eax
+
+.else
+	dec	edx
+	jl	91f
 	lodsb
 	movzx	ecx, al
 	sub	edx, ecx
 	jl	91f
 
-#########
-	test	ah, XML_T_OPEN | XML_T_CLOSE
-	jz	1f
-	printcharc 14, '<'
-	test	ah, XML_T_CLOSE
-	jz	1f
-	printcharc 14, '/'
-1:
-#########
-	pushcolor 15
+		pushcolor 15
+		call	nprint_
+		popcolor
+.endif
+
+	# nested handle of attributes
+	push_	eax
+10:	test	byte ptr [esi], XML_T_ATTR
+	jz	11f
+	dec	edx
+	js	11f
+	lodsb
+	mov	ah, al
+
+	dec	edx
+	jl	11f
+	lodsb
+	movzx	ecx, al
+	sub	edx, ecx
+	jl	11f
+	pushcolor 10
+	call	printspace
 	call	nprint_
 	popcolor
-########
-	test	ah, XML_T_OPEN | XML_T_CLOSE
-	jz	1f
-	printcharc 14, '>'
-1:
-########
+	printc 14, "=\""
 
+	sub	edx, 4
+	jl	11f
+	lodsd
+	mov	ecx, eax
+	sub	edx, eax
+	jl	11f
+	call	nprint_
+	printcharc 14, '"'
+	jmp	10b
+
+11:	pop_	eax
+	js	91f
+
+
+	########
+	2:	test	ah, XML_T_PI
+		jz	2f
+		printcharc 14, '?'
+	2:
+		test	ah, XML_T_OPEN | XML_T_CLOSE | XML_T_PI
+		jz	2f
+		printcharc 14, '>'
+	2:
+	########
 
 	call	newline
 	jmp	0b
-
+##
+1:	printc 4, "unknown xml item: "
+	mov	dl, ah
+	call	printhex2
+	call	newline
 
 9:	ret
 
@@ -720,12 +861,13 @@ ret
 	jc	8f
 	push	eax
 	call	xml_parse
+	jc	1f
 	printlnc 11, "parsed:"
 	push	edi
 	call	xml_handle_parsed$
 	pop	eax
 	call	mfree
-	pop	eax
+1:	pop	eax
 8:	call	fs_close
 9:	ret
 10:	printlnc 12, "usage:  xml <filename>"
