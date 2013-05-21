@@ -18,7 +18,7 @@ SOCK_READTTL	= 0x04000000	# prepend IP ttl (after peer)
 SOCK_READTTL_SHIFT = (24+2)
 
 # internal flags
-SOCK_PEER	= 0x00400000
+SOCK_PEER	= 0x00400000	# socket is 'forked' from SOCK_LISTEN on rx SYN
 SOCK_ACCEPTABLE	= 0x00200000
 .struct 0
 sock_addr:	.long 0
@@ -85,6 +85,21 @@ socket_open:
 	jc	91f
 	mov	[edi + edx + sock_in_buffer], eax
 
+	.if 1
+		test	dword ptr [edi + edx + sock_flags], SOCK_PEER
+		jnz	1f	# don't send SYN for peer sockets
+		cmp	[edi + edx + sock_proto], word ptr IP_PROTOCOL_TCP
+		jnz	1f
+		# connect
+		push	edx
+		mov	eax, [edi + edx + sock_addr]
+		movzx	edx, word ptr [edi + edx + sock_port]
+		call	net_ipv4_tcp_connect
+		pop	edx
+		mov	[edi + edx + sock_conn], eax
+	1:	clc
+	.endif
+
 1:	mov	eax, edx
 9:	MUTEX_UNLOCK_ SOCK
 	pop	ecx
@@ -119,6 +134,8 @@ socket_close:
 	jnz	1f
 	push	eax
 	mov	eax, [edx + eax + sock_conn]
+	cmp	eax, -1
+	jz	22f
 		push	eax
 		mov	eax, cs
 		and	al, 3
@@ -265,12 +282,11 @@ socket_get_lport:
 socket_read:
 	push	edx
 	mov	edx, 1
-##DEBUG "socket_read", 0xf0
 	call	socket_buffer_read
 	jc	9f
 	mov	edx, [esi + buffer_start]
 	call	socket_is_stream
-	jnz	1f
+	jnz	1f	# not tcp
 0:	add	[esi + buffer_start], ecx
 	add	esi, edx
 	clc
@@ -358,7 +374,7 @@ socket_buffer_read:
 	jnb	1f
 	cmp	ebx, [clock_ms]
 	jb	1f
-	YIELD
+	YIELD	# XXX FIXME: deschedule for certain amount of time
 	MUTEX_SPINLOCK_ SOCK
 	jmp	0b
 
@@ -715,6 +731,42 @@ net_socket_find_:
 	pop	edi
 	ret
 
+
+# These two are used for incoming data in TCP
+
+# in: eax = ip
+# in: edx = [proto] [port]
+# out: edx = socket idx
+net_socket_find_remote:
+	MUTEX_SPINLOCK_ SOCK
+	call	net_socket_find_remote_
+	MUTEX_UNLOCK_ SOCK
+	ret
+
+# in: eax = remote ip
+# in: edx = [proto] [port]
+# out: edx = socket idx
+# out: CF = 0: found 1: not found
+net_socket_find_remote_:
+	push	edi
+	push	ebx
+	push	ebp
+	mov	ebx, edx
+	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, edi, edx, 9f
+	mov	ebp, [edi + edx + sock_addr]
+	# don't check for 0, must have exact match
+	cmp	ebp, eax
+	jnz	3f
+1:	cmp	[edi + edx + sock_port], ebx	# compare proto and port
+	jz	1f
+3:	ARRAY_ENDL
+9:	stc
+1:	pop	ebp
+	pop	ebx
+	pop	edi
+	ret
+
+
 # in: eax = ip
 # in: edx = [proto] [port]
 # in: esi, ecx: packet
@@ -761,9 +813,15 @@ net_socket_write:
 	push	eax
 	mov	ebx, [socket_array]
 	mov	eax, [ebx + eax + sock_in_buffer]
+	or	eax, eax
+	jz	9f
 	call	buffer_write
-	pop	eax
+0:	pop	eax
 	pop	ebx
 	MUTEX_UNLOCK_ SOCK
 	ret
+9:	printc 4, "net_socket_write: in_buffer null for socket "
+	push edx; mov edx, [esp +4]; call printhex8; pop edx;
+	call newline
+	jmp	0b
 

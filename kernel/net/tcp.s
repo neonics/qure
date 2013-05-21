@@ -166,18 +166,24 @@ tcp_conn_state:		.byte 0
 	TCP_CONN_STATE_FIN_ACK_RX	= 128
 
 # rfc793:
+tcp_conn__state:	.byte 0
 # states:
-#TCP_CONN_STATE_LISTEN		= 1	# wait conn req from remote
-#TCP_CONN_STATE_SYN_SENT	= 2	# wait match conn req after tx conn req
-#TCP_CONN_STATE_SYN_RECEIVED	= 3	# wait conn req ack after rx/tx conn req
-#TCP_CONN_STATE_ESTABLISHED	= 4	# open connection, normal
-#TCP_CONN_STATE_FIN_WAIT_1	= 5	# wait rx (fin | ack for tx fin)
-#TCP_CONN_STATE_FIN_WAIT_2	= 6	# wait rx fin
-#TCP_CONN_STATE_CLOSE_WAIT	= 7	# wait local close command
-#TCP_CONN_STATE_CLOSING		= 8	# wait rx ack for tx fin
-#TCP_CONN_STATE_LAST_ACK	= 9	# wait rx ack for tx fin
-#TCP_CONN_STATE_TIME_WAIT	= 10	# delay ensure remote rx ack for rx fin
-#TCP_CONN_STATE_CLOSED		= 11	# fictional: no conn state
+TCP_CONN_STATE_LISTEN		= 1	# wait conn req from remote
+TCP_CONN_STATE_SYN_SENT		= 2	# wait match conn req after tx conn req
+TCP_CONN_STATE_SYN_RECEIVED	= 3	# wait conn req ack after rx/tx conn req
+TCP_CONN_STATE_ESTABLISHED	= 4	# open connection, normal
+TCP_CONN_STATE_FIN_WAIT_1	= 5	# wait rx (fin | ack for tx fin)
+TCP_CONN_STATE_FIN_WAIT_2	= 6	# wait rx fin
+TCP_CONN_STATE_CLOSE_WAIT	= 7	# wait local close command
+TCP_CONN_STATE_CLOSING		= 8	# wait rx ack for tx fin
+TCP_CONN_STATE_LAST_ACK		= 9	# wait rx ack for tx fin
+TCP_CONN_STATE_TIME_WAIT	= 10	# delay ensure remote rx ack for rx fin
+TCP_CONN_STATE_CLOSED		= 11	# fictional: no conn state
+
+###.....?
+# S: LISTEN->SYN_RECEIVED->ESTABLISHED
+# C: SYN_SENT->ESTABLISHED
+
 #
 # events:
 # * user calls		OPEN, SEND, RECEIVE, CLOSE, ABORT, STATUS
@@ -313,25 +319,15 @@ net_tcp_conn_get:
 	pop	ecx
 	ret
 
-
-# in: edx = ip frame pointer
-# in: esi = tcp frame pointer
-# in: ecx = tcp frame len
-# in: ebx = socket (or -1)
-# in: edi = handler [unrelocated]
-# out: eax = tcp_conn array index
-# out: CF = 1: out of memory
+# in: eax = remote ipv4
+# in: edx = (remote port << 16) | (local port)
+# in: ebx = local ipv4
+# in: edi = handler
+# out: eax = tcp_conn index
 net_tcp_conn_newentry:
 	MUTEX_SPINLOCK_ TCP_CONN
-	push	ecx
-	push	edx
+	push_	ecx edi edx eax
 
-	mov	ecx, edx	# ip frame
-	.if NET_TCP_CONN_DEBUG > 1
-		DEBUG "(tcp NewConn)"
-	.endif
-
-	push	edi
 	mov	edi, [clock_ms]
 	sub	edi, TCP_CONN_REUSE_TIMEOUT
 
@@ -344,64 +340,23 @@ net_tcp_conn_newentry:
 	cmp	edi, [eax + edx + tcp_conn_timestamp]
 	jnb	1f
 2:	ARRAY_ENDL
-9:
-	push	ecx	# remember ip frame
-	ARRAY_NEWENTRY [tcp_connections], TCP_CONN_STRUCT_SIZE, 4, 9f
-	jmp	2f
-9:	pop	ecx
 
-	pop	edi
-	pop	edx
-	pop	ecx
-	MUTEX_UNLOCK_ TCP_CONN
-	ret
-
-## newly allocated
-2:	pop	ecx	# ip frame
-
-1:	pop	edi
-	push	edx	# retval eax
-
-	mov	eax, [tcp_connections]
-
-	add	eax, edx
-
-	# eax = tcp_conn ptr
-	# ecx = ip frame
-	# edi = handler
-	# edx = free
+9:	ARRAY_NEWENTRY [tcp_connections], TCP_CONN_STRUCT_SIZE, 4, 9f
+1:	
+	add	eax, edx	# eax = abs conn ptr
+	xchg	edx, [esp]	# [esp]=eax retval; edx = ipv4
 
 	mov	[eax + tcp_conn_state], byte ptr 0
 	mov	[eax + tcp_conn_sock], dword ptr -1
+	mov	edi, [esp + 8]
 	mov	[eax + tcp_conn_handler], edi
 
-	mov	edx, [ecx + ipv4_src]
 	mov	[eax + tcp_conn_remote_addr], edx
-			.if NET_TCP_CONN_DEBUG > 1
-			DEBUG "remote"
-				push	eax
-				mov	eax, edx
-				call	net_print_ip
-				pop	eax
-			.endif
+	mov	[eax + tcp_conn_local_addr], ebx
 
-	mov	edx, [ecx + ipv4_dst]
-	mov	[eax + tcp_conn_local_addr], edx
-			.if NET_TCP_CONN_DEBUG > 1
-				DEBUG "local"
-				push	eax
-				mov	eax, edx
-				call	net_print_ip
-				pop	eax
-			.endif
-	mov	edx, [esi + tcp_sport]
-	ror	edx, 16
+	mov	edx, [esp + 4]
+	bswap	edx
 	mov	[eax + tcp_conn_local_port], edx
-			.if NET_TCP_CONN_DEBUG > 1
-				DEBUG "local port"
-				DEBUG_DWORD edx
-			.endif
-
 
 	mov	[eax + tcp_conn_local_seq], dword ptr 0
 	mov	[eax + tcp_conn_remote_seq], dword ptr 0
@@ -414,12 +369,8 @@ net_tcp_conn_newentry:
 	jnz	1f
 	mov	eax, TCP_CONN_BUFFER_SIZE
 	call	mallocz
-	jc	9f
-cmp eax,0x00400000
-jb 2f
-int 3
-2:
-clc
+	jc	91f
+
 	mov	[edx + tcp_conn_send_buf], eax
 	mov	[edx + tcp_conn_send_buf_size], dword ptr TCP_CONN_BUFFER_SIZE
 1:	mov	[edx + tcp_conn_send_buf_start], dword ptr 0
@@ -430,30 +381,38 @@ clc
 	jnz	1f
 	mov	eax, TCP_CONN_BUFFER_SIZE
 	call	mallocz
-	jc	9f
-cmp eax, 0x00400000
-jb 2f
-int 3
-2:
-clc
+	jc	91f
 
 	mov	[edx + tcp_conn_recv_buf], eax
 	mov	[edx + tcp_conn_recv_buf_size], dword ptr TCP_CONN_BUFFER_SIZE
 1:	mov	[edx + tcp_conn_recv_buf_start], dword ptr 0
 	mov	[edx + tcp_conn_recv_buf_len], dword ptr 0
 
-
-0:	MUTEX_UNLOCK_ TCP_CONN
-
-	pop	eax
-	pop	edx
-	pop	ecx
-	jnc	net_tcp_conn_update
-	# eax = tcp_conn array index, rest unmodified
+9:	pop_	eax edx edi ecx
+	MUTEX_UNLOCK_ TCP_CONN
 	ret
 
-9:	printlnc 4, "tcp: out of memory"
-	jmp	0b
+91:	printlnc 4, "tcp: can't allocate buffers"
+	stc
+	jmp	9b
+
+# in: edx = ip frame pointer
+# in: esi = tcp frame pointer
+# in: ecx = tcp frame len
+# in: ebx = socket (or -1)
+# in: edi = handler [unrelocated]
+# out: eax = tcp_conn array index
+# out: CF = 1: out of memory
+net_tcp_conn_newentry_from_packet:
+	push_	edx ebx
+	mov	eax, [edx + ipv4_src] # in: eax = remote ipv4
+	mov	ebx, [edx + ipv4_dst] # in: ebx = local ipv4
+	mov	edx, [esi + tcp_sport]
+	bswap	edx
+	ror	edx, 16 # in: edx = (remote port << 16) | (local port)
+	call	net_tcp_conn_newentry # out: eax = tcp_conn index
+	pop_	ebx edx
+	ret
 
 # in: eax = tcp_conn array index
 # in: edx = ip frame pointer
@@ -492,7 +451,7 @@ net_tcp_conn_update:
 		DEBUG "ack"
 		DEBUG_DWORD ebx
 	.endif
-0:	clc	# net_tcp_conn_newentry ends up here
+0:	clc	# net_tcp_conn_newentry_from_packet ends up here
 	pop	ebx
 	pop	edx
 	pop	eax
@@ -623,7 +582,32 @@ net_tcp_port_get:
 	tcp_port_counter: .word TCP_FIRST_PORT
 	.text32
 	mov	ax, [tcp_port_counter]
-	push	eax
+
+	cmp	ax, TCP_FIRST_PORT
+	jnz	1f
+
+########
+	push	ecx
+	xor	ecx, ecx
+	# initial setup
+2:	xor	ax, [clock_ms]
+	cmp	ax, TCP_FIRST_PORT
+	jnb	2f
+	inc	ecx
+	rol	ax, 3
+	xor	ax, 0x33aa
+	jmp	2b
+2:
+	cmp	ax, 0xff00
+	jb	2f
+	sub	ax, 0x00ff
+2:
+	DEBUG_DWORD ecx, "initial port iter count"
+	DEBUG_WORD ax, "initial port"
+	pop	ecx
+
+########
+1:	push	eax
 	inc	ax
 	cmp	ax, 0xff00
 	jb	0f
@@ -680,6 +664,50 @@ TCP_DEBUG_COL3   = 0x84
 	popcolor
 .endm
 
+
+# in: eax = ipv4
+# in: dx = port
+# out: eax = tcp_conn handle
+net_ipv4_tcp_connect:
+	push_	ebx edi
+
+	push	edx
+	call	net_route_get	# in: eax; out: ebx=nic, edx=gw
+	pop	edx
+	jc	9f
+
+	push	eax
+	call	nic_get_ipv4
+	mov	ebx, eax
+
+	call	net_tcp_port_get	# out: ax
+	and	edx, 0xffff
+	shl	eax, 16
+	or	edx, eax
+	pop	eax
+	# eax = remote ip
+	# ebx = local ip
+	# edx = [remote port][local port]
+	mov	edi, offset tcp_rx_sock
+	call	net_tcp_conn_newentry	# out: eax = tcp_conn handle
+	jc	9f
+
+	pushad
+	# send a SYN
+	# in: eax = tcp_conn array index
+	# in: dl = TCP flags (FIN,PSH)
+	# in: dh = 0: use own buffer; 1: esi has room for header before it
+	mov	dx, TCP_FLAG_SYN
+	# in: esi = payload
+	# in: ecx = payload len
+	xor	ecx, ecx
+	call	net_tcp_send
+	popad
+	clc
+
+9:	pop_	edi ebx
+	ret
+
 # in: edx = ipv4 frame
 # in: esi = tcp frame
 # in: ecx = tcp frame len
@@ -707,8 +735,12 @@ net_ipv4_tcp_handle:
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_SYN
 	jz	8f # its not a new or known connection
 
+	# 1f: return; 2f, 3f: print message.
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_ACK
-	jnz	1f # ACK must not be set on initial SYN.
+	jnz	2f # ACK must not be set on initial SYN.
+
+	cmp	[esi + tcp_ack_nr], dword ptr 0
+	jnz	3f	# ACK nr must not be set on initial SYN
 
 	.if NET_TCP_DEBUG
 		pushcolor TCP_DEBUG_COL_RX
@@ -738,7 +770,7 @@ net_ipv4_tcp_handle:
 	.if NET_TCP_DEBUG
 		printc TCP_DEBUG_COL, "tcp: ACCEPT SYN"
 	.endif
-	call	net_tcp_conn_newentry	# in: edx=ip fr, esi=tcp fr, edi=handler
+	call	net_tcp_conn_newentry_from_packet	# in: edx=ip fr, esi=tcp fr, edi=handler
 	jc	9f	# no more connections, send RST
 	call	net_tcp_handle_syn$
 	.if NET_TCP_DEBUG
@@ -762,6 +794,11 @@ net_ipv4_tcp_handle:
 #	MUTEX_UNLOCK_ TCP_CONN
 
 1:	ret
+
+2:	printc 4, "portscan detected: SYN+ACK"
+	ret
+3:	printc 4, "portscan detected: SYN, ack!=0"
+	ret
 
 	#
 8:	# unknown connection, not SYN
@@ -810,6 +847,7 @@ net_tcp_handle:
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_SYN
 	jz	0f
 	.if NET_TCP_DEBUG
+		# this is false on locally initiated connections
 		printc	TCP_DEBUG_COL_RX, "dup SYN"
 	.endif
 0:
@@ -873,7 +911,36 @@ net_tcp_handle:
 	.endif
 	#ret
 ########
-0:	call	net_tcp_handle_payload$
+0:	
+	# this is only meant for locally initiated connections,
+	# on receiving a SYN+ACK to our SYN
+	# since this method is not called unless the connection is known,
+	# this test, which would match portscanners, would not be executed.
+	cmp	[esi + tcp_flags + 1], byte ptr (TCP_FLAG_SYN)|(TCP_FLAG_ACK)
+	jnz	1f
+	# got a SYN+ACK for a known connection: must be one we initiated.
+	MUTEX_SPINLOCK_ TCP_CONN
+	push_	eax edx
+	add	eax, [tcp_connections]
+
+	mov	dl, [eax + tcp_conn_state]
+	test	dl, TCP_CONN_STATE_SYN_RX
+	jnz	2f	# already received a SYN
+	mov	edx, [esi + tcp_seq]
+	bswap	edx
+	inc	edx
+	mov	[eax + tcp_conn_remote_seq_base], edx
+	mov	[eax + tcp_conn_remote_seq], edx
+2:	
+	pop_	edx eax
+	MUTEX_UNLOCK_ TCP_CONN
+
+	pushad
+	call	net_tcp_conn_send_ack
+	popad
+1:
+################
+	call	net_tcp_handle_payload$
 
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_PSH
 	jz	0f
@@ -912,7 +979,7 @@ tcp_rx_sock:
 	xchg	dl, dh
 	mov	eax, [eax + tcp_conn_remote_addr]
 	MUTEX_UNLOCK_ TCP_CONN
-	call	net_socket_find
+	call	net_socket_find_remote
 	jc	9f
 #	DEBUG "Got socket"
 	mov	eax, edx
@@ -1060,7 +1127,7 @@ jz	9f
 	pushad
 	call	net_tcp_conn_list
 	popad
-	int	1
+	int	3
 	jmp	0b
 
 # in: eax = tcp connection index
@@ -1082,23 +1149,28 @@ net_tcp_conn_update_ack:
 	mov	edx, [eax + tcp_conn_tx_fin_seq]
 	bswap	edx
 	cmp	edx, [esi + tcp_ack_nr]
-	jnz	1f
+	jnz	1f	# ack is not for our tx fin
+	or	bh, TCP_CONN_STATE_FIN_ACK_RX
 	# Connection closed now, free buffer:
 	push	eax
 	mov	eax, [eax + tcp_conn_send_buf]
 	call	mfree
 	pop	eax
 	mov	[eax + tcp_conn_send_buf], dword ptr 0
+
 	test	bl, TCP_CONN_STATE_FIN_ACK_RX|TCP_CONN_STATE_FIN_ACK_TX
-	jz	1f
+	jz	2f
 	mov	[esp + 4], dword ptr -1	# return eax = -1
-1:
-	#
-	or	bh, TCP_CONN_STATE_FIN_ACK_RX
-1:	test	bl, TCP_CONN_STATE_SYN_TX
-	jz	1f
+2:
+
+1:	# ack is not for our tx fin
+
+########
+	test	bl, TCP_CONN_STATE_SYN_TX
+	jz	3f
 	or	bh, TCP_CONN_STATE_SYN_ACK_RX
-1:	or	[eax + tcp_conn_state], bh
+3:	or	[eax + tcp_conn_state], bh
+
 	pop	ebx
 	pop	eax
 	pop	edx
@@ -1142,6 +1214,7 @@ net_tcp_sendbuf:
 
 	MUTEX_UNLOCK TCP_CONN
 ########
+	clc
 	jecxz	0f		# all data copied to buffer
 
 	# data doesn't fit.
@@ -1402,10 +1475,12 @@ net_tcp_send:
 	pop	ebx
 1:
 
-
-	mov	ax, TCP_FLAG_ACK| ((TCP_HEADER_SIZE/4)<<12)
+	mov	ax, ((TCP_HEADER_SIZE/4)<<12)
 	or	al, dl	# additional flags
-	xchg	al, ah
+	test	al, TCP_FLAG_SYN
+	jnz	1f
+	or	al, TCP_FLAG_ACK
+1:	xchg	al, ah
 	mov	[edi + tcp_flags], ax
 
 	.if NET_TCP_DEBUG
@@ -1439,27 +1514,33 @@ net_tcp_send:
 0:
 	# calculate checksum
 
+	push	edx
 	mov	edx, [ebp]		# in: edx = ipv4 src, dst ptr
 	add	edx, [tcp_connections]
 	add	edx, offset tcp_conn_local_addr
 	mov	esi, edi		# in: esi = tcp frame pointer
 	add	ecx, TCP_HEADER_SIZE	# in: ecx = tcp frame len
 	call	net_tcp_checksum
-	MUTEX_UNLOCK_ TCP_CONN
+	pop	edx
 
-	# send packet
+	# packet is ready to be sent. Update tcp_conn first, since the
+	# send-packet call is asynchronous, and it's response may be
+	# handled before the connection state would be updated.
 
-	pop	esi
-	add	ecx, edi	# add->mov ?
-	sub	ecx, esi
-	call	[ebx + nic_api_send]
-	jc	9f
-
+########
 	# update flags
-	MUTEX_SPINLOCK_ TCP_CONN
 	mov	eax, [ebp]	# tcp_conn_idx
 	add	eax, [tcp_connections]
 	mov	dh, [eax + tcp_conn_state]
+
+	cmp	dl, TCP_FLAG_SYN	# 
+	jnz	1f
+	or	dh, TCP_CONN_STATE_SYN_TX
+
+		# record the SYN as 1 payload
+		inc	dword ptr [eax + tcp_conn_local_seq]
+		or	dh, TCP_CONN_STATE_SYN_TX
+1:
 
 	test	dl, TCP_FLAG_FIN
 	jz	1f
@@ -1471,7 +1552,14 @@ net_tcp_send:
 	or	dh, TCP_CONN_STATE_FIN_ACK_TX
 1:	or	[eax + tcp_conn_state], dh
 	MUTEX_UNLOCK_ TCP_CONN
+########
+	# send packet
 
+	pop	esi
+	add	ecx, edi	# add->mov ?
+	sub	ecx, esi
+	call	[ebx + nic_api_send]
+	jc	9f
 9:	pop	ebp
 	pop	eax
 	pop	ebx

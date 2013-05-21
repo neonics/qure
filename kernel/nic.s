@@ -195,6 +195,12 @@ nic_get_by_network:
 	ret
 .endif
 
+# in: ebx = nic
+# out: eax = ipv4
+nic_get_ipv4:
+	mov	eax, [ebx + nic_ip]	# NEW: ebx = abs!
+	ret
+
 # in: eax = ip
 # out: ebx = nic
 nic_get_by_ipv4:
