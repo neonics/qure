@@ -590,7 +590,7 @@ mov	[screen_update], dword ptr offset gfx_txt_screen_update
 .endif
 .endif
 
-.if 1
+.if 0
 0:xor eax,eax
 call keyboard
 	push	edx
