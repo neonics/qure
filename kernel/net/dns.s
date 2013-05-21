@@ -1048,8 +1048,14 @@ dns_resolve_name:
 		.endif
 
 		# verify question/answer:
-		cmp	dword ptr [esi + dns_questions], 0x01000100
+		mov	ebx, [esi + dns_questions]
+		bswap	ebx	# bx = answers, high ebx = questions
+		cmp	bx, 1
+		jb	1f
+		shr	ebx, 16
+		cmp	ebx, 1
 		jnz	1f
+
 		.if NET_DNS_DEBUG > 1
 			DEBUG "q/a"
 		.endif
