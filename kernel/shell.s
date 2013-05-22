@@ -20,29 +20,6 @@ CMDLINE_DEBUG = 1	# 1: include cmdline_print_args$;
 			# 2: 
 SHELL_DEBUG_FS = 0
 
-MAX_CMDLINE_LEN = 1024
-
-.struct 0
-cmdline_buf:		.space MAX_CMDLINE_LEN
-cmdline_len:		.long 0
-cmdline_cursorpos:	.long 0
-cmdline_insertmode:	.byte 0
-cmdline_prompt_len:	.long 0 # "the_prefix> ".length
-cmdline_cwd:		.space MAX_PATH_LEN
-cmdline_cwd_handle:	.long 0
-cmdline_cd_cwd:	.space MAX_PATH_LEN
-
-cmdline_history:	.long 0	# list/array/linked list.
-cmdline_history_current:.long 0 # the current array item offset (up/down keys)
-
-MAX_CMDLINE_ARGS = 256
-cmdline_argdata:	.space MAX_CMDLINE_LEN + MAX_CMDLINE_ARGS
-cmdline_args:		.space MAX_CMDLINE_ARGS * 4
-
-cmdline_tokens_end:	.long 0
-cmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
-
-CMDLINE_STRUCT_SIZE = .
 
 ############################################################################
 
@@ -101,6 +78,33 @@ SHELL_COMMAND_STRUCT_SIZE = .
 ############################################################################
 
 .if DEFINE	# begin definitions (code, data)
+############################################################################
+MAX_CMDLINE_LEN = 1024
+MAX_CMDLINE_ARGS = 256
+
+DECLARE_CLASS_BEGIN cmdline
+cmdline_buf:		.space MAX_CMDLINE_LEN
+cmdline_len:		.long 0
+cmdline_cursorpos:	.long 0
+cmdline_insertmode:	.byte 0
+cmdline_prompt_len:	.long 0 # "the_prefix> ".length
+cmdline_history:	.long 0	# list/array/linked list.
+cmdline_history_current:.long 0 # the current array item offset (up/down keys)
+DECLARE_CLASS_METHOD cmdline_constructor, cmdline_init
+DECLARE_CLASS_END cmdline
+############################################################################
+DECLARE_CLASS_BEGIN shell, cmdline
+shell_cwd:		.space MAX_PATH_LEN
+shell_cwd_handle:	.long 0
+shell_cd_cwd:		.space MAX_PATH_LEN
+
+cmdline_argdata:	.space MAX_CMDLINE_LEN + MAX_CMDLINE_ARGS
+cmdline_args:		.space MAX_CMDLINE_ARGS * 4
+
+cmdline_tokens_end:	.long 0
+cmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
+
+DECLARE_CLASS_END shell
 ############################################################################
 ### Shell Command list
 .data SECTION_DATA_SHELL_CMDS
@@ -216,25 +220,33 @@ SHELL_COMMAND "xml"		cmd_xml
 ############################################################################
 
 .text32	
-.code32
+cmdline_init:
+	push	ebx
+	mov	ebx, eax
+	mov	[ebx + cmdline_insertmode], byte ptr 1
+	call	cmdline_history_new
+	pop	ebx
+	jc	9f
+	ret
+
+9:	printlnc 4, "cmdline: out of memory"
+	stc
+	ret
 
 ########################################################
 # do not call: call shell.
 shell_init$:
-	mov	eax, CMDLINE_STRUCT_SIZE
-	call	mallocz
-	jc	9f
-	mov	ebx, eax
-	mov	[ebx + cmdline_insertmode], byte ptr 1
-	mov	[ebx + cmdline_cwd], word ptr '/'
-
-	call	cmdline_history_new
+	mov	eax, offset class_shell
+	call	class_newinstance
 	jc	9f
 
+	call	[eax + cmdline_constructor]
+	mov	[eax + shell_cwd], word ptr '/'
 	ret
 
 9:	printlnc 4, "shell: out of memory"
 	add	esp, 4
+	stc
 	ret
 
 ########################################################
@@ -242,7 +254,8 @@ shell_init$:
 shell:	push	ds
 	pop	es
 
-	call	shell_init$	# out: ebx
+	call	shell_init$	# out: eax = shell instance
+	mov	ebx, eax	# calling convention for shell
 
 	push	ebp
 	push	ebx
@@ -252,9 +265,9 @@ shell:	push	ds
 
 	#
 
-	lea	eax, [ebx + cmdline_cwd]
+	lea	eax, [ebx + shell_cwd]
 	call	fs_opendir
-	mov	[ebx + cmdline_cwd_handle], eax
+	mov	[ebx + shell_cwd_handle], eax
 
 start$:
 	call	newline_if
@@ -568,7 +581,7 @@ cmdline_print$:
 
 	mov	ah, 7
 	mov	esi, [ebp] # shell_instance
-	lea	esi, [esi + cmdline_cwd]
+	lea	esi, [esi + shell_cwd]
 	call	__print
 
 	mov	ah, 15
@@ -814,6 +827,7 @@ CMDLINE_HISTORY_SHARE = 1	# 0 = singleton
 
 # in: ebx = shell instance
 cmdline_history_new:	
+	push	eax
 	mov	eax, [ebx + cmdline_history]
 	or	eax, eax
 	.if CMDLINE_HISTORY_SHARE
@@ -825,6 +839,7 @@ cmdline_history_new:
 	call	buf_new
 	mov	[ebx + cmdline_history], eax
 1:	mov	[ebx + cmdline_history_current], dword ptr 0
+	pop	eax
 	ret
 
 # in: ebx = shell instance
@@ -965,7 +980,7 @@ cmd_quit$:
 	pop	ebx	# shell instance
 	call	cmdline_history_delete
 
-	mov	eax, [ebx + cmdline_cwd_handle]
+	mov	eax, [ebx + shell_cwd_handle]
 	call	fs_close
 
 	mov	eax, ebx
@@ -975,7 +990,7 @@ cmd_quit$:
 	ret
 
 cmd_pwd$:
-	lea	esi, [ebx + cmdline_cwd]
+	lea	esi, [ebx + shell_cwd]
 	call	println
 	ret
 
@@ -1199,28 +1214,28 @@ cmd_cd$:
 1:
 
 	push	esi
-	lea	esi, [ebx + cmdline_cwd]
-	lea	edi, [ebx + cmdline_cd_cwd]
+	lea	esi, [ebx + shell_cwd]
+	lea	edi, [ebx + shell_cd_cwd]
 	mov	ecx, MAX_PATH_LEN
 	rep	movsb
 	pop	esi
-	lea	edi, [ebx + cmdline_cd_cwd]
+	lea	edi, [ebx + shell_cd_cwd]
 	call	fs_update_path
 ##############################################################################
 		cmp	byte ptr [esp], 0
 		jz	1f
 		printc 10, "chdir "
-		lea	esi, [ebx + cmdline_cd_cwd]
+		lea	esi, [ebx + shell_cd_cwd]
 		call	println
 	1:
 
-	mov	eax, [ebx + cmdline_cwd_handle]
+	mov	eax, [ebx + shell_cwd_handle]
 	call	fs_close
 
-	lea	eax, [ebx + cmdline_cd_cwd]
+	lea	eax, [ebx + shell_cd_cwd]
 	call	fs_opendir
 	jc	6f
-	mov	[ebx + cmdline_cwd_handle], eax
+	mov	[ebx + shell_cwd_handle], eax
 
 	.if SHELL_DEBUG_FS
 	call	fs_handle_printinfo
@@ -1229,9 +1244,9 @@ cmd_cd$:
 
 	# copy path:
 	mov	ecx, edi
-	lea	esi, [ebx + cmdline_cd_cwd]
+	lea	esi, [ebx + shell_cd_cwd]
 	sub	ecx, esi
-	lea	edi, [ebx + cmdline_cwd]
+	lea	edi, [ebx + shell_cwd]
 	rep	movsb
 
 	# make sure path ends with /, and also make sure it's zero terminated
@@ -1267,18 +1282,18 @@ cmd_ls$:
 	lodsd
 	lodsd
 
-	lea	esi, [ebx + cmdline_cwd]
-	lea	edi, [ebx + cmdline_cd_cwd]
+	lea	esi, [ebx + shell_cwd]
+	lea	edi, [ebx + shell_cd_cwd]
 	mov	ecx, MAX_PATH_LEN
 	rep	movsb
 
 	or	eax, eax
 	jz	0f
 	mov	esi, eax
-	lea	edi, [ebx + cmdline_cd_cwd]
+	lea	edi, [ebx + shell_cd_cwd]
 	call	fs_update_path
 0:
-	lea	eax, [ebx + cmdline_cd_cwd]
+	lea	eax, [ebx + shell_cd_cwd]
 	mov	esi, eax	# for print (twice) below
 
 	.if SHELL_DEBUG_FS
@@ -1408,7 +1423,7 @@ cmd_cat$:
 	88: .space MAX_PATH_LEN
 	.text32
 	push	esi
-	lea	esi, [ebx + cmdline_cwd]
+	lea	esi, [ebx + shell_cwd]
 	mov	edi, offset 88b
 	mov	ecx, MAX_PATH_LEN
 	rep	movsb
@@ -1692,6 +1707,8 @@ cmd_ping_host:
 	.data
 	0:
 	STRINGPTR "ping"
+	STRINGPTR "-n"
+	STRINGPTR "1"
 	STRINGPTR "192.168.1.10"
 	STRINGNULL
 	.text32
