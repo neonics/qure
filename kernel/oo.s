@@ -251,12 +251,19 @@ class_init_vptr$:
 	jnz	3f
 	#############
 	push	esi
+	add	edi, ebx
 	mov	esi, [esi + class_decl_mptr]
 0:	lodsd	# flags | idx
 	lodsd	# target (override) or name (decl)
 	lodsd	# function offset
-	stosd	# store in vptr
-	loop	0b
+	cmp	dword ptr [edi], 0	# don't overwrite
+	jnz	4f
+	#stosd	# store in vptr
+	mov	[edi], eax
+4:	add	edi, 4
+	#loop	0b
+	dec ecx; jnz 0b
+	sub	edi, ebx
 	pop	esi
 	jmp	1f
 2:	printc 4, "warning: vptr 0 yet "
@@ -322,7 +329,6 @@ class_init_vptr$:
 
 
 # in: eax = obj
-# in: esi = class def
 _obj_print_methods$:
 	push_	eax edi edx ebx esi ecx
 	mov	ebx, eax
