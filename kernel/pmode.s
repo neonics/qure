@@ -427,7 +427,7 @@ return_realmode:
 
 	# enter realmode
 	mov	eax, cr0
-	and	al, 0xfe
+	and	eax, ~0x80000001 # 8: paging; 1: pmode
 	mov	cr0, eax
 
 	# PLACE NO CODE HERE - serialize CPU to reload code segment
