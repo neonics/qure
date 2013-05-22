@@ -92,23 +92,23 @@ xml_parse:
 	mov	edi, esi
 	push	ecx		# [ebp - 8] = xml in len
 
-
-	mov	eax, ecx
+	# allocate 4x the source size.
+	# the first half is for the tag structures
+	# the second half is for the strings.
+	lea	eax, [ecx * 4]
 	call	mallocz
 	jc	90f
 	push	eax		# [ebp - 12] = out buffer
 	mov	ebx, eax	# ebx = outbuf
 
-	mov	eax, ecx
-	call	mallocz
-	jc	95f
+	lea	eax, [eax + ecx * 2]
 	push	eax		# [ebp - 16] = out stringtab
 	push	eax		# [ebp - 20] = out stringtab cur pos
 
 
 0:	mov	al, '<'	
-DEBUG_DWORD ecx;
 .if XML_DEBUG > 1
+	DEBUG_DWORD ecx;
 	DEBUG_DWORD esi; DEBUG_DWORD edi
 .endif
 
@@ -310,7 +310,6 @@ DEBUG_DWORD ecx;
 ############
 
 2:	mov	edx, ebx
-	DEBUG "done"
 	mov	edi, [ebp + SV_OUTBUF] # start of outbuf
 	sub	edx, edi
 
@@ -392,7 +391,7 @@ jz 1f
 	#mov	ecx, esi #edi
 	#sub	ecx, edx
 	##dec	ecx
-	DEBUG_DWORD ecx,"TAG"
+	#DEBUG_DWORD ecx,"TAG"
 	#jle	91f
 
 	mov	edi, ebx
@@ -804,7 +803,6 @@ xml_handle_parsed$:
 	jl	91f
 	push	eax
 	lodsd	# string ptr
-#	DEBUG_DWORD eax,"STRINGPTR"
 
 		push_	esi
 		mov	esi, eax
