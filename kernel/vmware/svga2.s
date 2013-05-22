@@ -886,8 +886,8 @@ cmd_gfx:
 
 	mov	dx, [ebx + dev_io]
 
-	VID_WRITE WIDTH, 1024
-	VID_WRITE HEIGHT, 768
+	VID_WRITE WIDTH, 1600#1024
+	VID_WRITE HEIGHT, 900#768
 	VID_WRITE BITS_PER_PIXEL, 32
 
 	VID_WRITE ENABLE, 1	# even without writing w/h it'll switch mode
@@ -919,10 +919,14 @@ cmd_gfx:
 	mov	edi, [ebx + vid_fb_addr]
 	mov	[vidfbuf], edi
 
-	mov	[vidw], dword ptr 1024
-	mov	[vidh], dword ptr 768
-	mov	[vidbpp], dword ptr 4*8
-	mov	[vidb], dword ptr 4
+	VID_READ WIDTH
+	mov	[vidw], eax #dword ptr 1024
+	VID_READ HEIGHT
+	mov	[vidh], eax #dword ptr 768
+	VID_READ BITS_PER_PIXEL
+	mov	[vidbpp], eax#dword ptr 4*8
+	shr	eax, 3
+	mov	[vidb], eax#dword ptr 4
 
 	mov	eax, [screen_update]
 	mov	[screen_update_old], eax
