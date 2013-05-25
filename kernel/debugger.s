@@ -254,6 +254,61 @@ debug_getsymbol:
 9:	ret
 
 
+# in: edx = symbol name string ptr
+# out: edx = symbol address
+# out: CF
+debug_findsymboladdr:
+	mov	esi, [kernel_symtab]
+	or	esi, esi
+	stc
+	jz	9f
+
+	push_	eax ecx ebx edi
+	mov	edi, edx	# backup
+	mov	eax, edx	# arg sym name
+	call	strlen
+	mov	edx, eax	# edx = strlen of sym to find
+
+	##
+
+	lodsd	# first dword: nr of hex addresses, and symbols.
+	lea	ebx, [esi + eax * 8]	# start of string table
+
+	lea	esi, [esi + eax * 4]	# start of string ptr
+	mov	ecx, eax
+
+########
+	# the ecx dwords found at esi are relative to ebx
+0:	lodsd
+	push_	esi ecx
+	mov	ecx, [esi]	# next ptr
+	sub	ecx, eax	# cur ptr
+	dec	ecx		# it includes the 0 delim
+
+	cmp	ecx, edx	# compare string lengths
+	jnz	1f
+
+	lea	esi, [ebx + eax]	# point to string
+
+	push	edi
+	repz	cmpsb
+	pop	edi
+
+1:	pop_	ecx esi
+	jz	1f
+	loop	0b
+	stc
+########
+0:	pop_	edi ebx ecx eax
+9:	ret
+
+1:	mov	ebx, [kernel_symtab]
+	mov	edx, [ebx]	# nr of entries
+	sub	edx, ecx
+	lea	edx, [ebx + 4 + edx * 4]
+	mov	edx, [edx]
+	jmp	0b
+
 # Expects symboltable sorted by address.
 #
 # in: edx
@@ -711,6 +766,8 @@ debugger:
 	jz	69f
 	cmp	al, 'u'	# memory
 	jz	3f
+	cmp	al, 'e' # cmdline
+	jz	33f
 	jmp	6b
 
 10:	mov	edi, [ebp]
@@ -785,6 +842,81 @@ debugger:
 
 3:	call	mem_print_handles
 	jmp	0b
+
+33:	call	debugger_handle_cmdline$
+	jmp	0b
+
+
+#######################################
+DECLARE_CLASS_BEGIN debugger_cmdline, cmdline
+DECLARE_CLASS_METHOD cmdline_api_print_prompt, debugger_print_prompt$, OVERRIDE
+DECLARE_CLASS_METHOD cmdline_api_execute, debugger_execute$, OVERRIDE
+DECLARE_CLASS_END debugger_cmdline
+.data SECTION_DATA_BSS
+debugger_cmdline$:	.long 0
+.text32
+
+debugger_cmdline_init$:
+	mov	eax, [debugger_cmdline$]
+	or	eax, eax
+	jnz	1f
+	mov	eax, offset class_debugger_cmdline
+	call	class_newinstance
+	jc	9f
+	mov	[debugger_cmdline$], eax
+	call	[eax + cmdline_constructor]
+1:	ret
+
+9:	printlnc 4, "debugger: failed to instantiate cmdline"
+	stc
+	ret
+
+debugger_print_prompt$:
+	LOAD_TXT "debugger"
+	mov	ecx, 8
+	mov	ah, 12
+0:	lodsb
+	stosw
+	loop	0b
+	ret
+
+# in: ebx
+debugger_execute$:
+	call	cmdline_execute$	# tokenize
+	.if 0
+		push	ebx
+		lea	esi, [ebx + cmdline_tokens]
+		mov	ebx, [ebx + cmdline_tokens_end]
+		call	printtokens
+		pop	ebx
+	.endif
+
+	lea	esi, [ebx + cmdline_args]
+	lodsd
+	or	eax, eax
+	jz	9f
+	cmp	dword ptr [eax], 'e'|('x'<<8)|('i'<<16)|('t'<<24)
+	jnz	9f
+	cmp	byte ptr [eax+4], 0
+	jnz	9f
+	call	cmd_quit$
+
+9:	ret
+
+#############################################################
+
+debugger_handle_cmdline$:
+	call	debugger_cmdline_init$
+	jc	9f
+
+	mov	ebx, eax
+	push	ebp
+	push	ebx
+	mov	ebp, esp	# shell expects [ebp] = ebx
+
+	jmp	start$		# cmd_quit takes care of popping.
+
+#######################################
 
 # in: [esp+0] index
 # in: [esp+4] arrayref

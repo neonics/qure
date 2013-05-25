@@ -91,6 +91,8 @@ cmdline_prompt_len:	.long 0 # "the_prefix> ".length
 cmdline_history:	.long 0	# list/array/linked list.
 cmdline_history_current:.long 0 # the current array item offset (up/down keys)
 DECLARE_CLASS_METHOD cmdline_constructor, cmdline_init
+DECLARE_CLASS_METHOD cmdline_api_print_prompt, cmdline_print_prompt$
+DECLARE_CLASS_METHOD cmdline_api_execute, cmdline_execute$
 DECLARE_CLASS_END cmdline
 ############################################################################
 DECLARE_CLASS_BEGIN shell, cmdline
@@ -104,6 +106,8 @@ cmdline_args:		.space MAX_CMDLINE_ARGS * 4
 cmdline_tokens_end:	.long 0
 cmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
 
+DECLARE_CLASS_METHOD cmdline_api_print_prompt, shell_print_prompt$, OVERRIDE
+DECLARE_CLASS_METHOD cmdline_api_execute, shell_execute$, OVERRIDE
 DECLARE_CLASS_END shell
 ############################################################################
 ### Shell Command list
@@ -420,7 +424,7 @@ key_enter$:
 	jz	start$
 
 	lea	esi, [ebx + cmdline_buf]
-	call	cmdline_execute$
+	call	[ebx + cmdline_api_execute]
 	
 	jmp	start$
 	
@@ -565,6 +569,54 @@ cmdline_clear$:
 	pop	eax
 	ret
 
+# in: edi = prompt buffer
+cmdline_print_prompt$:
+	ret
+
+
+shell_print_prompt$:
+	mov	ah, 7
+	lea	esi, [ebx + shell_cwd]
+	call	__print
+
+	mov	ax, 15 << 8 | ':'
+	stosw
+
+	mov	edx, [ebx + cmdline_history_current]
+	shr	edx, 2
+	mov	ah, 7
+	call	__printdec32
+	mov	ax, 15 << 8 | ':'
+	stosw
+	mov	edx, [ebx + cmdline_cursorpos]
+	mov	ah, 7
+	call	__printdec32
+	mov	al, ' '
+	stosw
+
+.if VIRTUAL_CONSOLES
+	mov	ax, 7 << 8 | ' '
+	movzx	edx, byte ptr [console_cur]
+	call	__printdec32
+	stosw
+
+	mov	esi, [tls]
+	mov	esi, [esi + tls_console_cur_ptr]
+	mov	edx, [esi + console_pid]
+	LOAD_TXT "?"
+	mov	eax, edx
+	push_	ebx ecx
+	call	task_get_by_pid
+	jc	1f
+	mov	esi, [ebx + ecx + task_label]
+	1:
+	mov	ah, 9
+	pop_	ecx ebx
+	call	__print
+.endif
+	ret
+
+
 cmdline_print$:
 	push	esi
 	push	ecx
@@ -577,70 +629,30 @@ cmdline_print$:
 
 	# print the prompt
 
-	mov	ebx, edi
+	push	edi
 
-	mov	ah, 7
-	mov	esi, [ebp] # shell_instance
-	lea	esi, [esi + shell_cwd]
-	call	__print
+	call	[ebx + cmdline_api_print_prompt]
 
-	mov	ah, 15
-	mov	al, ':'
-	stosw
+	mov	eax, (15<<8|'>') | ((7<<8|' ')<<16)
+	stosd
 
-	mov	esi, [ebp] # shell_instance
-	mov	edx, [esi + cmdline_history_current]
-	shr	edx, 2
-	mov	ah, 7
-	call	__printdec32
-	mov	ah, 15
-	stosw
-	mov	edx, [esi + cmdline_cursorpos]
-	mov	ah, 7
-	call	__printdec32
+	pop	edx	# old edi
 
-	.if VIRTUAL_CONSOLES
-	mov	al, ' '
-	stosw
-	movzx edx, byte ptr [console_cur]
-	call __printdec32
-	stosw
+	sub	edx, edi
+	neg	edx
+	shr	edx, 1
 
-	mov	esi, [tls]
-	mov	esi, [esi + tls_console_cur_ptr]
-	mov	edx, [esi + console_pid]
-	LOAD_TXT "?"
-	mov eax, edx
-	push ebx
-	push ecx
-	call task_get_by_pid
-	jc 1f
-	mov esi, [ebx + ecx + task_label]
-	1:
-	mov ah, 9
-	pop ecx
-	pop ebx
-	call __print
-	.endif
-
-	mov	ax, 15<<8|'>'
-	stosw
-	mov	ax, 7<<8|' '
-	stosw
-
-	sub	ebx, edi
-	neg	ebx
-	shr	ebx, 1
-	mov	edx, [ebp] # shell_instance
-	mov	[edx + cmdline_prompt_len], ebx
+	mov	[ebx + cmdline_prompt_len], edx
 
 	# print the line editor contents
 
-	mov	ebx, edi
+	mov	edx, edi
 
-	mov	ecx, [edx + cmdline_len]
+	mov	ah, 7
+
+	mov	ecx, [ebx + cmdline_len]
 	jecxz	2f
-	lea	esi, [edx + cmdline_buf]
+	lea	esi, [ebx + cmdline_buf]
 
 1:	lodsb
 	stosw
@@ -650,20 +662,20 @@ cmdline_print$:
 	stosw
 	stosw
 
-	add	ebx, [edx + cmdline_cursorpos]
-	add	ebx, [edx + cmdline_cursorpos]
-	mov	al, [edx + cmdline_insertmode]
+	add	edx, [ebx + cmdline_cursorpos]
+	add	edx, [ebx + cmdline_cursorpos]
+	mov	al, [ebx + cmdline_insertmode]
 	xor	al, 1
 	shl	al, 4
 	not	al
-	xor	es:[ebx + 1], al # byte ptr 0xff
+	xor	es:[edx + 1], al # byte ptr 0xff
 
 	PRINT_END_
 	call	screen_get_scroll_lines
-	pop	ebx	# screen scroll lines
-	sub	eax, ebx
-	mov	ebx, 160
-	imul	eax, ebx
+	pop	edx	# screen scroll lines
+	sub	eax, edx
+	mov	edx, 160
+	imul	eax, edx
 	sub	[esp], eax
 	POP_SCREENPOS
 
@@ -722,7 +734,7 @@ newline_if:
 ###################################################
 ## Commandline execution
 
-# parses the commandline and executes the command(s)
+# parses the commandline
 # in: ebx = cmdline / shell instance
 # in: esi = pointer to commandline (zero terminated)
 # in: ecx = cmdlinelen
@@ -772,6 +784,15 @@ cmdline_execute$:
 		lea	esi, [ebx + cmdline_args]
 		call	cmdline_print_args$
 	.endif
+
+	ret
+
+# parses the commandline and executes the command(s)
+# in: ebx = cmdline / shell instance
+# in: esi = pointer to commandline (zero terminated)
+# in: ecx = cmdlinelen
+shell_execute$:
+	call	cmdline_execute$
 
 	# Find the command.
 
@@ -2162,14 +2183,29 @@ cmd_sym:
 	lodsd
 	or	eax, eax
 	jz	9f
+	mov	esi, eax
+
 	call	htoi
-	jc	9f
+	jc	1f
 	mov	edx, eax
 	call	printhex8
 	call	printspace
 	call	debug_printsymbol
 	call	newline
 	ret
+1:	# not hex, so assume symbol name
+	call	print
+	print ": "
+	mov	edx, esi
+	call	debug_findsymboladdr
+	jc	1f
+	call	printhex8
+	call	newline
+	ret
+
+1:	printlnc 4, "not found"
+	ret
+
 9:	printlnc 4, "usage: sym hex_address"
 	ret
 

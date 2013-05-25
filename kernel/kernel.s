@@ -75,7 +75,6 @@ code_\name\()_end:
 include "print.s", print
 include "pmode.s", pmode
 include "paging.s", paging
-include "debugger.s", debugger
 include "pit.s", pit
 include "keyboard.s", keyboard
 include "console.s", console
@@ -101,13 +100,14 @@ include "bios.s", bios
 include "cmos.s", cmos
 include "ata.s", ata
 
+include "shell.s", shell
+include "debugger.s", debugger
+
 include "fs.s", fs
 include "partition.s", partition
 include "fat.s", fat
 include "sfs.s", sfs
 include "iso9660.s", iso9660
-
-include "shell.s", shell
 
 code_nic_start:
 include "nic.s"
