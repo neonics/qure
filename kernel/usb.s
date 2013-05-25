@@ -289,16 +289,16 @@ usb_ehci_print_ports:
 	push_	esi eax ecx edx fs
 	mov	eax, SEL_flatDS
 	mov	fs, eax
-
 	mov	esi, [ebx + usb_ehci_op_regbase]
 	xor	eax, eax
 	movzx	ecx, byte ptr [ebx + usb_ehci_nports]
 0:	print	"Port "
-	mov	edx, [ebx + usb_ehci_nports]
+	movzx	edx, byte ptr [ebx + usb_ehci_nports]
 	sub	edx, ecx
 	call	printdec32
 	call	printspace
 	mov	edx, fs:[esi + USB_EHCI_REG_PORTSC + eax]
+	mov	fs:[esi + USB_EHCI_REG_PORTSC + eax], edx # RWC clear bits
 	call	printhex8
 	call	printspace
 	PRINTFLAG edx, 1<<22,"WAKE_OVERCURRENT "	# WKOC_E
@@ -378,6 +378,7 @@ usb_ehci_isr:
 
 	mov	eax, fs:[esi + USB_EHCI_REG_STATUS]
 	mov	fs:[esi + USB_EHCI_REG_STATUS], eax	# clear bits
+	DEBUG "EHCI status: "
 	PRINTFLAG eax, USB_EHCI_STATUS_INTR_AA, "INTR_AA"
 	PRINTFLAG eax, USB_EHCI_STATUS_HSERR, "HSERR"
 	PRINTFLAG eax, USB_EHCI_STATUS_FLR, "FLR"
