@@ -55,9 +55,19 @@ SECTOR1=1
 .text
 main:
 	#call	menu
+	push	es
+	push	di
+	call	unreal_mode
+	pop	di
+	pop	es
 
+	mov	ah, 0xf1
+
+#	call	waitkey
+#	call	test_unreal
 #	mov	ax, 0x0f00
 #	call	cls
+
 
 	# Find boot partition
 
@@ -108,36 +118,249 @@ main:
 
 .endif
 
-####### Read RAMDISK sector
+	call	load_ramdisk_fat
+	call	load_ramdisk_kernel
 
+#	mov	ebx, [si + ramdisk_entry_load_end]
+mov ebx, [ramdisk_buffer]
+	add	si, 16		# ignore entry count and check size
+	cmp	[si + ramdisk_entry_size], dword ptr 0
+	jz	1f
+	print "Loading symbol table: "
+	call	load_ramdisk_entry
+	call	copy_high
+1:
+
+	mov	ebx, [si + ramdisk_entry_load_end]
+mov ebx, [ramdisk_buffer]
+	add	si, 16		# ignore entry count and check size
+	cmp	[si + ramdisk_entry_size], dword ptr 0
+	jz	1f
+	#jmp	1f
+	print "Loading stabs: "
+	call	load_ramdisk_entry
+	call	copy_high
+1:
+
+##############################################
+	mov	ah, 0xf0
+	print "Chaining to next: "
+	mov	edx, [chain_addr_flat]
+	call	printhex8
+
+	.data
+		chain_addr_seg: .long 0
+		chain_addr_offs: .long 0
+	.text
+.if 1
+	# the address is sector aligned so this is safe:
+	xor	esi, esi
+	shr	edx, 4
+	cmp	edx, 0xffff
+	jbe	1f
+	mov	esi, 0xffff
+	sub	esi, edx
+	#jns	1f	# segment is ok
+	add	edx, esi
+	neg	esi
+		push edx; mov edx, esi; inc ah;call printhex8;dec ah; pop edx
+	shl	esi, 4
+1:	mov	[chain_addr_seg], edx
+	mov	[chain_addr_offs], esi
+
+	call	printhex8
+	mov	es:[edi-2], byte ptr ':'
+	mov	edx, esi
+	call	printhex8
+	call	newline
+
+	# verify the offset is within 16-bit range:
+	cmp	edx, 0xffff
+	jbe	1f
+	printc 0xf4, "segment too high: "
+	call	printhex8
+	jmp	fail
+1:
+	mov	edx, [chain_addr_offs]
+	cmp	edx, 0x00010000
+	jb	1f
+	printc 0xf4, "offset too high: "
+	call	printhex8
+	jmp	fail
+1:
+.endif
+
+	# set up some args:
+	mov	si, [partition]	# pointer to MBR partition info
+	mov	dx, si
+	sub	dx, offset mbr	# 16 bytes/entry
+	shl	dx, 9		# ah = partition index
+	call	get_boot_drive	# dl = drive
+	mov	cx, [ramdisk_address]
+				# bx = end of kernel
+
+	push	dx
+	PRINT	"dl: boot drive: "
+	call	printhex2
+	PRINT	"partition: "
+	mov	dl, dh
+	call	printhex2
+	call	newline
+
+	PRINT	"cx: ramdisk address: "
+	mov	dx, cx
+	call	printhex
+	call	newline
+
+	PRINT	"si: MBR address: "
+	mov	dx, si
+	call	printhex
+	call	newline
+
+	PRINT	"bx: kernel end: "
+	mov	edx, ebx
+	call	printhex8
+	pop	dx
+
+	# simulate a far call:
+	push	cs
+	push	word ptr offset bootloader_ret
+
+	.if DEBUG_BOOTLOADER
+		push	dx
+		PRINT	"ss:sp: "
+		mov	dx, ss
+		call	printhex
+		mov	dx, sp
+		add	dx, 2
+		call	printhex
+
+		PRINT	"ret cs:ip: "
+		mov	bp, sp
+		mov	dx, [bp + 4]
+		call	printhex
+		mov	dx, [bp + 2]
+		call	printhex
+		pop	dx
+
+	.endif
+
+	call	newline
+
+	# far jump:
+.if 1
+	push	word ptr [chain_addr_seg]
+	push	word ptr [chain_addr_offs]
+.else
+	mov	eax, [chain_addr_flat]
+	ror	eax, 4
+	push	ax
+	rol	eax, 4
+	and	ax, 0xf
+	push	ax
+.endif
+
+	.if DEBUG_BOOTLOADER
+	call	waitkey
+	.endif
+
+	retf
+
+
+bootloader_ret:
+0:	mov	ax, 0xb800
+	mov	es, ax
+	push	cs
+	pop	ds
+	.if 0
+	xor	di, di
+	mov	ax, 0xf000
+	mov	cx, 80*25
+	rep	stosw
+	xor	di, di
+	.endif
+	PRINTln "Back in bootloader."
+	PRINT "Press 'q' or ESC to halt system; 'w' for warm, 'c' for cold reboot, 's' for shutdown."
+	call	newline
+0:	xor	ah, ah
+	int	0x16
+	cmp	ax, K_ESC
+	jz	0f
+	cmp	al, 'q'
+	jz	0f
+	cmp	al, 'w'
+	jz	warm_reboot
+	cmp	al, 'c'
+	jz	cold_reboot
+	cmp	al, 's'
+	jz	shutdown
+	jmp	0b
+
+0:	PRINTc	0xf3, "System halt."
+	jmp	halt
+
+warm_reboot:
+	mov	ax, 0x1234
+	jmp	1f
+cold_reboot:
+	xor	ax, ax
+1:	xor	di, di
+	mov	fs, di
+	mov	fs:[0x0472], ax
+	ljmp	0xf000, 0xfff0
+
+shutdown:
+	mov	ax, 0x5307	# APM Set Power State
+	mov	cx, 3 	#BIOS_APM_SYSTEM_STATE_OFF
+	mov	bx, 1	#BIOS_APM_DEVICE_ID_ALL
+	int	0x15		# APM 1.0+
+	printc	14, "Shutdown."
+	jmp	halt
+
+##################################################
+
+
+####### Read RAMDISK sector
+.struct 0	# first ramdisk entry is the header:
+ramdisk_sig:		.long 0,0	# "RAMDISK0"
+ramdisk_entries:	.long 0
+ramdisk_reserved:	.long 0
+.struct 0	# the other entries follow this pattern:
+ramdisk_entry_lba:	.long 0
+ramdisk_entry_load_start:.long 0
+ramdisk_entry_size:	.long 0	# bytes
+ramdisk_entry_load_end:	.long 0
+.text
+
+load_ramdisk_fat:
 	call	get_boot_drive
 
 	mov	dh, [si+1]	# head
 	call	printhex
 	mov	cx, [si+2]	# [7:6][15:8] cylinder, [0:5] = sector
-	add	cx, SECTORS + 1	# skip sectors
+	add	cx, SECTORS + 1	# skip bootloader sectors
 
-	mov	bx, cx		# calculate memory offset
-	shl	bx, 9
+	movzx	ebx, cx		# calculate memory offset
+	shl	ebx, 9
 	.data
-		ramdisk_address: .word 0
+		ramdisk_address: .long 0
 	.text
-	mov	[ramdisk_address], bx
+	mov	[ramdisk_address], ebx
 	call	newline
 	PRINT	"RAMDISK Memory Address: "
-	push	dx
-	mov	dx, bx
-	call	printhex
-	pop	dx
+	push	edx
+	mov	edx, ebx
+	call	printhex8
+	pop	edx
 	call	newline
 
 	PRINT	"Reading sector..."
 
-	mov	ax, 0x0201	# read 1 sector
 	push	es
-	push	ds
-	pop	es
-	int	0x13
+	mov	ax, ds
+	mov	es, ax
+	mov	ax, 0x0201	# read 1 sector
+	int	0x13	# in: es:bx
 	pop	es
 	jc	fail
 	mov	ah, 0xf5
@@ -192,246 +415,126 @@ main:
 	print "MULTIPLE ENTRIES - Choosing first" 
 0:	call	newline
 
-.if DEBUG_BOOTLOADER > 1	# ramdisk fat
-	push	si
-#	mov	si, ]
-	push ecx
-	push eax
-	push edx
-	mov	cx, 16
-0:	lodsd
-	mov	edx, eax
-	mov	ah, 0xf9
-	call	printhex8
-	loop	0b
-	pop edx
-	pop eax
-	pop ecx
-	pop	si
-.endif	
+	.if DEBUG_BOOTLOADER > 1	# ramdisk fat
+		push	si
+		push	ecx
+		push	eax
+		push	edx
+		mov	bx, dx	# nr of ramdisk entries
+	0:	mov	cx, 4
+	1:	lodsd
+		mov	edx, eax
+		mov	ah, 0xf9
+		call	printhex8
+		loop	1b
+		call	newline
+		dec	bx
+		jnz	0b
+		pop	edx
+		pop	eax
+		pop	ecx
+		pop	si
+	.endif	
+	ret
 
 ######### first entry: kernel
+######### second entry: symbol table
+######### third entry: source line numbers
+
+load_ramdisk_kernel:
 	print "Loading kernel: "
 #####	# prepare load address
-	xor	ebx, ebx
-	mov	bx, [ramdisk_address]
+	movzx	ebx, word ptr [ramdisk_address]
 	add	bx, 0x200
 
-	xor	eax, eax
-	mov	ax, ds
-	shl	eax, 4
-	add	ebx, eax
+	xor	edx, edx
+	mov	dx, ds
+	shl	edx, 4
+	add	ebx, edx
 	.data
+		ramdisk_buffer: .long 0
+		image_high:	.long 0x00100000 # 1mb
 		chain_addr_flat: .long 0 # load offset = ds<<4+bx
 	.text
 	mov	[chain_addr_flat], ebx
-#####	# ebx = flat start address
-push ax
-push dx
-mov ah, 0xf0
-mov dx, si
-call printhex
-pop dx
-pop ax
+	call	load_ramdisk_entry	# in: si=rd entry, ebx=flat load addr
 
-	call	load_ramdisk_entry
+	mov	ebx, [si + ramdisk_entry_size]
+	add	ebx, 511
+	and	ebx, ~511
+	add	ebx, [chain_addr_flat]
+	mov	[ramdisk_buffer], ebx
 
-push ax
-push dx
-mov ah, 0xf0
-mov dx, si
-call printhex
-pop dx
-pop ax
-print "<<<<"
-
-.if DEBUG_BOOTLOADER > 1	# dump head of kernel
-	push	si
-	#mov	si, [ramdisk_address]	# still so
-	mov	cx, 8
-0:
-	lodsd
-	mov	edx, eax
-	mov	ah, 0xf9
-	call	printhex8
-	loop	0b
-	pop	si
+.if 0 # copies the kernel to 1mb
+	push	ds
+	pushad
+	mov	ecx, [si + ramdisk_entry_size]
+	mov	esi, [ramdisk_buffer]
+	mov	edi, 0x00100000	# 1mb
+	mov	[chain_addr_flat], edi
+#	mov	eax, ds
+#	shl	eax, 4
+#	add	esi, eax
+	xor	ax, ax
+	mov	ds, ax
+	add	ecx, 3
+	shr	ecx, 2
+0:	mov	eax, [esi]
+	mov	[edi], eax
+	add	esi, 4
+	add	edi, 4
+	dec	ecx
+	jnz	0b
+	popad
+	pop	ds
 .endif
-
-.if DEBUG_BOOTLOADER > 1	# dump head of kernel
-	push	si
-	# dump head of kernel
-#	add	si, 0x200 - 16*4
-	mov si, [ramdisk_address]
-	add si, 0x200
-	mov	cx, 4
-0:
-	lodsd
-	mov	edx, eax
-	mov	ah, 0xf8
-	call	printhex8
-	loop	0b
-	pop	si
-.endif	
-
-######### second entry: symbol table
-	add	si, 16		# ignore entry count and check size
-	mov	ecx, [si + 8]
-	mov ah, 0xf3
-	mov edx, ecx
-	call printhex8
-	jcxz	0f
-	print "Loading symbol table: "
-	mov	ebx, [si - 4]	# get the load end address of the previous segment
-	mov edx, ebx
-	mov ah, 0x0b
-	call printhex8
-	call	load_ramdisk_entry
-0:
-
-######### third entry: source line numbers
-	add	si, 16		# ignore entry count and check size
-	mov	ecx, [si + 8]
-	mov ah, 0xf3
-	mov edx, ecx
-	call printhex8
-	jcxz	0f
-	print "Loading stabs: "
-	mov	ebx, [si - 4]	# get the load end address of the previous segment
-	mov edx, ebx
-	mov ah, 0x0b
-	call printhex8
-	call	load_ramdisk_entry
-0:
-
-##############################################
-	mov	ah, 0xf0
-	print "Chaining to next: "
-	mov	edx, [chain_addr_flat]
-	call	printhex8
-	shr	edx, 4
-	call	printhex
-	sub	di, 2
-	println ":0000"
-
-	# set up some args:
-	mov	si, [partition]	# pointer to MBR partition info
-	mov	dx, si
-	sub	dx, offset mbr	# 16 bytes/entry
-	shl	dx, 9		# ah = partition index
-	call	get_boot_drive	# dl = drive
-	mov	cx, [ramdisk_address]
-				# bx = end of kernel
-
-	push	dx
-	PRINT	"dl: boot drive: "
-	call	printhex2
-	PRINT	"partition: "
-	mov	dl, dh
-	call	printhex2
-	call	newline
-
-	PRINT	"cx: ramdisk address: "
-	mov	dx, cx
-	call	printhex
-	call	newline
-
-	PRINT	"si: MBR address: "
-	mov	dx, si
-	call	printhex
-	call	newline
-
-	PRINT	"bx: kernel end: "
-	mov	edx, ebx
-	call	printhex8
-	pop	dx
+	ret
 
 
-	# simulate a far call:
-	push	cs
-	push	word ptr offset bootloader_ret
+copy_high:
+# unreal mode doesnt seem to work in vmware...
+#call unreal_mode
+print "copy high"
+call enter_pmode
+	push	ds
+	pushad
+
+	mov	ecx, [si + ramdisk_entry_size]
+	mov	edx, ecx
+	add	edx, 511
+	and	edx, ~511
+	mov	edi, [image_high]
+	add	[image_high], edx	# for the next
+
+	mov	[si + ramdisk_entry_load_start], edi
+	mov	[si + ramdisk_entry_load_end], edi
+	add	[si + ramdisk_entry_load_end], ecx
+	mov	esi, [ramdisk_buffer]
+	mov	ax, offset SEL_flat
+	mov	ds, ax
+	add	ecx, 3
+	shr	ecx, 2
+	# TODO: ADDR32 prefixes?
+0:	mov	eax, [esi]
+	mov	[edi], eax	# !! hang in vmware
+	add	esi, 4
+	add	edi, 4
+	dec	ecx
+	jnz	0b
+	popad
+	pop	ds
+call enter_realmode
+print "copy done"
 
 	.if DEBUG_BOOTLOADER
-		push	dx
-		PRINT	"ss:sp: "
-		mov	dx, ss
-		call	printhex
-		mov	dx, sp
-		add	dx, 2
-		call	printhex
-
-		PRINT	"ret cs:ip: "
-		mov	bp, sp
-		mov	dx, [bp + 4]
-		call	printhex
-		mov	dx, [bp + 2]
-		call	printhex
-		pop	dx
-
-		call	waitkey
+		mov ah, 0xf0
+		call waitkey
+		mov ax, 0xf020
+		call cls
 	.endif
 
-	call	newline
+	ret
 
-	# far jump:
-	mov	eax, [chain_addr_flat]
-	ror	eax, 4
-	push	ax
-	rol	eax, 4
-	and	ax, 0xf
-	push	ax
-	retf
-
-
-bootloader_ret:
-0:	mov	ax, 0xb800
-	mov	es, ax
-	push	cs
-	pop	ds
-	.if 0
-	xor	di, di
-	mov	ax, 0xf000
-	mov	cx, 80*25
-	rep	stosw
-	xor	di, di
-	.endif
-	PRINTln "Back in bootloader."
-	PRINT "Press 'q' or ESC to halt system; 'w' for warm, 'c' for cold reboot, 's' for shutdown."
-	call	newline
-0:	xor	ah, ah
-	int	0x16
-	cmp	ax, K_ESC
-	jz	0f
-	cmp	al, 'q'
-	jz	0f
-	cmp	al, 'w'
-	jz	warm_reboot
-	cmp	al, 'c'
-	jz	cold_reboot
-	cmp	al, 's'
-	jz	shutdown
-	jmp	0b
-
-0:	PRINTc	0xf3, "System halt."
-	jmp	halt
-
-warm_reboot:
-	mov	ax, 0x1234
-	jmp	1f
-cold_reboot:
-	xor	ax, ax
-1:	xor	di, di
-	mov	fs, di
-	mov	fs:[0x0472], ax
-	ljmp	0xf000, 0xfff0
-
-shutdown:
-	mov	ax, 0x5307	# APM Set Power State
-	mov	cx, 3 	#BIOS_APM_SYSTEM_STATE_OFF
-	mov	bx, 1	#BIOS_APM_DEVICE_ID_ALL
-	int	0x15		# APM 1.0+
-	printc	14, "Shutdown."
-	jmp	halt
 
 ##################################################
 
@@ -587,7 +690,7 @@ trace:
 	pop	bp
 	ret	2
 
-# in: ebx = memory pointer where image will be loaded.
+# in: ebx = flat memory pointer where image will be loaded.
 # in: si: points to entry in ramdisk FAT.
 # in: [si + 0]: dword start sector, LSB
 # in: [si + 8]: dword count, LSB
@@ -614,6 +717,7 @@ load_ramdisk_entry:
 	jmp	fail
 0:	shr	eax, 9		# convert to sectors
 	add	eax, SECTORS + 1
+
 ####
 	# eax = start sector on disk
 	# ecx = count sectors
@@ -622,6 +726,9 @@ load_ramdisk_entry:
 ##
 	# if the ramdisk image is loaded consecutively:
 	mov	edx, eax
+mov ah, 0xf2
+print "start sect: "
+call printhex8
 	inc	edx	# account for FAT sector
 	add	edx, ecx
 	shl	edx, 9
@@ -629,6 +736,7 @@ load_ramdisk_entry:
 	mov	eax, ds
 	shl	eax, 4
 	add	edx, eax
+	# probably need +ebx
 	mov	[si + 12], edx	# image end address (start+count)*512+ds*16
 
 	mov	ah, 0xf2
@@ -640,32 +748,42 @@ load_ramdisk_entry:
 	# edx = image load end (flat address + count sectors * 512)
 	call	print_ramdisk_entry_info$
 
-.if 0
-	push es
-	push ax
-	push cx
-	call cls
-	pop cx
-	pop ax
-	pop es
-.endif
-push ax
-mov ah, 0xf2
-mov dx, ds
-call printhex
-mov es:[di-2], byte ptr ':'
-mov edx, ebx
-call printhex8
-call newline
-pop ax
 
 	inc	ecx
 ################################# load loop
 0:	push	ecx		# remember sectors to load
 	push	eax		# remember offset
+	call	load_sector
+	pop	eax
+	pop	ecx
+	inc	eax
+TRACE 'd'
+	.if 0
+		push ax
+		mov dx, ax
+		mov ah, 0xf8
+		call printhex
+		mov dx, cx
+		call printhex
+		pop	ax
+	.endif
+	loop	0b
+TRACE '*'
+	# bx points to end of loaded data (kernel)
+################################# end load loop
+	mov	ah, 0xf6
+	print	"Success!"
+	mov	edx, ebx
+	call	printhex8
+	call	newline
+	ret
 
+
+# in: eax = sector
+# in: ebx = flat mem address to load to
+load_sector:
 	.if 0	# use this to debug when loading fails
-	call	debug_print_load_address$
+		call	debug_print_load_address$
 	.endif
 
 TRACE_INIT
@@ -673,34 +791,34 @@ TRACE '!'
 
 PRINT_LOAD_SECTORS = 0
 	.if PRINT_LOAD_SECTORS
-	mov	edx, eax
-	mov	ah, 0xf5
-	call	printhex8
-	mov	edx, ecx
-	call	printhex8
-	mov	dx, bx
-	inc ah
-	call	printhex
-	inc ah
-	sub	dx, 0x0e00
-	call	printhex
-	inc ah
-	mov	edx, [bx]
-	call	printhex8
-	pop	eax
-	push	eax
+		mov	edx, eax
+		mov	ah, 0xf5
+		call	printhex8
+		mov	edx, ecx
+		call	printhex8
+		mov	dx, bx
+		inc ah
+		call	printhex
+		inc ah
+		sub	dx, 0x0e00
+		call	printhex
+		inc ah
+		mov	edx, [bx]
+		call	printhex8
+		pop	eax
+		push	eax
 	.endif
 
 	call	get_boot_drive	# dl = drive
 	call	lba_to_chs	# dh = head, cx = cyl/sect
 
 	.if PRINT_LOAD_SECTORS
-	push	dx
-	mov	ah, 0xf7
-	call	printhex
-	mov	dx, cx
-	call	printhex
-	pop	dx
+		push	dx
+		mov	ah, 0xf7
+		call	printhex
+		mov	dx, cx
+		call	printhex
+		pop	dx
 	.endif
 
 	push	es
@@ -738,31 +856,9 @@ TRACE 'c'
 	call	newline
 	.endif
 
-	pop	eax
-	pop	ecx
-	inc	eax
-TRACE 'd'
-	.if 0
-	push ax
-	mov dx, ax
-	mov ah, 0xf8
-	call printhex
-	mov dx, cx
-	call printhex
-	pop	ax
-	.endif
-
-	loop	0b
-TRACE '*'
-	# bx points to end of loaded data (kernel)
-################################# end load loop
-	mov	ah, 0xf6
-	print	"Success!"
-	mov	edx, ebx
-	call	printhex8
-	call	newline
-
 	ret
+
+
 
 # eax = sector on disk
 # ebx = load offset  [chain_addr_flat] = ds<<4+bx
@@ -772,7 +868,7 @@ print_ramdisk_entry_info$:
 	mov	edx, eax
 	mov	ah, 0xf1
 
-	print	"Entry 1: Start(S): "
+	print	"Entry: Start(S): "
 	call	printhex8
 
 	print	"Count (S): "
@@ -780,19 +876,20 @@ print_ramdisk_entry_info$:
 	call	printhex8
 
 	print	"Flat addr: "
-	mov	edx, [chain_addr_flat]
+	mov	edx, ebx#[chain_addr_flat]
 	call	printhex8
 
-	push	edx
-	shr	edx, 4
-	call	printhex
-	mov	es:[di - 2], byte ptr ':'
-	pop	edx
-	and	dx, 0xf
-	mov	ah, 0xf1
-	call	printhex
+#	push	edx
+#	shr	edx, 4
+#	call	printhex
+#	mov	es:[di - 2], byte ptr ':'
+#	pop	edx
+#	and	dx, 0xf
+#	mov	ah, 0xf1
+#	call	printhex
 	call	newline
 
+.if 0 #disabled since stack is before kernel
 	print "Stack: "
 	push	edx
 	push	ecx
@@ -815,7 +912,6 @@ print_ramdisk_entry_info$:
 	pop	ecx
 	pop	edx
 
-.if 0 #disabled since stack is before kernel
 	sub	eax, edx
 	mov	edx, eax
 	jge	0f
@@ -1081,68 +1177,307 @@ get_boot_drive:
 	ret
 
 
-.if 0
-	call	init_bios_extensions
-	.data
-	dap:		.word 0x10 # size of packet - 0x18 for 64 bit address
-	dap_numblocks:	.word 0	# max 7f
-	dap_buffer:	.long 0
-	dap_blocknr:	.quad 0 # 8 bytes, 4 words, 
-	#dap_qaddr: .quad 0 # 64 bit flat addr if dword dap_buffer=-1
-	.text
-	mov	ax, si
-	add	ax, 512
-	mov	[dap_buffer], ax
-	mov	[dap_buffer+2], ds
+.include "../16/gdt.s"	# macros and constants
 
+.data
+backup_gdt_ptr: .word 0; .long 0
+backup_idt_ptr: .word 0; .long 0
 
-	lodsd
-	mov	[dap_blocknr], eax
-	lodsd
-	mov	[dap_blocknr + 4], eax
-	lodsd
-	mov	[dap_blocknr], ax
+gdt_ptr:.word gdt_end - gdt -1
+	.long gdt
+gdt:	.long 0,0
+	#.byte 0xff,0xff, 0,0,0, 0b10011010, 0b10001111, 0	# code
+	#.byte 0xff,0xff, 0,0,0, 0b10010010, 0b11001111, 0	# data
+s_code:	DEFGDT 0, 0xffffff, ACCESS_CODE, FLAGS_16#(FLAGS_16|FL_GR4kb)
+s_data:	DEFGDT 0, 0xffffff, ACCESS_DATA, FLAGS_16#32
+s_flat:	DEFGDT 0, 0xffffff, ACCESS_DATA, FLAGS_32
+s_vid:  DEFGDT 0xb8000, 0xffff, ACCESS_DATA, FLAGS_16
+gdt_end:
 
-	mov	si, offset dap
-	mov	ah, 0x42	# extended read
-	int	0x13
-	jc	fail
-.endif
-init_bios_extensions:
-	PRINT	"BIOS int 13h Extensions "
+SEL_code = 8
+SEL_data = 16
+SEL_flat = 24
+SEL_vid = 32
 
-	call	get_boot_drive
+#########
+idt_ptr: .word idt_end - idt - 1
+	.long idt
 
-	mov	ah, 0x41	# check IBM/MS extensions (LBA)
-	mov	bx, 0x55aa
-	int	0x13
-	jne	0f
-	cmp	bx, 0xaa55
-	jne	0f
+idt:
+.rept 256
+	.word 0	# lo 16 bits of offset
+	.word 8
+	.byte 0
+	.byte 0b10000110 # ACC_PR(1<<7)| IDT_ACC_GATE_INT16(0b0110)
+	.word 0	# high 16 bits of offset
+.endr
+idt_end:
 
-	mov	dl, ah
-	mov	ah, 0xf3
-	PRINT	"Installed: "
+backup_ds: .word 0
+backup_es: .word 0
+.text
 
-	call	printhex2
-	mov	dl, dh
-	call	printhex2
-	shr	cl, 1
-	jnc	1f
-	print	"ExtDisk "
-1:	shr	cl, 1
-	jnc	1f
-	print	"Removable "
-1:	shr	cl, 1
-	jnc	1f
-	print	"EDD"
-1:	call	newline
+enter_pmode:
+	push	eax
+	push	ecx
+	push	edx
+	push	esi
+	###############################
+	# enable A20 line
+	in	al, 0x92 # a20
+	test	al, 2
+	jnz	1f
+	or	al, 2
+	out	0x92, al
+1:
+
+	cli
+	# mask NMI
+	in	al, 0x70
+	or	al, 0x80
+	out	0x70, al
+	in	al, 0x71
+
+	# mask all PIC signals
+#	mov al, ~(1<<2) # IRQ_CASCADE
+#	out 0x20+1, al
+#	mov al, -1
+#	out 0xa0+1, al
+	###############################
+
+	mov	[backup_ds], ds
+	mov	[backup_es], es
+
+	sgdt	[backup_gdt_ptr]
+	sidt	[backup_idt_ptr]
+
+	mov	eax, cs
+	shl	eax, 4
+	GDT_STORE_SEG s_code
+
+	mov	eax, ds
+	shl	eax, 4
+	GDT_STORE_SEG s_data
+
+	add	eax, offset gdt
+	mov	[gdt_ptr+2], eax
+
+	lgdt	[gdt_ptr]
+
+	# initialize the idt
+	mov	eax, cs
+	shl	eax, 4
+	add	eax, offset pm_idt_table#pm_isr
+	mov	si, offset idt
+	mov	cx, 256
+	mov	edx, eax
+	shr	edx, 16
+0:	mov	[si + 0], ax
+	mov	[si + 8-2], dx
+	add	ax, 5
+	adc	dx, 0
+	add	si, 8
+	loop	0b
+
+	mov	eax, ds
+	shl	eax, 4
+	add	eax, offset idt
+	mov	[idt_ptr+2], eax
+
+	lidt	[idt_ptr]
+
+	mov	ax, SEL_data
+	mov	ds, ax
+	mov	es, ax
+
+	mov	eax, cr0
+	or	al, 1
+	mov	cr0, eax
+
+	jmp 1f
+1:	# 16bit pmode
+
+	.if 1
+		push	edi
+		mov ax, SEL_flat
+		mov es, ax
+
+		mov edi, 0xb8000
+		mov ah, 0xf
+		mov al, 'P'
+		mov es:[edi], ax
+		pop	edi
+	.endif
+
+	# set the descriptor cache limit to 4Gb
+	mov	eax, SEL_data
+	mov	ds, eax
+	mov	es, eax
+
+	# set vid
+	mov	ax, SEL_vid
+	mov	es, ax
+mov ah, 0xd0
+print "PMode"
+	pop	esi
+	pop	edx
+	pop	ecx
+	pop	eax
 	ret
 
-0: 	#### no ext bios, use CHS
-	mov	ah, 0xf4
-	PRINTLN "Not installed, emulating"
-	stc
+
+enter_realmode:
+	push	eax
+	mov	eax, cr0
+	and	al, ~1
+	mov	cr0, eax
+	jmp 1f
+	1:	
+
+	mov	ds, cs:[backup_ds]
+	mov	es, [backup_es]
+
+	lgdt	[backup_gdt_ptr]
+	lidt	[backup_idt_ptr]
+
+	in al, 0x80
+	and al, 0xfe
+	out 0x70, al
+	in al, 0x71
+
+mov ah, 0xd0
+print "Realmode"
+	pop	eax
+	sti
+	ret
+
+unreal_mode:
+	push	eax
+	push	ecx
+	push	edx
+	push	esi
+	push	edi
+
+	call	enter_pmode
+mov edx, edi
+xor edi,edi
+call printhex8
+	mov	ah, 0xe0
+	print "in protected mode"
+
+	call	enter_realmode
+	mov ah, 0xe0
+	print "in realmode"
+
+	pop	edi
+	pop	esi
+	pop	edx
+	pop	ecx
+	pop	eax
+
 	ret
 
 
+# writes an 'U' using 0000:000b8000
+test_unreal:
+	push	edi
+	push	eax
+	push	es
+
+	xor	dx, dx
+	mov	es, dx
+	mov	edi, 0xb8000
+	mov	ax, 11<<8 | 'U'
+	mov	es:[edi], ax
+
+	pop	es
+	pop	eax
+	pop	edi
+	call	waitkey	# this also prints
+	ret
+
+
+pm_idt_table:
+_I=0
+.rept 256
+	push	word ptr _I
+	jmp	pm_isr
+	_I = _I+1
+.endr
+
+pm_isr:
+	push	ebp
+	lea	ebp, [esp + 4]
+	push	ds
+	push	es
+	push	eax
+	push	ecx
+	push	edx
+	push	esi
+	push	edi
+	mov	eax, SEL_vid
+	mov	es, eax
+	mov	eax, SEL_data
+	mov	ds, eax
+
+	mov	edi, 160*5
+
+	mov	ah, 0x0f
+	print "interrupt "
+
+	mov	dx, [ebp]
+	call	printhex2
+
+	print "stack "
+	mov	dx, ss
+	call	printhex
+	mov	al, ':'
+	mov	es:[edi-2],ax
+	mov	edx, ebp
+	call	printhex8
+	call	newline
+
+	mov	ecx, 8
+	mov	esi, ebp
+0:	mov	edx, esi
+	call	printhex8
+	mov	edx, ss:[esi]
+	add	esi, 2
+	call	printhex
+	call	newline
+	loop	0b
+
+	movzx	eax, word ptr [ebp]
+	mov	edx, 0b00100111110100000000
+	bt	edx, eax
+	mov	ah, 0x0f
+	jnc	1f
+
+	print	"ErrCode "
+	mov	edx, [ebp+2]
+	add	ebp, 4
+	call	printhex8
+
+1:
+	print "cs "
+	mov	edx, [ebp + 2]
+	call	printhex8
+	print "eip "
+	mov	edx, [ebp + 2+4]
+	call	printhex8
+	print "flags "
+	mov	edx, [ebp + 2+8]
+	call	printhex8
+
+	0: hlt; jmp 0b
+
+	pop	edi
+	pop	esi
+	pop	edx
+	pop	ecx
+	pop	eax
+	pop	es
+	pop	ds
+	pop	ebp
+	add	sp, 2
+	iret
