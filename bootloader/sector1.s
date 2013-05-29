@@ -118,6 +118,11 @@ main:
 
 .endif
 
+	call	get_memory_map
+	mov	edx, [hi_mem_start]
+	mov	[image_high], edx
+	mov	ah, 0xf0
+
 	call	load_ramdisk_fat
 	call	load_ramdisk_kernel
 
@@ -127,8 +132,7 @@ mov ebx, [ramdisk_buffer]
 	cmp	[si + ramdisk_entry_size], dword ptr 0
 	jz	1f
 	print "Loading symbol table: "
-	call	load_ramdisk_entry
-	call	copy_high
+	call	load_ramdisk_entry_hi
 1:
 
 	mov	ebx, [si + ramdisk_entry_load_end]
@@ -138,8 +142,7 @@ mov ebx, [ramdisk_buffer]
 	jz	1f
 	#jmp	1f
 	print "Loading stabs: "
-	call	load_ramdisk_entry
-	call	copy_high
+	call	load_ramdisk_entry_hi
 1:
 
 ##############################################
@@ -319,6 +322,130 @@ shutdown:
 
 ##################################################
 
+.struct 0
+mm_base:	.long 0, 0
+mm_size:	.long 0, 0
+mm_type:	.long 0
+.data
+lo_mem_end:	.long 0
+hi_mem_start:	.long 0
+hi_mem_end:	.long 0
+memory_map_entry: .space 20
+.text
+
+get_memory_map:
+	call	newline
+	mov	ah, 0xf3
+	print	"BIOS Memory Map: "
+	xor	ebx, ebx	# continuation / iteration val
+0:	mov	ecx, 20		# max entry size
+	push	es
+	push	di
+	mov	cx, ds
+	mov	es, cx
+	mov	di, offset memory_map_entry
+	mov	edx, 0x534d4150	# "SMAP"
+	mov	eax, 0xe820
+	int	0x15
+	pop	di
+	pop	es
+	jc	9f
+	cmp	eax, 0x534d4150
+	jnz	9f
+	or	ebx, ebx
+	jz	0f # done
+
+	cmp	dword ptr [memory_map_entry + mm_type], 1
+	jnz	1f
+	# found free mem
+	cmp	dword ptr [memory_map_entry + mm_size + 4], 0
+	jnz	3f
+
+	cmp	dword ptr [memory_map_entry + mm_base], 0
+	jnz	2f
+	cmp	dword ptr [memory_map_entry + mm_base + 4], 0
+	jnz	2f
+	# found low mem
+	mov	edx, [memory_map_entry + mm_size]
+	mov	[lo_mem_end], edx
+	mov	ah, 0xf0
+	print "Low mem end: "
+	call	printhex8
+	jmp	0b
+3:	printc 0xf4, "skip mem entry: base/len > 32 bit"
+	jmp	0b
+
+2:	# mem doesn't start at 0
+	cmp	dword ptr [hi_mem_start], 0
+	jnz	0b	# already have
+	mov	edx, [memory_map_entry + mm_base]
+	mov	[hi_mem_start], edx
+	mov	ah, 0xf0
+	print "Hi mem start: "
+	call	printhex8
+	add	edx, [memory_map_entry + mm_size]
+	mov	[hi_mem_end], edx
+	print "end: "
+	call	printhex8
+1:
+	jmp	0b
+
+
+9:	printc 0x4f, "get_memory_map error"
+
+0:	# done
+
+	cmp	dword ptr [lo_mem_end], 0
+	jnz	1f
+	# get low mem size in another way:
+	xor	ax, ax
+	int	0x12
+	jc	2f
+	or	ax, ax
+	jz	2f
+	movzx	edx, ax
+	shl	edx, 10	# ax is in Kb
+	jmp	3f
+
+2:	printc 0x4f, "get lo mem fail"
+	mov	edx, 0x9f000
+
+3:	printc 0x4f, "lo mem end defaulting to "
+	mov	ah, 0xf0
+	call	printhex8
+	mov	[lo_mem_end], edx
+
+############################
+1:	# check hi mem start
+	mov	ah, 0xf0
+	cmp	dword ptr [hi_mem_start], 0
+	jnz	1f
+	mov	edx, 0x00100000
+	printc 0x4f, "hi mem start defaulting to "
+	call	printhex8
+	mov	[hi_mem_start], edx
+
+##########################
+1:	# check hi mem end
+	cmp	dword ptr [hi_mem_end], 0
+	jnz	1f
+
+	mov	ah, 0x88	# get extended mem size (1mb+)
+	int	0x15
+	jnc	2f
+	or	ax, ax
+	jnz	2f
+	printc 0xf4, "Error getting extended mem"
+2:
+	printc 0x4f, "hi mem size defaulting to "
+	movzx	edx, ax
+	shl	edx, 10	# ax in Kb, max 64mb.
+	call	printhex8
+	add	edx, 0x00100000	# the bios func reports 1Mb+
+	mov	[hi_mem_end], edx
+########
+1:	call	newline
+	ret
 
 ####### Read RAMDISK sector
 .struct 0	# first ramdisk entry is the header:
@@ -338,6 +465,7 @@ load_ramdisk_fat:
 	mov	dh, [si+1]	# head
 	call	printhex
 	mov	cx, [si+2]	# [7:6][15:8] cylinder, [0:5] = sector
+	and	cx, 0b111111
 	add	cx, SECTORS + 1	# skip bootloader sectors
 
 	movzx	ebx, cx		# calculate memory offset
@@ -346,11 +474,18 @@ load_ramdisk_fat:
 		ramdisk_address: .long 0
 	.text
 	mov	[ramdisk_address], ebx
-	call	newline
 	PRINT	"RAMDISK Memory Address: "
 	push	edx
 	mov	edx, ebx
 	call	printhex8
+	push	eax
+	mov	eax, ds
+	shl	eax, 4
+	add	edx, eax
+	pop	eax
+	print "flat: "
+	call	printhex8
+
 	pop	edx
 	call	newline
 
@@ -364,7 +499,7 @@ load_ramdisk_fat:
 	pop	es
 	jc	fail
 	mov	ah, 0xf5
-	PRINT	"Ok. "
+	PRINT	"Ok "
 	inc	ah
 
 ####### Verify RAMDISK Signature
@@ -394,7 +529,7 @@ load_ramdisk_fat:
 	jmp	fail
 	
 0:	mov	ah, 0xf2
-	PRINT	"Ramdisk detected"
+	PRINT	"Ok"
 #######
 
 	inc	ah
@@ -453,7 +588,7 @@ load_ramdisk_kernel:
 	add	ebx, edx
 	.data
 		ramdisk_buffer: .long 0
-		image_high:	.long 0x00100000 # 1mb
+		image_high:	.long 0
 		chain_addr_flat: .long 0 # load offset = ds<<4+bx
 	.text
 	mov	[chain_addr_flat], ebx
@@ -490,6 +625,11 @@ load_ramdisk_kernel:
 .endif
 	ret
 
+
+load_ramdisk_entry_hi:
+	call	load_ramdisk_entry
+	call	copy_high
+	ret
 
 copy_high:
 # unreal mode doesnt seem to work in vmware...
@@ -702,6 +842,13 @@ load_ramdisk_entry:
 	mov	[si + 4], ebx	# image base memory address
 
 	mov	ecx, [si + 8]	# load bytes
+
+lea edx, [ebx + ecx]
+cmp edx, [lo_mem_end]
+jb 1f
+printc 0x4f, "Warning: ramdisk entry will overwrite BIOS"
+1:
+
 	test	cx, 0x1ff
 	jz	0f
 	add	ecx, 0x200
@@ -726,9 +873,6 @@ load_ramdisk_entry:
 ##
 	# if the ramdisk image is loaded consecutively:
 	mov	edx, eax
-mov ah, 0xf2
-print "start sect: "
-call printhex8
 	inc	edx	# account for FAT sector
 	add	edx, ecx
 	shl	edx, 9
@@ -739,10 +883,6 @@ call printhex8
 	# probably need +ebx
 	mov	[si + 12], edx	# image end address (start+count)*512+ds*16
 
-	mov	ah, 0xf2
-	print	"image load end: "
-	call	printhex8
-	call	newline
 ##
 	pop	eax
 	# edx = image load end (flat address + count sectors * 512)
@@ -868,15 +1008,20 @@ print_ramdisk_entry_info$:
 	mov	edx, eax
 	mov	ah, 0xf1
 
-	print	"Entry: Start(S): "
+	print	"Entry: Sectors: "
 	call	printhex8
-
-	print	"Count (S): "
+	mov	al, '+'
+	mov	es:[di-2], ax
 	mov	edx, ecx
 	call	printhex8
 
-	print	"Flat addr: "
-	mov	edx, ebx#[chain_addr_flat]
+	print	"Flat Mem: "
+	mov	edx, ebx
+	call	printhex8
+	mov	es:[di-2], byte ptr '-'
+	mov	edx, ecx
+	shl	edx, 9
+	add	edx, ebx
 	call	printhex8
 
 #	push	edx
@@ -887,7 +1032,6 @@ print_ramdisk_entry_info$:
 #	and	dx, 0xf
 #	mov	ah, 0xf1
 #	call	printhex
-	call	newline
 
 .if 0 #disabled since stack is before kernel
 	print "Stack: "
@@ -923,21 +1067,6 @@ print_ramdisk_entry_info$:
 	print	"Room after image before stack: "
 	call	printhex8
 .endif
-
-	mov	ah, 0x2f
-	print	"Load region: "
-	mov	edx, ebx
-	call	printhex8
-	push	edx
-	xor	edx, edx
-	mov	eax, 0x200
-	mul	ecx
-	mov	edx, eax
-	add	edx, ebx
-	mov	ah, 0x2f
-	call	printhex8
-	pop	edx
-
 	pop	eax
 	ret
 
