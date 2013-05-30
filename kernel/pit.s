@@ -276,7 +276,7 @@ pit_calc_frequency:
 	shl	ebx, FREQ_BIT_SHIFT
 	# 1193181.[6] << FREQ_BIT_SHIFT:
 	mov	edx, (PIT_FREQ_INT >> (32 - FREQ_BIT_SHIFT))
-	mov	eax, (PIT_FREQ_INT << FREQ_BIT_SHIFT) | (PIT_FREQ_FRAC >> (32-FREQ_BIT_SHIFT))
+	mov	eax, 0xffffffff & ((PIT_FREQ_INT << FREQ_BIT_SHIFT) | (PIT_FREQ_FRAC >> (32-FREQ_BIT_SHIFT)))
 	div	ebx
 	# convert rest in edx to fixedpoint:
 	push	eax
