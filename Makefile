@@ -82,7 +82,7 @@ build/malloc.exe: util/malloc.cpp
 
 build/font.exe: util/font.cpp
 	@echo " C $@"
-	@gcc $< -o $@
+	@gcc -fno-exceptions $< -o $@
 
 ##########################################################################
 
