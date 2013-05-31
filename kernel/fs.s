@@ -1013,6 +1013,32 @@ fs_handle_read:
 	stc
 	jmp	0b
 
+# in: eax = handle
+# in: edi = buffer	# minimal 2kb
+# in: ecx = bytes to read
+fs_read:
+	LOCK_READ [fs_handles_sem]
+	push_	eax ebx ecx edx edi
+	call	fs_validate_handle$
+	jc	9f
+
+	cmp	ecx, [eax + edx + fs_handle_dirent + fs_dirent_size]
+	jbe	1f
+	mov	ecx, [eax + edx + fs_handle_dirent + fs_dirent_size]
+1:	mov	ebx, [eax + edx + fs_handle_dir]
+
+	push_ eax edx
+	FS_HANDLE_CALL_API read, edx
+	pop_ edx eax
+	shr	ecx, 11
+	add	[eax + edx + fs_handle_dir], ecx	# add lba lseek pos
+
+0:	pop_	edi edx ecx ebx eax
+	UNLOCK_READ [fs_handles_sem]
+	ret
+9:	printc 4, "fs_read: invalid handle"
+	jmp	0b
+
 
 # cmd_lsof
 fs_list_openfiles:
