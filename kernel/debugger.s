@@ -97,6 +97,7 @@ debug_regdiff$:
 
 .text32
 debug_load_symboltable:
+call cmd_ramdisk # show contents
 .if 0 # if ISO9660 implements multiple sector reading,
 	LOAD_TXT "/a/BOOT/KERNEL.SYM", eax
 	mov	cl, [boot_drive]
@@ -126,7 +127,6 @@ DEBUG_RAMDISK_DIY=0
 	add	eax, ebx
 	mov	bx, SEL_flatDS
 	mov	fs, bx
-
 	cmp	dword ptr fs:[eax + 0], 'R'|('A'<<8)|('M'<<16)|('D'<<24)
 	jnz	9f
 	cmp	dword ptr fs:[eax + 4], 'I'|('S'<<8)|('K'<<16)|('0'<<24)
@@ -144,11 +144,17 @@ DEBUG_RAMDISK_DIY=0
 	.else
 	mov	edx, [\name\()_load_start_flat]
 	.endif
+	print "checking \label:"
 	or	edx, edx
-	jz	9f
+	jnz	19f
+	call	ramdisk_load_image
+	jc	18f
+19:
 	I "Found \label: "
+	push	eax
 	GDT_GET_BASE eax, ds
 	sub	edx, eax
+	pop	eax
 	js	8f
 	mov	[kernel_\name\()], edx
 	mov	ebx, edx
@@ -172,11 +178,11 @@ DEBUG_RAMDISK_DIY=0
 	print " ("
 	call	printhex8
 	println ")"
+18:
 	.endm
 
 	DEBUG_LOAD_TABLE symtab, "symbol table"
 	DEBUG_LOAD_TABLE stabs, "source line table"
-
 	ret
 
 8:	printlnc 12, "error: symboltable before kernel: "
@@ -184,7 +190,8 @@ DEBUG_RAMDISK_DIY=0
 	printc 12, "data base: "
 	mov	eax, edx
 	call	printhex8
-9:	ret
+9:	debug "error"
+	ret
 .else # lame - require 2 builds due to the inclusion of output generated
 	# after compilation.
 	.data SECTION_DATA_STRINGS # not pure asciiz...
@@ -195,6 +202,20 @@ DEBUG_RAMDISK_DIY=0
 	mov	[kernel_symtab_size], dword ptr (offset 0b - offset ksym)
 	ret
 .endif
+
+# in: fs = flat
+# in: eax = ptr to ramdisk entry [16 bytes]
+# Format:
+#   .long lba, mem_start, sectors, mem_end
+ramdisk_load_image:
+	cmp	dword ptr fs:[eax + 4], 0
+	jz	1f
+	println "image already loaded"
+	ret
+
+1:	# can't load as this is called before ATA init..
+	printlnc 5, "image not loaded"
+	ret
 
 # Idea:
 # Specify another table, containing argument definitions.
@@ -682,9 +703,13 @@ debugger_cmdline_pos$:		.long 0
 .text32
 # task
 debugger:
+	push_	ds es
 	push	ebp
 	PIC_GET_MASK
 	push	eax
+	mov	eax, SEL_compatDS
+	mov	ds, eax
+	mov	es, eax
 	#push	dword ptr [mutex]
 	push	dword ptr [task_queue_sem]
 	push	edx
@@ -706,6 +731,14 @@ debugger:
 
 	PIC_SET_MASK ~(1<<IRQ_KEYBOARD)# | 1<<IRQ_TIMER)
 	sti	# for keyboard. Todo: mask other interrupts.
+	pushad	# just in case
+	mov	al, IRQ_KEYBOARD + IRQ_BASE
+	mov	ebx, offset isr_keyboard
+	mov	cx, cs
+	call	hook_isr
+	popad
+
+
 
 1:	printlnc_ 0xb8, "Debugger: h=help c=continue p=printregisters s=sched m=mutex"
 
@@ -835,6 +868,7 @@ debugger:
 	pop	eax
 	PIC_SET_MASK
 	pop	ebp
+	pop_	es ds
 	ret
 
 2:	call	debug_print_exception_registers$# printregisters
