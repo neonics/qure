@@ -11,7 +11,7 @@ boot.bin: bootloader.o
 	@echo "   OBJ $@"
 	@objcopy -O binary $< $@
 
-bootloader.o: bootloader.s sector1.s ../16/print.s
+bootloader.o: bootloader.s sector1.s ../16/print.s ../16/gdt.s ../kernel/keycodes.s
 	@echo "   AS $@"
 	@$(AS) -o $@ $<
 	@../util/checksymbols $@ || (rm $@ && false)
