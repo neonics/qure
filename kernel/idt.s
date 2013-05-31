@@ -58,11 +58,14 @@ SCHEDULE_IRET = 1
 # in: ax = interrupt number (at current: al, as the IDT only has 256 ints)
 # in: cx = segment selector
 # in: ebx = offset
+# out: cx = old segment selector
+# out: ebx = old offset
 hook_isr:
 	pushf
 	cli
-	push	eax
+	push	ecx
 	push	ebx
+	push	eax
 	and	eax, 0xff
 
 	.if DEBUG > 1
@@ -70,8 +73,13 @@ hook_isr:
 		mov	edx, eax
 		I	"Hook INT "
 		call	printhex2
-		pop	edx
 		I2	" @ "
+		call	printspace
+		mov	edx, ebx
+		call	printhex8
+		call	printspace
+		call	debug_printsymbol
+		pop	edx
 	.endif
 
 .if IRQ_PROXIES
@@ -85,6 +93,12 @@ hook_isr:
 	.else # len = 15
 	shl	eax, 4
 	.endif
+
+	# put the old values in the stack for return
+	mov	edx, [irq_proxies + eax + 2]
+	mov	[esp + 12], edx
+	movzx	edx, word ptr [irq_proxies + eax + 6]
+	mov	[esp + 16], edx
 
 	mov	[irq_proxies + eax + 2], ebx
 	mov	[irq_proxies + eax + 6], cx
@@ -114,8 +128,9 @@ hook_isr:
 	shr	ebx, 16
 	mov	[eax+6], bx
 	sti
-	pop	ebx
 	pop	eax
+	pop	ebx
+	pop	ecx
 	popf
 	ret
 
@@ -569,7 +584,11 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	# use this as the 'main' stack to print (for debugger scroll),
 	# as the last printed stack's position on screen is remembered.
 	mov	ebx, ss:[edi + 16]	# user ss
-	mov	esi, ss:[edi + 12]	# user esp
+	cmp	ebx, SEL_MAX
+	jb	2f
+	DEBUG_DWORD ebx, "illegal user stack selector", 4
+	jmp	1f
+2:	mov	esi, ss:[edi + 12]	# user esp
 	mov	edi, esi
 	printc_ 11, "USER"
 	call	debug_print_stack$
