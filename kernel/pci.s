@@ -1715,7 +1715,8 @@ DECLARE_PCI_DRIVER BRIDGE/*???*/  ,   nulldev, 0x15ad, 0x0801, "vmwi", "VMWare V
 
 #Bus 02 Slot 01 Vendor 1022 2000 Command 0003 Status 0280 Revision 10 Class 02.00.00 Ethernet Network Controller SubSystem Vendor ID 1022 ID 2000
 #Bus 02 Slot 02 Vendor 1274 1371  Revision 02 Class 04.01.00 Audio Device Multimedia Controller Single function General device  SubSystem Vendor ID 1274 ID 1371
-DECLARE_PCI_DRIVER MM_AUDIO, nulldev, 0x1274, 0x1371, "audio", "Ensoniq AudioPCI-97"
+# Declared in es1371.s:
+#DECLARE_PCI_DRIVER MM_AUDIO, nulldev, 0x1274, 0x1371, "audio", "Ensoniq AudioPCI-97"
 
 
 #Bus 02 Slot 03 Vendor 15ad 0770 Command 0002 Status 0000 Single function General device  SubSystem Vendor ID 15ad ID 0770 > EHCI Driver USB 2.14

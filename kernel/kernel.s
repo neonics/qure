@@ -98,6 +98,7 @@ include "dev.s", dev
 include "pci.s", pci
 include "bios.s", bios
 include "cmos.s", cmos
+include "dma.s", dma
 include "ata.s", ata
 
 include "debugger.s", debugger
@@ -130,6 +131,8 @@ include "ipiix4.s"	# Intel PIIX4 ISA/IDE/USB/AGP Bridge
 include "gfx.s", gfx
 include "hwdebug.s", hwdebug
 include "vmware/vmware.s", vmware
+include "es1371.s", es1371
+include "sb.s", sb
 include "shell.s", shell
 ###################################
 

@@ -218,6 +218,7 @@ SHELL_COMMAND "objects"		cmd_objects
 SHELL_COMMAND "ph"		cmd_ping_host
 SHELL_COMMAND "svga"		cmd_svga
 SHELL_COMMAND "xml"		cmd_xml
+SHELL_COMMAND "sb"		cmd_sb
 .data SECTION_DATA_SHELL_CMDS
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
