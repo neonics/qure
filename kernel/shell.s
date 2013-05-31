@@ -73,11 +73,6 @@ SHELL_COMMAND_STRUCT_SIZE = .
 		.word 8b - 9b
 	.text32
 .endm
-
-.endif		# end declarations
-############################################################################
-
-.if DEFINE	# begin definitions (code, data)
 ############################################################################
 MAX_CMDLINE_LEN = 1024
 MAX_CMDLINE_ARGS = 256
@@ -109,6 +104,10 @@ cmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
 DECLARE_CLASS_METHOD cmdline_api_print_prompt, shell_print_prompt$, OVERRIDE
 DECLARE_CLASS_METHOD cmdline_api_execute, shell_execute$, OVERRIDE
 DECLARE_CLASS_END shell
+.endif		# end declarations
+############################################################################
+
+.if DEFINE	# begin definitions (code, data)
 ############################################################################
 ### Shell Command list
 .data SECTION_DATA_SHELL_CMDS
@@ -158,7 +157,8 @@ SHELL_COMMAND "mtest",		malloc_test$
 SHELL_COMMAND_CATEGORY "hardware"
 SHELL_COMMAND "dev"		cmd_dev
 SHELL_COMMAND "lspci",		pci_list_devices
-SHELL_COMMAND "nicdrivers",	cmd_list_nic_drivers
+SHELL_COMMAND "pcibus",		pci_print_bus_architecture
+SHELL_COMMAND "drivers",	cmd_list_drivers
 # network
 SHELL_COMMAND_CATEGORY "network"
 # nonstandard
@@ -1954,8 +1954,12 @@ cmd_ramdisk:
 	shr	edx, 4
 	call	printdec32
 	RD ": lba", ebx
-	RD " sectors ", ebx+8
-	RD " mem start", ebx+4
+	RD " size", ebx+8
+	call	printspace
+	add	edx, 511
+	shr	edx, 9
+	call	printhex4
+	RD "S mem start", ebx+4
 	RD " end", ebx+12
 	call	newline
 	add	ebx, 16
@@ -2301,6 +2305,38 @@ cmd_base64:
 	call	println
 
 9:	ret
+
+cmd_list_drivers:
+	lodsd
+	lodsd
+	mov	bl, -1	# list all drivers
+	or	eax, eax
+	jz	1f
+	call	htoi
+	jc	9f
+	mov	ebx, eax
+1:	call	pci_list_drivers	# in: bl=-1 or bx=PCI class
+	ret
+9:	printc 4, "usage: "
+	mov	esi, [esi - 8]
+	call	print
+	printlnc 4, " [hex_pci_class]"
+	mov	esi, offset pci_device_class_names
+	mov	ecx, PCI_MAX_KNOWN_DEVICE_CLASS
+	xor	dl, dl
+	PUSHCOLOR 7
+0:	COLOR 7
+	call	printhex2
+	inc	dl
+	call	printspace
+	push	dword ptr [esi]
+	COLOR 11
+	call	_s_println
+	add	esi, 8
+	loop	0b
+	POPCOLOR
+
+	ret
 
 .include "../lib/xml.s"
 .endif

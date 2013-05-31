@@ -441,11 +441,6 @@ nic_print:
 ############################################################################
 # Commandline Interface
 
-cmd_list_nic_drivers:
-	mov	ebx, 0x0002
-	call	pci_list_drivers
-	ret
-
 cmd_ifup:
 	xor	eax, eax
 	call	nic_getobject

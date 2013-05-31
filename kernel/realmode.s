@@ -425,7 +425,7 @@ realmode_kernel_entry:
 
 	mov	di, offset memory_map
 	xor	ebx, ebx
-0:	mov	edx, 0x534d4150
+0:	mov	edx, 0x534d4150	# "SMAP"
 	mov	eax, 0xe820
 	mov	cx, ds
 	mov	es, cx

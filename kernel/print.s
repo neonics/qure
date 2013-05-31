@@ -1161,6 +1161,13 @@ _s_printlnc:
 	pop	esi
 	ret	4 + COLOR_STACK_SIZE
 
+_s_println:
+	push	esi
+	mov	esi, [esp + 8]
+	call	println
+	pop	esi
+	ret	4
+
 _s_print:
 	push	eax
 	push	esi

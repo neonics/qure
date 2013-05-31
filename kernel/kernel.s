@@ -87,12 +87,12 @@ include "string.s", string
 include "schedule.s", scheduler
 
 include "token.s", tokenizer
+include "oo.s", oo
 DEFINE = 0
 include "fs.s"
 include "shell.s"
 DEFINE = 1
 
-include "oo.s", oo
 
 include "dev.s", dev
 include "pci.s", pci
@@ -100,7 +100,6 @@ include "bios.s", bios
 include "cmos.s", cmos
 include "ata.s", ata
 
-include "shell.s", shell
 include "debugger.s", debugger
 
 include "fs.s", fs
@@ -131,6 +130,7 @@ include "ipiix4.s"	# Intel PIIX4 ISA/IDE/USB/AGP Bridge
 include "gfx.s", gfx
 include "hwdebug.s", hwdebug
 include "vmware/vmware.s", vmware
+include "shell.s", shell
 ###################################
 
 .text32
