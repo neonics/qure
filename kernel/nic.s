@@ -59,29 +59,27 @@ nic_init:
 	jz	91f
 	mov	ebx, esi	# base ptr
 	add	ebx, [ebx + array_index]	# last offset
+
+
 ########
-0:	lodsd
-	mov	edx, [eax + obj_class]
-###	# instanceof
-2:	cmp	edx, dword ptr offset class_nic
-	jz	1f
-	mov	edx, [edx + class_super]
-	or	edx, edx
-	jnz	2b
-	jmp	3f	# done with hierarchy
-###
-1:	# match
+0:	lodsd	# object
+	mov	edx, offset class_nic
+	call	class_instanceof
+	jnz	3f
+##
 	push	eax
 	PTR_ARRAY_NEWENTRY [nics], 1, 92f
 	add	edx, eax
-	pop	eax
-	mov	[edx], eax
+	pop	dword ptr [edx]
 ###
 3:	cmp	esi, ebx	# check next object
 	jb	0b
 ########
 8:	mov	eax, [nics]
-	pop_	ebx edx esi
+	or	eax, eax
+	jnz	1f
+	stc
+1:	pop_	ebx edx esi
 9:	ret
 
 91:	printlnc 4, "nic_init: class_instances null"
