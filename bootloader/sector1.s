@@ -3,6 +3,8 @@
 
 DEBUG_BOOTLOADER = 0	# 0: no keypress. 1: keypress; 2: print ramdisk/kernel bytes.
 
+MULTISECTOR_LOADING = 1	# 0: 1 sector, 1: 128 sectors(64kb) at a time
+
 .text
 .code16
 . = 512
@@ -895,25 +897,23 @@ printc 0x4f, "Warning: ramdisk entry will overwrite BIOS"
 	push	eax		# remember offset
 	call	load_sector
 	pop	eax
+	add	eax, ecx
+	sub	[esp], ecx
 	pop	ecx
-	inc	eax
-TRACE 'd'
-	.if 0
-		push ax
-		mov dx, ax
-		mov ah, 0xf8
-		call printhex
-		mov dx, cx
-		call printhex
-		pop	ax
-	.endif
-	loop	0b
+	jg	0b
+
+.if 1
+	mov ah, 0xf1
+	mov edx,ecx; call printhex8
+	mov edx, ebx; call printhex8
+.endif
+
 TRACE '*'
 	# bx points to end of loaded data (kernel)
 ################################# end load loop
 	mov	ah, 0xf6
 	print	"Success!"
-	mov	edx, ebx
+	mov	edx, ebx	# 0005f400 OK   00038e00 ERR
 	call	printhex8
 	call	newline
 	ret
@@ -921,7 +921,23 @@ TRACE '*'
 
 # in: eax = sector
 # in: ebx = flat mem address to load to
+# in: ecx = number of sectors remaining to be loaded
+# out: ecx = nr sectors loaded
+# out: ebx = updated
 load_sector:
+.if MULTISECTOR_LOADING
+	cmp	ecx, 0x10000/512 # 128, load max 64kb
+	jbe	1f
+	mov	ecx, 128
+1:	
+.else
+	mov	ecx, 1
+.endif
+	push	ecx
+	push	bp
+	mov	bp, sp
+	add	bp, 2	# have bp point to ecx
+
 	.if 0	# use this to debug when loading fails
 		call	debug_print_load_address$
 	.endif
@@ -969,22 +985,17 @@ PRINT_LOAD_SECTORS = 0
 	and	eax, 0xf
 	push	ebx
 	mov	bx, ax
-	.if 0
-		call	debug_13_es_bx$
-	.endif
-	mov	ax, 0x0201 	# read 1 sector (dont trust multitrack)
+	mov	ah, 2		# read sector
+	mov	al, [bp]	# nr sectors
 	int	0x13
 	pop	ebx
 	pop	es
 TRACE '>'
 
 	jc	fail
-	cmp	ax, 1
+	cmp	ax, [bp]
 	jne	fail
-
 TRACE 'c'
-
-	add	ebx, 0x200
 
 	mov	dx, ax
 	mov	ax, 0xf2<<8|'.'
@@ -996,6 +1007,11 @@ TRACE 'c'
 	call	newline
 	.endif
 
+	pop	bp
+	pop	ecx
+	shl	ecx, 9
+	add	ebx, ecx #0x200 * nr sectors
+	shr	ecx, 9	# return nr sectors loaded
 	ret
 
 
