@@ -413,7 +413,7 @@ pci_list_drivers:
 	mov	dx, [esi + pci_driver_vendor_id]
 	call	printhex4
 	printc	11, " device "
-	mov	dx, [esi + pci_driver_vendor_id]
+	mov	dx, [esi + pci_driver_device_id]
 	call	printhex4
 	call	printspace
 
