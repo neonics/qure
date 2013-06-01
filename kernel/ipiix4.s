@@ -18,30 +18,19 @@
 # Function 3:	(device id 7113)
 #   Power Management and System Management Bus.
 
-#.struct DEV_PCI_STRUCT_SIZE
-DECLARE_CLASS_BEGIN pci_bridge_isa_piix4, dev_pci
-DECLARE_CLASS_METHOD dev_api_constructor, dev_pci_piix4_isa_driver, OVERRIDE
-DECLARE_CLASS_END pci_bridge_isa_piix4
+DECLARE_PCI_DRIVER BRIDGE_ISA,	nulldev,   0x8086, 0x7110, "piix4-isa", "Intel 82371AB/EB/MB PIIX4 ISA Host Bridge"
+DECLARE_PCI_DRIVER STORAGE_IDE,	piix4_ide, 0x8086, 0x7111, "piix4-ide", "Intel 82371AB/EB/MB PIIX4 IDE Host Bridge"
+DECLARE_PCI_DRIVER SERIAL_USB,	nulldev,   0x8086, 0x7112, "piix4-usb", "Intel 82371AB/EB/MB PIIX4 USB"
+DECLARE_PCI_DRIVER BRIDGE_PCI2PCI_STS,nulldev,   0x8086, 0x7113, "piix4-acpi","Intel 82371AB/EB/MB PIIX4 ACPI"
 
 
-DECLARE_PCI_DRIVER BRIDGE_ISA, pci_bridge_isa_piix4, 0x8086, 0x7110, "ipiix4", "Intel PIIX4 ISA Host Bridge"
-.text32
-
-dev_pci_piix4_isa_driver:
-	I "Intel PIIX4 ISA Bridge"
-	call	newline
-	ret
-
-######################################
-DECLARE_CLASS_BEGIN dev_ide_piix4, dev_pci
+############################################################################
+DECLARE_CLASS_BEGIN piix4_ide, dev_pci
 dev_ide_dtp_buf:	.long 0	# description table pointer buffer (logical address)
 dev_ide_dtp_prim:	.long 0	# DTP for primary channel (logical address)
 dev_ide_dtp_sec:	.long 0	# DTP for secondary channel (logical address)
-DECLARE_CLASS_METHOD dev_api_constructor, dev_pci_piix4_ide_driver, OVERRIDE
-DECLARE_CLASS_END dev_ide_piix4
-
-
-DECLARE_PCI_DRIVER STORAGE_IDE, dev_ide_piix4, 0x8086, 0x7111, "ipiix4", "Intel PIIX4 IDE Host Bridge"
+DECLARE_CLASS_METHOD dev_api_constructor, piix4_ide_init, OVERRIDE
+DECLARE_CLASS_END piix4_ide
 
 .data
 dev_ide: .long 0
@@ -54,8 +43,8 @@ BM_IDE_CMD_SSBM_START	= 1
 BM_IDE_CMD_SSBM_STOP	= 0
 
 # in: ebx = dev_ide ptr
-dev_pci_piix4_ide_driver:
-mov [dev_ide], ebx
+piix4_ide_init:
+	mov [dev_ide], ebx # for ATA routines
 	push_	eax ecx edx
 	I "Intel PIIX4 IDE Bridge"
 	call	newline

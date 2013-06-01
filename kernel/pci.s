@@ -202,6 +202,8 @@ DEV_PCI_CLASS_BRIDGE_HOST 	= 0x000006
 DEV_PCI_CLASS_BRIDGE_ISA 	= 0x000106
 DEV_PCI_CLASS_BRIDGE_PCI2PCI 	= 0x000406
 DEV_PCI_CLASS_BRIDGE_PCI2PCI_SD = 0x010406
+DEV_PCI_CLASS_BRIDGE_PCI2PCI_STP= 0x004006
+DEV_PCI_CLASS_BRIDGE_PCI2PCI_STS= 0x008006
 SUBCLASS 0x00, 0x00, "host",	"Host"
 SUBCLASS 0x01, 0x00, "isa",	"ISA"
 SUBCLASS 0x02, 0x00, "",	"EISA"
@@ -213,7 +215,7 @@ SUBCLASS 0x06, 0x00, "",	"NuBus"
 SUBCLASS 0x07, 0x00, "",	"CardBus"
 SUBCLASS 0x08, 0xFF, "",	"RACEway"
 SUBCLASS 0x09, 0x40, "",	"PCI-to-PCI (Semi-Transparent, Primary)"
-SUBCLASS 0x09, 0x80, "",	"PCI-to-PCI (Semi-Transparent, Secondary)"
+SUBCLASS 0x09, 0x80, "br",	"PCI-to-PCI (Semi-Transparent, Secondary)"
 SUBCLASS 0x0A, 0x00, "",	"InfiniBrand-to-PCI Host"
 SUBCLASS_EOL
 
@@ -241,6 +243,8 @@ SUBCLASS 0x05, 0x00, "",	"Smart Card"
 SUBCLASS_EOL
 
 sc08$:	# Class 8: Integrated peripherals
+DEV_PCI_CLASS_INTPER = 0x08
+DEV_PCI_CLASS_INTPER_OTHER = 0x008008
 SUBCLASS 0x00, 0x00, "pic",	"Generic 8259 PIC"
 SUBCLASS 0x00, 0x01, "pic",	"ISA PIC"
 SUBCLASS 0x00, 0x02, "pic",	"EISA PIC"
@@ -282,8 +286,10 @@ SUBCLASS_EOL
 
 sc0c$:	# Class 12: Serial Bus Controllers
 DEV_PCI_CLASS_SERIAL = 0x0c
-DEV_PCI_CLASS_SERIAL_USB = 0x030c
-DEV_PCI_CLASS_SERIAL_USB_EHCI = 0x20030c
+DEV_PCI_CLASS_SERIAL_USB	= 0xff030c
+DEV_PCI_CLASS_SERIAL_USB_EHCI	= 0x20030c
+DEV_PCI_CLASS_SERIAL_USB_OHCI	= 0x10030c
+DEV_PCI_CLASS_SERIAL_USB_UHCI	= 0x00030c
 SUBCLASS 0x00, 0x00, "",	"IEEE 1394 Controller (FireWire)"
 SUBCLASS 0x00, 0x10, "",	"IEEE 1394 Controller (1394 OpenHCI Spec)"
 SUBCLASS 0x01, 0x00, "",	"ACCESS.bus"
@@ -984,26 +990,29 @@ pci_instantiate_dev$:
 	pop	eax
 	jmp	3f
 2:
-	.if PCI_DEBUG;
+	.if 1#PCI_DEBUG;
 		DEBUG "no driver"
 	.endif
 	# use generic dev_pci object
 	push	eax
-	mov	eax, offset class_dev_pci
+	mov	eax, offset class_nulldev
 	call	class_newinstance
 	mov	edi, eax
 	pop	eax
-
+	mov	[esi + pci_driver_shortname], dword ptr 0
+	mov	[esi + pci_driver_longname], dword ptr 0
+	jmp	1f	
 3:
-	mov	[edi + dev_pci_vendor], edx
-	mov	[edi + dev_pci_addr], ecx
-	mov	[edi + dev_pci_class], eax
 
 	mov	edx, [esi + pci_driver_shortname]	# short name
 	mov	[edi + dev_drivername_short], edx
 	mov	edx, [esi + pci_driver_longname]
 	mov	[edi + dev_drivername_long], edx
+1:
 
+	mov	[edi + dev_pci_vendor], edx
+	mov	[edi + dev_pci_addr], ecx
+	mov	[edi + dev_pci_class], eax
 	# fill in the name
 	push_	eax ecx edx
 	# in: al = eax = pci device class
@@ -1749,6 +1758,16 @@ DECLARE_CLASS_METHOD dev_api_constructor, dev_pci_qemu_vid_driver, OVERRIDE
 DECLARE_CLASS_END vid_qemu
 DECLARE_PCI_DRIVER VID_VGA,     nulldev, 0x1234, 0x1111, "vid", "QEmu VGA Display Controller "
 
+# VirtualBox devices:
+
+# 106b 003f	Apple KeyLargo/Intrepid USB (OCHS)
+DECLARE_PCI_DRIVER SERIAL_USB_OHCI, nulldev, 0x106b, 0x003f, "appleusb", "Apple KeyLargo/Intrepic USB (OHCI)"
+# 80ee beef	VBVA - Video
+# 80ee cafe	Addon?
+# 8086 7113	Intel Bridge device
+
+					 
+
 
 .text32
 nulldev_constructor:
@@ -1758,15 +1777,19 @@ nulldev_constructor:
 	call	print
 	print_ ", "
 	mov	esi, [ebx + dev_drivername_short]
+	or	esi, esi
+	jz	2f
 	call	print
 	print_ " / "
 	mov	esi, [ebx + dev_drivername_long]
 	call	print
-	cmp	[ebx + dev_pci_subvendor], word ptr 0x15ad
+
+	# Check if it is a Virtual Machine chipset
+2:	cmp	dword ptr [ebx + dev_pci_subvendor], 0x15ad1976	# Generic/VMware
+	jz	3f
+	cmp	dword ptr [ebx + dev_pci_subvendor], 0x1af41100	# QEmu
 	jnz	1f
-	cmp	[ebx + dev_pci_subdevice],word ptr  0x1976
-	jnz	1f
-	printc	11, " (Virtual Machine)"
+3:	printc	11, " (Virtual Machine)"
 
 1:	pop	esi
 	call	newline

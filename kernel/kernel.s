@@ -119,6 +119,7 @@ include "net/net.s", net
 
 code_vid_start:
 include "vmware/svga2.s"
+include "vbox/vbva.s"
 code_vid_end:
 
 code_usb_start:
@@ -131,6 +132,7 @@ include "ipiix4.s"	# Intel PIIX4 ISA/IDE/USB/AGP Bridge
 include "gfx.s", gfx
 include "hwdebug.s", hwdebug
 include "vmware/vmware.s", vmware
+include "vbox/vbga.s", vbox
 include "es1371.s", es1371
 include "sb.s", sb
 include "shell.s", shell
