@@ -605,6 +605,16 @@ COLOR_STACK_SIZE = 2
 	_PRINTBITSHEX \width
 .endm
 
+.macro PRINTBITSd reg, firstbit, width, msg=0
+	.ifnc 0,\msg
+	PRINTc	7, "\msg"
+	.endif
+	mov	edx, \reg
+	shr	edx, \firstbit
+	and	edx, (1 << \width) - 1
+	_PRINTBITSHEX \width
+.endm
+
 .macro PRINTBITb reg, bit
 	mov	dl, \reg
 	and	dl, 1<<\bit

@@ -18,7 +18,7 @@ KERNEL_SRC = kernel.s defines.s macros.s debug.s oo.s debugger.s \
 	mutex.s console.s paging.s buffer.s
 
 HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s dma.s \
-	nic.s dev.s usb.s $(NIC_SRC) $(VMWARE_SRC) $(VBOX_SRC) $(INTEL_SRC) \
+	nic.s dev.s usb.s usb_ohci.s $(NIC_SRC) $(VMWARE_SRC) $(VBOX_SRC) $(INTEL_SRC) \
 	sb.s es1371.s
 
 VMWARE_SRC = vmware/vmware.s vmware/bdoor.s vmware/chan.s vmware/vix.s \

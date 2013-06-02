@@ -514,11 +514,15 @@ am79c_hook_isr:
 	push	ebx
 	movzx	ax, byte ptr [ebx + dev_irq]
 	mov	[am79c971_isr_irq], al
-	add	ax, IRQ_BASE
 	mov	ebx, offset am79c971_isr
 	add	ebx, [realsegflat]
 	mov	cx, cs
+.if IRQ_SHARING
+	call	add_irq_handler
+.else
+	add	ax, IRQ_BASE
 	call	hook_isr
+.endif
 	pop	ebx
 
 	mov	al, [ebx + dev_irq] # NIC_IRQ
@@ -1129,9 +1133,10 @@ am79c971_isr:
 		call	newline
 	.endif
 ########################################################################
+.if !IRQ_SHARING
 	mov	ebx, [am79c971_isr_dev]
 	PIC_SEND_EOI [ebx + dev_irq]
-
+.endif
 	pop	es
 	pop	ds
 	popad	# edx ebx eax

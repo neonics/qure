@@ -14,7 +14,7 @@ DECLARE_CLASS_END usb
 ############################################################################
 # structure for the device object instance:
 # append field to nic structure (subclass)
-DECLARE_CLASS_BEGIN usbh_ehci, usb
+DECLARE_CLASS_BEGIN usb_ehci, usb
 usb_ehci_cap_regbase:	.long 0
 usb_ehci_op_regbase:	.long 0
 usb_ehci_nports:	.byte 0
@@ -32,6 +32,7 @@ DECLARE_CLASS_METHOD dev_api_constructor, usb_vmw_ehci_init, OVERRIDE
 DECLARE_CLASS_END usb_ehci
 
 DECLARE_PCI_DRIVER SERIAL_USB_EHCI, usb_ehci, 0x15ad, 0x0770, "vmw-ehci", "VMWare EHCI USB Host Controller"
+DECLARE_PCI_DRIVER SERIAL_USB_EHCI, usb_ehci, 0x8086, 0x265c, "intel-ehci", "Intel EHCI USB Host Controller"
 ############################################################################
 .text32
 
@@ -120,7 +121,9 @@ USB_EHCI_REG_STATUS	= 0x04	# status
 	USB_EHCI_STATUS_ERRINT	= 1 << 1	# RWC; USB error interrupt
 	USB_EHCI_STATUS_INT	= 1 << 0	# RWC; usb interrupt: occurs when:
 						# completed transaction where IOC=1
+
 						# short packet
+	USB_EHCI_STATUS_INT_MASK= 0b111111
 
 USB_EHCI_REG_INTR	= 0x08	# interrupt mask (1=enabled, 0=disabled)
 				# (ack by clear corresp. status bit)
@@ -351,13 +354,16 @@ usb_ehci_hook_isr:
 	push	ebx
 	movzx	ax, byte ptr [ebx + dev_irq]
 	mov	[usb_ehci_isr_irq], al
-	add	ax, IRQ_BASE
 	mov	ebx, offset usb_ehci_isr
 	add	ebx, [realsegflat]
 	mov	cx, cs
+.if IRQ_SHARING
+	call	add_irq_handler
+.else
+	add	ax, IRQ_BASE
 	call	hook_isr
+.endif
 	pop	ebx
-
 	mov	al, [ebx + dev_irq]
 	call	pic_enable_irq_line32
 	ret
@@ -371,14 +377,20 @@ usb_ehci_isr:
 	mov	eax, SEL_flatDS
 	mov	fs, eax
 
-	printc 0xf5, "USB ISR"
 
 	mov	ebx, [usb_ehci_isr_dev]
 	mov	esi, [ebx + usb_ehci_op_regbase]
 
 	mov	eax, fs:[esi + USB_EHCI_REG_STATUS]
+	mov	edx, eax
+	and	edx, USB_EHCI_STATUS_INT_MASK
+	jz	9f	# shared irq - not for us
+
+	printc 0xf5, "USB ISR"
+
 	mov	fs:[esi + USB_EHCI_REG_STATUS], eax	# clear bits
 	DEBUG "EHCI status: "
+	DEBUG_DWORD eax
 	PRINTFLAG eax, USB_EHCI_STATUS_INTR_AA, "INTR_AA"
 	PRINTFLAG eax, USB_EHCI_STATUS_HSERR, "HSERR"
 	PRINTFLAG eax, USB_EHCI_STATUS_FLR, "FLR"
@@ -387,9 +399,10 @@ usb_ehci_isr:
 	PRINTFLAG eax, USB_EHCI_STATUS_INT, "INT"
 	call	newline
 	call	usb_ehci_print_ports
-
+.if !IRQ_SHARING
 	PIC_SEND_EOI [ebx + dev_irq]
+.endif
 
-	pop_	fs es ds
+9:	pop_	fs es ds
 	popad
 	iret

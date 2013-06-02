@@ -1761,7 +1761,8 @@ DECLARE_PCI_DRIVER VID_VGA,     nulldev, 0x1234, 0x1111, "vid", "QEmu VGA Displa
 # VirtualBox devices:
 
 # 106b 003f	Apple KeyLargo/Intrepid USB (OCHS)
-DECLARE_PCI_DRIVER SERIAL_USB_OHCI, nulldev, 0x106b, 0x003f, "appleusb", "Apple KeyLargo/Intrepic USB (OHCI)"
+# see usb_ohci.s
+#DECLARE_PCI_DRIVER SERIAL_USB_OHCI, usb_ohci, 0x106b, 0x003f, "appleusb", "Apple KeyLargo/Intrepic USB (OHCI)"
 # 80ee beef	VBVA - Video
 # 80ee cafe	Addon?
 # 8086 7113	Intel Bridge device

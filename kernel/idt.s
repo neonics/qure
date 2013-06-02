@@ -16,6 +16,13 @@
 # For an INT Gate, cli/sti is automatic; it isn't for a TRAP gate.
 #
 .intel_syntax noprefix
+##############################################################################
+
+IRQ_PROXIES = 1	# needed for scheduling
+
+IRQ_SHARING = 1	# 0: the last device to hook_isr will be the one to use the IRQ
+
+##############################################################################
 .equ IDT_ACC_GATE_TASK32, 0b0101 # TASK Gate. selector:offset = TSS:0.
 .equ IDT_ACC_GATE_INT16,  0b0110
 .equ IDT_ACC_GATE_TRAP16, 0b0111
@@ -48,10 +55,6 @@ IDT:
 DEFIDT 0, SEL_flatCS, ACC_PR+ACC_RING0+ACC_SYS+IDT_ACC_GATE_INT32
 .endr
 
-
-
-IRQ_PROXIES = 1	# Experimental!
-SCHEDULE_IRET = 1
 
 .text32
 
@@ -91,7 +94,7 @@ hook_isr:
 	shl	eax, 3
 	add	eax, edx	# * 9
 	.else # len = 15
-	shl	eax, 4
+	shl	eax, 4		# table entry size: 16 bytes
 	.endif
 
 	# put the old values in the stack for return
@@ -108,25 +111,12 @@ hook_isr:
 	pop	eax
 .endif
 
-	shl	eax, 3
-	add	eax, offset IDT
-
-	.if DEBUG > 1
-		push	edx
-		mov	dx, cx
-		call	printhex
-		PRINT	":"
-		mov	edx, eax
-		call	printhex8
-		call	newline
-		pop	edx
-	.endif
-
-	mov	[eax], bx
-	mov	[eax+2], cx
-	mov	[eax+4], word ptr (ACC_PR + IDT_ACC_GATE_INT32 ) << 8
+	mov	[IDT + eax*8 + 0], bx
+	mov	[IDT + eax*8 + 2], cx
+	mov	[IDT + eax*8 + 4], word ptr (ACC_PR + IDT_ACC_GATE_INT32 ) << 8
 	shr	ebx, 16
-	mov	[eax+6], bx
+	mov	[IDT + eax*8 + 6], bx
+
 	sti
 	pop	eax
 	pop	ebx
@@ -134,14 +124,212 @@ hook_isr:
 	popf
 	ret
 
+.if IRQ_SHARING
+
+.data SECTION_DATA_BSS
+irq_handlers:	.long 0
+MAX_IRQ_HANDLERS_PER_IRQ_SHIFT = 3
+MAX_IRQ_HANDLERS_PER_IRQ = 1 << MAX_IRQ_HANDLERS_PER_IRQ_SHIFT
+.text32
+
+#### NOTE !!! ### the below code ignores cx/codeseg of handler!
+
+# in: al = IRQ (0-based)
+# in: cx = code segment of handler
+# in: ebx = offset of handler
+add_irq_handler:
+	push_	ecx edx esi
+	mov	esi, [irq_handlers]
+	or	esi, esi
+	jnz	1f
+
+	push	eax
+	mov	eax, 0x10 * MAX_IRQ_HANDLERS_PER_IRQ * 4	# 16 hndlr=1kb
+	call	mallocz
+	mov	esi, eax
+	pop	eax
+	jc	91f
+	mov	[irq_handlers], esi
+
+1:	movzx	eax, al
+	shl	eax, MAX_IRQ_HANDLERS_PER_IRQ_SHIFT + 2	#1<<2=4=dword ptr
+	add	esi, eax
+	mov	dx, cx	# codeseg
+	mov	ecx, MAX_IRQ_HANDLERS_PER_IRQ
+0:	lodsd
+	or	eax, eax
+	jz	1f
+	loop	0b
+	jmp	93f
+
+1:	mov	[esi-4], ebx
+
+	clc
+9:	pop_	esi edx ecx
+	#call print_irq_handlers
+	ret
+91:	printlnc 4, "add_irq_handler: mallocz fail"
+	stc
+	jmp	9b
+92:	printlnc 4, "add_irq_handler: maximum reached"
+	stc
+	jmp	9b
+
+# in: al = IRQ
+# in: cx = code segment of handler
+# in: ebx = offset of handler
+remove_irq_handler:
+	push_	eax ecx esi edi
+	mov	edi, [irq_handlers]
+	or	edi, edi
+	jz	91f
+
+	movzx	eax, al
+	shl	eax, MAX_IRQ_HANDLERS_PER_IRQ_SHIFT + 2
+	add	edi, eax
+	mov	ecx, MAX_IRQ_HANDLERS_PER_IRQ	# discard cx
+	mov	eax, ebx
+	repnz	scasd
+	jnz	92f
+
+	mov	[edi - 4], dword ptr 0
+	# make compact
+	jecxz	0f
+	mov	esi, edi
+	sub	edi, 4
+	rep	movsd
+0:	pop_	edi esi ecx eax
+	#call print_irq_handlers
+	ret
+91:	printlnc 4, "remove_irq_handler: array null"
+	int 3
+	jmp	0b
+92:	printlnc 4, "remove_irq_handler: not found"
+	int 3
+	jmp	0b
+
+print_irq_handlers:
+	pushad
+	mov	esi, [irq_handlers]
+	or	esi, esi
+	jz	91f
+	mov	ecx, 16	# 16 irq's
+	xor	edx, edx
+
+0:	print "IRQ "
+	mov	edx, 16
+	sub	edx, ecx
+	call	printhex2
+
+	push	ecx
+	mov	ecx, MAX_IRQ_HANDLERS_PER_IRQ
+1:	call	printspace
+	lodsd
+	mov	edx, eax
+	call	printhex8
+	loop	1b
+	call	newline
+	pop	ecx
+
+	loop	0b
+
+9:	popad
+	ret
+91:	println "No IRQ Handlers (buffer 0)"
+	jmp	9b
+
+# referenced from irq_proxies.
+irq_isr:
+	push	ebp
+	lea	ebp, [esp + 4]
+	push_	edx eax ds es
+	
+	mov	eax, SEL_compatDS
+	mov	ds, eax
+	mov	es, eax
+
+	mov	eax, [ebp]	# get return eip
+	cmp	eax, offset irq_proxies
+	jb	91f
+	cmp	eax, offset irq_proxies + 16*256
+	jae	91f
+	# eax points somewere in irq_proxies.
+	# read the interrupt number.
+	# 2 ways:
+	movzx	edx, word ptr cs:[eax+5]	# skip the jump schedule_isr
+	# calculate the interrupt number:
+	sub	eax, offset irq_proxies
+	js	91f
+	shr	eax, 4	# 16 byte entry size
+	cmp	eax, edx
+	jnz	92f
+
+	sub	al, IRQ_BASE
+	js	93f
+	cmp	al, 0x10
+	jae	93f
+	mov	dl, al
+
+	.if 0
+		printc 0xf0, "irq_isr"
+		call	printhex2
+	.endif
+
+	push_	eax esi ecx
+
+	mov	esi, [irq_handlers]
+	or	esi, esi
+	jz	90f
+
+	shl	eax, MAX_IRQ_HANDLERS_PER_IRQ_SHIFT + 2	#+2 for dword ptr
+	mov	ecx, MAX_IRQ_HANDLERS_PER_IRQ
+	add	esi, eax
+0:	lodsd
+	or	eax, eax	
+	.if 1 # expect compact
+		jz	80f
+	.else
+		jz	1f
+	.endif
+
+	pushf
+	pushd	cs
+	call	eax
+
+1:	loop	0b
+
+80:	pop_	ecx esi eax
+
+	PIC_SEND_EOI al
+0:	pop_	es ds eax edx
+	pop	ebp
+	iret
+
+90:	printc 4, "no isr for IRQ"
+	call	printhex2
+	jmp	80b
+
+91:	printlnc 4, "irq_isr not called from irq_proxies!"
+	int 1
+	jmp	0b
+92:	printc 4, "irq_proxy offset & data mismatch"
+	DEBUG_DWORD edx
+	DEBUG_DWORD eax
+	int 1
+	jmp	0b
+93:	printc 4, "irq_isr called for non-IRQ: "
+	call	printhex2
+	int 1
+	jmp	0b
+.endif
 #################################################
 
 isr_jump_table:
 
 	INT_NR = 0
 	.rept 256
-		push	word ptr INT_NR
-		jmp	jmp_table_target
+		push	word ptr INT_NR		# 3 bytes
+		jmp	jmp_table_target	# 5 bytes
 		.if INT_NR == 0
 			JMP_ENTRY_LEN = . - isr_jump_table
 		.endif
@@ -150,22 +338,19 @@ isr_jump_table:
 
 .if IRQ_PROXIES
 irq_proxies:
-INT_NR = 0
-.rept 256
-	# size 16
-	pushf
-	lcall	SEL_compatCS, jmp_table_target + JMP_ENTRY_LEN * INT_NR	# 7
-.if SCHEDULE_IRET
-	jmp	schedule_isr	# needs to do iret! see schedule.s
-	nop
-.else
-	call	schedule_near
-	iret
-.endif
-	nop
-	nop
-INT_NR = INT_NR + 1
-.endr
+
+	INT_NR = 0
+	.rept 256
+		# size 16
+		pushf					# 1 byte
+		lcall	SEL_compatCS, jmp_table_target	# 7 bytes # 8
+		jmp	schedule_isr			# 5 bytes # 13
+		.word	INT_NR				# 2 bytes # 15
+		nop					# 1 byte  # 16
+		INT_NR = INT_NR + 1
+	.endr
+	IRQ_PROXY_OFFS_OFFS	= 4	# handler offset
+	IRQ_PROXY_INT_OFFS	= 13	# interrupt number
 .endif
 
 .data
@@ -195,7 +380,6 @@ STRINGPTR "Machine Check"			# 0x12 A
 STRINGPTR "SIMD Floating-Point Exception"	# 0x13 F
 .text32
 
-
 # NOTE! Do not proxy IRQ < 32 (exceptions) due to stack expectations of the
 # below handler!
 #
@@ -211,8 +395,7 @@ jmp_table_target:
 		int_count: .rept 256; .long 0; .endr
 	.text32
 	push	ebp		# [ebp -  4] (after add ebp,4)
-	mov	ebp, esp
-	add	ebp, 4		# skip ebp itself
+	lea	ebp, [esp + 4]
 	push	eax		# [ebp -  8]
 	push	ecx		# [ebp - 12]
 	push	ds		# [ebp - 16]
@@ -903,6 +1086,22 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	add	esi, 8
 	add	eax, JMP_ENTRY_LEN
 	loop	0b
+
+
+.if IRQ_SHARING
+	# register the IRQ core handlers
+	mov	al, IRQ_BASE
+	push	ebx
+	mov	ecx, 16
+0:	push	ecx
+	mov	ebx, offset irq_isr
+	mov	cx, cs
+	call	hook_isr	# changes cx,ebx
+	pop	ecx
+	inc	al
+	loop	0b
+	pop	ebx
+.endif
 
 	mov	eax, [reloc$]#[realsegflat]
 	add	eax, offset IDT

@@ -124,6 +124,7 @@ code_vid_end:
 
 code_usb_start:
 include "usb.s"
+include "usb_ohci.s"
 code_usb_end:
 
 include "i440.s"	# Intel i440 PCI Host Bridge
