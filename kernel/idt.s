@@ -275,8 +275,11 @@ irq_isr:
 		call	printhex2
 	.endif
 
-	push_	eax esi ecx
+	# do this early
+	PIC_SEND_EOI al
 
+#######	# Call IRQ handlers
+	push_	esi ecx
 	mov	esi, [irq_handlers]
 	or	esi, esi
 	jz	90f
@@ -298,9 +301,9 @@ irq_isr:
 
 1:	loop	0b
 
-80:	pop_	ecx esi eax
+80:	pop_	ecx esi
+#######
 
-	PIC_SEND_EOI al
 0:	pop_	es ds eax edx
 	pop	ebp
 	iret
