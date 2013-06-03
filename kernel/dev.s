@@ -83,6 +83,15 @@ vid_fifo_addr:	.long 0
 vid_fifo_size:	.long 0
 DECLARE_CLASS_END vid
 ###############################
+DECLARE_CLASS_BEGIN sound, dev_pci
+sound_playback_handler:	.long 0
+DECLARE_CLASS_METHOD sound_set_samplerate, 0
+DECLARE_CLASS_METHOD sound_set_format, 0
+DECLARE_CLASS_METHOD sound_playback_init, 0
+DECLARE_CLASS_METHOD sound_playback_start, 0
+DECLARE_CLASS_METHOD sound_playback_stop, 0
+DECLARE_CLASS_END sound
+###############################
 
 ############################################################################
 # Utility methods

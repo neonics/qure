@@ -229,7 +229,63 @@ DMAPagePort		= 0x80
 
 
 #############################################################################
+DECLARE_CLASS_BEGIN sb, sound	# extends dev_pci, but we ignore that
+DECLARE_CLASS_METHOD dev_api_constructor,	sb_dev_init,		OVERRIDE
+DECLARE_CLASS_METHOD sound_set_samplerate,	sb_dev_set_samplerate,	OVERRIDE
+DECLARE_CLASS_METHOD sound_set_format,		sb_dev_set_format,	OVERRIDE
+DECLARE_CLASS_METHOD sound_playback_init,	sb_dev_playback_init,	OVERRIDE
+DECLARE_CLASS_METHOD sound_playback_start,	sb_dev_playback_start,	OVERRIDE
+DECLARE_CLASS_METHOD sound_playback_stop,	sb_dev_playback_stop,	OVERRIDE
+DECLARE_CLASS_END sb
 .text32
+
+#############################
+# in: ebx = class_sb instance
+sb_dev_init:
+	I "SoundBlaster constructor"
+	call	newline
+	call	sb_detect
+	ret
+
+# in: eax = samplerate
+sb_dev_set_samplerate:
+	#mov	[ebx + sound_samplerate], ax
+	mov	[SB_SampleRate], word ptr 44100
+	ret
+
+# in: al = [0: 0=mono, 1=stereo][1: 0=8bit 1=16 bit]
+sb_dev_set_format:
+	mov	ah, al
+	and	ah, 1
+	neg	ah	# becomes 0 or -1
+	mov	[SB_Stereo], ah
+
+	mov	ah, 8
+	test	al, 1
+	mov	al, [sb_dma8]
+	jz	1f
+	add	ah, ah
+	mov	al, [sb_dma16]
+1:	mov	[SB_Bits_Sample], ah
+	mov	[SB_DMA], al
+	ret
+
+# in: ebx = dev
+# in: eax = handler
+sb_dev_playback_init:
+	mov	[ebx + sound_playback_handler], eax
+	mov	[sb_dev$], ebx	# so ISR can find the handler
+	jmp	sb_playback_init
+
+sb_dev_playback_start:
+	jmp	sb_dma_transfer
+
+sb_dev_playback_stop:
+	jmp	SB_ExitTransfer
+
+#############################
+
+
 
 
 sb_dsp_write:
@@ -332,7 +388,6 @@ sb_mixer_write:
 	loop	0b
 	pop_	cx dx
 	ret
-
 
 sb_detect:
 	call	sb_detect_addr
@@ -898,17 +953,19 @@ sb_playback_init:
 	ret
 
 .data
-sb_playback_buffer_handler: .long 0
+sb_dev$:	.long 0
 .text32
 sb_isr_playback:
-	push_	ds edx ecx ebx eax edi
+	push_	ds es edx ecx ebx eax edi
 	mov	edx, SEL_compatDS
 	mov	ds, edx
+	mov	es, edx
 
 	mov	ah, [SB_DMA]
 	call	dma_getpos	# not really needed...
-#		call	printhex4
-	mov	ecx, [sb_playback_buffer_handler]
+
+	mov	ebx, [sb_dev$]
+	mov	ecx, [ebx + sound_playback_handler]
 	jecxz	1f
 	call	ecx
 1:
@@ -936,7 +993,7 @@ sb_isr_playback:
 2:	mov	[SB_PlayStopped], byte ptr 1
 
 3:	PIC_SEND_EOI [sb_irq]
-	pop_	edi eax ebx ecx edx ds
+	pop_	edi eax ebx ecx edx es ds
 	iret
 
 
@@ -994,175 +1051,6 @@ SB_ExitTransfer:
 	call	UnHookVector
 	pop_	cx ax
 	ret
-
-
-########################################################################
-
-
-cmd_sb:
-	push	ebp
-	mov	ebp, esp
-	push	dword ptr 0	# ebp -4 : fs handle
-.if 0
-DEBUG_WORD [sb_addr]
-DEBUG_BYTE [sb_irq]
-DEBUG_BYTE [sb_dma8]
-DEBUG_WORD [sb_dma16]
-call newline
-DEBUG_WORD [sb_version]
-DEBUG_BYTE [sb_version_]
-DEBUG_WORD [SB_SampleRate]
-DEBUG_WORD [SB_SampleRate_]
-DEBUG_BYTE [SB_Stereo]
-DEBUG_BYTE [SB_Bits_Sample]
-DEBUG_BYTE [SB_Direction]
-call newline
-DEBUG_BYTE [TimeConstant]
-DEBUG_BYTE [SB_StopPlay]
-DEBUG_BYTE [SB_PlayStopped]
-DEBUG_BYTE [SB_StopRecord]
-DEBUG_BYTE [SB_RecordStopped]
-
-call newline
-call newline
-.endif
-#	mov word ptr [sb_addr], -1
-#	mov byte ptr [sb_irq], -1
-#	mov byte ptr [SB_DMA], -1
-cmp word ptr [sb_addr], -1
-jnz 1f
-	mov	[SB_SampleRate], word ptr 44100
-	mov	[SB_Bits_Sample], byte ptr 16
-	mov	byte ptr [SB_Stereo], -1
-	call	sb_detect
-	jc	9f
-1:
-	mov	[SB_SampleRate], word ptr 44100
-	mov	[SB_Bits_Sample], byte ptr 16
-	mov	[SB_Stereo], byte ptr -1
-	mov	al, [sb_dma16]
-	mov	[SB_DMA], al
-
-	mov	[dma_buffersize], dword ptr 0x10000
-	call	dma_allocbuffer
-
-	#####
-	lodsd
-	lodsd
-	or	eax, eax
-	jnz	1f
-	LOAD_TXT "/c/test.wav", eax
-	mov	dl, 'a'
-	add	dl, [boot_drive]
-	mov	[eax + 1], dl
-	mov	ebx, eax	# backup to print error
-1:	xor	edx, edx
-	call	fs_open
-	jc	91f
-	mov	[ebp - 4], eax
-	mov	[sb_play_fhandle], eax
-	#################################
-	#################################
-	mov	edi, [dma_buffer]
-	mov	ecx, [dma_buffersize]
-	mov	eax, [ebp -4]
-	call	fs_read
-	jc	92f
-
-	######################################
-	# Parse the 12 byte RIFF header
-	mov	edi, [dma_buffer]
-	# "RIFF", 	'$', 16, a7, 3	"WAVE", 		"fmt "
-	# 10, 0, 0, 0, 	1, 0, 2, 0		44, ac, 0, 0	10, b1, 02, 00
-	# 4, 0, 10, 0, 	"data", 		0, 16, a7, 03	0, 0, 0, 0
-	cmp	dword ptr [edi], 'R'|'I'<<8|'F'<<16|'F'<<24
-	jnz	93f
-	mov	edx, [edi+4]
-	sub	edx, 0x24	# riff header
-#	print	"RIFF_Blocksize: "
-#	call	printdec32
-	
-	cmp	dword ptr [edi+8], 'W'|'A'<<8|'V'<<16|'E'<<24
-	jnz	93f
-	add	edi, 12	
-
-0:	cmp	dword ptr [edi], 'f'|'m'<<8|'t'<<16|' '<<24
-	jz	$riff_fmt
-	cmp	dword ptr [edi], 'l'|'o'<<8|'o'<<16|'p'<<24
-	jz	$riff_loop
-	cmp	dword ptr [edi], 'd'|'a'<<8|'t'<<16|'a'<<24
-	jnz	93f
-
-$riff_data:
-	add	edi, 4
-	jmp	1f
-$riff_loop:
-	add	edi, 4 + 8	# 8  bytes loop info
-	jmp	0b
-$riff_fmt:
-	# 20 bytes wave_blocksize
-	mov	edx, [edi + 4]	# wave_blocksize
-	sub	edx, 20	# fmt header
-	add	edi, 4 + 20	# 4: skip prev sig
-	# fmt block: 
-	# wave_blocksize dd 16
-	# format tag: .word 0
-	# channels: .word 0
-	# samplerate: .long
-	# bytes per sec: .long 0 # chans*smprate
-	# blockalign: .word 0
-	# bitspersample: .word 8
-	jmp	0b
-
-1:
-	# we'll just play the riff headers for now..
-
-	#################################
-	call	sb_playback_init
-	mov	[sb_playback_buffer_handler], dword ptr offset sb_play_wave_file$
-	call	sb_dma_transfer
-	#################################
-	println "Playing..."
-	call	more
-	call	SB_ExitTransfer
-	#################################
-
-1:	mov	eax, [ebp - 4]
-	call	fs_close
-
-9:	mov	esp, ebp
-	pop	ebp
-	ret
-
-91:	printc 4, "file not found: "
-	push	ebx
-	call	_s_println
-	jmp	9b
-92:	printlnc 4, "read error"
-	jmp	1b
-93:	printlnc 4, "invalid file format"
-	jmp	1b
-.data
-sb_play_fhandle: .long 0
-.text32
-sb_play_wave_file$:
-        mov     eax, [sb_play_fhandle]
-	or	eax, eax
-	jz	1f
-        mov     edi, [dma_buffer]
-        mov     ecx, [dma_buffersize]
-	shr	ecx, 1
-
-	xor	[sb_dma_buf_half], byte ptr 1
-	jnz	2f
-	add	edi, ecx
-2:	call    fs_read
-	jnc	1f
-	printc 4, "fs_read error"
-	mov	[SB_StopPlay], byte ptr 1
-1:	ret
-
-
 
 ########################################################################
 .data

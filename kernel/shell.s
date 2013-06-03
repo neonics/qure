@@ -216,9 +216,10 @@ SHELL_COMMAND "base64"		cmd_base64
 SHELL_COMMAND "classes"		cmd_classes
 SHELL_COMMAND "objects"		cmd_objects
 SHELL_COMMAND "ph"		cmd_ping_host
+SHELL_COMMAND_CATEGORY "experimental"
 SHELL_COMMAND "svga"		cmd_svga
 SHELL_COMMAND "xml"		cmd_xml
-SHELL_COMMAND "sb"		cmd_sb
+SHELL_COMMAND "play"		cmd_play
 .data SECTION_DATA_SHELL_CMDS
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -2336,6 +2337,208 @@ cmd_list_drivers:
 	add	esi, 8
 	loop	0b
 	POPCOLOR
+
+	ret
+
+########################################################################
+.data SECTION_DATA_BSS
+sound_dev: .long 0
+sb_play_fhandle: .long 0
+.text32
+get_sound_dev:
+	mov	ebx, [es1371_isr_dev$]
+	mov	[sound_dev], ebx
+
+	mov	ebx, [sound_dev]
+	or	ebx, ebx
+	jnz	9f
+
+	mov	eax, offset class_sb
+	call	class_newinstance
+	jc	9f
+
+	mov	[sound_dev], eax
+	mov	ebx, eax
+
+	push	ebx
+	call	[ebx + dev_api_constructor]
+	pop	ebx
+9:	ret
+
+
+cmd_play:
+	push	ebp
+	mov	ebp, esp
+	push	dword ptr 0	# ebp -4 : fs handle
+
+	call	get_sound_dev
+	jc	9f
+
+#	mov word ptr [sb_addr], -1
+#	mov byte ptr [sb_irq], -1
+#	mov byte ptr [SB_DMA], -1
+#cmp word ptr [sb_addr], -1
+#jnz 1f
+#	mov	[SB_SampleRate], word ptr 44100
+#	mov	[SB_Bits_Sample], byte ptr 16
+#	mov	byte ptr [SB_Stereo], -1
+#	call	sb_detect
+#	jc	9f
+1:
+	.if 1
+	mov	eax, 44100
+	call	[ebx + sound_set_samplerate]
+	mov	al, 0b11	# 16 bit stereo
+	call	[ebx + sound_set_format]
+	.else
+
+	mov	[SB_SampleRate], word ptr 44100
+	mov	[SB_Bits_Sample], byte ptr 16
+	mov	[SB_Stereo], byte ptr -1
+	mov	al, [sb_dma16]
+	mov	[SB_DMA], al
+	.endif
+	mov	[dma_buffersize], dword ptr 0x10000
+	call	dma_allocbuffer
+
+	#####
+	lodsd
+	lodsd
+	or	eax, eax
+	jnz	1f
+	LOAD_TXT "/c/test.wav", eax
+	mov	dl, 'a'
+	add	dl, [boot_drive]
+	mov	[eax + 1], dl
+	mov	ebx, eax	# backup to print error
+1:	xor	edx, edx
+	call	fs_open
+	jc	91f
+	mov	[ebp - 4], eax
+	mov	[sb_play_fhandle], eax
+	#################################
+	#################################
+	mov	edi, [dma_buffer]
+	mov	ecx, [dma_buffersize]
+	mov	eax, [ebp -4]
+	call	fs_read
+	jc	92f
+
+	######################################
+	# Parse the 12 byte RIFF header
+	mov	edi, [dma_buffer]
+	# "RIFF", 	'$', 16, a7, 3	"WAVE", 		"fmt "
+	# 10, 0, 0, 0, 	1, 0, 2, 0		44, ac, 0, 0	10, b1, 02, 00
+	# 4, 0, 10, 0, 	"data", 		0, 16, a7, 03	0, 0, 0, 0
+	cmp	dword ptr [edi], 'R'|'I'<<8|'F'<<16|'F'<<24
+	jnz	93f
+	mov	edx, [edi+4]
+	sub	edx, 0x24	# riff header
+#	print	"RIFF_Blocksize: "
+#	call	printdec32
+
+	cmp	dword ptr [edi+8], 'W'|'A'<<8|'V'<<16|'E'<<24
+	jnz	93f
+	add	edi, 12
+
+0:	cmp	dword ptr [edi], 'f'|'m'<<8|'t'<<16|' '<<24
+	jz	$riff_fmt
+	cmp	dword ptr [edi], 'l'|'o'<<8|'o'<<16|'p'<<24
+	jz	$riff_loop
+	cmp	dword ptr [edi], 'd'|'a'<<8|'t'<<16|'a'<<24
+	jnz	93f
+
+$riff_data:
+	add	edi, 4
+	jmp	1f
+$riff_loop:
+	add	edi, 4 + 8	# 8  bytes loop info
+	jmp	0b
+$riff_fmt:
+	# 20 bytes wave_blocksize
+	mov	edx, [edi + 4]	# wave_blocksize
+	sub	edx, 20	# fmt header
+	add	edi, 4 + 20	# 4: skip prev sig
+	# fmt block:
+	# wave_blocksize dd 16
+	# format tag: .word 0
+	# channels: .word 0
+	# samplerate: .long
+	# bytes per sec: .long 0 # chans*smprate
+	# blockalign: .word 0
+	# bitspersample: .word 8
+	jmp	0b
+
+1:
+	# we'll just play the riff headers for now..
+
+	#################################
+	mov	ebx, [sound_dev]
+
+	mov	eax, offset sb_play_wave_file$
+	call	[ebx + sound_playback_init]
+#	call	sb_playback_init
+	#mov	[sb_playback_buffer_handler], dword ptr offset sb_play_wave_file$
+
+	call	[ebx + sound_playback_start]
+#	call	sb_dma_transfer
+	#################################
+	println "Playing..."
+	call	more
+	call	[ebx + sound_playback_stop]
+	#call	SB_ExitTransfer
+	#################################
+
+1:	mov	eax, [sb_play_fhandle]
+	or	eax, eax
+	jz	9f
+	call	fs_close
+
+9:	mov	esp, ebp
+	pop	ebp
+	ret
+
+91:	printc 4, "file not found: "
+	push	ebx
+	call	_s_println
+	jmp	9b
+92:	printlnc 4, "read error"
+	jmp	1b
+93:	printlnc 4, "invalid file format"
+	jmp	1b
+
+sb_play_wave_file$:
+        mov     edi, [dma_buffer]
+        mov     ecx, [dma_buffersize]
+	shr	ecx, 1
+
+	xor	[sb_dma_buf_half], byte ptr 1
+	jnz	1f
+	add	edi, ecx
+1:
+	mov     eax, [sb_play_fhandle]
+	or	eax, eax
+	jz	8f
+
+	pushfd
+	sti
+	call    fs_read
+	jnc	1f
+	printc 4, "fs_read error"
+
+	call	fs_close
+	mov	dword ptr [sb_play_fhandle], 0
+	mov	[SB_StopPlay], byte ptr 1
+1:
+	popfd
+	ret
+
+8:	mov	eax, 0x80008000	# assume 16 bit
+	shr	ecx, 2
+	rep	stosd
+	mov	ebx, [sound_dev]
+	call	[ebx + sound_playback_stop]
+	ret
 
 	ret
 
