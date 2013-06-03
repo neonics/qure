@@ -624,11 +624,15 @@ vmwsvga2_hook_isr:
 	push	ebx
 	movzx	ax, byte ptr [ebx + dev_irq]
 	mov	[vmwsvga2_isr_irq], al
-	add	ax, IRQ_BASE
 	mov	ebx, offset vmwsvga2_isr
 	add	ebx, [realsegflat]
 	mov	cx, cs
+.if IRQ_SHARING
+	call	add_irq_handler
+.else
+	add	ax, IRQ_BASE
 	call	hook_isr
+.endif
 	pop	ebx
 
 	mov	al, [ebx + dev_irq]
@@ -652,15 +656,17 @@ vmwsvga2_isr:
 	mov	es, eax
 
 	mov	ebx, [vmwsvga2_isr_dev]
+	mov	dx, [ebx + dev_io]
+	add	dx, SVGA_IO_IRQSTATUS
+	in	eax, dx	# read IRQ flags
+	or	eax, eax
+	jz	9f	# not for us
+	out	dx, eax	# (?) mark as handled
 
 	.if 1#VMSVGA2_DEBUG
 		printc 0xf5, "VID ISR"
 	.endif
 
-	mov	dx, [ebx + dev_io]
-	add	dx, SVGA_IO_IRQSTATUS
-	in	eax, dx	# read IRQ flags
-	out	dx, eax	# (?) mark as handled
 
 
 	DEBUG_DWORD eax,"IRQ FLAGS"
@@ -669,8 +675,11 @@ vmwsvga2_isr:
 		call	newline
 	.endif
 ########################################################################
+9:
+.if !IRQ_SHARING
 	mov	ebx, [vmwsvga2_isr_dev]
 	PIC_SEND_EOI [ebx + dev_irq]
+.endif
 
 	pop	es
 	pop	ds
