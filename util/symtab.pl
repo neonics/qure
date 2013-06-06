@@ -2,7 +2,27 @@
 !($ARGV[0] && $ARGV[1]) and
 	die "usage: symtab.pl <kernel.o> <kernel.sym> [-p] # -p=print\n";
 
-@c = `objdump -t $ARGV[0]`; chomp @c;
+# objdump -t has different output formats depending on the file format.
+# This code parses the pe-i386 output format:
+# [000](sec -1)(fl 0x00)(ty   0)(scl   6) (nx 0) 0x00000000 LABEL
+# The elf output looks like:
+# 00000000 l    d  .text	00000000 .text
+# 00000000 l       *ABS*	00000000 CONSTANT
+# 00000001 l       .text	00000000 label
+#
+# Verify if the object file is pe-i386
+$_ = `objdump -a $ARGV[0]`;
+if ( /file format pe-/s )
+{
+	$infile = $ARGV[1];
+}
+else
+{
+	$infile = "build/kernel.pe";
+	`objcopy -O pe-i386 $ARGV[0] $infile`;
+}
+
+@c = `objdump -t $infile`; chomp @c;
 
 @tosort=();
 
@@ -36,3 +56,4 @@ map { print BIN pack "L<", $o; $o+=1+length $_ } @s;
 map { print BIN pack "Z*", $_} @s;
 
 close BIN;
+

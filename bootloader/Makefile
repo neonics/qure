@@ -1,10 +1,10 @@
 all: boot.bin
 
 clean:
-	[ -f boot.bin ] && /bin/rm boot.bin || true
-	[ -f bootloader.o ] && /bin/rm bootloader.o || true
+	[ -f boot.bin ] && rm boot.bin || true
+	[ -f bootloader.o ] && rm bootloader.o || true
 
-AS = /bin/as -R -n --warn --fatal-warnings
+AS = as --32 -R -n --warn --fatal-warnings
 
 boot.bin: bootloader.o
 	@../util/checksymbols $<

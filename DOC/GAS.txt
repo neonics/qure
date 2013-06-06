@@ -56,3 +56,42 @@ Runtime errors
   5:   a0 11 00 00 00          mov    al, [0x11]	!!!!
   a:   a0 10 00 00 00          mov    al, [0x10]
 
+
+GAS 2.23 vs 2.22
+----------------
+2.23 has .previous.
+2.23 treats .global differently:
+	
+	$ cat test.s
+
+	.intel_syntax noprefix
+	.text
+	.code32
+	.global foo
+	foo:	ret
+	bar:	call foo
+
+
+	$ as --32 test.s && objdump -d a.out
+
+	a.out:     file format elf32-i386
+
+	Disassembly of section .text:
+
+	00000000 <foo>:
+	   0:	c3                   	ret    
+
+	00000001 <bar>:
+	   1:	e8 fc ff ff ff       	call   2 <bar+0x1>
+
+	# Without the '.global':
+
+	a.out:     file format elf32-i386
+
+	Disassembly of section .text:
+
+	00000000 <foo>:
+	   0:	c3                   	ret    
+
+	00000001 <bar>:
+	   1:	e8 fa ff ff ff       	call   0 <foo>

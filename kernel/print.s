@@ -804,7 +804,6 @@ printoct:
 
 ########################### CLEAR SCREEN, NEW LINE, SCROLL ##########
 
-.global cls
 cls:	SET_SCREENPOS 0
 	PRINT_START
 	push	ecx
@@ -821,7 +820,6 @@ cls:	SET_SCREENPOS 0
 	ret
 
 
-.global newline
 newline:
 	push	ecx
 	push	eax
@@ -1288,7 +1286,6 @@ nprintln_:
 	call	nprint_
 	jmp	newline
 
-.global println
 println:call	print
 	jmp	newline
 #println:push	offset newline

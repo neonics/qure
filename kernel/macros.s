@@ -43,29 +43,6 @@ _TLS_SIZE = .
 .text32
 .endm
 
-.macro .previous
-	.if TEXTSUBSECTION == 0
-		.text16
-	.else
-	.if TEXTSUBSECTION == 3
-		.text32
-	.else
-	.error "Unknown text subsection"
-	.print TEXTSUBSECTOIN
-	.endif
-	.endif
-	
-	.ifdef CODEBITS
-	.if CODEBITS == 16
-		.code16
-	.else
-	.if CODEBITS == 32
-		.code32
-	.endif
-	.endif
-	.endif
-.endm
-
 ##############################################################################
 # Convenience macros
 

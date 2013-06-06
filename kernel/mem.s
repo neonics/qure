@@ -1936,8 +1936,8 @@ cmd_mem$:
 	PRINT_MEMRANGE "<slack>", ecx, edi
 	PRINT_MEMRANGE "symbol table", [kernel_symtab], [kernel_symtab_size], sz=1
 	PRINT_MEMRANGE "stabs", [kernel_stabs], [kernel_stabs_size], sz=1
-	PRINT_MEMRANGE "stack", [ramdisk_load_end], [kernel_stack_top]
-	PRINT_MEMRANGE "paging", [page_directory_phys], [page_tables_phys_end],fl=1
+	PRINT_MEMRANGE "stack", cs:[ramdisk_load_end], cs:[kernel_stack_top]
+	PRINT_MEMRANGE "paging", ds:[page_directory_phys], ds:[page_tables_phys_end],fl=1
 
 ######## print graph
 1:	test	dword ptr [ebp], CMD_MEM_OPT_GRAPH

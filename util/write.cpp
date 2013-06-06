@@ -11,6 +11,18 @@
 #include <stdio.h> // printf, fopen
 #include <stdlib.h> // atoi
 
+// C++ stuff missing in C:
+#ifndef bool
+  typedef unsigned char bool;
+#endif
+#ifndef false
+# define false 0
+# define true 1
+#endif
+// Cygwin stuff missing in Linux:
+#ifndef O_BINARY
+# define O_BINARY 0
+#endif
 
 bool debug = false;
 char * out_name = NULL;
@@ -96,7 +108,8 @@ void fill_sector()
 
 					// increment ramdisk index counter
 					lseek( h_out, (dirindex_sector<<9) + 8, SEEK_SET );
-					write( h_out, &++dirindex_index, 8 );
+					dirindex_index++;
+					write( h_out, &dirindex_index, 8 );
 					// write ramdisk directory entry offset and size
 					lseek( h_out, (dirindex_index-1) * 16, SEEK_CUR );
 					write( h_out, &so, 8 );
@@ -159,7 +172,7 @@ int main( int argc, char * argv[] )
 {
 	if ( !parse_args( argc, argv ) )
 		return 1;
-	
+
 	printf("Creating image %s\n", out_name );
 
 	h_out = open( out_name, O_RDWR|O_CREAT|O_BINARY);

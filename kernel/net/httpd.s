@@ -698,7 +698,8 @@ expr_h_call:
 .data
 www_expr:
 .long (99f - .)/10
-STRINGPTR "kernel.size";	.byte 1,1;.long kernel_end - kernel_start
+STRINGPTR "kernel.size";	.byte 1,1;#.long kernel_end - kernel_start
+	.long kernel_code_end - kernel_code_start + kernel_end - data_0_start
 STRINGPTR "kernel.code.size";	.byte 1,1;.long kernel_code_end - kernel_code_start
 STRINGPTR "kernel.data.size";	.byte 1,1;.long kernel_end - data_0_start
 STRINGPTR "mem.heap.size";	.byte 2,1;.long mem_heap_size

@@ -17,4 +17,4 @@ clean:
 
 ../build/font.exe: ../util/font.cpp
 	@echo "   GCC $@"
-	@gcc $< -o $@
+	@gcc -x c -std=c99 $< -o $@

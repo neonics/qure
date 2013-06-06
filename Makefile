@@ -1,6 +1,8 @@
-define CALC_SECTORS =
+define CALC_SECTORS
 $(shell perl -e 'use POSIX; print ceil((-s "$(1)") * 1.0 / 512)')
 endef
+
+GCC = gcc -x c -std=c99
 
 ISO_ARGS = -boot-load-seg 0
 ISO_ARGS += -boot-load-size $(SECTORS)
@@ -10,13 +12,13 @@ ISO_ARGS += -boot-load-size $(SECTORS)
 
 
 MSGPFX="    "
-define MAKE =
+define MAKE
 	@echo "$(MSGPFX)M $(1) $(2)"
 	@make --no-print-directory -C $(1) $(2)
 endef
 
 
-.PHONY: all clean init
+.PHONY: all clean init build-deps
 
 all: os.iso
 
@@ -33,14 +35,21 @@ os.iso: init build/boot.img
 	@#-no-emul-boot
 	@#-hard-disk-boot
 
-init:
+init:	build-deps
 	[ -d build/ ] || mkdir -p build/
 	[ -d root/boot/ ] || mkdir -p root/boot/
+
+build-deps:
+	@as -o /dev/null /dev/null || (echo "missing binutils" && false)
+	@gcc --version > /dev/null || (echo "missing gcc" && false)
+	@perl -v > /dev/null || (echo "missing perl" && false)
+	@convert > /dev/null || (echo "missing imagemagic" && false)
+	@genisoimage --version > /dev/null || (echo "missing genisoimage" && false)
 
 clean:
 	[ -d build ] && rm -rf build || true
 	[ -f os.iso ] && rm os.iso || true
-	[ -f root/boot/build.img ] && rm root/boot/build.img || true
+	[ -d root/boot/ ] && rm -rf root/boot/ || true
 	$(call MAKE,bootloader,clean)
 	$(call MAKE,kernel,clean)
 	$(call MAKE,fonts,clean)
@@ -74,7 +83,7 @@ util:	init build/write.exe build/asm.exe build/malloc.exe
 
 build/write.exe: util/write.cpp
 	@echo " C $@"
-	@gcc $< -o $@
+	$(GCC) $< -o $@
 
 build/malloc.exe: util/malloc.cpp
 	@echo " C $@"
@@ -82,7 +91,7 @@ build/malloc.exe: util/malloc.cpp
 
 build/font.exe: util/font.cpp
 	@echo " C $@"
-	@gcc -fno-exceptions $< -o $@
+	echo $gcc -x c -std=c99 $< -o $@
 
 ##########################################################################
 

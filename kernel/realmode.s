@@ -68,7 +68,7 @@ CHAIN_RETURN_RM_KERNEL = 1
 .else
 	.data16
 	99: .asciz "\m"
-	.previous
+	.text16
 .endif
 	mov	\reg16, offset 99b
 .endm

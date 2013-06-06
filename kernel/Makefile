@@ -1,9 +1,10 @@
 all: kernel.bin Makefile
 
 clean:
-	/bin/rm -f kernel.bin kernel.o kernel.stabs kernel.sym || true
+	rm -f kernel.bin kernel.o kernel.stabs kernel.sym kernel.dep|| true
 
-AS = as -march=i686 -R -n --warn --fatal-warnings --gstabs --MD kernel.dep
+# i486 due to bswap (and cmpxchg)
+AS = as --32 -march=i486 -R -n --warn --fatal-warnings --gstabs --MD kernel.dep
 
 kernel.bin: kernel.o
 	@../util/checksymbols $<

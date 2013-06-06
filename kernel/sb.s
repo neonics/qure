@@ -439,11 +439,11 @@ sb_calc_samplerate:
 	div	ecx			#eax=smprate
 
 	call	sb_check_samplerate$
-	jc	@@Sure$
+	jc	1f
 	inc	cl
 	jmp	0b
 
-@@Sure$:cmp	[sb_version], byte ptr 3
+1:	cmp	[sb_version], byte ptr 3
 	jb	1f	#!!!!!!! jnz! want sb4 kan 44k!
 	shr	cl, 1
 1:	neg	cl
