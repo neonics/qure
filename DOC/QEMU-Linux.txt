@@ -1,0 +1,65 @@
+packages:
+	bridge-utils	(for brctl)
+	uml-utilities	(for tunctl)
+	ifupdown	(for /etc/network/interfaces, ifup/ifdown)
+	qemu
+	X		(for qemu)
+
+	# note: these had to be installed after a standard Debian install,
+	# with the exception of bridge-utils I think.
+
+/dev/net/tun:
+	documentation says it needs to be writable by the user.
+	However, after reboot, the groupid is reset to root,
+	and it still works.
+
+/etc/network/interfaces:
+	# The primary network interface
+	auto br0
+	iface br0 inet static			#(0)
+		pre-up tunctl -u $USER		#(1)
+		post-down tunctl -d tap0	#(2)
+		bridge_ports eth0 tap0		#(3)
+		#
+		address 192.168.1.8
+		netmask 255.255.255.0
+		network 192.168.1.0
+		broadcast 192.168.1.255
+		gateway 192.168.1.1
+		# dns-* options are implemented by the resolvconf package, if installed
+		dns-nameservers 192.168.1.1
+		dns-search localnet
+
+	auto eth0
+	allow-hotplug eth0
+	iface eth0 inet manual			#(0)
+
+
+Notes:
+  (0) A standard configuration has the network names reversed. "br0" is nowhere
+  	defined, and "eth0" is given the ip addresses, configured as "static" or
+	otherwise. In this setup (eth0=static+ips,br0=manual+empty), QEMU will
+	have network access, while the host will not. 'route -n' will show eth0.
+	Therefore, the 'REAL' eth0 device is left unconfigured,
+	and the VIRTUAL br0 interface is given the ip configuration. This way
+	it works both for host and guest.  'route -n' will show 'br0'.
+  (1) This creates a new tap device (tap0 if there were none), owned by $USER.
+  (2) This removes the tap device.
+  (3) This adds eth0 and tap0 to br0.
+
+  For 1,2,3: it is assumed there are no other tap devices. Also,
+  the tap0 is marked persistent, but upon reboot, it is gone.
+
+  The steps to set up the bridge:
+    $ brctl addbr br0
+    $ brctl addif br0 eth0
+    $ brctl addif br0 tap0
+  are not needed; ifup/ifdown take care of this.
+
+
+
+qemu:
+	qemu -cdrom os.iso \
+		-net nic,model=rtl8129 \
+		-net tap,ifname=tap0,script=no,downscript=no
+

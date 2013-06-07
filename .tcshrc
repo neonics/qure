@@ -1,6 +1,6 @@
 #####################################################################
 # Debugging aliases
-alias disasm c:/apps/nasm-2.09.10/ndisasm.exe
+
 alias blsource objdump -Mi8086,intel-mnemonic -d build/bootloader.o
 alias da objdump -Mi8086,intel-mnemonic -d bootloader/bootloader.o
 alias dk "objdump -Mintel-mnemonic -d kernel/kernel.o | less"
@@ -9,7 +9,16 @@ alias hd "hexdump -C build/boot.bin | grep -e '*' -e '|'"
 alias hdi "hexdump -C build/boot.img | grep -e '*' -e '|' |& less"
 alias da32 objdump -d -Mintel-mnemonic build/bootloader.o
 alias w "grep \!* kernel/*.s kernel/*/*.s"
+alias bkp 'tar cvfz \!*.tgz `git st | cut -c3-|xargs`'
 
+switch ($OSTYPE)
+###############################################################################
+case "linux":
+alias qemu qemu-system-x86_64 -cdrom os.iso -net nic,model=rtl8139 -net tap,ifname=tap0,script=no,downscript=no
+breaksw
+###############################################################################
+case "cygwin":
+alias disasm c:/apps/nasm-2.09.10/ndisasm.exe
 #####################################################################
 # VirtualBox aliases
 alias vm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe
@@ -46,5 +55,6 @@ alias qemu-dos "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qem
 alias qemu-vmware "c:/apps/qemu-1.3.50-x64/qemu-system-x86_64.exe -vga vmware -hda hdd0-qemu.raw -hdb hdd-dos-qemu.raw -cdrom os.iso" -boot d -net nic,model=rtl8139  -net tap,ifname=tap-bridge # -no-reboot
 #alias qemu-nonet "c:/apps/qemu-1.3.50-x64/qemu-system-x86_64.exe -vga std -hda hdd0-qemu.raw -hdb hdd-dos-qemu.raw -cdrom os.iso" -boot d -net nic,model=rtl8139
 alias qemu-nonet "c:/apps/Qemu-Windows-1.0.1/qemu-system-x86_64.exe -L c:/apps/Qemu-Windows-1.0/Bios -vga std -hda hdd0-qemu.raw -hdb hdd-dos-qemu.raw -cdrom os.iso" -boot d -net nic,model=rtl8139 -soundhw sb16,adlib #es1379 ac97
-###################
-alias bkp 'tar cvfz \!*.tgz `git st | cut -c3-|xargs`'
+
+endsw
+##############################

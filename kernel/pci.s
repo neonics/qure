@@ -1758,6 +1758,10 @@ DECLARE_CLASS_METHOD dev_api_constructor, dev_pci_qemu_vid_driver, OVERRIDE
 DECLARE_CLASS_END vid_qemu
 DECLARE_PCI_DRIVER VID_VGA,     nulldev, 0x1234, 0x1111, "vid", "QEmu VGA Display Controller "
 
+#DECLARE_PCI_DRIVER MM_AUDIO, es1371, 0x1274, 0x5000, "es1370", "Ensoniq 1370"
+#DECLARE_PCI_DRIVER MM_AUDIO, es1371, 0x8086, 0x2415, "ac97", "Intel AC97"
+
+
 # VirtualBox devices:
 
 # 106b 003f	Apple KeyLargo/Intrepid USB (OCHS)
@@ -1766,6 +1770,16 @@ DECLARE_PCI_DRIVER VID_VGA,     nulldev, 0x1234, 0x1111, "vid", "QEmu VGA Displa
 # 80ee beef	VBVA - Video
 # 80ee cafe	Addon?
 # 8086 7113	Intel Bridge device
+# 8086 2415	Intel ICH AC97 (same in in qemu)
+# 8086 2668	Intel HD AUdio
+
+
+# Qemu under Linux 64-bit:
+# 06.00.00 8086 1237 host bridge
+# 06.01.00 8086 7000 pIIIX3 isa
+# 01.01.80 8086 7010 pIIIX3 ide
+# 03.00.00 1013 00b8 vga display controller - UNKNOWN. subsystem: 1af4 1100
+# 02.00.00 8086 100e Intel 8254x ethernet network controller
 
 					 
 
