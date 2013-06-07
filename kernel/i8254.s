@@ -341,14 +341,18 @@ i8254_init:
 
 	# hook the isr
 	mov	[i8254_isr_dev], ebx
-	mov	ax, [ebx + dev_irq]
-	mov	[i8254_isr_irq], ax
-	add	ax, IRQ_BASE
+	movzx	ax, byte ptr [ebx + dev_irq]
+	mov	[i8254_isr_irq], al
 	push	ebx
 	mov	ebx, offset i8254_isr
 	add	ebx, [realsegflat]
 	mov	cx, cs
+.if IRQ_SHARING
+	call	add_irq_handler
+.else
+	add	ax, IRQ_BASE
 	call	hook_isr
+.endif
 	pop	ebx
 
 	mov	al, [ebx + dev_irq]
@@ -488,14 +492,13 @@ i8254_init:
 
 	I8254_WRITE TXDCTL, TXDCTL_GRAN | (1<<8) | (1<<16) | (1<<24)
 	I8254_WRITE TIDV, 1
-
 	call	i8254_print_status
 
 9:	ret
 
 .data
 i8254_isr_dev: .long 0
-i8254_isr_irq: .word 0
+i8254_isr_irq: .byte 0
 .text32
 i8254_isr:
 	pushad
@@ -600,8 +603,9 @@ i8254_isr:
 	.if I8254_DEBUG
 		call	newline
 	.endif
-
+.if !IRQ_SHARING
 	PIC_SEND_EOI [i8254_isr_irq]
+.endif
 	popad
 	iret
 
@@ -685,13 +689,18 @@ DEBUG_DWORD eax
 	call	printspace
 	PRINTFLAG eax, STATUS_LU, "Link-Up", "Link-Down"
 	PRINTFLAG eax, STATUS_FD, "Full-Duplex", "Half-Duplex"
-	movzx	ecx, al
-	rol	cl, 2
-	and	cl, 3
-	PRINT "1"
-0:	printchar '0'
-	loop	0b
-	print "MBps"
+	PRINTCHAR '1'
+	# speed, bits 7:6:  00=1 Mbps, 01= 10 Mbps, 10/11= 1 Gbps
+	mov	ah, al
+	mov	al, 'G'
+	shl	ah, 1
+	jc	1f
+	mov	al, 'M'
+	shl	ah, 1
+	jnc	1f
+	printchar '0'
+1:	call	printchar
+	PRINT "bps"
 
 #	STATUS_FID	= 3 << 2	# Function Id: 00=Lan A, 01=Lan B.
 #					# 82546GB/EB only.
