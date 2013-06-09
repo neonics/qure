@@ -1793,9 +1793,6 @@ cmd_mem$:
 1:	test	dword ptr [ebp], CMD_MEM_OPT_MEMMAP
 	jz	1f
 
-	.data SECTION_DATA_BSS
-	mem_size_str_buf$: .space 3 + 1 + 3 + 2 + 1
-	.text32
 	# in: (besides arguments): ecx = end address of last section/memory range,
 	#   to be compared with the start of this one, for misalignment/overlap error detection.
 	# in: st = start address
@@ -1808,20 +1805,21 @@ cmd_mem$:
 	# destroys: eax, edx. (eax=range size, edx=0)
 	.macro PRINT_MEMRANGE label, st=0, nd=0, sz=0, indent="", fl=0
 		.ifnc 0,\st
-		_PR_S = \st
+			_PR_S = \st
 		.else
-		_PR_S = offset \label\()_start
+			_PR_S = offset \label\()_start
 		.endif
 		.ifnc 0,\nd
-		_PR_E = \nd
+			_PR_E = \nd
 		.else
-		_PR_E = offset \label\()_end
+			_PR_E = offset \label\()_end
 		.endif
 		.data
 		99: .ascii "\indent\label: "
 		88: .space 22-(88b-99b), ' '
 		.byte 0
 		.text32
+
 		# print label
 		mov	ah, 15
 		mov	esi, offset 99b
@@ -1832,74 +1830,18 @@ cmd_mem$:
 		.ifnc 0,\fl
 		sub	edx, [database]
 		.endif
-		mov	ebx, edx	# remember start
-		push	edx
-		call	printhex8
-		printchar_ '-'
 		.if \sz
-		add	edx, _PR_E #offset \label\()_end
+			lea	eax, [edx + _PR_E]
+#			add	edx, _PR_E #offset \label\()_end
 		.else
-		mov	edx, _PR_E #offset \label\()_end
-		.ifnc 0,\fl
-		sub	edx, [database]
+			mov	eax, _PR_E
+#			mov	edx, _PR_E #offset \label\()_end
+			.ifnc 0,\fl
+			sub	eax, [database]
+#			sub	edx, [database]
+			.endif
 		.endif
-		.endif
-		mov	edi, edx	# remember end
-		call	printhex8
-		# print size
-		mov	eax, edx
-		xchg	edx, [esp]	# store addresses
-		sub	eax, edx	# for flat print
-		push	edx
-		call	printspace
-
-		# a little check: ebx=start,ecx=prev end
-		cmp	ebx, ecx
-		mov	cl, '!'
-		jnz	77f
-		or	eax, eax
-		js	77f
-		mov	cl, ' '
-	77:	printcharc 12, cl
-		mov	ecx, edi	# remember new end
-
-		call	printspace
-
-		# print flat addresses:
-		pop	edx	# start
-		add	edx, [database]
-		call	printhex8
-		printchar '-'
-		pop	edx	# end
-		add	edx, [database]
-		call	printhex8
-		call	printspace
-		call	printspace
-
-		xor	edx, edx
-		or	eax, eax
-		jns	77f
-		neg	eax
-		printcharc 12, '-'
-	77:
-		push	edi
-		mov	edi, offset mem_size_str_buf$
-		mov	bl, 1<<4 | 3
-		call	sprint_size_
-		mov	byte ptr [edi], 0
-		pop	edi
-
-		push	ecx
-		mov	esi, offset mem_size_str_buf$
-		call	strlen_
-		neg	ecx
-		add	ecx, 3 + 1 + 3 + 2 +1
-	77:	call	printspace
-		loop	77b
-		call	print
-		pop	ecx
-
-		call	newline
+		call	print_memrange$
 	.endm
 
 	xor	ecx, ecx	# end address of previous entry
@@ -1934,6 +1876,7 @@ cmd_mem$:
 	mov	edi, [kernel_load_end_flat]
 	sub	edi, [database]
 	PRINT_MEMRANGE "<slack>", ecx, edi
+	PRINT_MEMRANGE "<free>", ecx, [kernel_symtab]
 	PRINT_MEMRANGE "symbol table", [kernel_symtab], [kernel_symtab_size], sz=1
 	PRINT_MEMRANGE "stabs", [kernel_stabs], [kernel_stabs_size], sz=1
 	PRINT_MEMRANGE "stack", cs:[ramdisk_load_end], cs:[kernel_stack_top]
@@ -1957,6 +1900,85 @@ cmd_mem$:
 	printlnc_ 12, "  -s   print code/data sections/images/memory map"
 	printlnc_ 12, "    -c print detailed code sections"
 	jmp	1b
+
+
+# in: ecx = end address of last section/memory range, to be compared with the
+#           start of this one, for misalignment/overlap error detection.
+# in: edx = start (ds-relative)
+# in: eax = end (ds-relative)
+# out: ecx updated
+# out: (side-effect) ebx = start
+# out: (side-effect) edi = end (same as ecx)
+# destroys: eax, edx. (eax=range size, edx=0)
+print_memrange$:
+	enter	3+1+3+2+1, 0
+	# print ds-relative addresses:
+	call	printhex8
+
+	mov	ebx, edx	# remember start
+	mov	edi, eax	# remember end
+
+	mov	edx, eax
+	printchar '-'
+	call	printhex8
+	call	printspace
+
+	sub	eax, ebx
+
+	# a little check: ebx=start,ecx=prev end
+	cmp	ebx, ecx
+	mov	cl, '!'
+	jnz	1f
+	or	eax, eax
+	js	1f
+	mov	cl, ' '
+1:	printcharc 12, cl
+
+	call	printspace
+
+
+	# print flat addresses:
+	mov	edx, ebx	# start
+	add	edx, [database]
+	call	printhex8
+	printchar '-'
+	mov	edx, edi	# end
+	add	edx, [database]
+	call	printhex8
+	call	printspace
+	call	printspace
+
+	# print size
+
+	xor	edx, edx
+	or	eax, eax
+	jns	1f
+	neg	eax
+	printcharc 12, '-'
+1:
+	push	edi
+	#mov	edi, offset mem_size_str_buf$
+	lea	edi, [ebp - (3+1+3+2+1)]
+	mov	bl, 1<<4 | 3
+	call	sprint_size_
+	mov	byte ptr [edi], 0
+	pop	edi
+
+	#mov	esi, offset mem_size_str_buf$
+	lea	esi, [ebp - (3+1+3+2+1)]
+	call	strlen_
+	neg	ecx
+	add	ecx, 3 + 1 + 3 + 2 +1
+	jle	1f	# just in case
+0:	call	printspace
+	loop	0b
+	call	print
+1:
+	mov	ecx, edi	# remember end for next check
+
+	call	newline
+	leave
+	ret
 
 
 # in: edx = start
