@@ -51,15 +51,24 @@ SCREEN_BUFFER	= 1
 
 ################# Colors ###############
 
+# private use
+.macro _PUSHCOLOR c
+	.if COLOR_STACK_SIZE == 2
+		IS_REG8 _ISREG, \c
+		.if _ISREG
+			push	word ptr 0
+			mov	[esp], \c
+		.else
+			push	word ptr \c
+		.endif
+	.else
+		.error "COLOR_STACK_SIZE unsupported value"
+	.endif
+.endm
+
 .macro COLOR c
 	.if VIRTUAL_CONSOLES
-	IS_REG8 _ISREG, \c
-	.if _ISREG
-	push	word ptr 0
-	mov	[esp], \c
-	.else
-	push	word ptr \c
-	.endif
+	_PUSHCOLOR \c
 	call	_s_setcolor
 	.else
 	mov	byte ptr [screen_color], \c
@@ -70,47 +79,23 @@ COLOR_STACK_SIZE = 2
 
 .macro PUSHCOLOR c
 	.if VIRTUAL_CONSOLES
-		.if COLOR_STACK_SIZE == 2
-		push	bx
-		push	eax
-		call	console_get
-		mov	bx, \c
-		xchg	bx, [eax + console_screen_color]
-		pop	eax
-		xchg	bx, [esp]
-		.else
-		.error "COLOR_STACK_SIZE unknown value"
-		.endif
+		_PUSHCOLOR \c
+		call	_s_pushcolor
 	.else
-		.if COLOR_STACK_SIZE == 2
 		push	word ptr [screen_color]
-		.else
-		.error "COLOR_STACK_SIZE unknown value"
-		.endif
-		mov	byte ptr [screen_color], \c
+		mov	word ptr [screen_color], \c
 	.endif
 .endm
 
 .macro POPCOLOR
-	.if VIRTUAL_CONSOLES
-		.if COLOR_STACK_SIZE == 2
-		push	bx
-		mov	bx, [esp + 2]
-		push	eax
-		call	console_get
-		mov	[eax + console_screen_color], bx
-		pop	eax
-		pop	bx
-		add	esp, 2
+	.if COLOR_STACK_SIZE == 2
+		.if VIRTUAL_CONSOLES
+			call	_s_setcolor
 		.else
-		.error "COLOR_STACK_SIZE unknown value"
+			pop	word ptr [screen_color]
 		.endif
 	.else
-		.if COLOR_STACK_SIZE == 2
-		pop	word ptr [screen_color]
-		.else
 		.error "COLOR_STACK_SIZE unknown value"
-		.endif
 	.endif
 .endm
 
@@ -1229,6 +1214,17 @@ _s_setcolor:
 	pop	eax
 	pop	dx
 	ret	COLOR_STACK_SIZE
+
+# in: [esp] = word color to set.
+# out: [esp] = replaced color
+_s_pushcolor:
+	push_   ebx eax
+	call    console_get
+	mov     bl, [esp + 12]
+	xchg    bl, [eax + console_screen_color]
+	mov	[esp + 12], bl
+	pop_	eax ebx
+	ret
 .endif
 
 printcharc:
