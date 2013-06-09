@@ -1,7 +1,7 @@
 .intel_syntax noprefix
 
 .text32
-
+.if 0
 cmd_gfx_VBE:
 	call	cls	# some scroll bug in realmode causes kernel reboot
 
@@ -76,7 +76,7 @@ call	newline
 	call	printhex8
 	call	newline
 	ret
-
+.endif
 .data
 gfx_palette_16:
 .long 0x000000, 0x0000aa, 0x00aa00, 0x00aaaa, 0xaa0000, 0xaa00aa, 0xaa5500, 0xaaaaaa
@@ -229,6 +229,7 @@ gfx_txt_screen_update_OLD:
 	pop	gs
 	ret
 
+.if 0
 ######################################
 # in: es = SEL_flatDS
 # in: vidfbuf, vidw, vidh, vidbpp, vidb
@@ -300,7 +301,7 @@ rf$:	mov	eax, [curfont]
 	jmp	1b
 1:
 	ret
-
+.endif
 
 # in: edx = color
 gfx_clear32:
@@ -518,7 +519,7 @@ gfx_printchar_8x16:
 	ret
 
 
-
+.if 0
 
 # in: edx = color
 # in: al = char nr
@@ -571,13 +572,7 @@ gfx_printchar_32x50:
 	pop	esi
 	pop	ebx
 	ret
-
-
-
-
-
-
-
+.endif
 
 
 
@@ -1285,8 +1280,8 @@ font_4k_courier:
 .endif
 fonts4k_end:
 
-font_courier56:
+#font_courier56:
 #.include "../courier56.s"
-.incbin "../fonts/courier56.bin"
+#.incbin "../fonts/courier56.bin"
 
 .text32
