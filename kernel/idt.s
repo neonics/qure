@@ -599,29 +599,20 @@ jz 11f
 	pop	edx
 	call	printspace
 
-	.macro PRINTFLAGc_ reg, bit, char
-		mov	al, \char
-		test	\reg, \bit
-		jnz	77f
-		color	8
-		or	al, 0x20	# lowercase
-		jmp	78f
-	77:	color	7
-	78:	call	printchar
-	.endm
-
-	PRINTFLAGc_ dx, 1 << 11, 'O'	# overflow
-	PRINTFLAGc_ dx, 1 << 10, 'D'	# direction
-	PRINTFLAGc_ dx, 1 << 9, 'I'	# interrupt enable
-	PRINTFLAGc_ dx, 1 << 8, 'T'	# trap (single step)
-	PRINTFLAGc_ dx, 1 << 7, 'S'	# sign
-	PRINTFLAGc_ dx, 1 << 6, 'Z'	# zero
-	# reserved: 0
-	PRINTFLAGc_ dx, 1 << 4, 'A'	# adjust
-	# reserved: 0
-	PRINTFLAGc_ dx, 1 << 2, 'P'	# parity
-	# reserved: 1
-	PRINTFLAGc_ dx, 1 << 0, 'C'	# carry
+	# Carry 0 Parity 0 Adjust 0 Zero Sign Trap Int Direction Overflow
+	LOAD_TXT "ODITSZ A P C"
+	push	ecx
+	mov	ecx, 12
+	shl	dx, 4	# have bit 11 be bit 15
+0:	lodsb
+	mov	ah, 7
+	shl	dx, 1
+	jc	1f
+	inc	ah
+	or	al, 0x20
+1:	call	printcharc
+	loop	0b
+	pop	ecx
 
 	call	printspace
 	mov	edx, [scheduler_current_task_idx]
