@@ -18,41 +18,51 @@ debug_regstore$:
 	mov	[debug_registers$ + 4 * 5], edi
 	mov	[debug_registers$ + 4 * 6], ebp
 	mov	[debug_registers$ + 4 * 7], esp
-	sub	[debug_registers$ + 4 * 7], dword ptr 6	# pushf/pushcolor adjust
+	add	[debug_registers$ + 4 * 7], dword ptr 4
 	mov	[debug_registers$ + 4 * 8], cs
 	mov	[debug_registers$ + 4 * 9], ds
 	mov	[debug_registers$ + 4 * 10], es
 	mov	[debug_registers$ + 4 * 11], ss
 	ret
 
-
-.macro DEBUG_REGDIFF0 nr, reg
-	cmp	[debug_registers$ + 4 * \nr], \reg
+debug_regdiff0$:
+	push	ebp
+	lea	ebp, [esp + 8]
+	push_	eax ebx
+	mov	eax, [ebp + 4]	# \nr
+	mov	ebx, [ebp + 8]	# \reg
+	cmp	[debug_registers$ + 4 * eax], ebx
 	jz	188f
-	print	"\reg: "
+	push	dword ptr [ebp]	# stringptr
+	call	_s_print
+	print	": "
 	push	edx
-	mov	edx, [debug_registers$ + 4 * \nr]
+	mov	edx, [debug_registers$ + 4 * eax]
 	call	printhex8
 	print	" -> "
 	pop	edx
 	push	edx
-	mov	edx, \reg
-	.if \reg == esp
-	add	edx, 6
-	.endif
+	mov	edx, ebx
+
+	#.if \reg == esp
+	cmp	eax, 7	# esp
+	jnz	1f
+	add	edx, 6+4
+	#.endif
+1:
 	call	printhex8
 	pop	edx
 	call	newline
-188:
-.endm
+188:	pop_	ebx eax
+	pop	ebp
+	ret	12
 
-.macro DEBUG_REGDIFF1 nr, reg
-	push	eax
-	mov	eax, \reg
-	DEBUG_REGDIFF0 \nr, eax
-	pop	eax
+.macro DEBUG_REGDIFF0 nr, reg
+	pushd	\reg
+	pushd	\nr
+	PUSHSTRING "\reg"
+	call	debug_regdiff0$
 .endm
-
 
 debug_regdiff$:
 	pushf
@@ -65,10 +75,10 @@ debug_regdiff$:
 	DEBUG_REGDIFF0 5, edi
 	DEBUG_REGDIFF0 6, ebp
 	DEBUG_REGDIFF0 7, esp
-	DEBUG_REGDIFF1 8, cs
-	DEBUG_REGDIFF1 9, ds
-	DEBUG_REGDIFF1 10, es
-	DEBUG_REGDIFF1 11, ss
+	DEBUG_REGDIFF0 8, cs
+	DEBUG_REGDIFF0 9, ds
+	DEBUG_REGDIFF0 10, es
+	DEBUG_REGDIFF0 11, ss
 	popcolor
 	popf
 	ret
