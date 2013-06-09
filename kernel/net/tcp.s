@@ -795,7 +795,7 @@ net_ipv4_tcp_handle:
 
 1:	ret
 
-2:	printc 4, "portscan detected: SYN+ACK"
+2:	#printc 4, "portscan detected: SYN+ACK"
 	ret
 3:	printc 4, "portscan detected: SYN, ack!=0"
 	ret
@@ -1760,7 +1760,6 @@ net_tcp_handle_syn$:
 		mov	[edx + tcp_conn_remote_seq_base], eax
 	inc	eax
 		mov	[edx + tcp_conn_remote_seq_ack], eax
-		DEBUG_DWORD eax,"tcp_conn_remote_seq_ack"
 		or	[edx + tcp_conn_state], byte ptr TCP_CONN_STATE_SYN_RX
 	bswap	eax
 	mov	[edi + tcp_ack_nr], eax
