@@ -43,7 +43,7 @@ CLASS_METHOD_STRUCT_SIZE = 12
 # TODO: multiple inheritance/interfaces
 
 .data SECTION_DATA_CLASSES
-class_definitions:	# idem to data_classes_start
+class_definitions:	# idem to data_classdef_start
 .data
 class_instances:	.long 0	# aka objects
 #class_dyn_definitions:	.long 0 # ptr_array of dynamically registered class defs
@@ -505,7 +505,7 @@ class_iterate_classes:
 	push	ebp
 	lea	ebp, [esp + 8]
 	push	eax
-	mov	eax, offset data_classes_start
+	mov	eax, offset data_classdef_start
 	jmp	1f
 0:	push_	eax		# preserve, and pass as argument
 	mov	eax, [esp + 4]	# restore original value of eax
@@ -513,7 +513,7 @@ class_iterate_classes:
 	pop_	eax
 	jc	2f
 	add	eax, [eax + class_def_size]
-1:	cmp	eax, offset data_classes_end
+1:	cmp	eax, offset data_classdef_end
 	jb	0b
 2:	pop	eax
 	pop	ebp
@@ -521,13 +521,13 @@ class_iterate_classes:
 
 
 cmd_classes:
-	mov	esi, offset data_classes_start
+	mov	esi, offset data_classdef_start
 	jmp	1f
 
 0:	call	_print_class$
 	
 	add	esi, [esi + class_def_size]
-1:	cmp	esi, offset data_classes_end
+1:	cmp	esi, offset data_classdef_end
 	jb	0b
 	ret
 
@@ -535,12 +535,12 @@ cmd_classes:
 # out: eax = class definition pointer
 class_get_by_name:
 	push_	esi edi ecx ebx
-	mov	ebx, offset data_classes_start
+	mov	ebx, offset data_classdef_start
 0:	mov	edx, [ebx + class_name]
 	call	strcmp	# in: eax, edx; out: flags
 	jz	1f
 	add	ebx, [ebx + class_def_size]
-	cmp	ebx, offset data_classes_end
+	cmp	ebx, offset data_classdef_end
 	jb	0b
 	stc
 0:	pop_	ebx ecx edi esi

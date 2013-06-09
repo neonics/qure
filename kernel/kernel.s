@@ -35,6 +35,7 @@ data_str_start:
 data_shell_cmds_start:
 .data SECTION_DATA_CLASSES
 data_classes_start:
+data_classdef_start:	# used in oo.s
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_start:
 # .word vendorId, deviceId
@@ -551,7 +552,9 @@ data_concat_end:
 data_str_end:
 .data SECTION_DATA_SHELL_CMDS
 data_shell_cmds_end:
-.data SECTION_DATA_CLASSES_END	# start: SECTION_DATA_CLASSES
+.data SECTION_DATA_CLASSES
+data_classdef_end:	# used in oo.s
+.data SECTION_DATA_CLASSES_END
 data_classes_end:
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_end:
