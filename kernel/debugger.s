@@ -337,15 +337,17 @@ debug_get_preceeding_symbol:
 	jz	1f
 2:	add	eax, ecx	# [....eax....]
 	cmp	edx, [esi + 4 + eax * 4]
-	jz	0f
+	jz	0f	# exact match
 	ja	0b		# [....|<eax....>]
 	sub	eax, ecx	# [<eax....>|....]
 	jmp	0b
 # odd
-1:	jnc	0f
-	cmp	edx, [esi + 8 + eax * 4]
+1:	jnc	0f	# even
+3:	cmp	edx, [esi + 8 + eax * 4]
 	jb	0f
 	inc	eax
+	cmp	eax, [esi]
+	jb	3b 	# should not loop > 1, but 5 times is seen..
 
 0:	mov	ecx, [esi]
 
