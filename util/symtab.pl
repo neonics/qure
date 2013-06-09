@@ -11,18 +11,18 @@
 # 00000001 l       .text	00000000 label
 #
 # Verify if the object file is pe-i386
-$_ = `objdump -a $ARGV[0]`;
+$_ = `objdump -a $ARGV[0]` or die;
 if ( /file format pe-/s )
 {
-	$infile = $ARGV[1];
+	$infile = $ARGV[0];
 }
 else
 {
 	$infile = "build/kernel.pe";
-	`objcopy -O pe-i386 $ARGV[0] $infile`;
+	`objcopy -O pe-i386 $ARGV[0] $infile` or die;
 }
 
-@c = `objdump -t $infile`; chomp @c;
+@c = `objdump -t $infile` or die; chomp @c;
 
 @tosort=();
 
