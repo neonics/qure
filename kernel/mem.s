@@ -1848,7 +1848,7 @@ cmd_mem$:
 	jz	2f
 
 	mov	ecx, offset code_print_start
-	.irp _, print,pmode,paging,debugger,pit,keyboard,console,mem,hash,buffer,string,scheduler,tokenizer,dev,pci,bios,cmos,ata,fs,partition,fat,sfs,iso9660,shell,nic,net,vid,usb,gfx,hwdebug,vmware,kernel
+	.irp _, print,debug,pmode,paging,pit,keyboard,console,mem,hash,buffer,string,scheduler,tokenizer,oo,dev,pci,bios,cmos,dma,ata,debugger,fs,partition,fat,sfs,iso9660,nic,net,vid,usb,southbridge,gfx,hwdebug,vmware,vbox,sound,shell,kernel
 	PRINT_MEMRANGE code_\_\(), indent="  "
 	.endr
 
@@ -1859,6 +1859,7 @@ cmd_mem$:
 	#PRINT_MEMRANGE data_concat within data0's range
 	PRINT_MEMRANGE data_str
 	PRINT_MEMRANGE data_shell_cmds
+	PRINT_MEMRANGE data_classes
 	PRINT_MEMRANGE data_pci_driverinfo
 	PRINT_MEMRANGE data_fonts
 	.if SECTION_DATA_SIGNATURE < SECTION_DATA_BSS

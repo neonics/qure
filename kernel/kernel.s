@@ -130,15 +130,19 @@ include "usb.s"
 include "usb_ohci.s"
 code_usb_end:
 
+code_southbridge_start:
 include "i440.s"	# Intel i440 PCI Host Bridge
 include "ipiix4.s"	# Intel PIIX4 ISA/IDE/USB/AGP Bridge
+code_southbridge_end:
 
 include "gfx.s", gfx
 include "hwdebug.s", hwdebug
 include "vmware/vmware.s", vmware
 include "vbox/vbga.s", vbox
+code_sound_start:
 include "es1371.s", es1371
 include "sb.s", sb
+code_sound_end:
 include "shell.s", shell
 ###################################
 
@@ -547,10 +551,8 @@ data_concat_end:
 data_str_end:
 .data SECTION_DATA_SHELL_CMDS
 data_shell_cmds_end:
-.data SECTION_DATA_CLASSES
+.data SECTION_DATA_CLASSES_END	# start: SECTION_DATA_CLASSES
 data_classes_end:
-.data SECTION_DATA_CLASSES_END
-data_classdata_end:
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_end:
 .data SECTION_DATA_FONTS

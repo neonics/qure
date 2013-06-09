@@ -106,29 +106,8 @@ debug_regdiff$:
 
 
 .text32
-debug_load_symboltable:
+debug_load_symboltable:	# bootloader/ramdisk preloaded
 call cmd_ramdisk # show contents
-.if 0 # if ISO9660 implements multiple sector reading,
-	LOAD_TXT "/a/BOOT/KERNEL.SYM", eax
-	mov	cl, [boot_drive]
-	add	cl, 'a'
-	mov	[eax + 1], cl
-	call	fs_openfile	# out: eax = file handle
-	jc	1f
-	call	fs_handle_read # in: eax = handle; out: esi, ecx
-	jc	1f
-
-	# copy buffer
-	mov	eax, ecx
-	call	malloc
-	mov	[kernel_symtab], eax
-	mov	[kernel_symtab_size], ecx
-	mov	edi, eax
-	rep	movsb
-1:	call	fs_close
-	ret
-.elseif 1 # OR if bootloader also loads the symbol table.
-
 DEBUG_RAMDISK_DIY=0
 	.if DEBUG_RAMDISK_DIY
 	movzx	eax, word ptr [bootloader_ds]
@@ -147,6 +126,9 @@ DEBUG_RAMDISK_DIY=0
 	add	eax, 32
 	.endif
 
+
+	GDT_GET_BASE ecx, ds
+
 	.macro DEBUG_LOAD_TABLE name, label
 
 	.if DEBUG_RAMDISK_DIY
@@ -161,12 +143,9 @@ DEBUG_RAMDISK_DIY=0
 	jc	18f
 19:
 	I "Found \label: "
-	push	eax
-	GDT_GET_BASE eax, ds
-	sub	edx, eax
-	pop	eax
+	sub	edx, ecx
 	js	8f
-	mov	[kernel_\name\()], edx
+	mov	[kernel_\name\()], edx	# load_start ds-relative
 	mov	ebx, edx
 	call	printhex8
 	.if DEBUG_RAMDISK_DIY
@@ -174,7 +153,7 @@ DEBUG_RAMDISK_DIY=0
 	add	eax, 32
 	.else
 	mov	edx, [\name\()_load_end_flat]
-	sub	edx, eax
+	sub	edx, ecx
 	.endif
 	printchar '-'
 	call	printhex8
@@ -202,16 +181,6 @@ DEBUG_RAMDISK_DIY=0
 	call	printhex8
 9:	debug "error"
 	ret
-.else # lame - require 2 builds due to the inclusion of output generated
-	# after compilation.
-	.data SECTION_DATA_STRINGS # not pure asciiz...
-	ksym: .incbin "../root/boot/kernel.sym"
-	0:
-	.text32
-	mov	[kernel_symtab], dword ptr offset ksym
-	mov	[kernel_symtab_size], dword ptr (offset 0b - offset ksym)
-	ret
-.endif
 
 # in: fs = flat
 # in: eax = ptr to ramdisk entry [16 bytes]
