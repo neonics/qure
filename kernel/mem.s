@@ -1804,16 +1804,6 @@ cmd_mem$:
 	# out: (side-effect) edi = end (same as ecx)
 	# destroys: eax, edx. (eax=range size, edx=0)
 	.macro PRINT_MEMRANGE label, st=0, nd=0, sz=0, indent="", fl=0
-		.ifnc 0,\st
-			_PR_S = \st
-		.else
-			_PR_S = offset \label\()_start
-		.endif
-		.ifnc 0,\nd
-			_PR_E = \nd
-		.else
-			_PR_E = offset \label\()_end
-		.endif
 		.data
 		99: .ascii "\indent\label: "
 		88: .space 22-(88b-99b), ' '
@@ -1825,22 +1815,27 @@ cmd_mem$:
 		mov	esi, offset 99b
 		call	printc
 
-		# print cs/ds relative:
-		mov	edx, _PR_S # offset \label\()_start
-		.ifnc 0,\fl
-		sub	edx, [database]
-		.endif
-		.if \sz
-			lea	eax, [edx + _PR_E]
-#			add	edx, _PR_E #offset \label\()_end
+		# set up eax, edx:
+		.ifnc 0,\st
+			mov	edx, \st
 		.else
-			mov	eax, _PR_E
-#			mov	edx, _PR_E #offset \label\()_end
-			.ifnc 0,\fl
-			sub	eax, [database]
-#			sub	edx, [database]
-			.endif
+			mov	edx, offset \label\()_start
 		.endif
+
+		.ifnc 0,\nd
+			mov	eax, \nd
+		.else
+			mov	eax, offset \label\()_end
+		.endif
+
+		.if \sz
+			add	eax, edx
+		.endif
+		.ifnc 0,\fl
+			sub	eax, [database]
+			sub	edx, [database]
+		.endif
+
 		call	print_memrange$
 	.endm
 
