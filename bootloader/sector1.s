@@ -639,6 +639,7 @@ copy_high:
 print "copy high"
 call enter_pmode
 	push	ds
+	push	es
 	pushad
 
 	mov	ecx, [si + ramdisk_entry_size]
@@ -654,16 +655,12 @@ call enter_pmode
 	mov	esi, [ramdisk_buffer]
 	mov	ax, offset SEL_flat
 	mov	ds, ax
+	mov	es, ax
 	add	ecx, 3
 	shr	ecx, 2
-	# TODO: ADDR32 prefixes?
-0:	mov	eax, [esi]
-	mov	[edi], eax	# !! hang in vmware
-	add	esi, 4
-	add	edi, 4
-	dec	ecx
-	jnz	0b
+	ADDR32 rep	movsd	# esi/edi implies ecx
 	popad
+	pop	es
 	pop	ds
 call enter_realmode
 print "copy done"
