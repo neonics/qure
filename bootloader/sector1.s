@@ -135,6 +135,11 @@ mov ebx, [ramdisk_buffer]
 	jz	1f
 	print "Loading symbol table: "
 	call	load_ramdisk_entry_hi
+	# compact:
+	mov	eax, [si + ramdisk_entry_size]
+	neg	eax
+	and	eax, 0x1ff
+	sub	[image_high], eax
 1:
 
 	mov	ebx, [si + ramdisk_entry_load_end]
