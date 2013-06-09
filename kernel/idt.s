@@ -348,7 +348,7 @@ irq_proxies:
 		pushf					# 1 byte
 		lcall	SEL_compatCS, jmp_table_target	# 7 bytes # 8
 		jmp	schedule_isr			# 5 bytes # 13
-		nop;nop;#.word	INT_NR				# 2 bytes # 15
+		.word	INT_NR				# 2 bytes # 15
 		nop					# 1 byte  # 16
 		INT_NR = INT_NR + 1
 	.endr
