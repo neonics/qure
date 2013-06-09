@@ -184,8 +184,9 @@ _TLS_SIZE = .
 
 	.if _INDEX >= 0
 	_COUNT = 0
-	.irp \var, eax,ebx,ecx,edx,esi,edi,ebp,esp
+	.irp tmp, eax,ebx,ecx,edx,esi,edi,ebp,esp
 		.if _COUNT == _INDEX
+			\var = \tmp
 		.exitm 3 # doesn't exit the entire macro, only .irp
 		.endif
 		_COUNT = _COUNT + 1

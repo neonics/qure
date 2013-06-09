@@ -70,9 +70,12 @@ code_\name\()_end:
 .endif
 .endm
 
+DEFINE=0
 .include "debug.s"
 .include "mutex.s"
+DEFINE=1
 include "print.s", print
+include "debug.s", debug
 include "pmode.s", pmode
 include "paging.s", paging
 include "pit.s", pit

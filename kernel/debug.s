@@ -13,6 +13,8 @@
 
 
 ############################# 32 bit macros 
+.if !DEFINE
+
 .macro OK
 	PRINTLNc 0x0a, " Ok"
 .endm
@@ -106,83 +108,53 @@ DEBUG_DWORD \r
 
 
 .macro DEBUG_BYTE r8, label="", color1=DEBUG_COLOR1, color2=DEBUG_COLOR2
-	pushf
-	pushcolor \color1
-	.ifnc 0,\label
+	pushd	(\color2 << 16) | \color1 | (1<<8)
 	.ifc "","\label"
-	print	"\r8="
+		PUSHSTRING "\r8="
 	.else
-	print	"\label="
+		PUSHSTRING "\label="
 	.endif
-	.endif
-	color	\color2
-	.ifc dl,\r8
-	call	printhex2
+	IS_REG8 _, \r8
+	.if _
+		GET_REG32 _, \r8
+		pushd	_
 	.else
-	push	edx
-	mov	dl, \r8
-	call	printhex2
-	pop	edx
+		push	edx
+		mov	dl, \r8
+		xchg	dl, [esp]
 	.endif
-	call	printspace
-	popcolor
-	popf
+	call	debug_printvalue
+
 .endm
 
-.macro DEBUG_WORD r16, label=""
-	pushf
-	pushcolor DEBUG_COLOR1
-	.ifnc 0,\label
+.macro DEBUG_WORD r16, label="", color1=DEBUG_COLOR1, color2=DEBUG_COLOR2
+	pushd	(\color2 << 16) | \color1 | (2<<8)
 	.ifc "","\label"
-	print	"\r16="
+		PUSHSTRING "\r16="
 	.else
-	print	"\label="
+		PUSHSTRING "\label="
 	.endif
-	.endif
-	color	DEBUG_COLOR2
-	.ifc dx,\r16
-	call	printhex4
-	.else
-	push	edx
-	mov	dx, \r16
-	call	printhex4
-	pop	edx
-	.endif
-	call	printspace
-	popcolor
-	popf
+	pushw	0	# pad.
+	push	\r16
+	call	debug_printvalue
 .endm
 
 .macro DEBUG_DWORD r32, label="", color1=DEBUG_COLOR1, color2=DEBUG_COLOR2
-	pushf
-	pushcolor \color1
-	.ifnc 0,\label
+	pushd	(\color2 << 16) | \color1 | (4<<8)
 	.ifc "","\label"
-	print	"\r32="
+		PUSHSTRING "\r32="
 	.else
-	print	"\label="
+		PUSHSTRING "\label="
 	.endif
-	.endif
-	color	\color2
-	.ifc	edx,\r32
-	call	printhex8
+	IS_REG32 _, \r32
+	.if _
+		pushd	\r32
 	.else
-	push	edx
-	.ifc esp,\r32
-	lea	edx, [esp + 8 + COLOR_STACK_SIZE]
-	.else
-	.ifc [esp],\r32
-	mov	edx, [esp + 8 + COLOR_STACK_SIZE]
-	.else
-	mov	edx, \r32
+		push	edx
+		mov	edx, \r32
+		xchg	edx, [esp]
 	.endif
-	.endif
-	call	printhex8
-	pop	edx
-	.endif
-	call	printspace
-	popcolor
-	popf
+	call	debug_printvalue
 .endm
 
 .macro DEBUG_DIV_PRE r32
@@ -213,3 +185,38 @@ DEBUG_DWORD \r
 .endm
 
 
+.else	# DEFINE = 1
+
+
+.text32
+nop # so that disasm doesnt point to code_debug_start
+# in: [esp] = value
+# in: [esp + 4] = label
+# in: [esp + 8] = (color1 | color2 << 16) # dword, up to [esp+12]
+# in: [esp + 9] = nr of bytes of value: 4, 2, 1
+debug_printvalue:
+	pushfd
+	push	ebp
+	lea	ebp, [esp + 12]	# ebp + flags + ret
+
+	push_	edx ecx eax
+	mov	edx, [ebp]
+	movzx	ecx, byte ptr [ebp + 9]	# byte size
+
+	PUSHCOLOR [ebp + 8]
+	pushd	[ebp + 4]
+	call	_s_print
+
+	shl	ecx, 1
+	COLOR	[ebp + 10]
+	call	nprinthex
+	call	printspace
+	POPCOLOR
+	pop_	eax ecx edx
+
+	pop	ebp
+	popfd
+	ret	12
+
+
+.endif
