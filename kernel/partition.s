@@ -542,7 +542,7 @@ fdisk_print_usage$:
 	# check for ATA
 	push	eax
 	movzx	eax, al
-	cmp	byte ptr [ata_drive_types + eax], TYPE_ATAPI
+#	cmp	byte ptr [ata_drive_types + eax], TYPE_ATAPI
 	cmp	byte ptr [ata_drive_types + eax], TYPE_ATA
 	pop	eax
 	jz	1f
@@ -551,16 +551,7 @@ fdisk_print_usage$:
 	ret
 1:
 
-	push	edx
-	.if 0
-	print	" (using "
-	call	ata_get_heads
-	mov	edx, ecx
-	call	printdec32
-	println	" heads)"
-	.else
-	push	ebx
-	push	eax
+	push_	eax ebx esi edx
 	call	ata_get_drive_info
 	mov	ebx, eax
 	printc	9, " geometry: "
@@ -588,17 +579,18 @@ fdisk_print_usage$:
 	call	printdec32
 	printcharc_ 9, ')'
 1:	call	newline
-	pop	eax
-	pop	ebx
-	.endif
-	pop	edx
+	pop_	edx esi ebx eax
 
 #######
 	or	ebx, ebx
 	jz	1f
-DEBUG "call"
-DEBUG_DWORD esi
-DEBUG_BYTE al
+
+	.if 0
+		DEBUG "call"
+		DEBUG_DWORD ebx
+		DEBUG_BYTE al
+	.endif
+
 	add	ebx, [realsegflat]
 	jmp	ebx
 1:

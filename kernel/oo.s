@@ -383,6 +383,28 @@ _obj_print_methods$:
 	pop_	ecx esi ebx edx edi eax
 	ret
 
+# in: eax = object
+class_deleteinstance:
+	push_	esi edi ecx
+
+	mov	edi, [class_instances]
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	repnz	scasd
+	jnz	91f
+
+0:	mov	[edi - 4], dword ptr 0
+	jecxz	1f
+	mov	esi, edi
+	sub	edi, 4
+	rep	movsd
+
+1:	call	mfree
+
+	pop_	ecx edi esi
+	ret
+91:	printlnc 4, "warning: deleting unknown object"
+	jmp	0b
 
 # in: eax = object ptr
 # in: edx = class ptr
