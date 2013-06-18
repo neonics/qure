@@ -541,10 +541,6 @@ net_handle_packet:
 # These are only called when eth.dst_mac is broadcast or matches a nic
 
 
-
-net_ipv6_handle:
-	ret
-
 ####################################################
 # Packet Dumper
 

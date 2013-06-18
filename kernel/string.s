@@ -208,6 +208,20 @@ strncmp:push	edi
 	pop	edi
 	ret
 
+# in: esi, edi
+strcopy:
+	push_	esi edi ecx eax
+	call	strlen_
+	mov	al, cl
+	shr	ecx, 2
+	rep	movsd
+	mov	cl, al
+	and	cl, 3
+	rep	movsb
+	mov	[edi], cl
+	pop_	eax ecx edi esi
+	ret
+
 # in: eax
 # out: eax
 strdup:

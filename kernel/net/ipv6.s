@@ -65,3 +65,30 @@ net_print_ipv6_smart:
 	pop_	eax edx ecx esi
 	ret
 
+############################
+# in: ebx = nic
+# in: esi = ipv6 frame
+# in: ecx = frame size
+net_ipv6_handle:
+	DEBUG "IPv6"
+	ret
+
+
+
+ipv6_sollicit_router:
+	ret
+
+ICMP6_ROUTER_SOLLICITATION = 0x85
+
+
+teredo_init:
+	LOAD_TXT "teredo.ipv6.microsoft.com.nsatc.net"
+	call	strlen_
+	call	dns_resolve_name
+	jc	91f
+	call	net_print_ip
+	call	newline
+9:	ret
+
+91:	printlnc 4, "teredo: dns lookup failed"
+	jmp	9b
