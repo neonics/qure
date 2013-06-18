@@ -574,10 +574,6 @@ schedule_isr:
 	# since we've locked the task_queue sem, collapse eax and edx:
 	add	edx, eax
 
-# for debugging
-mov ebx, [edx + task_stack]
-mov ecx, [edx + task_stack+4]
-# ! task cs=30 ss=a9, or a8: GPF.
 	#lss	esp, [edx + task_stack]
 	mov	esp, [edx + task_stack_esp]
 	or	[esp + task_reg_eflags], dword ptr 1<<9
@@ -1001,16 +997,12 @@ task_queue_newentry:
 	ARRAY_ENDL
 2:	ARRAY_NEWENTRY [task_queue], SCHEDULE_STRUCT_SIZE, 4, 9f
 	DEBUG "+", 0x4f
-	push edi
-	push eax
-	push ecx
-	lea edi, [eax + edx]
-	xor eax, eax
-	mov ecx, SCHEDULE_STRUCT_SIZE / 4
-	rep stosd
-	pop ecx
-	pop eax
-	pop edi
+	push_	edi eax ecx
+	lea	edi, [eax + edx]
+	xor	eax, eax
+	mov	ecx, SCHEDULE_STRUCT_SIZE / 4
+	rep	stosd
+	pop_	ecx eax edi
 1:	ret
 9:	printlnc 4, "task_queue_newentry: malloc fail"
 	stc
@@ -1138,16 +1130,12 @@ task_queue_get$:
 	clc
 
 ########
-#	add	edx, ebx
-	#mov	ebx, -1	# mark as free
-	#xchg	ebx, [edx + task_flags]
 	# mark as 'pending'; continuatoin may be scheduled,
 	# using the src stack, so the data cannot be copied yet
 	# over that stack before scheduling continuation.
 	# scheduling continuatio nhwoever can also not overwrite
 	# this task yet.
 	# Set to -1 once data is copied.
-#	or	dword ptr [ecx + edx + task_flags], 0x88000000
 	mov	ebx, [ecx + edx + task_flags]
 
 	.if TASK_SWITCH_DEBUG > 1
@@ -1197,12 +1185,14 @@ task_queue_get$:
 schedule_task:
 	cmp	dword ptr [task_queue_sem], -1
 	jz	8f
-push eax
-mov eax, cs
-and al, 3
-pop eax
-jz 1f
-call SEL_kernelCall:0
+
+	# enter CPL0 if needed
+	push	eax
+	mov	eax, cs
+	and	al, 3
+	pop	eax
+	jz	1f
+	call SEL_kernelCall:0
 1:
 
 	# copy regs to stack
@@ -1226,25 +1216,18 @@ call SEL_kernelCall:0
 	# check whether job is already scheduled
 	mov	ebx, [ebp + TASK_REG_SIZE - 12 + 4]	# eip
 	call	task_is_queued	# out: ecx
-	.if 0
-	jc	88f	# already queued
-	.else	# allow one duplicate task
 	jnc	1f
 	# already queued, check if asked for duplicate:
 	test	dword ptr [ebp + TASK_REG_SIZE - 12 + 12], TASK_FLAG_RESCHEDULE
 	jz	88f	# no
 	dec	ecx	# only one duplicate allowed
 	jnz	88f
-	.endif
 1:
 
 	call	task_queue_newentry
 	jc	77f
 
 	mov	ebx, eax	# using lodsd: free eax
-#DEBUG_DWORD [ebx+edx+task_stackbuf]
-#add eax, edx
-#DEBUG_DWORD eax,"addr"
 	# copy registers
 	lea	edi, [ebx + edx + task_regs]
 	mov	esi, ebp
@@ -1252,7 +1235,6 @@ call SEL_kernelCall:0
 	rep	movsb
 	add	esi, 4	# skip method return
 	movsd	# eip
-	.if 1
 	# calculate the selectors to use according to CPL.
 	lodsd	# cs
 	mov	eax, [esi] # task flags
@@ -1263,28 +1245,11 @@ call SEL_kernelCall:0
 	add	eax, SEL_ring0CS
 	or	al, cl	# add RPL
 	stosd	# cs
-
-	.if 0
-		DEBUG "schedule_task: "
-		push esi; mov esi, [esi+4]; call print;pop esi
-		call newline
-		call printspace
-		pushad;PRINT_GDT cs,1;popad
-		pushad;PRINT_GDT eax,1;popad
-		add	eax, 8
-		call printspace
-		pushad;PRINT_GDT ds,1;popad
-		pushad;PRINT_GDT eax,1;popad
-	.else
 	add	eax, 8
-	.endif
 
 	mov	[ebx + edx + task_regs + task_reg_ds], eax
 	mov	[ebx + edx + task_regs + task_reg_es], eax
 	mov	[ebx + edx + task_regs + task_reg_ss], eax
-	.else
-	movsd	# cs
-	.endif
 
 	pushfd	# need some eflags
 	pop	eax
@@ -1310,57 +1275,16 @@ call SEL_kernelCall:0
 	jz	7f
 	.endif
 	# check if the entry already has a stack
-#DEBUG_DWORD [task_queue], "[q]",0x5f
-#lea eax, [ebx + edx + task_stackbuf]
-#sub eax, [task_queue]
-#DEBUG_DWORD eax,"offs"
 	mov	eax, [ebx + edx + task_stackbuf]
-#DEBUG_DWORD eax,"val", 0x5f
 	or	eax, eax
 	jnz	1f
 	# allocate a stack
 	mov	eax, JOB_STACK_SIZE
 	call	mallocz
 	jc	66f
-#### debugging:
-#cmp eax, 0x00300000
-#jb 2f
-#printc 4, "malloc error"	# to keep track
-#jmp 1f
-#2:
-####
 	mov	[ebx + edx + task_stackbuf], eax
 1:
 
-#### debugging
-#cmp eax, 0x00300000
-#jb 1f
-#pushad
-#call mem_print_handles
-#popad
-#pushad
-#DEBUG_DWORD [task_queue]
-#lea eax, [ebx + edx + task_stackbuf]
-#DEBUG_DWORD eax,"ptr"
-#mov eax, [task_queue]
-#sub eax, 8
-#call	mem_find_handle$
-#jc 2f
-#DEBUG "handle nr: "; call printdec32;call printspace;
-#mov edx, [ebx + handle_base]
-#call printhex8
-#printchar '-'
-#add edx, [ebx + handle_size]
-#call printhex8
-##call mem_print_handle_$
-#jmp 3f
-#2: DEBUG "handle not found"
-#3:
-#popad
-#int 3	# The bug is here. The task_stackbuf gets overwritten with at least
-	# 4 bytes of root/www/index.html.
-#### XXXBUG
-#1:
 	.if SCHEDULE_CLEAN_STACK
 	push	eax
 	mov	edi, eax
@@ -1401,45 +1325,15 @@ call SEL_kernelCall:0
 	mov	ecx, TASK_REG_SIZE / 4
 	rep	movsd
 
-.if 1
 	test	dword ptr [ebx + task_flags], TASK_FLAG_RING_MASK
 	jz	1f
-	# privilege level change: push esp,ss
-	#mov	[edi + 4], edx	# ss
-	#add	edi, 8
-	#mov	[edi - 8], edi
-	## FOO
-	#add	eax, 8
-	push eax
-	lea eax, [edi + 8]
+	push	eax
+	lea	eax, [edi + 8]
 	stosd
-	mov eax, edx
+	mov	eax, edx
 	stosd
-	pop eax
+	pop	eax
 1:
-.endif
-
-.if 0
-mov ebp, [ebx + task_stack_esp]
-DEBUG_DWORD ebp, "task_stack_esp"
-call newline
-DEBUG_DWORD [ebp+0], "gs"
-DEBUG_DWORD [ebp+4], "fs"
-DEBUG_DWORD [ebp+8], "es"
-DEBUG_DWORD [ebp+12], "ds"
-DEBUG_DWORD [ebp+16], "ss"
-call newline
-add	ebp, 20 + 32
-DEBUG_DWORD [ebp+0], "eip"
-DEBUG_DWORD [ebp+4], "cs"
-DEBUG_DWORD [ebp+8], "eflags"
-DEBUG_DWORD [ebp+12], "esp"
-DEBUG_DWORD [ebp+16], "ss"
-call newline
-#DEBUG "press key"
-#push eax; xor eax,eax; call keyboard; pop eax
-.endif
-
 	add	eax, TASK_REG_SIZE - 12
 
 	mov	[ebx + task_regs + task_reg_esp], eax
@@ -1574,12 +1468,6 @@ sched_print_graph:
 	PRINT_START
 	xor	eax, eax
 
-#	cmp	byte ptr [schedule_show$], 2
-#	jb	1f
-#	mov	esi, offset sched_graph + 18
-#	mov	edi, 18*2
-#	mov	ecx, 80 - 18
-#	jmp	0f
 1:	mov	esi, offset sched_graph
 	mov	ecx, 80
 
@@ -1629,14 +1517,15 @@ schedule_print:
 
 	PUSH_SCREENPOS 160*1
 	pushfd
-	pop edx
+	pop	edx
 	DEBUG_DWORD edx, "FLAGS"
 	DEBUG_DWORD [ebp+task_reg_eflags]
 	call printspace
-PUSHSTRING "top"
-mov esi, esp
+
+	PUSHSTRING "top"
+	mov	esi, esp
 	call	cmd_tasks
-add esp, 4
+	add	esp, 4
 
 	POP_SCREENPOS
 	pop	edi
@@ -1803,22 +1692,9 @@ task_print$:
 	call	printhex8
 	call	printspace
 	.if TASK_PRINT_PARENT
-		.if 1
-			mov	edx, [eax + ebx + task_parent]
-			mov	edx, [eax + edx + task_pid]
-			call 	printhex8
-		.else
-			push	eax
-			push	ebx
-			mov	eax, [eax + ebx + task_parent]
-			xor	edx, edx
-			mov	ebx, SCHEDULE_STRUCT_SIZE
-			div	ebx
-			mov	edx, eax
-			call	printhex8
-			pop	ebx
-			pop	eax
-		.endif
+		mov	edx, [eax + ebx + task_parent]
+		mov	edx, [eax + edx + task_pid]
+		call 	printhex8
 	.else
 		mov	edx, [eax + ebx + task_regs + task_reg_eflags]
 		call	printhex8
@@ -1897,19 +1773,13 @@ cmd_top:
 	call	cls
 	mov	byte ptr [schedule_show$], 3
 
-0:	#call	cls
-	#call	newline
-	#call	schedule_print
-	#hlt
-	#mov	ah, KB_PEEK
-	#call	keyboard
-	#jc	0b
-	xor	ax, ax
+0:	xor	ax, ax
 	call	keyboard
 	cmp	ax, K_ESC
 	jz	0f
 	cmp	ax, K_ENTER
 	jnz	0b
+
 0:	pop	eax
 	mov	byte ptr [schedule_show$], al
 	ret
