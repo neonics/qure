@@ -783,7 +783,7 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	cmp	cx, 0xa	# invalid TSS
 	jz	2f
 	cmp	cx, 0xe	# page fault
-	jz	2f
+	jz	3f
 	#############################
 .endif
 	cmp	cx, 1	# debugger
@@ -829,6 +829,42 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 
 2:	call	debugger
 	jmp	0b
+
+3:	# page fault
+	push	fs
+	mov	eax, SEL_flatDS
+	mov	fs, eax
+
+	print "CR3: "
+	mov	edx, cr3	# PDE
+	mov	ebx, edx
+	call	printhex8
+	print " CR2: "
+	mov	edx, cr2	# fault address
+	call	printhex8
+
+	print " PTE #"
+	shr	edx, 22
+	call	printdec32
+	call	printspace
+
+	#mov	edx, fs:[ebx + edx * 4] # causes page fault
+	lea	edx, [ebx + edx * 4] 
+	call	printhex8
+
+		mov	eax, edx
+		call	printspace
+		and	edx, ~((1<<22)-1)
+		call	printhex8
+		mov	edx, eax
+		and	edx, (1<<22)-1
+		call	printspace
+		call	printhex8
+	call	newline
+
+
+	pop	fs
+	jmp	2b
 
 
 debug_print_tss$:

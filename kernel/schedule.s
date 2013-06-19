@@ -158,14 +158,20 @@ task_stackbuf:	.long 0	# remembered for mfree
 task_stack:
 task_stack_esp:	.long 0	# 16 byte aligned
 task_stack_ss:	.long 0
+task_cr3:		# page directory physical address
+task_page_dir:	.long 0 # for mfree_page_phys
+task_page_tab_lo:.long 0 # for mfree_page_phys
+task_page_tab_hi:.long 0 # for mfree_page_phys
 # these values are only used for jobs:
 .align 4	# for movsd (future modifications)
 task_regs:	.space TASK_REG_SIZE
 .align 4
 SCHEDULE_STRUCT_SIZE = .
+
 .data
 task_queue_sem:	.long -1	# -1: scheduling disabled
 scheduler_current_task_idx: .long -1
+
 .data SECTION_DATA_BSS
 pid_counter:	.long 0
 task_queue:	.long 0
@@ -385,6 +391,9 @@ scheduler_init:
 	mov	[eax + edx + task_registrar], esi
 	mov	[eax + edx + task_stack_ss], ss # esp updated in scheduler
 
+	mov	esi, cr3
+	mov	[eax + edx + task_cr3], esi
+
 	mov	dword ptr [task_queue_sem], 0
 	btr	dword ptr [mutex], MUTEX_SCHEDULER
 
@@ -580,6 +589,9 @@ schedule_isr:
 
 	mov	ebx, [edx + task_tls]
 	mov	[tls], ebx
+
+	mov	ebx, [edx + task_cr3]
+	mov	cr3, ebx
 
 	SEM_UNLOCK [task_queue_sem]
 8:	MUTEX_UNLOCK SCHEDULER
@@ -961,8 +973,17 @@ task_done:
 	.if TASK_SWITCH_DEBUG_TASK
 		DEBUGS [eax + edx + task_label], "done"
 	.endif
-	or	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE
 	add	edx, eax
+	or	[edx + task_flags], dword ptr TASK_FLAG_DONE
+
+	mov	eax, [edx + task_page_dir]
+	call	mfree_page_phys
+	mov	eax, [edx + task_page_tab_lo]
+	call	mfree_page_phys
+	mov	eax, [edx + task_page_tab_hi]
+	call	mfree_page_phys
+
+
 	xor	eax, eax
 	xchg	eax, [edx + task_stackbuf]
 	call	mfree
@@ -1224,12 +1245,17 @@ schedule_task:
 	jnz	88f
 1:
 
-	call	task_queue_newentry
+	call	task_queue_newentry	# out: eax + edx
 	jc	77f
+	lea	ebx, [eax + edx]
 
-	mov	ebx, eax	# using lodsd: free eax
+	call	task_setup_paging	# out: eax
+	jc	55f
+	#mov	eax, cr3
+	#mov	[ebx + task_cr3], eax
+
 	# copy registers
-	lea	edi, [ebx + edx + task_regs]
+	lea	edi, [ebx + task_regs]
 	mov	esi, ebp
 	mov	ecx, TASK_REG_SIZE - 12	# eip, cs, eflags not copied
 	rep	movsb
@@ -1247,42 +1273,42 @@ schedule_task:
 	stosd	# cs
 	add	eax, 8
 
-	mov	[ebx + edx + task_regs + task_reg_ds], eax
-	mov	[ebx + edx + task_regs + task_reg_es], eax
-	mov	[ebx + edx + task_regs + task_reg_ss], eax
+	mov	[ebx + task_regs + task_reg_ds], eax
+	mov	[ebx + task_regs + task_reg_es], eax
+	mov	[ebx + task_regs + task_reg_ss], eax
 
 	pushfd	# need some eflags
 	pop	eax
 	or	eax, 1 << 9	# sti
-	mov	dword ptr [ebx + edx + task_regs + task_reg_eflags], eax
+	mov	dword ptr [ebx + task_regs + task_reg_eflags], eax
 
 	lodsd	# task flags
 	and	eax, TASK_FLAG_TASK | TASK_FLAG_RING_MASK
-	mov	[ebx + edx + task_flags], eax
+	mov	[ebx + task_flags], eax
 	lodsd	# task tabel
-	mov	[ebx + edx + task_label], eax
+	mov	[ebx + task_label], eax
 	mov	eax, [ebp + task_reg_eip]	# method return, conveniently
-	mov	[ebx + edx + task_registrar], eax
+	mov	[ebx + task_registrar], eax
 	mov	eax, [pid_counter]
 	inc	dword ptr [pid_counter]
-	mov	[ebx + edx + task_pid], eax
+	mov	[ebx + task_pid], eax
 
 	.if SCHEDULE_JOBS == 0
 	# jobs disabled, alloc stack always
-	or	dword ptr [ebx + edx + task_flags], TASK_FLAG_TASK
+	or	dword ptr [ebx + task_flags], TASK_FLAG_TASK
 	.else
-	test	dword ptr [ebx + edx + task_flags], TASK_FLAG_TASK
+	test	dword ptr [ebx + task_flags], TASK_FLAG_TASK
 	jz	7f
 	.endif
 	# check if the entry already has a stack
-	mov	eax, [ebx + edx + task_stackbuf]
+	mov	eax, [ebx + task_stackbuf]
 	or	eax, eax
 	jnz	1f
 	# allocate a stack
 	mov	eax, JOB_STACK_SIZE
 	call	mallocz
 	jc	66f
-	mov	[ebx + edx + task_stackbuf], eax
+	mov	[ebx + task_stackbuf], eax
 1:
 
 	.if SCHEDULE_CLEAN_STACK
@@ -1300,11 +1326,13 @@ schedule_task:
 	# prepare stack
 	.if SCHEDULE_JOBS == 0
 	sub	eax, 8
-	mov	[eax + 4], edx
+	# if edx is changed above:
+	# mov edx, ebx
+	# sub edx, [task_queue]
+	mov	[eax + 4], edx	# set task index
 	mov	[eax], dword ptr offset task_done
 	.endif
 
-	add	ebx, edx	# free up edx
 	movzx	edx, word ptr [ebx + task_regs + task_reg_ds]
 
 	sub	eax, TASK_REG_SIZE
@@ -1344,9 +1372,7 @@ schedule_task:
 
 	clc
 ########
-7:	pushf
-	SEM_UNLOCK [task_queue_sem]
-	popf
+7:	SEM_UNLOCK [task_queue_sem]	# doesn't use flags
 
 9:	popd	gs
 	popd	fs
@@ -1354,6 +1380,17 @@ schedule_task:
 	popd	ds
 	popd	ss
 	popad
+
+	.if 0
+	pushf
+	push	esi
+	mov	esi, [esp + 8 + 16]
+	call	print
+	println " scheduled"
+	pop	esi
+	popf
+	.endif
+
 	ret	16
 ########
 8:	test	[esp + 12], dword ptr TASK_FLAG_TASK
@@ -1390,6 +1427,11 @@ schedule_task:
 	stc
 	jmp	7b
 
+55:	call	0f
+	printlnc_ 4, "can't allocate paging structure"
+	stc
+	jmp	7b
+
 0:	printc_ 4, "schedule_task: "
 	ret
 
@@ -1422,6 +1464,103 @@ continue_task:
 	and	dword ptr [ebx + ecx + task_flags], ~TASK_FLAG_SUSPENDED
 9:	pop	ecx
 	pop	ebx
+	ret
+
+task_setup_paging:
+	push_	edx ebx esi edi ecx ebp
+	mov	ebp, ebx
+
+	call	malloc_page_phys
+	jc	9f
+	mov	[ebp + task_page_dir], eax	# PDE
+
+mov ecx, 1<<2	# 4mb
+call paging_idmap_4m
+
+	call	malloc_page_phys
+	jc	91f
+	mov	[ebp + task_page_tab_lo], eax	# PTE 0
+
+mov ecx, 1<<2	# 4mb
+call paging_idmap_4m
+
+	call	malloc_page_phys
+	jc	92f
+	mov	[ebp + task_page_tab_hi], eax	# PTE hi
+
+mov ecx, 1<<2	# 4mb
+call paging_idmap_4m
+
+	###########
+
+	GDT_GET_BASE edx, ds
+
+	# copy the PTE for the low 4mb (identity mapping)
+	mov	esi, [page_directory]
+	add	esi, 4096	# PTE for low 4mb
+	mov	edi, [ebp + task_page_tab_lo]
+	sub	edi, edx	# make ds-relative
+	mov	ecx, 1024
+	.if 1
+	0:	lodsd
+		and	eax, ~PDE_FLAG_A
+		stosd
+		loop	0b
+	.else
+	rep	movsd
+	.endif
+
+	# clear the PTE hi
+	mov	edi, [ebp + task_page_tab_hi]
+	sub	edi, edx
+	mov	ecx, 1024
+	xor	eax, eax
+	rep	stosd
+
+	# copy the PDE
+	mov	edi, [ebp + task_page_dir]
+	sub	edi, edx	# ds-relative page dir
+	mov	esi, [page_directory]
+	mov	ecx, 1024
+	rep	movsd
+	sub	edi, 4096
+
+
+	mov	esi, [ebp + task_page_dir]
+
+	# identity-map PDE
+	mov	eax, [ebp + task_page_dir]
+	call	paging_idmap_page
+
+	# identity-map PTE 0
+	mov	eax, [ebp + task_page_tab_lo]
+	call	paging_idmap_page
+
+	# identity-map PTE hi
+	mov	eax, [ebp + task_page_tab_hi]
+	call	paging_idmap_page
+.if 0
+	call	paging_show_usage;
+	printlnc 0xf0, "-------------------"
+	mov	esi, [ebp + task_page_dir]
+	call	paging_show_usage1$
+.endif
+	###########
+	clc
+
+9:	pop_	ebp ecx edi esi ebx edx
+	ret
+
+92:	mov	eax, [ebx + task_page_tab_lo]
+	call	mfree_page_phys
+91:	mov	eax, [ebx + task_page_tab_hi]
+	call	mfree_page_phys
+	stc
+	jmp	9b
+
+	clc
+9:	pop	ebx
+	ret
 
 ##############################################################################
 ##############################################################################

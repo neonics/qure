@@ -35,7 +35,8 @@ mem_heap_alloc_start: .long 0
 mem_sel_base: .long 0
 mem_sel_limit: .long 0
 
-
+mem_heap_high_end_phys:	.long 0, 0
+mem_heap_high_start_phys:.long 0, 0
 
 .text32
 .code32
@@ -434,8 +435,21 @@ mov	[mem_phys_total + 0], edx
 	print " ("
 	shr	edx, 20
 	call	printdec32
-	println "Mb)"
+	print "Mb) High Mem End: "
 
+	mov	edx, [mem_heap_size]
+	add	edx, [mem_heap_start]
+	GDT_GET_BASE eax, ds
+	sub	edx, eax
+	call	printhex8
+	print " ("
+	and	edx, ~4095	# page-align
+	call	printhex8
+	println ")"
+
+	mov	[mem_heap_high_end_phys], edx
+	mov	[mem_heap_high_start_phys], edx
+	call	more
 	ret
 
 ###########################################
@@ -2054,3 +2068,173 @@ mallocz_aligned:
 
 9:	pop	ecx
 	ret
+
+############################################################
+#
+
+MALLOC_PAGE_DEBUG = 0
+.data
+mem_pages:		.long 0
+mem_pages_free:		.long 0	# array of bit-strings (size = 1/32th of mem_pages)
+.text32
+
+# Allocate a single page
+# out: eax = physical memory address
+malloc_page_phys:
+	MUTEX_SPINLOCK MEM
+	push_	ebx edx esi ecx
+
+	########################
+	mov	esi, [mem_pages_free]
+	or	esi, esi
+	jz	1f
+
+	xor	ebx, ebx
+	mov	ecx, [esi + array_index]
+	shr	ecx, 2
+0:	lodsd
+	.if MALLOC_PAGE_DEBUG
+		DEBUG_DWORD eax
+	.endif
+	bsf	edx, eax	# set edx to first bit set in eax
+	jnz	2f		# found
+	add	ebx, 4
+	loop	0b
+	.if MALLOC_PAGE_DEBUG
+		DEBUG "no free page"
+	.endif
+	jmp	1f
+
+2:
+	.if MALLOC_PAGE_DEBUG
+		DEBUG "re-use page"; DEBUG_DWORD ebx;DEBUG_DWORD edx
+	.endif
+
+	btr	dword ptr [esi - 4], edx	# mark allocated
+	add	ebx, [mem_pages]
+	mov	eax, [ebx + edx * 4]
+	clc
+	jmp	0f	# done
+1:	########################
+
+
+	mov	eax, 4096
+	cmp	eax, [mem_heap_size]
+	jae	9f
+
+	sub	[mem_heap_high_start_phys], eax
+	sbb	[mem_heap_high_start_phys+4], dword ptr 0
+
+	sub	[mem_heap_size], eax
+	sbb	[mem_heap_size+4], dword ptr 0
+
+###################
+	# register page
+	PTR_ARRAY_NEWENTRY [mem_pages], 4, 9f
+	mov	ebx, [mem_heap_high_start_phys]
+	mov	[eax + edx], ebx
+
+	mov	eax, [mem_pages_free]	# pipelining
+
+	shr	edx, 2	# convert edx to dword index
+	# split index into 32-bit base + bit index
+	mov	ebx, edx
+	mov	ecx, edx
+	shr	ebx, 5	# 32 bits per entry
+	and	ecx, 31	# bit index
+
+	.if MALLOC_PAGE_DEBUG
+		DEBUG_DWORD edx
+		DEBUG_DWORD ebx
+		DEBUG_DWORD ecx
+	.endif
+
+	or	eax, eax
+	jz	1f	# first-time only
+
+	cmp	ebx, [ecx + array_index]
+	jb	2f
+
+1:	PTR_ARRAY_NEWENTRY [mem_pages_free], 4, 9f
+	mov	dword ptr [eax + edx], 0 # mark allocated so wont reuse
+	# we ignore edx, and calc it again
+2:
+	btr	[eax + ebx * 4], ecx	# mark allocated
+
+	mov	eax, [mem_heap_high_start_phys]
+	clc
+
+0:
+	.if MALLOC_PAGE_DEBUG
+		pushf
+		call	newline
+		push_	esi eax  edx
+		mov	esi, [mem_pages_free]
+		mov	ecx, [esi + array_index]
+	0:	lodsd
+		mov	edx, eax
+		call	printhex8
+		call	printspace
+		loop	0b
+		call	newline
+		pop_	edx eax esi
+		popf
+	.endif
+
+	pop_	ecx esi edx ebx
+	MUTEX_UNLOCK_ MEM
+	ret
+9:	printlnc 4, "malloc_phys_page: out of memory"
+	stc
+	jmp	0b
+
+# in: eax = page(s) physical base address
+mfree_page_phys:
+	# assume that malloc_page_phys is called, [mem_pages(_free)] setup.
+	push_	edi ecx
+	mov	edi, [mem_pages]
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	repnz	scasd
+	jnz	9f
+	.if MALLOC_PAGE_DEBUG;
+		DEBUG "freeing page:"; DEBUG_DWORD eax
+	.endif
+	sub	edi, [mem_pages]
+	sub	edi, 4
+	shr	edi, 2
+	.if MALLOC_PAGE_DEBUG
+		DEBUG_DWORD edi
+	.endif
+	mov	ecx, edi
+	shr	edi, 5
+	shl	edi, 2
+	and	ecx, 31
+
+	.if MALLOC_PAGE_DEBUG
+		DEBUG_DWORD edi
+		DEBUG_DWORD ecx
+	.endif
+
+	add	edi, [mem_pages_free]
+	bts	[edi], ecx
+
+	.if MALLOC_PAGE_DEBUG
+		call	newline
+		push_	esi eax  edx
+		mov	esi, [mem_pages_free]
+		mov	ecx, [esi + array_index]
+	0:	lodsd
+		mov	edx, eax
+		call	printhex8
+		call	printspace
+		loop	0b
+		call	newline
+		pop_	edx eax esi
+	.endif
+
+	pop_	ecx edi
+	ret
+9:	printc 4, "mfree_page_phys: unknown page: "
+	push edx; mov edx, eax; call printhex8; pop edx;
+	call	newline

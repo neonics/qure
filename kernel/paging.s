@@ -235,7 +235,7 @@ paging_idmap_4m:
 #DEBUG_DWORD ecx,"size"
 #DEBUG_DWORD eax,"addr"
 	push_	edx eax ecx
-	add	ecx, 1024 * 4096 - 1
+#	add	ecx, 1024 * 4096 - 1
 	shr	ecx, 22		# divide by 4m; ecx is nr of 4m pages.
 
 	mov	edx, eax
@@ -271,6 +271,45 @@ pop_ eax edx
 
 	pop_	ecx eax edx
 	ret
+
+
+
+# in: eax = page physical address
+# in: esi = PDE physical address
+paging_idmap_page:
+	push_	eax ecx edx esi
+
+	GDT_GET_BASE edx, ds
+
+	mov	ecx, eax
+	shr	ecx, 22	# divide by 4mb for index
+
+	sub	esi, edx
+	mov	esi, [esi + ecx * 4]	# get PTE ptr
+
+		or	esi, esi
+		jz	9f
+
+	mov	ecx, eax
+	and	ecx, ~((1<<22)-1)
+	shr	ecx, 12	# shift out the flags
+
+	or	eax, PDE_FLAG_R | PDE_FLAG_U | PDE_FLAG_P
+	sub	esi, edx
+	mov	[esi + ecx * 4], eax
+
+0:	pop_	esi edx ecx eax
+	ret
+
+9:	printc 4, "ERROR: No PTE. PDE: "
+	lea	edx, [esi + edx]
+	call	printhex8
+	call	printspace
+	mov	edx, [esp + 4 * 4]
+	call	debug_printsymbol
+#	int 3
+	jmp	0b
+
 
 # in: eax = physical address
 # in: edx = logical address to map physical address onto
@@ -312,11 +351,15 @@ paging_map_4k:	# XXX FIXME TODO UNFINISHED
 	pop_	edi esi
 	ret
 
+# in: esi = page-dir-phys
+paging_show_usage1$:
+	pushad
+	jmp	1f
 
 paging_show_usage:
 	pushad
-	GDT_GET_BASE ebx, ds
 	mov	esi, [page_directory_phys]
+1:	GDT_GET_BASE ebx, ds
 		DEBUG_DWORD esi, "page_dir_phys"
 	sub	esi, ebx
 		DEBUG_DWORD esi, "page_dir"
@@ -330,9 +373,22 @@ paging_show_usage:
 	mov	edx, 1024
 	sub	edx, ecx
 	call	printdec32
+		call	printspace
+		shl	edx, 22
+		call	printhex8
+		printchar '-'
+		add	edx, 1 << 22
+		call	printhex8
 	mov	edx, eax
 	print	" PTE "
 	call	printhex8
+		call	printspace
+		and	edx, ~((1<<22)-1)
+		call	printhex8
+		mov	edx, eax
+		and	edx, (1<<22)-1
+		call	printspace
+		call	printhex8
 	call	newline
 
 	test	eax, PDE_FLAG_S

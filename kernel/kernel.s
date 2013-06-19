@@ -83,8 +83,8 @@ include "pit.s", pit
 include "keyboard.s", keyboard
 include "console.s", console
 
-include "mem.s", mem
 include "hash.s", hash
+include "mem.s", mem
 include "buffer.s", buffer
 include "string.s", string
 
