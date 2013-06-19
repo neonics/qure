@@ -1474,6 +1474,7 @@ task_setup_paging:
 	jc	9f
 	mov	[ebp + task_page_dir], eax	# PDE
 
+and eax, ~((1<<22)-1)
 mov ecx, 1<<2	# 4mb
 call paging_idmap_4m
 
@@ -1481,6 +1482,7 @@ call paging_idmap_4m
 	jc	91f
 	mov	[ebp + task_page_tab_lo], eax	# PTE 0
 
+and eax, ~((1<<22)-1)
 mov ecx, 1<<2	# 4mb
 call paging_idmap_4m
 
@@ -1488,9 +1490,13 @@ call paging_idmap_4m
 	jc	92f
 	mov	[ebp + task_page_tab_hi], eax	# PTE hi
 
+and eax, ~((1<<22)-1)
 mov ecx, 1<<2	# 4mb
 call paging_idmap_4m
 
+# flush cache - though, if all is nice, not needed.
+mov eax, cr3
+mov cr3, eax
 	###########
 
 	GDT_GET_BASE edx, ds
@@ -1523,9 +1529,8 @@ call paging_idmap_4m
 	mov	esi, [page_directory]
 	mov	ecx, 1024
 	rep	movsd
-	sub	edi, 4096
 
-
+	# the paging_idmap_page method takes the phys addr
 	mov	esi, [ebp + task_page_dir]
 
 	# identity-map PDE
@@ -1539,13 +1544,7 @@ call paging_idmap_4m
 	# identity-map PTE hi
 	mov	eax, [ebp + task_page_tab_hi]
 	call	paging_idmap_page
-.if 0
-	call	paging_show_usage;
-	printlnc 0xf0, "-------------------"
-	mov	esi, [ebp + task_page_dir]
-	call	paging_show_usage1$
-.endif
-	###########
+
 	clc
 
 9:	pop_	ebp ecx edi esi ebx edx

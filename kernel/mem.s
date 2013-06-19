@@ -301,6 +301,8 @@ mov eax, edx
 	call	printhex8
 	PRINT	" | "
 # compare start addresses:
+cmp	byte ptr [esi + 16], 2 # don't count type=2 which may be mem-mapped
+jz 1f
 cmp	eax, [mem_phys_total + 4]
 jb	1f
 cmp	edx, [mem_phys_total + 0]
@@ -449,7 +451,6 @@ mov	[mem_phys_total + 0], edx
 
 	mov	[mem_heap_high_end_phys], edx
 	mov	[mem_heap_high_start_phys], edx
-	call	more
 	ret
 
 ###########################################
@@ -1671,6 +1672,24 @@ cmd_mem$:
 	call	cmd_mem_print_addr_range$
 	call	newline
 
+	# print paging info
+	printc 15, "Paging: "
+	mov	eax, [mem_heap_high_end_phys]
+	sub	eax, [mem_heap_high_start_phys]
+	xor	edx, edx
+	call	print_size
+	shr	eax, 12
+	mov	edx, eax
+	print " ("
+	call	printdec32
+	print " pages)"
+
+	mov	ecx, ds
+	mov	edx, [mem_heap_high_start_phys]
+	mov	eax, [mem_heap_high_end_phys]
+	call	cmd_mem_print_addr_range$
+	call	newline
+
 ######## print kernel sizes
 1:	test	dword ptr [ebp], CMD_MEM_OPT_KERNELSIZES
 	jz	1f
@@ -2152,7 +2171,7 @@ malloc_page_phys:
 	or	eax, eax
 	jz	1f	# first-time only
 
-	cmp	ebx, [ecx + array_index]
+	cmp	ebx, [eax + array_index]
 	jb	2f
 
 1:	PTR_ARRAY_NEWENTRY [mem_pages_free], 4, 9f

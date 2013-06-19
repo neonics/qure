@@ -186,8 +186,6 @@ kmain:
 	.endif
 	.endif
 
-	call	paging_init
-
 	call	debug_load_symboltable	# a simple reference check and pointer calculation.
 
 	# Flush keyboard buffer
@@ -270,6 +268,8 @@ kmain:
 	call	newline
 
 	call	mem_init
+
+	call	paging_init
 
 MEM_TEST = 0
 SCHEDULE_EARLY = 0
@@ -403,7 +403,6 @@ SCHEDULE_EARLY = 0
 	call	cmd_smtpd
 	call	cmd_sshd
 	call	cmd_sipd
-
 
 OPEN_SHELL_DEFAULT = 0
 

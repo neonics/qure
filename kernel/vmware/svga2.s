@@ -528,7 +528,7 @@ vmwsvga2_init:
 
 	call	newline
 
-
+.if VID_STARTUP_CHECK
 	# this will automatically sync/flush on vid mem write,
 	# as the FIFO doesn't work as expected yet.
 	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_TRACES
@@ -605,7 +605,7 @@ jnz 0b
 
 pop	dword ptr [screen_update]
 	call	newline
-
+.endif
 
 	# disable SVGA, return to VGA. (textmode!)
 	VID_WRITE ENABLE, 0
