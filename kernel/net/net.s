@@ -915,10 +915,13 @@ net_rx_pkt:	# Debug symbol
 	pop	eax
 	MUTEX_UNLOCK_ NET
 	# fallthrough
-.data
+.data SECTION_DATA_BSS
 net_rx_queue_scheduled$:.byte 0
+netq_sem:	.long 0
 .text32
 net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
+	lock inc dword ptr [netq_sem]	# notify scheduler
+
 # TODO: dont sched if still running. use local mutex.
 	cmp	byte ptr [net_rx_queue_scheduled$], 1
 	jz	1f
@@ -990,7 +993,8 @@ net_rx_queue_handler:
 #	lock dec byte ptr [net_rx_queue_scheduled$]
 #	jnz	net_rx_queue_handler_again
 
-	yield
+	YIELD_SEM (offset netq_sem)
+	lock dec dword ptr [netq_sem]
 
 .if NET_QUEUE_DEBUG2
 	printcharc 0xa0,'<'
