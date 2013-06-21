@@ -2,108 +2,10 @@
 .intel_syntax noprefix
 
 .data SECTION_DATA_BSS
-debug_registers$:	.space 4 * 32
 kernel_symtab:		.long 0
 kernel_symtab_size:	.long 0
 kernel_stabs:		.long 0
 kernel_stabs_size:	.long 0
-.text32
-
-debug_regstore$:
-	mov	[debug_registers$ + 4 * 0], eax
-	mov	[debug_registers$ + 4 * 1], ebx
-	mov	[debug_registers$ + 4 * 2], ecx
-	mov	[debug_registers$ + 4 * 3], edx
-	mov	[debug_registers$ + 4 * 4], esi
-	mov	[debug_registers$ + 4 * 5], edi
-	mov	[debug_registers$ + 4 * 6], ebp
-	mov	[debug_registers$ + 4 * 7], esp
-	add	[debug_registers$ + 4 * 7], dword ptr 4
-	mov	[debug_registers$ + 4 * 8], cs
-	mov	[debug_registers$ + 4 * 9], ds
-	mov	[debug_registers$ + 4 * 10], es
-	mov	[debug_registers$ + 4 * 11], ss
-	ret
-
-debug_regdiff0$:
-	push	ebp
-	lea	ebp, [esp + 8]
-	push_	eax ebx
-	mov	eax, [ebp + 4]	# \nr
-	mov	ebx, [ebp + 8]	# \reg
-	cmp	[debug_registers$ + 4 * eax], ebx
-	jz	188f
-	push	dword ptr [ebp]	# stringptr
-	call	_s_print
-	print	": "
-	push	edx
-	mov	edx, [debug_registers$ + 4 * eax]
-	call	printhex8
-	print	" -> "
-	pop	edx
-	push	edx
-	mov	edx, ebx
-
-	#.if \reg == esp
-	cmp	eax, 7	# esp
-	jnz	1f
-	add	edx, 6+4
-	#.endif
-1:
-	call	printhex8
-	pop	edx
-	call	newline
-188:	pop_	ebx eax
-	pop	ebp
-	ret	12
-
-.macro DEBUG_REGDIFF0 nr, reg
-	pushd	\reg
-	pushd	\nr
-	PUSHSTRING "\reg"
-	call	debug_regdiff0$
-.endm
-
-debug_regdiff$:
-	pushf
-	pushcolor 0xf4
-	DEBUG_REGDIFF0 0, eax
-	DEBUG_REGDIFF0 1, ebx
-	DEBUG_REGDIFF0 2, ecx
-	DEBUG_REGDIFF0 3, edx
-	DEBUG_REGDIFF0 4, esi
-	DEBUG_REGDIFF0 5, edi
-	DEBUG_REGDIFF0 6, ebp
-	DEBUG_REGDIFF0 7, esp
-	DEBUG_REGDIFF0 8, cs
-	DEBUG_REGDIFF0 9, ds
-	DEBUG_REGDIFF0 10, es
-	DEBUG_REGDIFF0 11, ss
-	popcolor
-	popf
-	ret
-
-
-.macro DEBUG_REGSTORE name=""
-	DEBUG "\name"
-	call	debug_regstore$
-.endm
-.macro DEBUG_REGDIFF
-	call	debug_regdiff$
-.endm
-
-
-.macro BREAKPOINT label
-	pushf
-	push 	eax
-	PRINTC 0xf0, "\label"
-	xor	eax, eax
-	call	keyboard
-	pop	eax
-	popf
-.endm
-
-
 
 .text32
 debug_load_symboltable:	# bootloader/ramdisk preloaded
