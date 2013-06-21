@@ -144,6 +144,7 @@ task_flags:	.long 0
 	TASK_FLAG_RUNNING	= 0x8000 << 16	# do not schedule
 	TASK_FLAG_SUSPENDED	= 0x4000 << 16
 	TASK_FLAG_DONE		= 0x0100 << 16	# (aligned with RESCHEDULE)
+	TASK_FLAG_DONE_SHIFT	= 24	# for 'bt'
 	TASK_FLAG_CHILD_JOB	= 0x0010 << 16	# a job is using this stack
 
 	TASK_FLAG_RING0		= 0x0000 << 16
@@ -395,6 +396,8 @@ scheduler_init:
 	mov	esi, cr3
 	mov	[eax + edx + task_cr3], esi
 
+	# enable the scheduler
+
 	mov	dword ptr [task_queue_sem], 0
 	btr	dword ptr [mutex], MUTEX_SCHEDULER
 
@@ -404,11 +407,25 @@ scheduler_init:
 		add	eax, [realsegflat]
 		mov	[edi], byte ptr '0' + SCHEDULE_DEBUG_TOP
 		call	shell_variable_set
+
+
+	########
+	# create idle task:
+	PUSH_TXT "<idle>"
+	push	dword ptr TASK_FLAG_TASK
+	push	cs
+	push	dword ptr offset idle_task
+	call	schedule_task
+	#call	suspend_task
 	ret
 
 9:	printlnc 4, "No more tasks"
 	stc
 	ret
+
+idle_task:
+	hlt
+	jmp idle_task
 
 # spinlock
 scheduler_suspend:
@@ -576,6 +593,7 @@ schedule_isr:
 	SEM_LOCK [task_queue_sem], nolocklabel=88f
 
 	call	scheduler_get_task$
+	# ignore CF: scheduler_init creates an idle task that can always run.
 
 	or	dword ptr [eax + edx + task_flags], TASK_FLAG_RUNNING
 	mov	[scheduler_current_task_idx], edx
@@ -633,8 +651,10 @@ schedule_isr:
 88:	SCHED_UPDATE_GRAPH 1
 	jmp	8b
 
+
 # precondition: [task_queue_sem] locked.
 # out: eax + edx = runnable task
+# out: CF = 1 = no tasks can be run at this time: run idle task.
 scheduler_get_task$:
 	# update the current task's status
 
@@ -698,16 +718,22 @@ scheduler_get_task$:
 		rep	movsb
 	.endif
 
-	mov	ecx, [eax + array_index]	# 8 loop check
 
 	test	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE #| TASK_FLAG_SUSPENDED
 	jz	1f
 2:	mov	[eax + edx + task_flags], dword ptr -1
 	jmp	0f
 1:	and	[eax + edx + task_flags], dword ptr ~TASK_FLAG_RUNNING
+0:
 
 ########
-0:	add	edx, SCHEDULE_STRUCT_SIZE
+	mov	ecx, [eax + array_index]	# 8 loop check
+	xor	ebx, ebx	# count non-completed tasks
+
+0:	bt	dword ptr [eax + edx + task_flags], TASK_FLAG_DONE_SHIFT
+	adc	ebx, 0
+
+	add	edx, SCHEDULE_STRUCT_SIZE
 	cmp	edx, [eax + array_index]
 	jb	1f
 	xor	edx, edx
@@ -729,7 +755,7 @@ scheduler_get_task$:
 	jz	92f
 	cmp	dword ptr [ebx], 0
 	jz	0b	# no data
-	lock dec dword ptr [ebx]
+#	lock dec dword ptr [ebx] # leave this to the task
 	and	dword ptr [eax + edx + task_flags], ~TASK_FLAG_WAIT_IO
 1:
 
@@ -765,10 +791,16 @@ scheduler_get_task$:
 		DEBUGS [eax + edx + task_label]
 	1:
 	.endif
-
+	clc
 	ret
 # 8 loop handler
-9:	printlnc 4, "Task queue empty"
+9:	or	ebx, ebx
+	jz	1f	# we have some tasks, none of which are schedulable
+	stc
+	ret
+
+	# we have no tasks that can be scheduled.
+1:	printlnc 4, "Task queue empty"
 1:	PUSHSTRING "ps"
 	mov	esi, esp
 	call	cmd_tasks
@@ -1615,28 +1647,20 @@ mov cr3, eax
 # in: [esp] = address of mutex
 # Callee frees stack.
 task_wait_io:
-	SEM_SPINLOCK [task_queue_sem]
-	push_	eax ebp
-	mov	ebp, esp
+	push_	eax ecx ebp
+	lea	ebp, [esp + 3*4 + 4]
+	SEM_SPINLOCK [task_queue_sem]	# destroys eax, ecx
 	mov	eax, [scheduler_current_task_idx]
 	add	eax, [task_queue]
 
-	mov	ebp, [ebp + 12]
-	mov	[eax + task_io_sem_ptr], ebp
+	mov	ecx, [ebp]
+	mov	[eax + task_io_sem_ptr], ecx
 
 	or	[eax + task_flags], dword ptr TASK_FLAG_WAIT_IO #|TASK_FLAG_SUSPENDED
 
-	pop_	ebp eax
+	pop_	ebp ecx eax
 	SEM_UNLOCK [task_queue_sem]
 
-.if 0
-	push	esi
-	PUSHSTRING "top"
-	mov	esi, esp
-	call	cmd_tasks
-	add	esp, 4
-	pop	esi
-.endif
 	YIELD
 	ret	4
 

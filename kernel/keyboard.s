@@ -923,6 +923,7 @@ k_get$:
 	mov	eax, [console_kb_cur]
 	lea	eax, [eax + console_kb_sem]
 	YIELD_SEM eax	# eax = address of sem
+	lock dec dword ptr [eax]
 .else
 	YIELD		# wait for interrupt
 	jmp	k_get$	# check again
