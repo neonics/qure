@@ -395,3 +395,11 @@ tls_mutex: .long 0
 	# x) LOCK_READ's DEC is not a cause as it is preceeded by INC, resulting
 	#    in a change of 0 or +1 and thus cannot cause negativity.
 .endm
+
+
+# scheduler specific:
+
+.macro YIELD_SEM sem
+	push	\sem
+	call	task_wait_io
+.endm

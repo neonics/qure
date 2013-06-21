@@ -774,6 +774,7 @@ buf_putkey:
 0:
 .if VIRTUAL_CONSOLES
 	mov	[ebx + console_kb_buf_wo], esi
+	lock inc dword ptr [ebx + console_kb_sem] # notify scheduler (WAIT_IO)
 	pop	ebx
 .else
 	mov	[keyboard_buffer_wo], esi
@@ -810,8 +811,9 @@ KB_SETSPEED	= 50
 keyboard:
 	push	ds
 	push	esi
-	mov	esi, SEL_compatDS
-	mov	ds, esi
+# this will cause GPF in non-CPL0 tasks. Their ds can access the data though.
+#	mov	esi, SEL_compatDS
+#	mov	ds, esi
 .if VIRTUAL_CONSOLES
 	push	ebx
 	call	console_kb_get
@@ -841,7 +843,7 @@ keyboard:
 .if !VIRTUAL_CONSOLES
 990:	MUTEX_LOCK KB debug=1#locklabel=999f
 	jnc	999f
-	hlt
+	YIELD
 	jmp	990b
 999:
 .endif
@@ -906,11 +908,26 @@ keyboard:
 
 
 k_get$:
-1:	KB_LOCK
+	KB_LOCK
 	KB_BUF_AVAIL avail=kb_remove$
 	KB_UNLOCK
-	hlt		# wait for interrupt
-	jmp	1b	# check again
+
+	cmp	dword ptr [task_queue_sem], -1
+	jnz	1f
+
+	hlt
+	jmp	k_get$
+
+1:	# scheduling enabled
+.if VIRTUAL_CONSOLES
+	mov	eax, [console_kb_cur]
+	lea	eax, [eax + console_kb_sem]
+	YIELD_SEM eax	# eax = address of sem
+.else
+	YIELD		# wait for interrupt
+	jmp	k_get$	# check again
+.endif
+# KEEP-WITH-NEXT!
 kb_remove$: # KB_LOCKED!
 	KB_BUF_GET
 	KB_BUF_REMOVE

@@ -510,20 +510,21 @@ tls_get:
 	call	mallocz
 	jnc	2f
 	printlnc 4, "error allocating tls"
-	ret
-	mov	[tls], eax
-1:	ret
 0:	mov	eax, offset tls_default
 2:	mov	[tls], eax
-	.if VIRTUAL_CONSOLES
 	push	edx
+
+	mov	edx, [scheduler_current_task_idx]
+	mov	[eax + tls_task_idx], edx
+
+	.if VIRTUAL_CONSOLES
 	mov	edx, [console_cur_ptr]
 	mov	[eax + tls_console_cur_ptr], edx
 	mov	edx, [console_kb_cur]
 	mov	[eax + tls_console_kb_cur_ptr], edx
-	pop	edx
 	.endif
-	ret
+	pop	edx
+1:	ret
 
 #############################################################################
 

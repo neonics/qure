@@ -133,7 +133,7 @@ TASK_REG_SIZE = .
 task_pid:	.long 0
 task_label:	.long 0	# name of task (for debugging)
 task_registrar:	.long 0	# debugging: address from which schedule_task was called
-task_flags:	.long 0	# bit 1: 1=task (ctx on task_task);0=job (task_regs)
+task_flags:	.long 0
 	# task configuration flags:
 	TASK_FLAG_TASK		= 0x0001
 	TASK_FLAG_RESCHEDULE	= 0x0010	# upon completion, sched again
@@ -159,9 +159,10 @@ task_stack:
 task_stack_esp:	.long 0	# 16 byte aligned
 task_stack_ss:	.long 0
 task_cr3:		# page directory physical address
-task_page_dir:	.long 0 # for mfree_page_phys
+task_page_dir:	.long 0	# for mfree_page_phys
 task_page_tab_lo:.long 0 # for mfree_page_phys
 task_page_tab_hi:.long 0 # for mfree_page_phys
+task_io_sem_ptr:.long 0
 # these values are only used for jobs:
 .align 4	# for movsd (future modifications)
 task_regs:	.space TASK_REG_SIZE
@@ -692,7 +693,7 @@ scheduler_get_task$:
 		# be rejected when their first instruction is HLT under certain
 		# conditions, even when this code is enabled.
 		lea	edi, [eax + edx + task_regs]
-		mov	esi, ebp
+		mov	esi, [eax + edx + task_stack_esp]
 		mov	ecx, TASK_REG_SIZE
 		rep	movsb
 	.endif
@@ -720,6 +721,17 @@ scheduler_get_task$:
 	jnz	0b
 	test	dword ptr [eax + edx + task_flags], TASK_FLAG_RUNNING
 	jnz	0b
+
+	test	dword ptr [eax + edx + task_flags], TASK_FLAG_WAIT_IO
+	jz	1f
+	mov	ebx, [eax + edx + task_io_sem_ptr]
+	or	ebx, ebx
+	jz	92f
+	cmp	dword ptr [ebx], 0
+	jz	0b	# no data
+	lock dec dword ptr [ebx]
+	and	dword ptr [eax + edx + task_flags], ~TASK_FLAG_WAIT_IO
+1:
 
 	.if SCHEDULE_DEBUG_GRAPH
 		mov	bl, 2
@@ -757,18 +769,24 @@ scheduler_get_task$:
 	ret
 # 8 loop handler
 9:	printlnc 4, "Task queue empty"
-	PUSHSTRING "ps"
+1:	PUSHSTRING "ps"
 	mov	esi, esp
 	call	cmd_tasks
 	add	esp, 4
 	int 3
 	jmp 	halt
 
+92:	printlnc 4, "Task WAIT_IO without IO sem"
+	jmp	1b
+
 ##########################################################################
 1:	pushad
 	DO_SCHEDULER_DEBUG_TOP
 	popad
 	iret
+
+
+.if SCHEDULE_JOBS
 
 schedule_isr_TEST:
 	DO_TASK_SWITCH_INTERVAL #skiplabel=1b
@@ -931,6 +949,8 @@ pivot:
 	popad	# esp ignored
 	iret
 
+.endif
+
 .if SCHEDULE_JOBS
 
 # this is called when a scheduled job is done executing - the address
@@ -1073,6 +1093,9 @@ task_index: .long 0
 .text32
 .endif
 
+
+.if SCHEDULE_JOBS
+
 # NOTE: no locking is done - be sure to lock [task_queue_sem] around calling
 # this method and using the pointers it returns!
 #
@@ -1100,8 +1123,8 @@ task_queue_get$:
 	xor	edx, edx	# index
 .endif
 ########
-0:	test	[ecx + edx + task_flags], dword ptr TASK_FLAG_RUNNING
-	jz	0f
+0:	call	task_can_run$	# out: CF = 0 = yes
+	jnc	0f
 ########
 
 	add	edx, SCHEDULE_STRUCT_SIZE
@@ -1173,7 +1196,33 @@ task_queue_get$:
 	stc
 	ret
 
+# in: ecx + edx = task
+# out: CF = 1 = no, CF = 0 = yes
+task_can_run$:
+	push	eax
+	mov	eax, [ecx + edx + task_flags]
 
+	test	eax, TASK_FLAG_RUNNING
+	stc	# mark can't run
+	jnz	9f	# already running (current task or SMP)
+
+	test	eax, TASK_FLAG_WAIT_IO
+	clc	# mark can run
+	jz	9f	# no IO wait, can run
+
+	mov	eax, [ecx + edx + task_io_sem_ptr]
+
+	cmp	dword ptr [eax], 0
+	stc
+	jz	9f	# nope
+
+	lock dec dword ptr [eax]
+	and	dword ptr [ecx + edx + task_flags], ~TASK_FLAG_WAIT_IO
+	# CF = 0
+
+9:	pop	eax
+	ret
+.endif
 #############################################################################
 
 
@@ -1562,6 +1611,36 @@ mov cr3, eax
 	ret
 
 ##############################################################################
+
+# in: [esp] = address of mutex
+# Callee frees stack.
+task_wait_io:
+	SEM_SPINLOCK [task_queue_sem]
+	push_	eax ebp
+	mov	ebp, esp
+	mov	eax, [scheduler_current_task_idx]
+	add	eax, [task_queue]
+
+	mov	ebp, [ebp + 12]
+	mov	[eax + task_io_sem_ptr], ebp
+
+	or	[eax + task_flags], dword ptr TASK_FLAG_WAIT_IO #|TASK_FLAG_SUSPENDED
+
+	pop_	ebp eax
+	SEM_UNLOCK [task_queue_sem]
+
+.if 0
+	push	esi
+	PUSHSTRING "top"
+	mov	esi, esp
+	call	cmd_tasks
+	add	esp, 4
+	pop	esi
+.endif
+	YIELD
+	ret	4
+
+
 ##############################################################################
 ##############################################################################
 # Debugging methods: 'graph'
@@ -1760,7 +1839,7 @@ cmd_tasks:
 task_print_h$:
 .data SECTION_DATA_STRINGS	# a little kludge to keep the string from wrappi
 200:
-.ascii " idx pid. addr.... stack... flags... "
+.ascii " idx pid. P addr.... stack... flags... "
 .if TASK_PRINT_2
 .if TASK_PRINT_TLS;	.ascii "tls..... "; .else; .ascii "registrr "; .endif
 .if TASK_PRINT_PARENT;	.ascii "parent.. "; .else; .ascii "eflags.. "; .endif
@@ -1797,6 +1876,10 @@ task_print$:
 	mov	edx, [eax + ebx + task_pid]
 	call	printhex4
 	call	printspace
+	mov	edx, [eax + ebx + task_regs + task_reg_cs]
+	and	dl, 3
+	call	printhex1
+	call	printspace
 	mov	edx, [eax + ebx + task_regs + task_reg_eip]
 	call	printhex8
 	call	printspace
@@ -1815,7 +1898,7 @@ task_print$:
 	PRINTFLAG edx, TASK_FLAG_SUSPENDED,	"S", " "
 	PRINTFLAG edx, TASK_FLAG_DONE,		"D", " "
 	PRINTFLAG edx, TASK_FLAG_CHILD_JOB,	"C", " "
-	PRINT " "
+	PRINTFLAG edx, TASK_FLAG_WAIT_IO,	"W", " "
 	PRINTFLAG edx, TASK_FLAG_RESCHEDULE,	"r", " "
 	PRINTFLAG edx, TASK_FLAG_TASK,		" T", "J "
 2:

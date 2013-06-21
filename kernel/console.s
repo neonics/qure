@@ -7,6 +7,7 @@
 console_kb_buf:		.space KB_BUF_SIZE
 console_kb_buf_ro:	.long 0
 console_kb_buf_wo:	.long 0
+console_kb_sem:		.long 0 # indicates whether data is available
 CONSOLE_KB_STRUCT_SIZE = .
 .data SECTION_DATA
 console_kb_cur:.long consoles_kb	# initialize with first entry
@@ -115,12 +116,9 @@ mov [tls], ebx
 	call	strdup
 	add	[eax + 7], bl
 	push	eax
-	push	dword ptr 1 # TASK_FLAG_TASK
+	push	dword ptr offset TASK_FLAG_TASK | TASK_FLAG_RING1
 	push	cs
-	push	eax
-	mov	eax, offset console_shell
-	add	eax, [realsegflat]
-	xchg	eax, [esp]
+	push	dword ptr offset console_shell
 
 	# task args:
 	mov	eax, [console_cur_ptr]
