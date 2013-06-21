@@ -351,8 +351,15 @@ socket_is_stream:
 	MUTEX_UNLOCK_ SOCK
 	ret
 
+.data SECTION_DATA_BSS
+# we use a single sem for all buffers, because the socket array can be
+# reallocated and this would invalidate any pointers to a field in a socket.
+socket_buffer_sem:	.long 0
+.text32
+
 # in: eax = socket
 # in: edx = min bytes
+# [in: ecx = timeout]
 # out: esi = buffer (see buffer.s)
 # out: ecx = available data
 socket_buffer_read:
@@ -373,15 +380,24 @@ socket_buffer_read:
 	cmp	ecx, edx
 	jnb	1f
 	cmp	ebx, [clock_ms]
-	jb	1f
-	YIELD	# XXX FIXME: deschedule for certain amount of time
+	jb	2f
+	YIELD_SEM (offset socket_buffer_sem)
 	MUTEX_SPINLOCK_ SOCK
 	jmp	0b
 
-1:	pop	ebx
+1:	cmp	dword ptr [socket_buffer_sem], 0
+	jbe	9f	# TODO FIXME - just in case. 2 appends can result in 1 read...
+	lock dec dword ptr [socket_buffer_sem]
+	clc
+
+2:
+	pop	ebx
 	pop	edi
 	MUTEX_UNLOCK_ SOCK
 	ret
+
+9:	printlnc 4, "socket_buffer_sem < 0: "; DEBUG_DWORD [socket_buffer_sem]
+	jmp	1b
 
 # in: eax = socket index
 # in: esi = data
@@ -476,6 +492,11 @@ net_tcp_sendbuf_flush_priv$:
 # NOTE: [peer_socket_array] is now a virtual array consisting of all sockets
 # in [socket_array] that are peer sockets (SOCK_PEER flag).
 
+
+.data SECTION_DATA_BSS
+sock_accept_sem: .long 0
+.text32
+
 # in: eax = server socket
 # in: bx = port
 # in: edx = peer ip
@@ -509,11 +530,12 @@ net_sock_deliver_accept:
 	mov	[ebx + edx + sock_conn], ecx
 	pop	ebx
 	MUTEX_UNLOCK_ SOCK
+	lock inc dword ptr [sock_accept_sem] # notify scheduler
 	ret
 
 # returns a new socket if a tcp connection is establised
 # in: eax = local socket idx
-# in: ecx = timeout
+# in: ecx = timeout: 0: peek; any other value: block.
 # out: edx = connected peer socket
 # out: CF
 socket_accept_:
@@ -528,7 +550,9 @@ socket_accept:
 	jmp	1f
 
 0:	MUTEX_UNLOCK SOCK
-	call	schedule_near
+
+	YIELD_SEM (offset sock_accept_sem)
+
 	MUTEX_SPINLOCK_ SOCK
 1:	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, esi, edx, 9f
 	test	[esi + edx + sock_flags], dword ptr SOCK_PEER
@@ -542,6 +566,7 @@ socket_accept:
 	jnb	0b
 	jmp	9f
 1:	and	[esi + edx + sock_flags], dword ptr ~SOCK_ACCEPTABLE
+	lock dec dword ptr [sock_accept_sem]
 #	DEBUG "!!! ACCEPT !!!"
 	clc
 9:	pop	ebx
@@ -684,6 +709,7 @@ net_socket_in_append$:
 1:
 	# write payload
 2:	call	buffer_write
+	lock inc dword ptr [socket_buffer_sem]
 
 0:	pop	edx
 	pop	eax
@@ -816,6 +842,7 @@ net_socket_write:
 	or	eax, eax
 	jz	9f
 	call	buffer_write
+	lock inc dword ptr [socket_buffer_sem]
 0:	pop	eax
 	pop	ebx
 	MUTEX_UNLOCK_ SOCK
