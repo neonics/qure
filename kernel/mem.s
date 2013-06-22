@@ -291,7 +291,7 @@ mem_init:
 
 	mov	esi, offset memory_map
 0:	call	newline
-	cmp	dword ptr [esi + 20 ], 0 # memory_map_attributes], 0
+	cmp	dword ptr [esi + 16 ], 0 # memory_map_attributes], 0
 	jz	0f
 
 	mov	edx, [esi + 4 ] #memory_map_base + 4 ]
@@ -335,6 +335,10 @@ mov	[mem_phys_total + 0], edx
 	mov	ecx, edx
 	mov	ebx, eax
 1:
+
+	PRINT	" | "
+	mov	edx, [esi + 20]
+	call	printhex8
 
 	add	esi, 24 # memory_map_struct_size
 	jmp	0b
@@ -454,6 +458,38 @@ mov	[mem_phys_total + 0], edx
 	ret
 
 ###########################################
+print_memory_map:
+	push_	eax edx esi
+	PRINT " Start           | Size             | Type"
+
+	# ecx:ebx = size, edi=index (for max cmp)
+	mov	esi, offset memory_map
+0:	call	newline
+	cmp	dword ptr [esi + 16 ], 0 # memory_map_attributes], 0
+	jz	0f
+
+	mov	edx, [esi + 4 ] #memory_map_base + 4 ]
+	call	printhex8
+	mov	edx, [esi + 0 ] #memory_map_base + 0 ]
+	call	printhex8
+	PRINT	" | "
+	mov	edx, [esi + 12 ] #memory_map_length + 4 ]
+	mov	eax, edx
+	call	printhex8
+	mov	edx, [esi + 8 ] # memory_map_length + 0 ]
+	call	printhex8
+	PRINT	" | "
+
+	mov	edx, [esi + 16 ] # memory_map_region_type ]
+	call	printhex8
+	PRINT	" | "
+	mov	edx, [esi + 20 ]
+	call	printhex8
+
+	add	esi, 24 # memory_map_struct_size
+	jmp	0b
+0:	pop_	esi edx eax
+	ret
 
 mem_test$:
 	call	mem_print_handles

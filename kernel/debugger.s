@@ -35,15 +35,17 @@ DEBUG_RAMDISK_DIY=0
 
 	.if DEBUG_RAMDISK_DIY
 	mov	edx, fs:[eax + 4]	# load start
+	mov	ebx, fs:[eax + 12]	# load end
 	.else
 	mov	edx, [\name\()_load_start_flat]
+	mov	ebx, [\name\()_load_end_flat]
 	.endif
 	print "checking \label:"
-	or	edx, edx
-	jnz	19f
-	call	ramdisk_load_image
-	jc	18f
-19:
+#	or	edx, edx
+#	jnz	19f
+	call	ramdisk_load_image	# updates memory map
+#	jc	18f
+#19:
 	I "Found \label: "
 	sub	edx, ecx
 	js	8f
@@ -84,19 +86,62 @@ DEBUG_RAMDISK_DIY=0
 9:	debug "error"
 	ret
 
-# in: fs = flat
-# in: eax = ptr to ramdisk entry [16 bytes]
+# in: edx = load start
+# in: ebx = load end
 # Format:
 #   .long lba, mem_start, sectors, mem_end
 ramdisk_load_image:
-	cmp	dword ptr fs:[eax + 4], 0
-	jz	1f
-	println "image already loaded"
-	ret
-
-1:	# can't load as this is called before ATA init..
+	or	edx, edx
+	jnz	1f
 	printlnc 5, "image not loaded"
 	ret
+
+1:	println "image already loaded"
+
+	sub	ebx, edx	# ebx = load size
+	mov	edi, 10		# the memory type to set
+
+	# update the memory map so malloc won't use that area
+	pushad
+	DEBUG_DWORD edx, "load_start"
+	mov	esi, offset memory_map
+	mov	ecx, RM_MEMORY_MAP_MAX_SIZE
+	# find the entry that has higher address:
+0:	cmp	dword ptr [esi + 16], 0	# region type
+	jz	2f	# end of list: append
+	cmp	dword ptr [esi + 4], 0	# check high addr 0
+	jnz	1f		# somehow missed injection pt, continue
+	cmp	edx, [esi]	# is < 4gb addr, check ramdisk entry before
+	je	3f	# insert
+	#jb	4f	in range of prev entry - not implemented: append.
+1:	add	esi, 24
+	loop	0b
+
+0:	call	print_memory_map
+	popad
+	ret
+
+# append
+2:	#DEBUG "update memory map"; call newline
+	mov	[esi + 0], edx		# mem start
+	mov	[esi + 4], dword ptr 0
+	mov	[esi + 8], ebx
+	mov	[esi + 12], dword ptr 0
+	mov	[esi + 16], edi	# mem type
+	jmp	0b
+# cur entry start matches load address
+3:	#DEBUG "Got exact match"
+	# edx = [esi]: set edx to new start:
+	add	edx, ebx	# edx = start of free mem
+	xchg	ebx, [esi + 8]	# swap mem size
+	sub	ebx, [esi + 8]	# ebx is remaining free mem
+	mov	[esi + 16], edi	# mark allocated; TODO: check if it was 1
+	mov	edi, 1	# on append, mark as free mem
+	#DEBUG_DWORD edx,"free start"
+	#DEBUG_DWORD ebx, "free size"
+	# now, edx and ebx contain the remaining free mem from the block.
+	# we append.
+	jmp	1b	# for now continue to end.
 
 # Idea:
 # Specify another table, containing argument definitions.

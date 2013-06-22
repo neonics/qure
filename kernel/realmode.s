@@ -619,7 +619,8 @@ stabs_load_start_flat:	.long 0
 stabs_load_end_flat:	.long 0
 # bios:
 low_memory_size:	.word 0 # in kb
-memory_map:		.space 24 * (10+1) # 11 lines (qemu: 5, vmware: 10)
+RM_MEMORY_MAP_MAX_SIZE = 20	# 20 lines (qemu: 5, vmware: 10)
+memory_map:		.space 24 * RM_MEMORY_MAP_MAX_SIZE
 cdrom_spec_packet:	.space 0x13
 ####################################
 .struct 0
