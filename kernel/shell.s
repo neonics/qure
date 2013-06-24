@@ -204,7 +204,7 @@ SHELL_COMMAND "gdt"		cmd_print_gdt
 SHELL_COMMAND "cr",		cmd_cr
 SHELL_COMMAND "sline",		cmd_sline
 SHELL_COMMAND "sym",		cmd_sym
-SHELL_COMMAND "paging"		paging_show_usage
+SHELL_COMMAND "paging"		cmd_paging
 SHELL_COMMAND "vmcheck"		cmd_vmcheck
 SHELL_COMMAND "vmx"		cmd_vmx
 SHELL_COMMAND "ramdisk"		cmd_ramdisk
@@ -2540,6 +2540,56 @@ sb_play_wave_file$:
 	call	[ebx + sound_playback_stop]
 	ret
 
+
+cmd_paging:
+	mov	edx, cr3
+	xor	edi, edi	# task label
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	paging_show_struct
+################################
+	CMD_ISARG "-p"
+	jnz	1f
+
+	lodsd
+	call	atoi
+	jc	9f
+	call	task_get_by_pid	# out: ebx + ecx
+	jc	91f
+
+	mov	edx, [ebx + ecx + task_page_dir]
+	mov	edi, [ebx + ecx + task_label]
+
+	lodsd
+	mov	ebx, offset paging_show_struct_
+	or	eax, eax
+	jz	2f
+1:	
+###############################
+# edx = page dir
+# edi = task label, or 0
+	mov	ebx, offset paging_show_struct_
+
+	CMD_ISARG "usage"
+	jnz	9f
+	mov	ebx, offset paging_show_usage_
+
+2:	or	edi, edi
+	jz	1f
+	mov	esi, edi
+	print "Paging structure for task: "
+	call	println
+
+1:	mov	esi, edx
+	jmp	ebx	# in: esi
+
+9:	printlnc 4, "usage: paging [-p <pid>] [usage]"
+	ret
+91:	printc 4, "unknown task: "
+	mov	edx, eax
+	call	printdec32
+	call	newline
 	ret
 
 .include "../lib/xml.s"

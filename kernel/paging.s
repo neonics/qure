@@ -59,7 +59,7 @@ PDE_FLAG_A	= 1 << 5	# accessed
 PDE_FLAG_D	= 1 << 4	# cache disabled
 PDE_FLAG_W	= 1 << 3	# write through
 PDE_FLAG_U	= 1 << 2	# user/supervisor: 0=CPL3 access not allowed
-PDE_FLAG_R	= 1 << 1	# 1=read/write, 0=read only dep CPL, CR0.WP
+PDE_FLAG_RW	= 1 << 1	# 1=read/write, 0=read only dep CPL, CR0.WP
 PDE_FLAG_P	= 1 << 0	# present
 
 # Page Table
@@ -72,19 +72,19 @@ PDE_FLAG_P	= 1 << 0	# present
 
 PTE_FLAG_AVAIL	= 0b000 << 9	# ignored - free for OS use
 PTE_FLAG_G	= 1 << 8	# global
-PTE_DLAG_0	= 1 << 7	# reserved
+PTE_FLAG_0	= 1 << 7	# reserved
 PTE_FLAG_D	= 1 << 6	# dirty
 PTE_FLAG_A	= 1 << 5	# accessed
 PTE_FLAG_C	= 1 << 4	# cache disabled
 PTE_FLAG_W	= 1 << 3	# write-through
 PTE_FLAG_U	= 1 << 2	# user/supervisor
-PTE_FLAG_R	= 1 << 1	# 1=read/write, 0=read only
+PTE_FLAG_RW	= 1 << 1	# 1=read/write, 0=read only
 PTE_FLAG_P	= 1 << 0	# present
 
 # When paging is enabled, all memory addresses are considered to be virtual.
 # The top 10 bits are taken to denote the index in the page directory.
 # The next 10 bits of the virtual address are taken to be the index into
-# the page.
+# the page table.
 #
 # The start of the page directory in physical memory is stored in CR3.
 #
@@ -108,7 +108,7 @@ PTE_FLAG_P	= 1 << 0	# present
 #
 # With PAE, there are 4 internal PDPTE registers loaded from memory pointed
 # to by CR3. In this case then, CR3 does not point to the page directory,
-# but to four dwords (32 byte aligned), each referencing page directory.
+# but to four dwords (32 byte aligned), each referencing a page directory.
 # Format of CR3 in this case:
 #   63:32: ignored
 #   31:5   physical address of 32-byte aligned page-directory pointer table.
@@ -137,300 +137,430 @@ PDPTE_AVAIL_MASK= 0b11 << 9
 # Process Context Identifiers are only available in IA-32e mode,
 # so not available in 32 bit or PAE paging.
 
-
 .data SECTION_DATA_BSS
 page_directory_phys:	.long 0
 page_directory:		.long 0	# ds relative logical address
-page_tables_phys_end:	.long 0
 .text32
 
-# This method creates a page directory after the kernel stack top,
-# page aligned. Following that, a page table for the first 4 MB of ram.
-# Other memory is not mapped, as for a virtual machine with 128Mb ram
-# available, the tables required would be 33 * 4Kb = 132 kb ram, which would
-# double the kernel memory usage. Instead, when more ram is needed,
-# it will be dynamically mapped using the page fault mechanism.
 paging_init:
 	GDT_GET_BASE edx, ds
-	mov	ebx, [kernel_stack_top]
-	add	ebx, edx
 
-	# page (4kb) align
-	add	ebx, 0x0fff
-	and	ebx, 0xfffff000
-	mov	[page_directory_phys], ebx
-	DEBUG_DWORD ebx, "page_directory phys"
-
-	# have edi point to the ds relative address of the page directory
-	mov	edi, ebx
+	call	malloc_page_phys
+	jc	9f
+	mov	[page_directory_phys], eax
+	mov	edi, eax
+	mov	esi, eax	# for paging_* calls
 	sub	edi, edx
 	mov	[page_directory], edi
-
-	# initialize page directory: each entry (indirectly) references 4 MB
 
 	# clear the page directory:
 	xor	eax, eax
 	mov	ecx, 1024
 	rep	stosd
 
-	# first page table 4k after page directory:
-	lea	eax, [ebx + 4096 | PDE_FLAG_R | PDE_FLAG_U | PDE_FLAG_P]
-	mov	[edi - 4096], eax	# set first PDE
-	DEBUG_DWORD eax, "first page table phys"
 
-	lea	eax, [ebx + 8192]
-	mov	[page_tables_phys_end], eax
+	# initialize page directory: each entry (indirectly) references 4 MB
+	# allocate a page for the 0..4mb region
+	call	paging_alloc_page_idmap
+	jc	9f
 
-	# initialze the first page table: identity mapping, start at phys addr 0
-	mov	eax, PTE_FLAG_R | PTE_FLAG_U | PTE_FLAG_P
+	# map PT for 0..4mb to this page
+	mov	edi, esi
+	sub	edi, edx	# PD ds-rel
+	or	eax, PDE_FLAG_RW | PDE_FLAG_U | PDE_FLAG_P
+	mov	[edi + 0], eax
+	and	eax, 0xfffff000
+
+	# initialize the first page table: identity mapping, start at phys addr 0
+	mov	edi, eax
+	sub	edi, edx
+	mov	eax, PTE_FLAG_RW | PTE_FLAG_U | PTE_FLAG_P
 	mov	ecx, 1024
 0:	stosd
 	add	eax, 4096
 	loop	0b
 
+	# XXX this _MAY_ fail, but unlikely
+	mov	eax, esi	# page dir phys
+	call	paging_idmap_page	# map the page dir itself
+
 	I "Enabling paging"
 	call	paging_enable
 	OK
-	call paging_show_usage
+	call	paging_show_struct
 	ret
+
+9:	printlnc 4, "paging_init: cannot allocate page"
+	ret
+
 
 paging_enable:
 	# tell the CPU where to find the page directory:
+	mov	ebx, [page_directory_phys]
 	mov	cr3, ebx
 
 #	# see CPUID for availability:
 #	CR4_PAE = 1 << 5	# physical address extension (64gb,36 addr bits)
-#	CR4_PSE = 1 << 4	# page size extenstion (guess)
+#	CR4_PSE = 1 << 4	# page size extenstion (guess): 4Mb pages (no PD)
 #	reset PSE (page size extension?)
 	mov	ebx, cr4
 	or	ebx, 1 << 4	# set PSE
 	mov	cr4, ebx
 
-	# enable paging
+	# enable paging and write protection
 	mov	eax, cr0
-	or	eax, 0x80000000	# CR0_PAGING = 1 << 31
+	or	eax, 0x80010000	# CR0_PAGING = 1 << 31, CR0_WP = 1<<16
 	mov	cr0, eax
 	ret
 
 paging_disable:
 	mov	eax, cr0
-	and	eax, ~0x80000000
+	and	eax, ~0x80010000
 	mov	cr0, eax
 
-	# garbage the page directory and the first page table:
-	sub	edi, 8192
 	xor	eax, eax
-	mov	ecx, 2048
-	rep	stosd
-
 	mov	cr3, eax
 	ret
 
 ##############################################################################
 
-# in: eax = physical address to identity map
-# in: ecx = size to map
-paging_idmap_4m:
-#DEBUG "paging_idmap"
-#DEBUG_DWORD ecx,"size"
-#DEBUG_DWORD eax,"addr"
-	push_	edx eax ecx
-#	add	ecx, 1024 * 4096 - 1
-	shr	ecx, 22		# divide by 4m; ecx is nr of 4m pages.
 
-	mov	edx, eax
-	and	edx, ~4095	# mask low 12 bits
-	shr	eax, 20		# divide by 1Mb (/4Mb * sizeof(dword))
-	and	al, ~3		# align to 4Mb
-#DEBUG_DWORD ecx,"#4m pages"
-#DEBUG_DWORD edx,"addr"
-#DEBUG_DWORD eax,"PDE idx"
-#call newline
-	/*
-push_ edx eax
-printc 11, "paging: identity map "
-xor	edx, edx
-mov	eax, [esp + 8]	# orig ecx
-call	print_size
-printc 11, " @ "
-mov	edx, [esp + 4]
-call	printhex8
-call	newline
-pop_ eax edx
-*/
-	# eax is index into page directory referring to the phys addr.
-	# edx is the phys addr.
-	add	eax, [page_directory]
-	or	dx, PDE_FLAG_R|PDE_FLAG_U|PDE_FLAG_P| PDE_FLAG_S
-0:	mov	[eax], edx
-	add	eax, 4
-	add	edx, 4096 * 1024
-#	loop	0b
-
-	#call	paging_show_usage
-
-	pop_	ecx eax edx
-	ret
-
-
-
+# Maps the given page in the given paging structure with PTE_FLAGs R, U and P
+# in: esi = page directory physical address
 # in: eax = page physical address
-# in: esi = PDE physical address
 paging_idmap_page:
-	push_	eax ecx edx esi
+	test	eax, (1<<12)-1
+	jnz	9f
 
+	push	eax
+	or	eax, PTE_FLAG_RW | PTE_FLAG_U | PTE_FLAG_P
+	jmp	1f
+
+9:	printc 4, "page not page-aligned!"
+	int	3
+	stc
+	ret
+# KEEP-WITH-NEXT (1f)
+
+# Maps the given page using the given flags in the given paging structure.
+# NOTE that at least PTE_FLAG_P must be present for the page to be active.
+#
+# in: esi = page directory physical address, low 12 bit flags honored.
+# in: eax = page physical address
+paging_idmap_page_f:
+	push	eax
+1:	push_	ecx edx esi ebx
 	GDT_GET_BASE edx, ds
+	# TODO: instruction pipelining
 
 	mov	ecx, eax
-	shr	ecx, 22	# divide by 4mb for index
+	shr	ecx, 22	# divide by 4mb for PD index
 
 	sub	esi, edx
-	mov	esi, [esi + ecx * 4]	# get PTE ptr
-
-		or	esi, esi
-		jz	9f
+	mov	esi, [esi + ecx * 4]	# get PT ptr
+	and	esi, 0xfffff000
+	jz	9f
 
 	mov	ecx, eax
-	and	ecx, ~((1<<22)-1)
-	shr	ecx, 12	# shift out the flags
-
-	or	eax, PDE_FLAG_R | PDE_FLAG_U | PDE_FLAG_P
 	sub	esi, edx
+	and	ecx, ((1<<22)-1)	# modulo 4Mb
+	shr	ecx, 12			# page index
+
 	mov	[esi + ecx * 4], eax
 
-0:	pop_	esi edx ecx eax
+0:	pop_	ebx esi edx ecx
+	pop	eax
 	ret
 
-9:	printc 4, "ERROR: No PTE. PDE: "
-	lea	edx, [esi + edx]
-	call	printhex8
-	call	printspace
+9:	printc 4, "ERROR: No PT for PDE # "
+	mov	edx, ecx
+	call	printdec32
+	print " ("
+	call	printhex4
+	print ") "
 	mov	edx, [esp + 4 * 4]
 	call	debug_printsymbol
-#	int 3
+	int 3
+	jmp	0b
+
+# in: esi = page directory phys
+# in: eax = start of memory range
+# in: ecx = size of memory range
+paging_idmap_memrange:
+	push_	eax ecx
+	add	ecx, (1<<12) - 1	# round up
+	shr	ecx, 12			# 4kb increments
+	jz	9f
+
+0:	call	paging_idmap_page_pt_alloc
+	add	eax, 4096
+	loop	0b
+
+0:	pop_	ecx eax
+	ret
+9:	printlnc 4, "paging_idmap_memrange: zero size"
 	jmp	0b
 
 
-# in: eax = physical address
-# in: edx = logical address to map physical address onto
-# in: ecx = size to map
-paging_map_4k:	# XXX FIXME TODO UNFINISHED
-	push_	esi edi
+# Allocates a new page, identity-maps it, and clears it.
+# When there is no page table for the memory region to map the page,
+# it will use the new page as the page table for the region it is in,
+# and will then recurse.
+#
+# in: eax = physical page address
+# in: esi = physical PD address
+paging_alloc_page_idmap:
+	push_	edx ebx edi ecx
 
-	# 4k page dir, for 1024 entries of 4 Gb.
-	# first page table follows the page dir: [page_directory] + 4096.
-	# quick hack: we add a second page table at [page_directory} = 8192.
+	call	malloc_page_phys
+	jc	9f
 
-	# first initialize the page table:
-	mov	edi, [page_directory]
-	add	edi, 8192
+	# calc PDE for this page and see if there is a PT
+	GDT_GET_BASE ebx, ds
+	mov	ecx, eax
+	shr	ecx, 22
+	sub	esi, ebx
+	mov	edi, [esi + ecx * 4]	# get PDE
+	add	esi, ebx
+	and	edi, 0xfffff000
+	# TODO: PDE_FLAG_S testing for 4Mb mapping (not used anymore)
+	jnz	1f	# we have a page table, so paging_idmap_page will work.
 
-		add	edi, 4096
-		mov	[page_tables_phys_end], edi
-		sub	edi, 4096
-	
-	push_	eax ecx
+	# it is empty. The 4mb region in which the allocate page
+	# resides is not mapped.
+	# Use this page to map that region, as it is the first page
+	# allocated within that region.
+	lea	edx, [eax + PDE_FLAG_RW | PDE_FLAG_U | PDE_FLAG_P]
+
+	# WARNING!
+	#
+	# the page is added to the PD as a page table, below, but, it is not
+	# writable yet, and thus may contain bogus data corrupting the paging
+	# structure.
+	# Memory pages that have been freed (see schedule.s and mem.s), and
+	# thus are likely to contain non-zero data, are almost certainly
+	# guaranteed to be mapped already. This means that their 4Mb region is
+	# already managed by a page table, and thus that page would not be
+	# considered by this code to be used as a page table for it's region.
+	# However, it is possible under the following assumptions:
+	#   1) a page is allocated using malloc_page_phys, that is part of a
+	#      new unmapped 4Mb region.
+	#   2) Unused memory is (depending on hardware) zeroed on boot.
+	#   3) the page can only be written if it is first mapped.
+	#   4) the page has been written to because it's 4Mb region is mapped
+	#      with PDE_FLAG_S (a 4Mb page without page table).
+	#
+	# Generally there will be no issue: when an unmapped page is allocated,
+	# it will most likely come from a new and unused 4Mb range, which is
+	# zeroed by hardware.
+	#
+	# Nonetheless, a simple precaution can be taken:
+	# 1) Interrupts are disabled, so that no code will accidentally access
+	#    a memory region in the 4Mb range.
+	# 2) the page is marked as a page table.
+	# 3) the entry in the page is updated to refer to itself, thus identity
+	#    mapping the page.
+	# 4) all other entries are zeroed.
+	#
+	# A question - how is it possible to write into the page before it is
+	# identity mapped? It shouldn't be. This code then will only work
+	# before paging is enabled.
+
+	sub	esi, ebx
+	mov	[esi + ecx * 4], edx
+	add	esi, ebx
+	# now we identity map the page, which should succeed:
+	call	paging_idmap_page
+
+	# Now we still need to allocate a free page.
+	# We'll just recurse. There are 2 possibilities:
+	# 1) the newly allocated page will be in the same 4Mb region
+	# 2) it will not be.
+	# In case 2), it will recurse again. It is higly unlikely that
+	# this third recursion will yield yet another 4Mb region,
+	# since pages are allocated contiguously at end-of-memory,
+	# which will span a 4Mb boundary at most once. If there are
+	# 4Mb pages allocated and a new one will cross the boundary,
+	# the higher pages will already have been mapped.
+	call	paging_alloc_page_idmap
+	jc	9f
+	# allright, we have a free page - map it.
+
+1:	call	paging_idmap_page
+
+	# now that the page is writeable, clear it.
+	push	eax
+	mov	edi, eax
+	sub	edi, ebx
+	xor	eax, eax
 	mov	ecx, 1024
-	and	eax, ~0b111111111111 # mask out low 12 bits for 4mb offset
-	or	eax, PTE_FLAG_R|PTE_FLAG_U|PTE_FLAG_P
-0:	stosd
-	add	eax, 4096
-	
+	rep	stosd
+	pop	eax
 
-	pop_	ecx eax
-
-
-	shr	eax, 22	# >> (12 + 10) = / (4096 * 1024): 4Mb
-	mov	edi, [page_directory_phys]
-	add	edi, 8192|PDE_FLAG_R|PDE_FLAG_U|PDE_FLAG_P# edi is address of page table
-	# record the page table in the page directory:
-	mov	esi, [page_directory]
-	# the location in [esi] indicates for which page (eax*4) the table is.
-	mov	[esi + eax * 4], edi
-
-	pop_	edi esi
+	clc
+0:	pop_	ecx edi ebx edx
 	ret
 
-# in: esi = page-dir-phys
-paging_show_usage1$:
-	pushad
-	jmp	1f
+9:	printlnc 4, "paging_alloc_page_idmap: cannot allocate page"
+	stc
+	int 3
+	jmp	0b
 
-paging_show_usage:
-	pushad
-	mov	esi, [page_directory_phys]
-1:	GDT_GET_BASE ebx, ds
-		DEBUG_DWORD esi, "page_dir_phys"
+
+# This method identity maps the given page, and allocates a page table
+# for that, if necessary.
+#
+# in: esi = page dir phys
+# in: eax = page phys
+paging_idmap_page_pt_alloc:
+	push_	edx ebx edi ecx
+
+	GDT_GET_BASE ebx, ds
+
+	# calc PD for this page
+	mov	ecx, eax
+	shr	ecx, 22
 	sub	esi, ebx
-		DEBUG_DWORD esi, "page_dir"
-		call newline
+	mov	edi, [esi + ecx * 4]	# get PDE
+	add	esi, ebx
+	and	edi, 0xfffff000
+	jnz	1f		# we have a page table, proceed with idmap.
+
+	# Allocate a page table to map the page.
+	mov	edx, eax	# backup the original page to map
+
+	call	paging_alloc_page_idmap
+	jc	9f	# error message already printed
+	# eax = fresh mapped page that we'll use as a page table.
+	mov	edi, eax
+
+	# register the fresh page as a page table in the page directory
+	or	eax, PDE_FLAG_RW | PDE_FLAG_U | PDE_FLAG_P
+	sub	esi, ebx
+	mov	[esi + ecx * 4], eax
+	add	esi, ebx
+
+	mov	eax, edx	# restore the argument page
+
+1:	call	paging_idmap_page
+
+	clc
+9:	pop_	ecx edi ebx edx
+	ret
+
+
+############################################################################
+# Paging structure printing functions
+
+# Utility function: shared page directory loop, called from
+# paging_show_usage and paging_show_struct.
+#
+# in: esi = page directory phys
+# in: edi = pointer to a method to be called for each PDE
+#            it's args: eax = PDE; ebx = ds-base
+paging_print_$:
+1:	print "Page Directory: "
+	mov	edx, esi
+	call	printhex8
+	call	newline
+
+	GDT_GET_BASE ebx, ds
+	sub	esi, ebx
 	mov	ecx, 1024
 0:	lodsd
-	test	eax, PDE_FLAG_P
+	or	eax, eax	# print declared pages (FLAG_P not needed)
 	jz	1f
 
 	print	"PDE "
 	mov	edx, 1024
 	sub	edx, ecx
 	call	printdec32
-		call	printspace
-		shl	edx, 22
-		call	printhex8
-		printchar '-'
-		add	edx, 1 << 22
-		call	printhex8
-	mov	edx, eax
-	print	" PTE "
-	call	printhex8
-		call	printspace
-		and	edx, ~((1<<22)-1)
-		call	printhex8
-		mov	edx, eax
-		and	edx, (1<<22)-1
-		call	printspace
-		call	printhex8
-	call	newline
-
-	test	eax, PDE_FLAG_S
-	jnz	1f	# skip PTE
-
-.if 0##################
-	push	eax
-	push	esi
-	push	ecx
-	mov	ecx, 1024
-	mov	esi, eax
-	and	esi, 0xfffff000
-	sub	esi, ebx
-5:	lodsd
-	test	eax, PTE_FLAG_A
-	jz	6f
-	mov	edx, 1024
-	sub	edx, ecx
-	call	printdec32
 	call	printspace
-6:	loop	5b
+	# print the 4mb physical memory range
+	shl	edx, 22
+	call	printhex8
+	printchar '-'
+	add	edx, 1 << 22
+	call	printhex8
+	# print the value
+	mov	edx, eax
+	print	" PT "
+	call	printhex8
+	# print the 4kb range of the page
+	print " ("
+	and	edx, 0xfffff000
+	call	printhex8
+	printchar '-'
+	add	edx, 1<<12
+	call	printhex8
+	sub	edx, 1<<12
+	PRINTFLAG eax, PDE_FLAG_G, ") G",")  "
+	PRINTFLAG eax, PDE_FLAG_S, "S"," "
+	PRINTFLAG eax, PDE_FLAG_A, "A"," "
+	PRINTFLAG eax, PDE_FLAG_D, "D"," "
+	PRINTFLAG eax, PDE_FLAG_W, "W"," "
+	PRINTFLAG eax, PDE_FLAG_U, "U"," "
+	PRINTFLAG eax, PDE_FLAG_RW, "rw","ro"
+	PRINTFLAG eax, PDE_FLAG_P, "P ","  "
 	call	newline
-	pop	ecx
-	pop	esi
-	pop	eax
-.endif##################
 
-########
+	call	edi	# in: eax, ebx
+
+1:	dec	ecx
+	jnz	0b
+	ret
+
+##############################
+# Print the pages that have been accessed in a compressed form.
+
+# in: esi = page-dir-phys
+paging_show_usage_:
+	pushad
+	jmp	1f
+
+paging_show_usage:
+	pushad
+	mov	esi, [page_directory_phys]
+1:	mov	edi, offset paging_print_pt_usage$
+	call	paging_print_$
+	popad
+	ret
+
+# in: eax = PDE
+# in: ebx = GDT base for DS
+paging_print_pt_usage$:
+	test	eax, PDE_FLAG_S
+	jnz	9f	# skip: 4Mb page - no page directory
+
 	push	ebp
 	push	esi
 	push	ecx
+	push	edx
+	push	eax
 	mov	ebp, esp
-	push	dword ptr 0
-	push	dword ptr 0
-	push	dword ptr 0
+	push	dword ptr 0	# [ebp - 4] prev
+	push	dword ptr 0	# [ebp - 8] cur count
+	push	dword ptr 0	# [ebp - 12] # accessed pages
+	push	dword ptr 0	# [ebp - 16] # non-null (declared) pages
+	push	dword ptr 0	# [ebp - 20] # dirty (written/modified) pages
 
 	mov	ecx, 1024
 	mov	esi, eax
 	and	esi, 0xfffff000
-	sub	esi, ebx
+	sub	esi, ebx	# make ds-relative
 
-2:	lodsd
+####	# Collect information on contiguous accessed pages
+0:	lodsd
+	# update declared count
+	or	eax, eax
+	jz	1f
+	inc	dword ptr [ebp - 16]	# declared pages
+1:	# update dirty count
+	test	eax, PTE_FLAG_D
+	jz	1f
+	inc	dword ptr [ebp - 20]	# dirty pages
+1:
+
 	test	eax, PTE_FLAG_A
 	jnz	4f
 
@@ -446,36 +576,39 @@ paging_show_usage:
 4:	# check prev:
 	cmp	dword ptr [ebp - 4], 0
 	jnz	3f	# have prev, continue
-
 	# store cur
-4:	mov	[ebp -4], eax
-	mov	[ebp -8], ecx
+	mov	[ebp - 4], eax
+	mov	[ebp - 8], ecx
 
-3:	loop	2b
+3:	loop	0b
 
 ####	# final entry check: if last PTE accessed, no printing was done.
 	test	eax, PTE_FLAG_A
 	jz	3f
 	call	8f
-####
-3:	print " #pages: "
+
+######## done, print summary
+3:	print "   #pages: declared: "
+	mov	edx, [ebp - 16]
+	call	printdec32
+	print " accessed: "
 	mov	edx, [ebp - 12]
 	call	printdec32
+	print " dirty: "
+	mov	edx, [ebp - 20]
+	call	printdec32
 	call	newline
+
 	mov	esp, ebp
+	pop	eax
+	pop	edx
 	pop	ecx
 	pop	esi
 	pop	ebp
+9:	ret
 ########
-
-
-1:	#loop	0b
-	dec	ecx
-	jnz	0b
-	popad
-	ret
-
-###
+# nameless utility method to print the range of pages
+# updates [ebp-12] - the nr of accessed pages.
 8:	push	edi
 	push	ebx
 	mov	edi, [ebp - 4]
@@ -524,41 +657,99 @@ paging_show_usage:
 	ret
 
 
-# print contiguous region:
-# in: edi = last contigous entry
-# in: ebx = nr of contigous entries
-# in: [ebp] = 1024-index in PDE
-# in: [ebp-4] = ds:PT base
-8:	push	edx
-	push	esi
-	mov	edx, edi
-	sub	edx, ebx
-	print " PTE "
-	call	printdec32
-	print " - "
-	mov	edx, edi
-	call	printdec32
-	print " phys "
-	mov	esi, [ebp - 4]
-	mov	edx, edi
-	sub	edx, ebx
-	mov	edx, [esi + edx * 4]	# start PTE
-	call	printhex8
-	print " - "
-	mov	edx, [esi + edi * 4]	# end PTE
-	call	printhex8
-	call	newline
-	pop	esi
-	pop	edx
+########################################
+# print the paging structure: all non-null PDE's and PTE's,
+# except for the 0..4mb range
+
+# in: esi
+paging_show_struct_:
+	pushad
+	jmp	1f
+
+paging_show_struct:
+	pushad
+	mov	esi, [page_directory_phys]
+1:	mov	edi, offset paging_print_pt_struct$
+	call	paging_print_$
+	popad
 	ret
 
-#	# see CPUID for availability:
-#	CR4_PAE = 1 << 5	# physical address extension (64gb,36 addr bits)
-#	CR4_PSE = 1 << 4	# page size extenstion (guess)
-#	reset PSE (page size extension?)
-#	mov	ebx, cr4
-#	and	ebx, ~0x10	# when set, PDE_FLAG_S available
-#	mov	cr4, ebx
+# in: eax = PDE
+# in: ebx = GDT base for DS
+paging_print_pt_struct$:
+	test	eax, PDE_FLAG_S
+	jz	4f
+	println "  4Mb page"
+	jmp	1f	# skip PTE: it's a 4mb page
+
+4:	cmp	ecx, 1024
+	jnz	2f
+	println "  Identity Mapped 0..4Mb"
+	ret
+2:
+
+	push	eax
+	push	esi
+	push	ecx
+	push	edi
+	xor	edi, edi
+	mov	ecx, 1024
+	mov	esi, eax
+	and	esi, 0xfffff000
+	sub	esi, ebx
+5:	lodsd
+	or	eax, eax
+	jz	6f
+	inc	edi
+
+	print "  @"
+	lea	edx, [esi + ebx - 4]
+	call	printhex8
+	call	printspace
+	print "  PTE "
+	mov	edx, 1024
+	sub	edx, ecx
+	call	printdec32
+	call	printspace
+
+	mov	edx, eax
+	call	printhex8
+	call	printspace
+
+	PRINTFLAG eax, PTE_FLAG_G, "G"," "
+	PRINTFLAG eax, PTE_FLAG_A, "A"," "
+	PRINTFLAG eax, PTE_FLAG_D, "D"," "
+	PRINTFLAG eax, PTE_FLAG_W, "W"," "
+	PRINTFLAG eax, PTE_FLAG_U, "U"," "
+	PRINTFLAG eax, PTE_FLAG_RW, "rw","ro"
+	PRINTFLAG eax, PTE_FLAG_P, "P (","  ("
+
+	push	eax
+	mov	eax, edx
+	mov	edx, 1024
+	sub	edx, [esp + 8] # get outer ecx
+	shl	edx, 22
+	shl	eax, 12	# 4kb
+	add	edx, eax
+	pop	eax
+	call	printhex8
+	printchar '-'
+	add	edx, 1<<12
+	call	printhex8
+	println ")"
+
+6:	dec	ecx
+	jnz	5b
+	print "  Page Table: "
+	mov	edx, edi
+	call	printdec32
+	println "/1024 entries"
+	pop	edi
+	pop	ecx
+	pop	esi
+	pop	eax
+	ret
+##############################
 
 # Page faults:
 #

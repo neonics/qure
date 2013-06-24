@@ -167,9 +167,10 @@ usb_vmw_ehci_init:
 	mov	fs, eax
 
 	# pagemap to prevent page faults
+	mov	esi, [page_directory_phys]
 	mov	eax, [ebx + dev_mmio]
 	mov	ecx, [ebx + dev_mmio_size]
-	call	paging_idmap_4m
+	call	paging_idmap_memrange
 
 	DEBUG_DWORD eax,"mmio"
 #	GDT_GET_BASE edx, ds

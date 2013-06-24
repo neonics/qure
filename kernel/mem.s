@@ -1717,6 +1717,31 @@ cmd_mem$:
 	shr	eax, 12
 	mov	edx, eax
 	print " ("
+	push	edx
+	# calculate nr of free pages
+	LOCK_READ [mem_pages_sem]
+	mov	esi, [mem_pages_free]
+	mov	ecx, [esi + array_index]
+	xor	edx, edx
+	shr	ecx, 2
+	jz	2f
+0:	lodsd
+
+	push	ecx
+	mov	ecx, 32
+1:	shr	eax, 1
+	adc	edx, 0
+	loop	1b
+	pop	ecx
+
+	loop	0b
+2:	UNLOCK_READ [mem_pages_sem]
+
+	neg	edx
+	add	edx, [esp]
+	call	printdec32
+	printchar '/'
+	pop	edx
 	call	printdec32
 	print " pages)"
 
@@ -1830,17 +1855,6 @@ cmd_mem$:
 	call	cmd_mem_print_addr_range$
 	call	newline
 
-	xor	edx, edx
-	printc 15, " Paging tables: "
-	mov	eax, [page_tables_phys_end]
-	sub	eax, [page_directory_phys]
-	call	print_size
-	mov	ecx, ds
-	mov	eax, [page_directory_phys]
-	mov	edx, [page_tables_phys_end]
-	call	cmd_mem_print_addr_range$
-	call	newline
-
 ######## print handles
 1:	test	dword ptr [ebp], CMD_MEM_OPT_HANDLES
 	jz	1f
@@ -1917,7 +1931,7 @@ cmd_mem$:
 	jz	2f
 
 	mov	ecx, offset code_print_start
-	.irp _, print,debug,pmode,paging,pit,keyboard,console,mem,hash,buffer,string,scheduler,tokenizer,oo,dev,pci,bios,cmos,dma,ata,debugger,fs,partition,fat,sfs,iso9660,nic,net,vid,usb,southbridge,gfx,hwdebug,vmware,vbox,sound,shell,kernel
+	.irp _, print,debug,pmode,paging,pit,keyboard,console,hash,mem,buffer,string,scheduler,tokenizer,oo,dev,pci,bios,cmos,dma,ata,debugger,fs,partition,fat,sfs,iso9660,nic,net,vid,usb,southbridge,gfx,hwdebug,vmware,vbox,sound,shell,kernel
 	PRINT_MEMRANGE code_\_\(), indent="  "
 	.endr
 
@@ -1945,7 +1959,10 @@ cmd_mem$:
 	PRINT_MEMRANGE "symbol table", [kernel_symtab], [kernel_symtab_size], sz=1
 	PRINT_MEMRANGE "stabs", [kernel_stabs], [kernel_stabs_size], sz=1
 	PRINT_MEMRANGE "stack", cs:[ramdisk_load_end], cs:[kernel_stack_top]
-	PRINT_MEMRANGE "paging", ds:[page_directory_phys], ds:[page_tables_phys_end],fl=1
+	mov	edi, [mem_heap_high_start_phys]
+	sub	edi, [database]
+	PRINT_MEMRANGE "<free>", ecx, edi
+	PRINT_MEMRANGE "paging", ds:[mem_heap_high_start_phys], ds:[mem_heap_high_end_phys],fl=1
 
 ######## print graph
 1:	test	dword ptr [ebp], CMD_MEM_OPT_GRAPH
@@ -2128,7 +2145,8 @@ mallocz_aligned:
 #
 
 MALLOC_PAGE_DEBUG = 0
-.data
+.data SECTION_DATA_BSS
+mem_pages_sem:		.long 0
 mem_pages:		.long 0
 mem_pages_free:		.long 0	# array of bit-strings (size = 1/32th of mem_pages)
 .text32
@@ -2136,7 +2154,7 @@ mem_pages_free:		.long 0	# array of bit-strings (size = 1/32th of mem_pages)
 # Allocate a single page
 # out: eax = physical memory address
 malloc_page_phys:
-	MUTEX_SPINLOCK MEM
+	LOCK_WRITE [mem_pages_sem]
 	push_	ebx edx esi ecx
 
 	########################
@@ -2237,7 +2255,7 @@ malloc_page_phys:
 	.endif
 
 	pop_	ecx esi edx ebx
-	MUTEX_UNLOCK_ MEM
+	UNLOCK_WRITE [mem_pages_sem]
 	ret
 9:	printlnc 4, "malloc_phys_page: out of memory"
 	stc

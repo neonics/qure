@@ -488,8 +488,14 @@ schedule_far:
 9:	DEBUG "Scheduling disabled: caller="
 	push edx; mov edx, [esp+4]; call printhex8;call printspace; call debug_printsymbol;pop edx
 	hlt
+	# This method is called from mutex/semaphore code. It will only
+	# schedule when lock acquisition fails, which should not happen
+	# when scheduling is dabled. (This code is called in other places
+	# aswell, but generally speaking, this condition indicates a
+	# programming error).
+	int 3
 	ret
-# KEEP WITH NEXT!
+# KEEP WITH NEXT! (9b)
 
 # this is callable as a near call.
 # in: [esp] = eip
@@ -1551,80 +1557,93 @@ task_setup_paging:
 	push_	edx ebx esi edi ecx ebp
 	mov	ebp, ebx
 
-	call	malloc_page_phys
+	# a task may be scheduled from a task not the kernel task.
+	# get the active page directory to operate upon, as we want
+	# the pages accessible in the current context.
+	mov	esi, cr3
+
+	call	paging_alloc_page_idmap
 	jc	9f
 	mov	[ebp + task_page_dir], eax	# PDE
 
-and eax, ~((1<<22)-1)
-mov ecx, 1<<2	# 4mb
-call paging_idmap_4m
-
-	call	malloc_page_phys
+	call	paging_alloc_page_idmap
 	jc	91f
-	mov	[ebp + task_page_tab_lo], eax	# PTE 0
+	mov	[ebp + task_page_tab_lo], eax	# PT 0
 
-and eax, ~((1<<22)-1)
-mov ecx, 1<<2	# 4mb
-call paging_idmap_4m
-
-	call	malloc_page_phys
+	call	paging_alloc_page_idmap
 	jc	92f
-	mov	[ebp + task_page_tab_hi], eax	# PTE hi
+	mov	[ebp + task_page_tab_hi], eax	# PT hi
 
-and eax, ~((1<<22)-1)
-mov ecx, 1<<2	# 4mb
-call paging_idmap_4m
-
-# flush cache - though, if all is nice, not needed.
-mov eax, cr3
-mov cr3, eax
 	###########
 
 	GDT_GET_BASE edx, ds
 
-	# copy the PTE for the low 4mb (identity mapping)
-	mov	esi, [page_directory]
-	add	esi, 4096	# PTE for low 4mb
+	sub	esi, edx
+
+	# copy the PTE for the low 4mb. It is assumed that this method is
+	# called from a task that has the low 4Mb identity mapped, and the PT
+	# for it readable.  This method ensures that tasks created by it
+	# conform to these assumptions.
+	# This method further ensures that any new task will receive a copy of
+	# the PT for low memory from it's _calling_ task, thus propagating any
+	# restrictions (since the original kernel PD is fully mapped).
+	mov	esi, [esi]	# PDE/PT for low 4mb
+	mov	ecx, 1024
+	and	esi, 0xfffff000	# mask out flags
 	mov	edi, [ebp + task_page_tab_lo]
+	sub	esi, edx	# make ds-relative
 	sub	edi, edx	# make ds-relative
-	mov	ecx, 1024
-	.if 1
-	0:	lodsd
-		and	eax, ~PDE_FLAG_A
-		stosd
-		loop	0b
-	.else
+.if 1	# mask active and dirty flags to track task page access
+0:	lodsd
+	and	eax, ~(PTE_FLAG_A|PTE_FLAG_D)
+	stosd
+	loop	0b
+.else
 	rep	movsd
-	.endif
+.endif
 
-	# clear the PTE hi
-	mov	edi, [ebp + task_page_tab_hi]
-	sub	edi, edx
-	mov	ecx, 1024
-	xor	eax, eax
-	rep	stosd
-
-	# copy the PDE
-	mov	edi, [ebp + task_page_dir]
-	sub	edi, edx	# ds-relative page dir
-	mov	esi, [page_directory]
-	mov	ecx, 1024
-	rep	movsd
-
-	# the paging_idmap_page method takes the phys addr
+	# map the page tables
 	mov	esi, [ebp + task_page_dir]
+	sub	esi, edx
 
-	# identity-map PDE
-	mov	eax, [ebp + task_page_dir]
-	call	paging_idmap_page
-
-	# identity-map PTE 0
+	# map the low PT (0..4mb region)
 	mov	eax, [ebp + task_page_tab_lo]
-	call	paging_idmap_page
+	or	eax, PDE_FLAG_P | PDE_FLAG_U | PDE_FLAG_RW
+	mov	[esi], eax	# map low 4mb
 
-	# identity-map PTE hi
+#######################################################
+# This section is only needed if new task creation should be enabled
+# for the task being created.
+
+	#####################################
+	# create a PDE: map a page table.
+	#
+	# This will be used if new tasks are scheduled from the one being setup
+	mov	eax, [ebp + task_page_tab_hi]
+	# map the PT, so that pages in the page_tab_hi range can be mapped
+	# after allocation, such as creating a new task.
+	mov	ecx, eax	# ASSUMPTION: page_dir, page_tab_(lo|hi) are
+	shr	ecx, 22		# in the same 4Mb.
+	or	eax, PDE_FLAG_P | PDE_FLAG_U | PDE_FLAG_RW # no RW = kb fail
+	mov	[esi + ecx * 4], eax	# register mapping for hi
+
+	###################################################
+	# make page tables accessible: identity map them.
+	#
+	add	esi, edx
+	# mapped because it is copied for new tasks
+	mov	eax, [ebp + task_page_dir]
+	or	ax, PTE_FLAG_U | PTE_FLAG_P	# read-only
+	call	paging_idmap_page_f
+	# idem
+	mov	eax, [ebp + task_page_tab_lo]
+	or	ax, PTE_FLAG_U | PTE_FLAG_P	# read-only
+	call	paging_idmap_page_f
+	# mapped because allocating new pages requires write access to map them
 	mov	eax, [ebp + task_page_tab_hi]
 	call	paging_idmap_page
+#######################################################
+
 
 	clc
 

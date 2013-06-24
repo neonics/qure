@@ -304,28 +304,23 @@ vmwsvga2_init:
 	mov	[vmwsvga_dev], ebx
 
 	I "VMWare SVGA II Init"
-	DEBUG_DWORD ebx
+	call	newline
 
 	mov	ecx, [ebx + dev_pci_addr]
-	DEBUG_DWORD ecx,"pci_addr"
 
 	xor	al, al
-	call	pci_get_bar_addr
-	DEBUG_DWORD eax, "BAR0 - ioBase"
-	DEBUG_DWORD [ebx+dev_io]
+	call	pci_get_bar_addr		# BAR 0 - dev_io
 
 	mov	al, 1
 	call	pci_get_bar_addr
-	mov	[ebx + vid_fb_addr], eax
-	DEBUG_DWORD eax,"BAR1 - framebuffer"
+	mov	[ebx + vid_fb_addr], eax	# BAR 1 
 
 	mov	al, 2
 	call	pci_get_bar_addr
-	mov	[ebx + vid_fifo_addr], eax
-	DEBUG_DWORD eax,"BAR2 -addr fifo"
+	mov	[ebx + vid_fifo_addr], eax	# BAR 2
 
-	call	newline
 
+	# determine device version
 	mov	dx, [ebx + dev_io]
 	mov	ecx, SVGA_ID_2
 	.rept 3
@@ -337,30 +332,64 @@ vmwsvga2_init:
 	.endr
 	printc 12, "SVGA2: Cannot negotiate SVGA device version";
 	jmp	9f
+
 1:	print "SVGA device version: "
 	movzx	edx, cl
 	mov	[ebx + vmwsvga2_device_version], cl
 	call	printhex1
-	call	newline
+9:
 
 	mov	dx, [ebx + dev_io]
-	DEBUG_WORD dx
-	VID_READ FB_SIZE
-	mov	[ebx + vid_fb_size], eax
-	DEBUG_DWORD eax,"fb size"
-	VID_READ MEM_SIZE
-	mov	[ebx + vid_fifo_size], eax
-	DEBUG_DWORD eax,"fifo size"
+	print " IO: "
+	call	printhex4
 	call	newline
 
-	# enable in paging:
-	mov	ecx, [ebx + vid_fb_size]
-	mov	eax, [ebx + vid_fb_addr]
-	call	paging_idmap_4m
+	VID_READ FB_SIZE
+	mov	[ebx + vid_fb_size], eax
 
-	mov	ecx, [ebx + vid_fifo_size]
+		print "Framebuffer size: "
+		mov	edx, eax
+		call	printhex8
+		call	printspace
+		xor	edx, edx
+		call	print_size
+		mov	edx, eax
+		print " ("
+		mov	edx, [ebx + vid_fb_addr]
+		call	printhex8
+		add	edx, eax
+		printchar_ '-'
+		call	printhex8
+		println ")"
+
+	mov	dx, [ebx + dev_io]
+	VID_READ MEM_SIZE
+	mov	[ebx + vid_fifo_size], eax
+
+		print "FIFO size: "
+		mov	edx, eax
+		call	printhex8
+		call	printspace
+		xor	edx, edx
+		call	print_size
+		mov	edx, eax
+		print " ("
+		mov	edx, [ebx + vid_fifo_addr]
+		call	printhex8
+		add	edx, eax
+		printchar '-'
+		call	printhex8
+		println ")"
+
+
+	mov	esi, [page_directory_phys]
+	mov	eax, [ebx + vid_fb_addr]
+	mov	ecx, [ebx + vid_fb_size]
+	call	paging_idmap_memrange
+
 	mov	eax, [ebx + vid_fifo_addr]
-	call	paging_idmap_4m
+	mov	ecx, [ebx + vid_fifo_size]
+	call	paging_idmap_memrange
 
 	# version 1+ functions:
 	cmp	byte ptr [ebx + vmwsvga2_device_version], 1
@@ -389,17 +418,14 @@ vmwsvga2_init:
 	test	eax, SVGA_CAP_IRQMASK
 	jz	1f
 
-	DEBUG "Registering ISR"
 	VID_WRITE IRQMASK, 0 # mask out all IRQ's
 	# clear pending IRQ's
-	DEBUG_WORD dx
 	add	dx, SVGA_IO_IRQSTATUS
 	mov	eax, 0xff
 	out	dx, eax
 	sub	dx, SVGA_IO_IRQSTATUS
 	call	vmwsvga2_hook_isr
 1:
-
 
 9:	call	newline
 
@@ -432,7 +458,6 @@ vmwsvga2_init:
 		call	newline
 
 	mov	edi, [ebx + vid_fifo_addr]
-	DEBUG_DWORD edi,"fifo"
 
 	VID_WRITE CONFIG_DONE, 0
 
@@ -441,9 +466,6 @@ vmwsvga2_init:
 		DEBUG_DWORD fs:[edi+SVGA_FIFO_NEXT_CMD], "FIFO next"
 		DEBUG_DWORD fs:[edi+SVGA_FIFO_STOP], "FIFO stop"
 		call	newline
-
-	#GDT_GET_BASE edx, fs
-	#sub	edi, edx # its probably a flat hardware address
 
 	mov	eax, SVGA_FIFO_NUM_REGS * 4
 	mov	fs:[edi + SVGA_FIFO_MIN], eax
@@ -459,8 +481,6 @@ vmwsvga2_init:
 		DEBUG_DWORD fs:[edi+SVGA_FIFO_STOP], "FIFO stop"
 		call	newline
 
-
-
 	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_EXTENDED_FIFO
 	jz	1f
 	# check: SVGA_FIFO_GUEST_3D_HWVERSION < SVGA_FIFO_MIN - assume ok here.
@@ -470,7 +490,6 @@ vmwsvga2_init:
 	# enable FIFO
 	DEBUG "enable FIFO"
 	mov	dx, [ebx + dev_io]
-	DEBUG_WORD dx
 	VID_WRITE CONFIG_DONE, 1
 
 	# this value can only be read after fifo enable.
@@ -506,8 +525,6 @@ vmwsvga2_init:
 		DEBUG_DWORD fs:[edi+SVGA_FIFO_MAX], "FIFO max"
 		DEBUG_DWORD fs:[edi+SVGA_FIFO_NEXT_CMD], "FIFO next"
 		DEBUG_DWORD fs:[edi+SVGA_FIFO_STOP], "FIFO stop"
-
-
 
 	# original behaviour:
 	# write to SYNC (which sets BUSY to 1), then poll BUSY, to drain the FIFO.

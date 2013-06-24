@@ -48,9 +48,10 @@ usb_ohci_init:
 	mov	eax, SEL_flatDS
 	mov	fs, eax
 
+	mov	esi, [page_directory_phys]
 	mov	eax, [ebx + dev_mmio]
 	mov	ecx, [ebx + dev_mmio_size]
-	call	paging_idmap_4m # actually 4k
+	call	paging_idmap_memrange
 
 	printc 8, "Revision "
 	mov	eax, fs:[esi + OHCI_REG_REVISION]
