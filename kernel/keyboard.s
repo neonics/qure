@@ -923,17 +923,25 @@ k_get$:
 	mov	eax, [console_kb_cur]
 	lea	eax, [eax + console_kb_sem]
 	YIELD_SEM eax	# eax = address of sem
-	lock dec dword ptr [eax]
 .else
 	YIELD		# wait for interrupt
 	jmp	k_get$	# check again
 .endif
 # KEEP-WITH-NEXT!
 kb_remove$: # KB_LOCKED!
+	KB_BUF_AVAIL empty=1f
+.if VIRTUAL_CONSOLES
+	mov	eax, [console_kb_cur]
+	lock dec dword ptr [eax + console_kb_sem]
+.endif
 	KB_BUF_GET
 	KB_BUF_REMOVE
 	KB_UNLOCK
 	or	ax, ax # ZF = 0
+	jmp	0b
+1:	printc 4, "kb_remove$: buffer empty"
+	KB_UNLOCK
+	stc
 	jmp	0b
 k_peek$:
 	KB_LOCK
