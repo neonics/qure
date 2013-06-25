@@ -694,7 +694,11 @@ nprinthex:
 	and	ecx, 63
 	jz	0f
 	shl	ecx, 2
+	neg	ecx
+	add	ecx, 32
 	rol	edx, cl
+	sub	ecx, 32
+	neg	ecx
 	shr	ecx, 2
 	jmp	1f
 printhex1:
