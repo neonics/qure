@@ -239,7 +239,7 @@ debug_regdiff0$:
 	mov	eax, [ebp + 4]	# \nr
 	mov	ebx, [ebp + 8]	# \reg
 	cmp	[debug_registers$ + 4 * eax], ebx
-	jz	188f
+	jz	1f
 	push	dword ptr [ebp]	# stringptr
 	call	_s_print
 	print	": "
@@ -250,22 +250,18 @@ debug_regdiff0$:
 	pop	edx
 	push	edx
 	mov	edx, ebx
-
-	#.if \reg == esp
-	cmp	eax, 7	# esp
-	jnz	1f
-	add	edx, 6+4
-	#.endif
-1:
 	call	printhex8
 	pop	edx
 	call	newline
-188:	pop_	ebx eax
+1:	pop_	ebx eax
 	pop	ebp
 	ret	12
 
 .macro DEBUG_REGDIFF0 nr, reg
 	pushd	\reg
+	.ifc \reg,esp
+	add	dword ptr [esp], 4 + 2 + 4
+	.endif
 	pushd	\nr
 	PUSHSTRING "\reg"
 	call	debug_regdiff0$
