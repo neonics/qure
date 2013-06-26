@@ -422,6 +422,11 @@ sleep:
 	ret
 
 get_time_ms:
+	mov	eax, cs
+	and	al, 3
+	jz	1f
+	call	SEL_kernelCall:0
+1:
 	push	edx
 	push	ebx
 
