@@ -204,13 +204,26 @@ net_buffer_get:
 .endm
 
 # in: esi = start of buffer
+# in: ecx = length of buffer
+# in: ebx = nic
+net_buffer_send:
+	push	eax
+	mov	eax, cs
+	and	al, 3
+	pop	eax
+	jz	1f
+	call	SEL_kernelCall:0	# simulated call
+1:	call	[ebx + nic_api_send]
+	ret
+
+# in: esi = start of buffer
 # in: edi = end of data in buffer
 # in: ebx = nic
 # modifies: ecx
 .macro NET_BUFFER_SEND
 	mov	ecx, edi
 	sub	ecx, esi
-	call	[ebx + nic_api_send]
+	call	net_buffer_send
 .endm
 
 ##############################################################################
