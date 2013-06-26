@@ -72,17 +72,17 @@
 .equ ACC_RING2,	2 << 5
 .equ ACC_RING3,	3 << 5
 .equ ACC_RING_SHIFT, 5
-.equ ACC_NRM,	1 << 4	# 0b00010000 S
-.equ ACC_SYS,	0 << 4
+.equ ACC_NRM,	1 << 4	# code/data segment
+.equ ACC_SYS,	0 << 4	# gate / tss
 
 # this applies for ACC_SYS: for other gates, see idt.s
 .equ ACC_GATE_CALL, ACC_SYS | 0b1100
 
 .equ ACC_CODE,	1 << 3
 .equ ACC_DATA,	0 << 3
-.equ ACC_DC,	1 << 2
+.equ ACC_DC,	1 << 2	# Direction (data) / Conforming (code) (can exec CPL>0)
 .equ ACC_RW,	1 << 1
-.equ ACC_AC,	1 << 0
+.equ ACC_AC,	1 << 0	# access bit (set by CPU)
 
 .equ FL_GR1b,	0 << 3
 .equ FL_GR4kb,	1 << 3
@@ -92,7 +92,7 @@
 ##
 .equ ACCESS_CODE, (ACC_PR|ACC_RING0|ACC_NRM|ACC_CODE|ACC_RW) # 0x9a
 .equ ACCESS_DATA, (ACC_PR|ACC_RING0|ACC_NRM|ACC_DATA|ACC_RW) # 0x92
-.equ ACCESS_TSS,  (ACC_PR|ACC_RING0|ACC_CODE|ACC_AC) # 0x89
+.equ ACCESS_TSS,  (ACC_PR|ACC_RING0|ACC_SYS|ACC_CODE|ACC_AC) # 0x89
 .equ FLAGS_32, (FL_GR4kb|FL_32) # 0x0c
 .equ FLAGS_16, (FL_GR1b|FL_16) # 0x00
 .equ FLAGS_TSS, FL_32
@@ -695,6 +695,11 @@ init_gdt_16:
 # and it will return with cs in kernel mode. The stack will be modified
 # so that a ret will return to this method which then exits back to CPL3
 # (or whatever CPL it was called from).
+#
+# NOTE: this call will change ss:esp. If using stackargs, load ebp first.
+#  (the new ss will be aligned with the old one).
+# NOTE: the first 'ret' instruction the caller makes
+# MUST NOT pop extra arguments off the stack (i.e., must be 'ret 0').
 kernel_callgate:
 # This method is implemented as a minor context-switch.
 # Once here, the ss:esp is according to the TSS, and cs is
@@ -797,8 +802,6 @@ kernel_callgate:
 	pop	ebp
 .endif
 
-	push	ebp
-	lea	ebp, [esp + 4]
 	push	ds
 	push	es
 
@@ -807,10 +810,11 @@ kernel_callgate:
 	mov	ds, edx
 	mov	es, edx
 	pop	edx
-
-	call	[ebp]
+	call	[esp + 8]
 
 	###################
+	push	ebp
+	lea	ebp, [esp + 12]
 	pushf
 	# the called method had expected to return the original caller, but
 	# it ends up here. So now we return to the original caller:
@@ -818,14 +822,13 @@ kernel_callgate:
 	# with the original return address, adjust the original caller's
 	# stack, and then simply return:
 	push	edx
-	mov	edx, [ebp + 8]
-	#DEBUG_DWORD edx,"bla stack"
-	mov	edx, [edx]
-	#DEBUG_DWORD edx,"bla ret"
-	mov	[ebp], edx
+	mov	edx, [ebp + 8]	# caller stack
+	mov	edx, [edx]	# caller return
+	mov	[ebp], edx	# change our return address
 	add	[ebp + 8], dword ptr 4	# simulate the ret
 	pop	edx
 	popf
+	pop	ebp
 	####################
 
 	pop	ds
@@ -839,7 +842,6 @@ DEBUG_DWORD [ebp+8],"esp"; call newline
 DEBUG_DWORD [ebp+12],"ss"; call newline
 	popf
 .endif
-	pop	ebp
 	retf
 
 # This is the SEL_kernelMode: it switches to CPL0, but doesn't do the return

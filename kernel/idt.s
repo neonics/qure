@@ -51,7 +51,6 @@ rm_idtr:.word 256 * 4
 
 IDT:
 .rept 256
-#.space 8
 DEFIDT 0, SEL_flatCS, ACC_PR+ACC_RING0+ACC_SYS+IDT_ACC_GATE_INT32
 .endr
 
@@ -461,7 +460,7 @@ jmp_table_target:
 
 	##################################################################
 	# it is an exception. Print exception name.
-	call	newline
+	#call	newline
 	PRINTc	12, "Exception: "
 	mov	dx, cx
 	call	printhex2
@@ -727,6 +726,7 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	call	debug_print_exception_registers$
 
 ########
+	.if 0
 	cmp	cx, 0x0e	# page fault: show mem
 	jnz	1f
 	print "MEM: used="
@@ -744,6 +744,7 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	call printhex8
 	call newline
 1:
+	.endif
 
 #######
 	mov	esi, edi	# remember original stack ptr
@@ -839,17 +840,20 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	mov	edx, cr3	# PDE
 	mov	ebx, edx
 	call	printhex8
+	print " krnl PD: "
+	mov	edx, [page_directory_phys]
+	call	printhex8
 	print " CR2: "
 	mov	edx, cr2	# fault address
 	call	printhex8
 
-	print " PTE #"
+	print " PDE #"
 	shr	edx, 22
 	call	printdec32
 	call	printspace
 
 	#mov	edx, fs:[ebx + edx * 4] # causes page fault
-	lea	edx, [ebx + edx * 4] 
+	mov	edx, fs:[ebx + edx * 4]
 	call	printhex8
 
 		mov	eax, edx
@@ -1109,7 +1113,7 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 
 0:	mov	[esi], ax
 	mov	[esi + 2], word ptr SEL_compatCS
-	mov	[esi + 4], word ptr (ACC_PR + IDT_ACC_GATE_INT32 ) << 8
+	mov	[esi + 4], word ptr (ACC_PR|ACC_RING0|IDT_ACC_GATE_INT32) << 8
 	ror	eax, 16
 	mov	[esi + 6], ax
 	ror	eax, 16
@@ -1117,6 +1121,8 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	add	eax, JMP_ENTRY_LEN
 	loop	0b
 
+	# update int 3: make CPL3 accessible
+	mov	[IDT + 3*8 + 5], byte ptr (ACC_PR|IDT_ACC_GATE_INT32|ACC_RING3)
 
 .if IRQ_SHARING
 	# register the IRQ core handlers
