@@ -164,23 +164,24 @@ paging_init:
 	call	paging_alloc_page_idmap
 	jc	9f
 
-	# map PT for 0..4mb to this page
+	# use this page as the page table for 0..4Mb
 	mov	edi, esi
 	sub	edi, edx	# PD ds-rel
-	or	eax, PDE_FLAG_RW | PDE_FLAG_U | PDE_FLAG_P
+	or	eax, PDE_FLAG_RW | PDE_FLAG_P
 	mov	[edi + 0], eax
 	and	eax, 0xfffff000
 
 	# initialize the first page table: identity mapping, start at phys addr 0
 	mov	edi, eax
 	sub	edi, edx
-	mov	eax, PTE_FLAG_RW | PTE_FLAG_U | PTE_FLAG_P
+	mov	eax, PTE_FLAG_RW | PTE_FLAG_P
 	mov	ecx, 1024
 0:	stosd
 	add	eax, 4096
 	loop	0b
 
 	# XXX this _MAY_ fail, but unlikely
+	# Map the PD: this will allow pages to be mapped.
 	mov	eax, esi	# page dir phys
 	call	paging_idmap_page	# map the page dir itself
 
@@ -233,7 +234,7 @@ paging_idmap_page:
 	jnz	9f
 
 	push	eax
-	or	eax, PTE_FLAG_RW | PTE_FLAG_U | PTE_FLAG_P
+	or	eax, PTE_FLAG_RW | PTE_FLAG_P
 	jmp	1f
 
 9:	printc 4, "page not page-aligned!"
@@ -330,7 +331,7 @@ paging_alloc_page_idmap:
 	# resides is not mapped.
 	# Use this page to map that region, as it is the first page
 	# allocated within that region.
-	lea	edx, [eax + PDE_FLAG_RW | PDE_FLAG_U | PDE_FLAG_P]
+	lea	edx, [eax + PDE_FLAG_RW | PDE_FLAG_P]
 
 	# WARNING!
 	#
@@ -435,7 +436,7 @@ paging_idmap_page_pt_alloc:
 	mov	edi, eax
 
 	# register the fresh page as a page table in the page directory
-	or	eax, PDE_FLAG_RW | PDE_FLAG_U | PDE_FLAG_P
+	or	eax, PDE_FLAG_RW | PDE_FLAG_P
 	sub	esi, ebx
 	mov	[esi + ecx * 4], eax
 	add	esi, ebx
@@ -494,14 +495,14 @@ paging_print_$:
 	add	edx, 1<<12
 	call	printhex8
 	sub	edx, 1<<12
-	PRINTFLAG eax, PDE_FLAG_G, ") G",")  "
-	PRINTFLAG eax, PDE_FLAG_S, "S"," "
-	PRINTFLAG eax, PDE_FLAG_A, "A"," "
-	PRINTFLAG eax, PDE_FLAG_D, "D"," "
-	PRINTFLAG eax, PDE_FLAG_W, "W"," "
-	PRINTFLAG eax, PDE_FLAG_U, "U"," "
+	PRINTFLAG eax, PDE_FLAG_G, ") G",") ."
+	PRINTFLAG eax, PDE_FLAG_S, "S","."
+	PRINTFLAG eax, PDE_FLAG_A, "A","."
+	PRINTFLAG eax, PDE_FLAG_D, "D","."
+	PRINTFLAG eax, PDE_FLAG_W, "W","."
+	PRINTFLAG eax, PDE_FLAG_U, "U","."
 	PRINTFLAG eax, PDE_FLAG_RW, "rw","ro"
-	PRINTFLAG eax, PDE_FLAG_P, "P ","  "
+	PRINTFLAG eax, PDE_FLAG_P, "P ",". "
 	call	newline
 
 	call	edi	# in: eax, ebx
@@ -714,24 +715,16 @@ paging_print_pt_struct$:
 
 	mov	edx, eax
 	call	printhex8
-	call	printspace
 
-	PRINTFLAG eax, PTE_FLAG_G, "G"," "
-	PRINTFLAG eax, PTE_FLAG_A, "A"," "
-	PRINTFLAG eax, PTE_FLAG_D, "D"," "
-	PRINTFLAG eax, PTE_FLAG_W, "W"," "
-	PRINTFLAG eax, PTE_FLAG_U, "U"," "
+	PRINTFLAG eax, PTE_FLAG_G, " G"," ."
+	PRINTFLAG eax, PTE_FLAG_A, "A","."
+	PRINTFLAG eax, PTE_FLAG_D, "D","."
+	PRINTFLAG eax, PTE_FLAG_W, "W","."
+	PRINTFLAG eax, PTE_FLAG_U, "U","."
 	PRINTFLAG eax, PTE_FLAG_RW, "rw","ro"
-	PRINTFLAG eax, PTE_FLAG_P, "P (","  ("
+	PRINTFLAG eax, PTE_FLAG_P, "P (",". ("
 
-	push	eax
-	mov	eax, edx
-	mov	edx, 1024
-	sub	edx, [esp + 8] # get outer ecx
-	shl	edx, 22
-	shl	eax, 12	# 4kb
-	add	edx, eax
-	pop	eax
+	and	edx, ~1023
 	call	printhex8
 	printchar '-'
 	add	edx, 1<<12
