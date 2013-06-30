@@ -114,15 +114,14 @@ DEBUG_DWORD \r
 	.else
 		PUSHSTRING "\label="
 	.endif
+		push	edx
 	IS_REG8 _, \r8
 	.if _
-		GET_REG32 _, \r8
-		pushd	_
+		movzx	edx, \r8
 	.else
-		push	edx
-		mov	dl, \r8
-		xchg	dl, [esp]
+		movzx	edx, byte ptr \r8
 	.endif
+		xchg	edx, [esp]
 	call	debug_printvalue
 
 .endm
@@ -135,7 +134,7 @@ DEBUG_DWORD \r
 		PUSHSTRING "\label="
 	.endif
 	pushw	0	# pad.
-	push	\r16
+	pushw	\r16
 	call	debug_printvalue
 .endm
 
@@ -146,13 +145,9 @@ DEBUG_DWORD \r
 	.else
 		PUSHSTRING "\label="
 	.endif
-	IS_REG32 _, \r32
-	.if _
-		pushd	\r32
-	.else
-		push	edx
-		mov	edx, \r32
-		xchg	edx, [esp]
+	pushd	\r32
+	.ifc \r32,esp
+		add	[esp], dword ptr 8
 	.endif
 	call	debug_printvalue
 .endm

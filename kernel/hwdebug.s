@@ -226,11 +226,11 @@ debugger_handle_int:
 	jnz	9f
 	DEBUG_DWORD edx
 
-	DEBUG_DWORD dr6
-	DEBUG_DWORD dr3
-	DEBUG_DWORD dr2
-	DEBUG_DWORD dr1
-	DEBUG_DWORD dr0
+	mov	edx, dr6; DEBUG_DWORD edx, "dr6"
+	mov	edx, dr3; DEBUG_DWORD edx, "dr3"
+	mov	edx, dr2; DEBUG_DWORD edx, "dr2"
+	mov	edx, dr1; DEBUG_DWORD edx, "dr1"
+	mov	edx, dr0; DEBUG_DWORD edx, "dr0"
 	call	newline
 	# dr6: ffff 0ff1
 	# ffff | BT BS BD | 0 11111111 | B3 B2 B1 B0

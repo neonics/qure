@@ -1840,11 +1840,11 @@ cmd_debug:
 	mov	dr7, eax
 .endif
 	call	newline
-	DEBUG_DWORD dr0
-	DEBUG_DWORD dr1
-	DEBUG_DWORD dr2
-	DEBUG_DWORD dr3
-	DEBUG_DWORD dr7
+	mov	edx, dr0; DEBUG_DWORD edx, "dr0"
+	mov	edx, dr1; DEBUG_DWORD edx, "dr1"
+	mov	edx, dr2; DEBUG_DWORD edx, "dr2"
+	mov	edx, dr3; DEBUG_DWORD edx, "dr3"
+	mov	edx, dr7; DEBUG_DWORD edx, "dr7"
 	call	newline
 
 	print "triggering"
