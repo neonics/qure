@@ -610,7 +610,97 @@ FIXED: BUG: am79c doesnt work. CSR0 TXON/RXON are not on;
 
 	UPDATE: turns out that the init block must be dword aligned.
 
-TODO: am79c971 isr loops more often than needed.
-	The infinite-loop check runs its course, even when there are no
-	interrupt-reason bits set. It then seems that for every NIC ISR,
-	the code is executed 100 times.
+new scheduling paging stuff
+===========================
+
+TODO: re-use task paging structures.
+	1) set up one copy of the low-4m page table referencing the kernel
+	space, to only allow the exposed api.
+
+	2) use that page for tasks.
+
+
+TODO: increase memory protection:
+
+	USER TASKS / CPL3:
+	------------------
+	Disable kernel memory access entirely.
+	
+	At current some core functions (sockets etc) do a check for CPL0,
+	and if not, enter cpl0.
+
+	SOLUTION:
+	These API access points must be moved to a particular page.
+
+	ALTERNATIVE: allow execute-only access to the kernel code,
+	but disallow data access. 
+	The usermode task registers have the same base as the kernel ones
+	for easy access. To split read/write access within a single descriptor
+	(don't want far-calls), paging can/must be used.
+
+	ALTERNATIVE:
+	have all kernel api calls only accessible through an interrupt.
+
+
+	KERNEL TASKS:
+	-------------
+	The filesystem, for instance (i.e. ATA), could overwrite important memory.
+
+	Thus, an idea is to have the ATA code run in it's own space,
+	with all memory access disabled, except that which it needs.
+
+
+TODO: SEL_kernelCall etc.: update CR3 perhaps? Set CR3 in TSS?
+
+TODO: rework mem.s to use paging.
+
+	Upside: mrealloc _could_ be faster, by mapping another page after it.
+	Conditions: the sizes must be around 4kb....
+
+	Upside: per-task mallocs can be separated.
+
+
+	APPROACH
+	========
+	The malloc code as is can remain, with the exception that the base structure
+	that is now hardcoded should be parameterized. The same code can then be called
+	on multiple 'instances' of managed memory.
+
+	The TLS (task local storage) can contain the pointer, so that the same
+	api can be used.
+	I.e.:
+		malloc:
+			mov	esi, [mem_handles]
+
+	becomes
+
+		malloc:
+			mov	esi, [tls]
+			mov	esi, [esi + tls_mem]
+			mov	esi, [mem_handles]
+	
+	Further, the main heap is still used, so, memory will be allocated there
+	and spread out over different tasks.
+	This does not prevent a task from overwriting other tasks memory.
+
+	Second, on malloc_aligned, the slack mem is given to the handles as free mem.
+	This will then be the memory of that particular task, which is not efficient
+	(unless more changes).
+
+
+	SECOND
+	======
+	Each task will have a memory address where it's free mem begins.
+	On allocation of new memory, a number of pages is allocated
+	and mapped consecutively.
+
+	The memory management will then work on that area.
+
+	I.e.:
+		malloc_internal:
+			while ( mem_heap_avail < eax )
+				malloc_page
+				append_page
+			...
+
+

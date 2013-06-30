@@ -1,4 +1,4 @@
-
+[2012-03-02]
 # enter ARG1, 0
 enter:  push    ebp
         mov     ebp, esp
@@ -1682,42 +1682,236 @@ on a 'cloudy gass' of stack.
 
 
 
+-----------------------------------------
+[2013-06-30]
+
+CPL3 API
+========
+
+Paging
+------
+
+A page address can be exported to the CPL3 task that is not present.
+Calls can be made to 4096 addresses within this page.
+When this happens, a #PF is generated. The error code will be the
+address, and the flags NotPresent, Read, User, Code:
+
+	mov	eax, [ebp + ERROR_CODE]
+	and	al, FLAGS
+	cmp	al, FLAG_NP | FLAG_R | FLAG_CODE | FLAG_U
+
+	&&
+
+	mov	eax, dr2
+	and	eax, ~4095
+	cmp	eax, [task_page_api]
+
+	?
+
+	mov	eax, dr2
+	and	eax, 4096
+	cmp	eax, MAX_API
+	lea	eax, [api_xlat + eax * 4]
+	jmp	[eax]
+
+An alternative is to create a jump table using the proper calling
+convention. This allows the OS to export the method of invocation:
+	near calls,
+	far calls,	[gates, task switching]
+	exceptions.	[#PF, #GP, interrupts]
+
+The Problem
+-----------
+The current way to enter kernel mode is to jump to a specific selector,
+configured as a gate.
+1) one such handler is set up in such a way as to return in CPL0 mode.
+   This is intended for use within the kernel at other CPL's, to ask
+   for elevation.
+   The problem with this approach is that any code anywhere can enter
+   kernel mode and execute anything it wants. This is due to the design
+   of the handler, which takes explicit care of allowing this by modifying
+   the stack, to return to the caller, and trap it's return.
+2) All methods that must be callable from CPL3 currently do this.
+3) The offset is lost when jumping to a gate.
+
+Solution 1
+----------
+Retrieve the API address by decompiling the calling instruction.
+This may prove tricky, since one can jump to an api using a memory
+reference through a register. Or, may use push(x3)/retf, at which point
+the stack may have been overwritten - the data will be at [esp - 4],
+and any interrupt will overwrite it. A trap gate may disable interrupts.
+The stack will have to be made reserved immediately.
+Anyway, it's not going to guarantee anything.
+
+After this, use a lookup table to see if the called address is known.
+
+This way, using a call gate, doesn't do a task switch - fastest.
+
+Call gates allow for a stack switch.
+
+The idea is that the API number is encoded in the address, and not pushed
+on the stack, nor put in a register, by the calling method.
+
+Solution 2
+----------
+Parameterized jump table: same as the IRQ table (push API;jmp).
 
 
+Solution 0: paging
+----------
+THe only difference between an interrupt gate and a call gate is that
+the interrupts are disabled. Both use the TSS for stack elevation.
+
+The paging api doesn't suffer from any of the other problems such as
+the caller doing something strange with the stack. Plus, a register (dr2)
+will contain the API address called.
+
+Page faults will also become used by other processes, such as file mapping,
+disk paging and such. Yet the check for a kernel call API must be done
+first. In this way, ALL page faults - representing memory access in a 
+region that the kernel did not expose to the task - are seen as an OS
+call.
+
+Now it simply becomes a matter of excluding the API page's address range.
+
+There are now also 3 ways of accessing the 4096 addresses in the page.
+The first way: to execute at the address. The page itself will only
+contain 0. Therefore reading the code could be enabled, in which case
+nothing would show.
+The second way is to allow reads. This can trigger a 'getter' call.
+The third then obviously is to write.
+
+The Call API
+------------
+	call	API_PAGE + API_NR
+
+	ex_pf_handler:
+		[see above]
+
+The read/write API
+------------------
+	mov	eax, [API_PAGE + API_NR]
+	mov	[API_PAGE + API_NR], eax
+
+The downside to this API is that the method of accessing is limited,
+because the caller's instruction must be interpreted to find out
+in which register to put the value:
+
+	[REP]	LODS 		/ STOS	
+	mov	\r32, []	/ mov [], \r32
+	push
+	inc
+	dec
+	[any instruction taking a memory reference]
+
+It can be specified that a MOV can only use a register, or eax.
+
+The functionality can be exported, and even used by the kernel to expose
+itself.
+
+---
+Service Directory
+==================
+
+A first place to expose the kernel API must be chosen.
+
+1) int 0x80 	(no arguments)
+	out:	eax = service directory descriptor pointer
+2) int 0x80	eax = 0
+	this suggests an interrupt API. No need for pointers mostly.
+3) a fixed memory address.
+4) offered in the task when it starts (stack/regs)
+	programs that are run, must assume the OS has put values in
+	the registers and on the stack.
+	In linux and such, a task would call a method to indicate it
+	is finished executing. This is nice because it allows the progam
+	to abort anywhere without having to keep track of the stack.
+
+	The first convention is what kind of a return: near or far.
+
+	If near: the task knows that the OS is callable from it's own
+	code segment.
+
+	If far: the task knows the kernel code selector.
+	Two possibilities: a kernel callgate seletor, in which case
+	the offsets in the selector are meaningless when used as a call.
+	When used as read/write, it can trigger a GP.
+	It would require API access to use a far call or a foreign
+	selector to access the read/write api.
+
+5) an IO port / PCI.
+	This could in a service-oriented design follow the PCI spec.
+	The OS could trap the IO PCI access, and return it's own view
+	of the system. It could offer fake devices, such as a video
+	device, and one that serves as a kernel API.
+
+	The PCI hardware could allow to add virtual devices, but it would
+	lose the kernel protection.
+
+	The kernel could allow the program to think that it can access
+	PCI. The only and first device returned will be the kernel device.
+	The task API then becomes this:
+
+		xor	eax, eax
+		out	IO_PCI_ADDR, eax	# 0xcf8
+		in	eax, IO_PCI_DATA	# 0xcfc
+		# check:
+		cmp	eax, VENDOR_ID | DEVICE_ID << 16
+		# API detected.
+		mov	eax, 8	# class, subclass, prog IF, revision ID
+		out	IO_PCI_ADDR, eax
+		in	eax, IO_PCI_ADDR
+		# ror 16?
+		cmp	ax, PCI_CLASS_OS
+		shr	eax, 16
+		cmp	ax, OS_API_VERSION
+		# API version compatible
+		# read BAR0 - symbol table, addresses
+		# read BAR1 - method availability bitmap / calling conv
+		# etc..
+	
+	Any updates to the PCI space will be unimplemented.
+
+	SUBDEVICES
+	----------
+	As much as 255 functions are available per device / pci address.
+	These could be descriptions for different areas / services,
+	such as network, filesystem, media, memory.
+	But, these can be better ordered according to version.
+
+	A single device can then export several API's. It can for
+	instance, export a Windows api, and a Linux/GNU api.
+	This can also be implemented using PCI SUBCLASS ID's - different
+	devices.
 
 
+This allows for a dynamic system.
+
+Then there can be an API convention. These can be declared to belong
+to a shared library. The name (path) of this library informs the linker
+to treat the symbols in a certain way.
+This is already implemented: anything linked against a 'libc' will cause
+the methods to be looked up from the kernel symbol table.
+This should be modified to allow to specify what methods are callable
+from userspace. One way to do this is by declaring labels with a specific
+pattern (prefix/suffix).
+
+Such a linker should make use of a more basic kernel api, which exposes
+the methods.
+Since the kernel exposes the methods to be called, it must also expose
+a way for programs to find out about it. In this way programs can be
+written to dynamically examine their environment (i.e. generate
+a kernel-api library using a simple tool).
+
+To expose this in the linux way using a path or file descriptor is one level
+too low, because first the file open method must have been exposed to the
+program.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+-------
+Paging solution, continued
+==========================
+The kernel API page can be mapped right before the task's code start.
 
 

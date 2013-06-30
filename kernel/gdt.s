@@ -92,7 +92,8 @@
 ##
 .equ ACCESS_CODE, (ACC_PR|ACC_RING0|ACC_NRM|ACC_CODE|ACC_RW) # 0x9a
 .equ ACCESS_DATA, (ACC_PR|ACC_RING0|ACC_NRM|ACC_DATA|ACC_RW) # 0x92
-.equ ACCESS_TSS,  (ACC_PR|ACC_RING0|ACC_SYS|ACC_CODE|ACC_AC) # 0x89
+#.equ ACCESS_TSS,  (ACC_PR|ACC_RING0|ACC_SYS|ACC_CODE|ACC_AC) # 0x89
+.equ ACCESS_TSS,  (ACC_PR|ACC_RING3|ACC_SYS|ACC_CODE|ACC_AC) # 0x89
 .equ FLAGS_32, (FL_GR4kb|FL_32) # 0x0c
 .equ FLAGS_16, (FL_GR1b|FL_16) # 0x00
 .equ FLAGS_TSS, FL_32
@@ -161,9 +162,14 @@ GDT_ring3DS:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING3, (FL_32|FL_GR4kb)
 .endm
 
 # the first 0 is the offset, but can't do math due to GAS limitations
-GDT_tss2:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 GDT_kernelCall:	DEFCALLGATE SEL_compatCS, 0, 3, 0
 GDT_kernelMode:	DEFCALLGATE SEL_compatCS, 0, 3, 0
+GDT_kernelGate:	DEFCALLGATE SEL_compatCS, 0, 3, 0
+
+GDT_ring0SS:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING0, (FL_32|FL_GR4kb)
+
+GDT_tss_pf:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
+GDT_tss_df:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 
 pm_gdtr:.word . - GDT -1
 	.long GDT
@@ -204,10 +210,13 @@ rm_gdtr:.word 0
 .equ SEL_ring3CS,	8 * 24	# c0
 .equ SEL_ring3DS,	8 * 25	# c8
 
-.equ SEL_tss2,		8 * 26	# d0
-.equ SEL_kernelCall,	8 * 27	# d8
-.equ SEL_kernelMode,	8 * 28	# e0
-.equ SEL_MAX, SEL_kernelMode + 0b11	# ring level 3
+.equ SEL_kernelCall,	8 * 26	# d0
+.equ SEL_kernelMode,	8 * 27	# d8
+.equ SEL_kernelGate,	8 * 28	# e0
+.equ SEL_ring0SS,	8 * 29	# e8
+.equ SEL_tss_pf,	8 * 30	# f0
+.equ SEL_tss_df,	8 * 31	# f8
+.equ SEL_MAX, SEL_tss_df + 0b11	# ring level 3
 
 
 .macro GDT_STORE_SEG seg
@@ -566,7 +575,7 @@ init_gdt_16:
 	GDT_STORE_SEG GDT_ring1DS
 	GDT_STORE_SEG GDT_ring2DS
 	GDT_STORE_SEG GDT_ring3DS
-
+	GDT_STORE_SEG GDT_ring0SS
 
 	# store proper linear (base 0) GDT/IDT address in pointer structure
 	mov	eax, offset GDT
@@ -652,17 +661,21 @@ init_gdt_16:
 
 	mov	eax, offset TSS
 	add	eax, ebx
-
 	GDT_STORE_SEG GDT_tss
-	mov	eax, 104 #value doesnt really matter here it seems
+	mov	eax, 108 #value doesnt really matter here it seems
 	GDT_STORE_LIMIT GDT_tss
 
-	mov	eax, offset TSS2
+	mov	eax, offset TSS_PF
 	add	eax, ebx
-	GDT_STORE_SEG GDT_tss2
-	mov	eax, 104
-	GDT_STORE_LIMIT GDT_tss2
+	GDT_STORE_SEG GDT_tss_pf
+	mov	eax, 108
+	GDT_STORE_LIMIT GDT_tss_pf
 
+	mov	eax, offset TSS_DF
+	add	eax, ebx
+	GDT_STORE_SEG GDT_tss_df
+	mov	eax, 108
+	GDT_STORE_LIMIT GDT_tss_df
 
 
 	# set the call gates
@@ -675,6 +688,12 @@ init_gdt_16:
 	mov	[GDT_kernelMode + 0], ax
 	shr	eax, 16
 	mov	[GDT_kernelMode + 6], ax
+
+	mov	eax, offset kernel_callgate_3
+	mov	[GDT_kernelGate + 0], ax
+	shr	eax, 16
+	mov	[GDT_kernelGate + 6], ax
+
 
 	# Load GDT
 
@@ -857,3 +876,37 @@ kernel_callgate_2:
 	ret
 	# now, on return, the stack is:
 	# [esp] = caller cs, esp, ss
+
+kernel_callgate_3:
+	printlnc 0xf0, "kernel callgate 3"
+	DEBUG_WORD cs
+	DEBUG_WORD ds
+	DEBUG_WORD ss
+	DEBUG_DWORD esp
+	push	ebp
+	lea	ebp, [esp + 4]
+	call newline
+	DEBUG_DWORD [ebp], "caller eip"
+	DEBUG_DWORD [ebp+4], "cs"
+	DEBUG_DWORD [ebp+8], "esp"
+	DEBUG_DWORD [ebp+12], "ss"
+	call	newline
+	push_	edx eax
+	xor	edx, edx
+	str	dx
+	DEBUG_WORD dx, "TR"
+	GDT_GET_BASE eax, edx
+	GDT_GET_BASE edx, ds
+	sub	eax, edx
+	DEBUG_DWORD [eax + tss_LINK]
+	DEBUG_DWORD [eax + tss_ESP]
+	DEBUG_DWORD [eax + tss_EIP]
+	DEBUG_DWORD [eax + tss_SS0]
+	DEBUG_DWORD [eax + tss_ESP0]
+
+
+	pop_	eax edx
+	pop	ebp
+
+0: hlt; jmp 0b
+	ret

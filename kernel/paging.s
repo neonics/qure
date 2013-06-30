@@ -188,6 +188,10 @@ paging_init:
 	I "Enabling paging"
 	call	paging_enable
 	OK
+mov eax, cr3
+mov [TSS + tss_CR3], eax
+mov [TSS_DF + tss_CR3], eax
+mov [TSS_PF + tss_CR3], eax
 	call	paging_show_struct
 	ret
 
@@ -463,7 +467,13 @@ paging_print_$:
 1:	print "Page Directory: "
 	mov	edx, esi
 	call	printhex8
-	call	newline
+	mov	edx, cr3
+	print " CR3: "
+	call	printhex8
+	mov	edx, [page_directory_phys]
+	print " (kernel PD: "
+	call	printhex8
+	println ")"
 
 	GDT_GET_BASE ebx, ds
 	sub	esi, ebx
@@ -673,6 +683,25 @@ paging_show_struct:
 1:	mov	edi, offset paging_print_pt_struct$
 	call	paging_print_$
 	popad
+	ret
+
+# this method is user callable.
+paging_show_task_struct:
+	push_	eax esi
+	mov	eax, cs
+	and	al, 3
+	jz	1f
+	call	SEL_kernelCall, 0
+1:	cli
+	mov	esi, cr3
+	push	esi
+	mov	eax, [page_directory_phys]
+	mov	cr3, eax
+	call	paging_show_struct_
+	pop	eax
+	mov	cr3, eax
+	sti
+	pop_	esi eax
 	ret
 
 # in: eax = PDE

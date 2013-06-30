@@ -99,3 +99,73 @@ UPDATE: the number of TLB cache entries for code or data of the current machine
 (an octa-core (quad core with hyperthreading)) is several 64 or 128.
 In this case it would have a serious impact to reset CR3 on a task switch.
 
+----
+UPDATE: the cr3 switch is implemented, but no difference is noticable,
+likely because a VM switch occurs on each interrupt anyway.
+----------------------------------------------------------------------
+
+
+MEMORY:
+
+The top 4Mb is used for the kernel page directory and page tables,
+aswell as for the page tables of tasks.
+
+It is needful to be able to add page tables (PTs) to a tasks page dir (PD).
+
+At current, for tasks, only 2 PDE's are used: the first, for low 4 Mb (kernel space),
+and the last one, containing the pages (at current only used as page tables).
+
+A task may not modify the page directory itself. (it's page table is identity-mapped read-only).
+A task may not modify the page table for low-mem. (it's page table is identity-mapped read-only).
+A task may modify the page table for it's high-mem window.
+This means that it's access to all memory must occur through this window.
+It is not a restriction to memory access, but to where it is accessible.
+
+We will consider tasks running in CPL 1 or lower, which may not modify CR3 itself,
+but may be given write-access to some page tables.
+
+Assuming that none of its page tables are writable, it can still read the page dir,
+and the low mem page table.
+It cannot map new pages, because the PD is read-only, so no new logical memory  range
+can be enabled, and it cannot add a PDE pointing to memory it can write.
+
+malloc_page_phys can be called, but the page cannot be idmapped except when a PTE is
+writable.
+
+APPROACH: CPL1 limited segment selectors & writable page tables.
+
+In the case of CPL1, a segment selector can be provided that does not include the
+paging table window.
+To idmap then, CPL0 must be entered. Now, using the kernel selectors, page tables
+can be modified, without switching out CR3.
+
+
+APPROACH: do not map page tables at all (but do map low-mem).
+
+This means that tasks will not be able to map pages by themselves.
+A kernel call can be made, and the page will be idmapped in the page tables
+of the task - which are invisible to it, as it's PD is not mapped.
+
+It is not required that the PD be mapped, except for instruction-level access.
+The same applies to PT's.
+The processor internally does have access, whether or not the page tables are mapped.
+
+KEYBOARD
+--------
+The keyboard interrupt handler schedules a task.
+1) this produces some overhead		- this allows for testing
+2) the ISR can occur in any context.
+
+Ad 2. This means that, when the scheduler is running a task and the interrupt occurs,
+that CR3 will point to an inaccessible page directory.
+As such, schedule_task as called by the ISR cannot map new pages.
+
+ELEVATION
+---------
+schedule_task already runs in CPL0. However, CR3 is not updated.
+
+paging_idmap* may switch out CR3 in order to:
+1) have access to the page itself, for clearing and use as page table
+2) have access to the PD and PT of the calling task, to map the page.
+
+

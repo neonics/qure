@@ -360,26 +360,28 @@ irq_proxies:
 # Trap: CS:EIP points to next instruction
 # Abort: no restart/continuation - severe errors.
 int_labels$:					# int  Fault/Trp/Abrt/Int Errcde
-STRINGPTR "Division by zero"			# 0x00 F
-STRINGPTR "Debugger"				# 0x01 F/T
-STRINGPTR "NMI"					# 0x02 I
-STRINGPTR "Breakpoint"				# 0x03 T
-STRINGPTR "Overflow"				# 0x04 T
-STRINGPTR "Bounds"				# 0x05 F
-STRINGPTR "Invalid Opcode"			# 0x06 F
-STRINGPTR "Coprocessor not available"		# 0x07 F
-STRINGPTR "Double fault"			# 0x08 A E
-STRINGPTR "Coprocessor Segment Overrun" 	# 0x09 F (386 or earlier only)
-STRINGPTR "Invalid Task State Segment"		# 0x0a F E
-STRINGPTR "Segment not present"			# 0x0b F E
-STRINGPTR "Stack Fault"				# 0x0c F E
-STRINGPTR "General protection fault"		# 0x0d F E
-STRINGPTR "Page fault"				# 0x0e F E
-STRINGPTR "reserved"				# 0x0f F
-STRINGPTR "Math Fault"				# 0x10 F
-STRINGPTR "Alignment Check"			# 0x11 F E
-STRINGPTR "Machine Check"			# 0x12 A
-STRINGPTR "SIMD Floating-Point Exception"	# 0x13 F
+STRINGPTR "Division by zero";		EX_DE=0x00;	# F	Divide Error
+STRINGPTR "Debugger";			EX_DB=0x01;	# F/T
+STRINGPTR "NMI";					# I
+STRINGPTR "Breakpoint";			EX_BP=0x03;	# T
+STRINGPTR "Overflow";			EX_OF=0x04;	# T
+STRINGPTR "Bound range exceeded";	EX_BR=0x05;	# F
+STRINGPTR "Invalid Opcode";		EX_UD=0x06;	# F	Undefined Opcode
+STRINGPTR "Coprocessor not available";	EX_NM=0x07;	# F  (No Math copro)
+STRINGPTR "Double fault";		EX_DF=0x08;	# A E
+STRINGPTR "Coprocessor Segment Overrun"; 		# F (386 or earlier only)
+STRINGPTR "Invalid Task State Segment";	EX_TS=0x0a;	# F E
+STRINGPTR "Segment not present";	EX_NP=0x0b;	# F E
+STRINGPTR "Stack Segment Fault";	EX_SS=0x0c;	# F E
+STRINGPTR "General protection fault";	EX_GP=0x0d;	# F E
+STRINGPTR "Page fault";			EX_PF=0x0e;	# F E
+STRINGPTR "reserved";					# F
+STRINGPTR "Math Fault";			EX_MF=0x10;	# F
+STRINGPTR "Alignment Check";		EX_AC=0x11;	# F E
+STRINGPTR "Machine Check";		EX_MC=0x12;	# A
+STRINGPTR "SIMD Floating-Point Exception";EX_XD=0x13;	# F	SSE
+# up to 0x20 is reserved.
+# int 0x1c called in qemu doublefault handler
 .text32
 
 # NOTE! Do not proxy IRQ < 32 (exceptions) due to stack expectations of the
@@ -434,6 +436,15 @@ jmp_table_target:
 	jnz	1f
 	call	debugger_handle_int
 	jc	9f
+1:
+
+
+	# enter textmode if needed
+	cmp	byte ptr [gfx_mode$], 0
+	jz	1f
+	pushad
+	call	cmd_gfx
+	popad
 1:
 
 	PUSHCOLOR 8
@@ -569,6 +580,15 @@ jz 11f
 	and	dl, 0b11111000
 	call	printhex8
 	#######################
+	# if the code references GDT
+	mov	eax, ss:[edi]	# reload error code
+	and	al, 7
+	jnz	3f
+	# it's the GDT
+	# find out what type of descriptor it is:
+	call	debug_print_gdt_descriptor
+3:
+
 
 5:
 	#
@@ -721,6 +741,7 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	#############################
 	call	newline
 
+	str	dx	# load TR into dx
 	call	debug_print_tss$
 
 	call	debug_print_exception_registers$
@@ -865,28 +886,119 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 		call	printspace
 		call	printhex8
 	call	newline
-
+	0: hlt; jmp 0b
 
 	pop	fs
 	jmp	2b
 
 
+# in: edx = selector from GDT
+debug_print_gdt_descriptor:
+	push_	ebx esi edx
+	mov	ebx, edx
+	printc 7, " Descriptor: "
+	call	printhex4
+	call	printspace
+	GDT_GET_ACCESS al, edx
+	mov	dl, al
+	call	printbin8
+	# better called SEGMENT flag: 1 = segment, 0 = descriptor (gate[int,call,trap],LDT,TSS)
+	test	al, ACC_SYS	# SYS flag 0 = descriptor; 1 = segment
+	jz	1f
+	# it's a segment selector
+	PRINTFLAG al, ACC_CODE, "Code", "Data"
+	PRINTBITSb al, ACC_RING_SHIFT, 2, " DPL"
+	jmp	9f
+
+1:	and	al, 0xf	# low 4 bits is the GATE type
+
+#16			32
+#0 000			1 000
+#0 001	TSS		1 001	TSS
+#0 010	LDT		1 010
+#0 011	TSS	(busy)	1 011	TSS	(busy)
+#0 100	CALL		1 100	CALL
+#0 101	TASK32		1 101
+#0 110	INT		1 110	INT
+#0 111	TRAP		1 111	TRAP
+
+.data
+desc_types$:	.asciz "RSV", "TSS", "LDT", "TSS(b)", "CALL", "TASK", "INT", "TRAP";
+.text32
+	mov	esi, offset desc_types$
+	# first test for singly-reserved values.([01]000 prints RSV so ok)
+	cmp	al, 0b1010	# LDT 32 -> reserved; LDT16 = LDT
+	jz	3f
+
+	mov	edx, 16
+	test	al, 0b1000
+	jz	2f
+	mov	edx, 32
+2:	mov	ah, al
+	and	ah, 0b0111
+	jmp	1f
+
+0:	PRINTSKIP_
+	dec	ah
+1:	jnz	0b
+	pushcolor 0xf0
+	call	print
+	call	printdec32
+	popcolor
+
+	jmp	9f
+
+3:	printc 4, "invalid type: "
+	mov	dl, al
+	call	printbin4
+
+9:	pop_	edx esi ebx
+	ret
+
+
+
+# in: dx = TSS selector
 debug_print_tss$:
+call print_tss
+	push_	esi edi
 	printc 15, "TSS: "
-	printc 7, "ESP0="
-	mov	edx, [tss_ESP0]
+	call	printhex4
+	movzx	esi, dx
+	GDT_GET_BASE edx, esi
+	mov	edi, edx
+	GDT_GET_BASE edx, ds
+	sub	edi, edx	# make ds-rel
+	GDT_GET_LIMIT edx, esi
+	print " LIM: "
+	call printhex8
+	add	esi, offset GDT
+
+	print " A="
+	mov	dl, [esi + 5] # type (access)
+	call	printhex2
+	print " F="
+	mov	dl, [esi + 6]
+	call	printhex2
+
+
+	printc 7, " SS0:ESP0="
+	mov	edx, [edi + tss_SS0]
+	call	printhex4
+	print ":"
+	mov	edx, [edi + tss_ESP0]
 	call	printhex8
 	printc 7, " SS:ESP="
-	mov	edx, [tss_SS]
+	mov	edx, [edi + tss_SS]
 	call	printhex4
 	printchar_ ':'
-	mov	edx, [tss_ESP]
+	mov	edx, [edi + tss_ESP]
 	call	printhex8
-	print " type: "
-	mov	dl, [GDT_tss + 5] # type (access)
-	call	printhex2
+	mov	dx, [edi + tss_LINK]
+	print " Link: "
+	call	printhex4
 	call	newline
-.if 1
+	pop_	edi esi
+.if 0
 	printc 11, " ss:esp="
 	mov	edx, ss
 	call	printhex4
@@ -895,7 +1007,7 @@ debug_print_tss$:
 	call	printhex8
 
 	printc 7, " TSS: cs="
-	mov	edx, [tss_CS]
+	mov	edx, [TSS + tss_CS]
 	call	printhex4
 
 	printc	11, " cs:"
@@ -1101,6 +1213,66 @@ debug_print_stack$:
 	ret
 
 ###################################################################
+# GDT: SEL_tss2
+# IDT: entry 8 - IDT_ACC_GATE_INT32 with SEL_tss2 as descriptor
+# code offset: [tss2_EIP]
+# All registers loaded from [tss2_*].
+# tss2_LINK -> old TSS, containing the info of the suspended task.
+ex_df_task_isr:
+	#push_	es ds eax ebp
+	#lea	ebp, [esp + 16]
+	# not needed - TSS has these set up.
+	#mov	eax, SEL_compatDS
+	#mov	es, eax
+	#mov	ds, eax
+	printc 0xf4, "Double Fault"
+	DEBUG_DWORD ecx
+	DEBUG_WORD ss
+	DEBUG_DWORD esp
+	DEBUG_DWORD [TSS_PF + tss_ESP], "ESP"
+	DEBUG_DWORD [TSS_PF + tss_ESP0], "ESP0"
+	pushfd
+	pop	eax
+	DEBUG_DWORD eax, "flags"
+	call	newline
+
+	str	dx
+	call	print_tss
+
+	DEBUG_DWORD ecx
+	inc	ecx
+
+	iret	# doesn't use stack if EFLAGS.NT (next task)
+	DEBUG "again!"
+	call newline
+	jmp	ex_df_task_isr
+	#pop_	ebp eax ds es
+###################################################################
+# Page Fault Interrupt Task Gate
+ex_pf_task_isr:
+	printc 0xf4, "Page Fault"
+	DEBUG_DWORD ecx
+	DEBUG_WORD ss
+	DEBUG_DWORD esp
+	DEBUG_DWORD [TSS_PF + tss_ESP], "ESP"
+	DEBUG_DWORD [TSS_PF + tss_ESP0], "ESP0"
+	mov	edx, cr2
+	DEBUG_DWORD edx, "cr2"
+	pushfd
+	pop	eax
+	DEBUG_DWORD eax, "flags"
+	call	newline
+
+	str	dx
+	call	print_tss
+
+	inc	ecx
+
+	iret	# EFLAGS.NT
+	jmp	ex_pf_task_isr
+###################################################################
+
+
 
 init_idt: # assume ds = SEL_compatDS/realmodeDS
 	pushf
@@ -1123,6 +1295,49 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 
 	# update int 3: make CPL3 accessible
 	mov	[IDT + 3*8 + 5], byte ptr (ACC_PR|IDT_ACC_GATE_INT32|ACC_RING3)
+
+	push	esi
+.if 1
+	# update page fault handler: IDT offset is ignored when using TSS
+	mov	[IDT + EX_PF*8 + 2], word ptr SEL_tss_pf
+	mov	[IDT + EX_PF*8 + 4], word ptr (ACC_PR|ACC_RING0|IDT_ACC_GATE_TASK32)<<8
+
+	# this determines what code is called when the TSS is activated:
+	mov	esi, offset TSS_PF
+	mov	[esi + tss_EIP], dword ptr offset ex_pf_task_isr
+	mov	[esi + tss_SS0], dword ptr SEL_compatDS
+	mov	[esi + tss_SS], dword ptr SEL_compatDS
+	mov	[esi + tss_DS], dword ptr SEL_compatDS
+	mov	[esi + tss_ES], dword ptr SEL_compatDS
+	mov	[esi + tss_CS], dword ptr SEL_compatCS
+	mov	eax, [page_directory_phys]
+	mov	[esi + tss_CR3], eax
+	mov	eax, [esi + tss_ESP0]
+	mov	[esi + tss_ESP], eax
+.endif
+
+	# update double fault handler: IDT offset is ignored when using TSS
+	mov	[IDT + EX_DF*8 + 2], word ptr SEL_tss_df
+	mov	[IDT + EX_DF*8 + 4], word ptr (ACC_PR|ACC_RING0|IDT_ACC_GATE_TASK32)<<8
+
+	mov	esi, offset TSS_DF
+	# this determines what code is called when the TSS is activated:
+	mov	[esi + tss_EIP], dword ptr offset ex_df_task_isr
+	mov	[esi + tss_SS0], dword ptr SEL_compatDS
+	mov	[esi + tss_SS], dword ptr SEL_compatDS
+	mov	[esi + tss_DS], dword ptr SEL_compatDS
+	mov	[esi + tss_ES], dword ptr SEL_compatDS
+	mov	[esi + tss_CS], dword ptr SEL_compatCS
+	mov	eax, [page_directory_phys]
+	mov	[esi + tss_CR3], eax
+	mov	eax, [esi + tss_ESP0]
+	mov	[esi + tss_ESP], eax
+
+	DEBUG_DWORD [esi + tss_ESP]
+	DEBUG_DWORD [esi + tss_CR3]
+#	call more
+
+	pop	esi
 
 .if IRQ_SHARING
 	# register the IRQ core handlers

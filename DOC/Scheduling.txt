@@ -1,0 +1,440 @@
+SCHEDULING
+==========
+
+httpd runs at CPL 1 or 3 (not 0).
+When it does IO, it enters kernel mode (SEL_kernelCall).
+This uses the TSS stack - explicitly mentioned.
+When the task gets suspended, the TSS0 stack is stored in the task.
+
+Running console1 in cpl>1,
+then generating a gpf,
+will use the TSS0 stack.
+Unknown: where thsi stack is found.. assuming the first TSS entry in the GDT?
+Answer: in the task register (TR: LTR).
+
+Common Solution
+---------------
+allocate a part of the stack of any non-CPL0 task for use as CPL0 stack.
+i.e.:    
+	mov	eax, TASK_STACK_SIZE
+	call	mallocz
+	mov	[ebx + task_stack_esp0], eax
+	sub	eax, 0x200
+	mov	[ebx + task_stack_esp], eax
+
+
+-- CPL notes
+1) CPL 1, 2 and 3 are functionally identical: privileged instructions are
+not acessible. In paging, CPL0 is System, the rest User.
+
+Therefore, the CPL levels 1,2 and 3 are only useful in providing 3 different
+segmentation boundaries. These can be provided in CPL0 also, but, a CPL0
+task can easily use another selector.
+
+Further, assuming that the LDT takes precedence and cannot be changed outside
+CPL0, each level 1,2,3 can have their own descriptor table.
+
+Thus, a CPL3 task may be able to access other CPL3 segments, if it were not
+for the LDT.
+
+Further, a CPL 1 (or 2) task can have access to a number of CPL0 and CPL2
+segments. The CPL0 it can call directly must be conforming (DPL1).
+
+2) TSS has IO access flags, taken from the TR at any time. Use one TSS per
+driver; no fields are used except the IO. (or - copy the io perm bits).
+
+-- end CPL notes
+
+
+Solution 1 extends Common Solution
+----------------------------------
+On each task switch, update the TSS with the task's CPL0 stack top.
+
+	IF that task then gets elevated, it will use it's own stack.
+	
+	PROTECTION: the segment selectors for the stack must be different,
+	so that the user level process cannot simpy access the kernel level
+	stack by going beyond it's own stack. This also means that
+	all segment selectors must not include the CPL0 stack in their
+	base-limit range.
+
+
+Solution 2 extends Common Solution
+----------------------------------
+Create a TSS for each task. If this is done, hardware taskswitching (using only
+TSS) is best. The scheduler task structure would be modified to drop
+the register fields and include the TSS selector instead.
+(task gates??)
+
+
+Common Solution 2:
+------------------
+Allocate two stacks. The second stack will be allocated from kernel space
+(i.e., high memory pages), and out of reach of the task.
+
+Task CPL0 stack then resides in the kernel page area, distinct from the kernel
+stack itself, as yet.
+The code that has access to the paging area is the same code that will be
+executed when a task gets elevated: kernel code. Since kernel code is 
+internally consistent as that is it's purpose, it exhibits internal trust.
+This trust means, that CPL0 task stack pages do not have to be separated
+using paging or selectors. This can be done however, to increase kernel
+stability. As such, since the kernel has very little stack usage
+(at most 64 bytes or so at current, in the scheduler code), it can do with
+reserving a very small stack area for each task: a number of tasks per 4kb page.
+
+Solution 3 extends Common Solution 2
+------------------------------------
+Allocate a stack for each task when it gets scheduled.
+
+This is the simplest solution as yet. It is assumed that with proper scheduling,
+as is implemented mostly, all tasks that wait for anything but CPU and memory,
+will not be scheduled to run. They will have called the kernel.
+Therefore, it is expected that any task except media tasks will remain halted
+for most of the time. This means that the likelyhood that there is a moment
+when all tasks are idle is nearly guaranteed. Once the kernel has booted,
+such a moment occurs. Most media tasks will call the kernel to get access
+to data. One media task that could run without calling the kernel would be
+one that generates it's own content and updates its display area continuously.
+In effect this would be the same as a spinlock, scheduling wise. The timer
+guarantees that this state can exists only for a limited time. The timer
+interrupt, being generated while a non-privileged task is running, will
+activate the task stack.
+Only if such a task would be the only one running - no interrupts - then
+scheduling is not needed in the first place.
+
+As such, it is extremely likely that all non-privileged tasks will at the same
+time be privileged, i.e., using their privileged stack, residing in kernel
+space.
+
+Solution 4 extends Common Solution 2
+------------------------------------
+Allocate a stack dynamically.
+
+This can work for call-gates. Their first instructions should be to 
+allocate a new stack and upde the TSS.
+Upon return, they add their stack to a list of available stacks with
+interrupts disabled. This will require them to pushf/cli/freestack/iret.
+(assuming iret is atomic).
+
+It would also require all interrupt handlers to either disable interrupts,
+or to set up a new stack if they plan to enable them.
+
+In theory the number of allocated stacks should not exceed the number of tasks.
+
+
+Solution 3, continued
+---------------------
+schedule_task:
+	and	[ebx + task_flags], TASK_FLAG_CPL3
+	jz	1f
+	mov	eax, TASK_STACK_PRIV_SIZE
+	call	kmalloc	# assume same ss for entire kernel
+	mov	[ebx + task_stack_esp0], eax
+1:	
+
+
+schedule_isr:
+	mov	cr3, [ebx + task_reg_cr3]
+	mov	[tss_esp0], [ebx + task_reg_esp0]
+
+Checks can be done: [tss_esp0] != [task_reg_esp0]
+
+scheduling_enable:
+	# tss already set up.
+	# scheduler introduces possibility of more than one TSS stack being used
+	mov	eax, [tss_esp0]
+	mov	[ebx + task_reg_esp0], eax
+
+
+kmalloc:
+	this can, at first, be malloc. 
+	it can also be a specialized malloc, because the stack sizes will
+	all be the same. This would save on memory handles.
+	kmalloc would then be integrated in to the task scheduling code,
+	and it can store its pointers in the task descriptors.
+
+	Empty task descriptors can then be kept with their stack intact.
+
+	Alternative:
+	------------
+	map a memory address. We will assume it is contiguous, and can be
+	extended.
+	this can be done this way for instance:
+		if exists(page + 4095)	# next page addr already occupied
+			decrease_base(ds, 4096)
+			remap_pages
+			add_page
+	This way, a segment selector reserved for use of accessing the stack
+	pages - such as the stack selector - can be adjusted, and the pages
+	remapped:
+		[empty]	[stack0] [stack1]
+		[stack0][stack1] [empty]
+	It also assumes that there is a range of addresses available before it.
+
+	In theory, a generalized kmalloc may manage any number of regions.
+	As long as the number of pages will fit in memory, it can defragment
+	them simply by changing the page mapping.
+
+	At first, kmalloc will be hardcoded to a single region.
+	THere will then be 2 mallocs:
+	1) the general purpose malloc working on the heap bottoming at 1Mb
+	2) kmalloc, working with the page area, topping at end of memory.
+	The mem_handles code must be updated to take an argument: the pointer
+	to the linked list structure pointer. (an index in an array).
+	The mem.s calls must be updated to provide the argument.
+
+	Now the kmalloc code can use the alloc routines to operate on
+	a separate space. It can then use any stack size easily.
+	However, the joining of stacks into larger chunks is not needed
+	here, and the find by size is also not needed.
+
+	The paging code itself already uses a simple memory management
+	for it's pages: the page directory and page tables, a compact 
+	1 million entry two level tree.
+	All pages it uses as page tables are recorded in the page dir.
+	At current, all pages in all page tables are identity mapped.
+	At current, all pages in all page tables are only used for page tables
+	(or page directories).
+	To then distinguish them from the kmalloc stack pages:
+	1) use a free flag
+	2) check if the page is identity mapped, if stack pages use
+	a different mapping.
+
+alloc_stack_page:
+	mov	edi, [stack_pages_free]
+	rep	scasbit
+	mov	esi, [page_directory]
+	call	malloc_page_idmap_pt_alloc
+	ARRAY_PUSH [stack_pages], eax
+	ret
+
+	Turns out this code is very similar to malloc_page_phys.
+	It can be generalized to take a pointer to the array.
+	(code is small: speed/size[extra memrefs])
+
+alloc_task_priv_stack:
+	same code again, but now it only uses a bitstring - not another
+	array.
+	scan bitstring, calculate offset in bits; multiply by stack size
+	NOTE: in this case, all stack pages must be contiguous.
+	They don't have to be, if a whole number of stacks fits in one page.
+	IF the number of stacks per page is known, then, the bit index
+	modulo that will provide an index into [stack_pages].
+
+	Thus:
+
+	xor	eax, eax
+	mov	edi, [task_stack_free]
+	mov	ecx, [edi + task_index]
+	mov	edx, ecx
+	shr	ecx, 2
+	repnz	scasd
+	jz	no_stack_free$
+
+	# found a dword that has some bits set - some pages free.
+
+	bsf	eax, [edi - 4] # jz can't happen
+
+	sub	edx, ecx	# dword_idx
+	shl	edx, 5
+	add	eax, edx
+
+	# eax is now the bit index
+
+	TASK_PRIV_STACK_SIZE = 512
+
+	xor	edx, edx
+	mov	ebx, 4096 / TASK_PRIV_STACK_SIZE
+	div	ebx
+
+	mov	ebx, [task_stack_pages]
+	mov	ebx, [ebx  + eax * 4]	# get the page
+
+	mov	eax, TASK_PRIV_STACK_SIZE
+	mul	edx	# stack_in_page * stacksize
+
+	add	eax, ebx	# stack = page + stack_in_page * stacksize
+	ret
+
+no_stack_free$:
+	call	malloc_page_idmap_pt_alloc
+	PTR_ARRAY_NEWENTRY [task_stack_pages], base=ebx, index=edx
+	mov	[ebx + edx], eax
+
+	# DWORD_PTR to BITBASE + BITINDEX: >> 5, << 2: / 32 bit * 4
+	mov	bl, dl
+	and	bl, 31
+	shr	edx, 3
+	and	dl, ~3
+
+	mov	eax, [task_stack_free]
+	cmp	edx, [eax + task_index]	# byte-granularity
+	jb	1f
+	PTR_ARRAY_NEWENTRY [task_stack_free]
+1:	btc	[eax + edx], ebx	# clear bit
+	# alt:
+	mov	ebx, 1
+	shl	ebx, ecx
+	clear:	not,and
+	set:	or
+	
+
+
+
+
+	# get bit index from base
+	#
+	# index	=   ptr / 32
+	# bit	= ( ptr / 32 ) * 4
+	# 
+	.macro DWORD_PTR_TO_BITARRAY_PTR index, bit, ptr
+.ifne \ptr,\index;	mov	\index, \ptr	; .endif
+.ifne \ptr,\bit;	mov	\bit, \ptr	; .endif
+			shr	\index, 3
+			and	\index, ~3
+			shr	\bit, 5
+	.endm
+
+
+---------------------------------------
+Privileged / Non-Privileged
+
+User tasks will only have access to a small part of memory and the cpu for
+executing it's instructions. This happens involuntary from the point of view
+of the task.
+
+Any memory outside it's range is inacessible, and can belong to the kernel,
+or to other tasks.
+
+The kernel then, as a task, has reserved for itself it's own static and dynamic
+data. High memory - memory allocated top-down - is privileged. The page
+tables only serve task isolation.
+Bottom memory - allocated from the kernel-up - is shared by all processes.
+The kernel's static data itself resides in this area.
+Since tasks at current share kernel space - the data offset relative to the
+code is the same. Code always references relative to it's code selector base.
+
+The tasks and kernel are compiled from a single source file, thereby sharing
+the code base.
+At current the code segment is writable in CPL0.
+
+
+Self-Modifying Code
+-------------------
+It is possible to safely allow self modifying code in user space.
+First, paging allows for writable memory. Second, code selectors are set up
+to allow access to all memory made available to the process. Some of this
+may be read-only, but all processes have writable memory - the stack.
+Further, the stack and data selectors are aligned. This allows for copying
+of stack data.
+Next, the code and data and stack selectors are base aligned, meaning that they
+overlap. This means that programs can execute code in their data selectors.
+
+To prevent self-modifying code, the stack must be moved beyond the reach
+of the code selector. 
+This would require that the stack selector base be different from the code
+selector base.
+Using the 'D'own mode, the top of the stack can be set, allowing for overlap
+between stack and code. I am uncertain as to which direction the addressing
+space really takes: FFFFFFFF is top, or 00000000? And ss:[1] is SEL_ss.base-1?
+
+The code selector limit can be set to the end of .bss. This would exclude
+the stack and mallocced memory, but would still allow code to be exected
+in the data.
+The layout is such that code is contiguous, and data is contiguous.
+
+This is a requirement for data-execution-prevention. 
+A simple detection mechanism is to look for code that writes to lower addresses.
+This is the only sure way to detect self-modifying code.
+Allowing for programs that have writable space in their code, would suggest
+that these programs could write code ahead of themselves - at higher addresses.
+This is the same as having the data contiguous after the code. We're assuming 
+that the OS cannot tell the difference between code and data, if it does not
+require to accept executable code that is not formatted to it's demands,
+such as ELF formats.
+
+A single number is required for the OS, and that is, the division between code
+and data. The program provides its boundaries, beginning and end, and a pointer
+to it's (by convention) data.
+TO reverse the order to data-first would mean the pointer would reference code.
+A program is given the ability to allocate more space. This space must be placed
+somewhere. If data preceeds code, this new data must grow down. Such data is
+already known - stack.
+The problem with this is that the data selectors should be aligned.
+Fiddling with negative offsets would potentially expose the limit to be exclusive
+rather than inclusive.
+
+A program can be expected to take into account different selectors for different
+types of data.
+
+One such expectation is that kernel calls are far-calls.
+To drop this, a page must be mapped in the task space that is accessible
+to the task. This could be mapped before the code. Or the task could be
+expected to find the address somewhere, as per the API convention.
+
+
+----
+2013-06-28
+
+Apparently the #PF handler makes a distinction between the CPL's according
+to this:
+	CPL 0, 1, 2:	Supervisor mode
+	CPL 3:		User Mode
+
+#GP does it like this (i think):
+	CPL 0:		Supervisor
+	CPL 1,2,3:	User.
+
+
+----
+
+Task Switching
+==============
+
+The TSS segment contains all registers. There are two uses for it.
+
+1) on privilege level elevation, the current TSS is examined for the SS0/ESP0.
+Otherwise it seems that the register values are not modified.
+2) on calling the selector (any offset is ignored), all registers are loaded
+with the values stored. EFLAGS will contain the NT (next task) flag.
+The TSS LINK field points to the TSS that was suspended.
+
+
+	my_TSS: .space 104	# struct tss
+	my_stack: .space 32	# max used by the method - known in advance
+	my_stack_top:
+	
+	setup_methods:
+		GDT_SET_BASE SEL_tss, offset my_TSS
+		GDT_SET_FLAGS SEL_tss, ACC_GATE_TASK32
+		mov	[my_TSS.CS], cs
+		mov	[my_TSS.EIP], offset my_stateful_method
+		mov	[my_TSS.DS], ds
+		mov	[my_TSS.ES], ds
+		mov	[my_TSS.SS], ds
+		mov	[my_TSS.ESP], offset my_stack_top
+		ret
+
+
+Now, code can be written that implements a YIELD.
+
+	my_stateful_method:	# a task
+		inc	ecx
+		iret		# jump to task stored in TR.LINK
+	1:	inc	dl
+		iret
+		jz	my_stateful_method
+		jmp	1b
+
+This method will first increment ecx, on the next invocation it will increment dl.
+On the next invocation, the flags will reflect whether inc dl resulted in an overflow.
+If so it will restart, if not, it will continue to increment dl.
+In this way, ecx counts how many times dl has cycled through all values.
+
+The iret thus functions as a YIELD, and the next invocation of the TSS will continue
+after the iret.
+
+
+------------------
+generating exceptions through int in cpl3 puts an extra dword on the stack!!
