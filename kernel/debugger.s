@@ -624,6 +624,7 @@ debugger_print_mutex$:
 	pop	eax
 	ret
 
+DEBUGGER_SWAP_CR3 = 0
 
 .data SECTION_DATA_BSS
 debugger_stack_print_lines$:	.long 0
@@ -646,6 +647,12 @@ debugger:
 	push	edi	# stack offset
 	mov	ebp, esp
 	push	ebx	# stack segment
+.if DEBUGGER_SWAP_CR3
+	mov	eax, cr3
+	push	eax
+	mov	eax, [page_directory_phys]
+	mov	cr3, eax
+.endif
 
 	call	screen_get_scroll_lines
 	mov	[debugger_stack_print_lines$], eax
@@ -785,7 +792,12 @@ debugger:
 	mov	[ebp + 8], al
 	jmp	4b
 
-9:	call	scheduler_resume
+9:
+.if DEBUGGER_SWAP_CR3
+	pop	eax
+	mov	cr3, eax
+.endif
+	call	scheduler_resume
 	pop	ebx
 	pop	edi
 	pop	esi
