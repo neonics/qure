@@ -817,6 +817,11 @@ keyboard:
 .if VIRTUAL_CONSOLES
 	push	ebx
 	call	console_kb_get
+	or	ebx, ebx
+	jnz	1f
+	printc 4, "console kb null"
+	int 3
+1:
 .endif
 
 	or	ah, ah
