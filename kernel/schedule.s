@@ -157,8 +157,12 @@ task_parent:	.long 0
 task_tls:	.long 0
 task_stackbuf:	.long 0	# remembered for mfree
 task_stack:
-task_stack_esp:	.long 0	# 16 byte aligned
+task_stack_esp:	.long 0
 task_stack_ss:	.long 0
+task_stack_esp0:.long 0	# stack for CPL0
+task_stack_ss0:	.long 0
+task_stack0_top:.long 0
+task_stack0_bitindex: .long 0	# for debug
 task_cr3:		# page directory physical address
 task_page_dir:	.long 0	# for mfree_page_phys
 task_page_tab_lo:.long 0 # for mfree_page_phys
@@ -173,6 +177,7 @@ SCHEDULE_STRUCT_SIZE = .
 .data
 task_queue_sem:	.long -1	# -1: scheduling disabled
 scheduler_current_task_idx: .long -1
+scheduler_prev_task_idx: .long -1	# for debug
 
 .data SECTION_DATA_BSS
 pid_counter:	.long 0
@@ -392,9 +397,14 @@ scheduler_init:
 	mov	esi, [esp]
 	mov	[eax + edx + task_registrar], esi
 	mov	[eax + edx + task_stack_ss], ss # esp updated in scheduler
+	# not really needed, since the kernel task will run in CPL0
+	mov	[eax + edx + task_stack_ss0], ss
+	mov	esi, [TSS + tss_ESP0]
+	mov	[eax + edx + task_stack_esp0], esi
 
 	mov	esi, cr3
 	mov	[eax + edx + task_cr3], esi
+	inc	dword ptr [pid_counter]
 
 	# enable the scheduler
 
@@ -609,14 +619,22 @@ schedule_isr:
 	add	edx, eax
 
 	#lss	esp, [edx + task_stack]
+	# the stack here may not be paged if it is the elevated stack.
+	# swap out to the kernel page dir
+	mov	ebx, [page_directory_phys]
+	mov	cr3, ebx
+
 	mov	esp, [edx + task_stack_esp]
 	or	[esp + task_reg_eflags], dword ptr 1<<9
 
 	mov	ebx, [edx + task_tls]
 	mov	[tls], ebx
 
-	mov	ebx, [edx + task_cr3]
-	mov	cr3, ebx
+	mov	ebx, [edx + task_stack_esp0]
+	mov	[TSS + tss_ESP0], ebx
+
+	mov	eax, [edx + task_cr3]
+	mov	cr3, eax
 
 	SEM_UNLOCK [task_queue_sem]
 8:	MUTEX_UNLOCK SCHEDULER
@@ -658,6 +676,41 @@ schedule_isr:
 	jmp	8b
 
 
+# in: eax = task idx
+task_print_stack$:
+#	DEBUG_DWORD eax, "task idx"
+	add	eax, [task_queue]
+	DEBUG_WORD [eax+task_pid],"PID"
+#	DEBUG_DWORD [eax+task_flags],"flags"
+	mov	esi, [eax + task_label]
+#	DEBUG_DWORD esi
+	cmp esi, 0x02000000
+	jae 1f
+	call	print
+1:	mov	esi, [eax + task_stack_esp]
+	DEBUG_DWORD esi, "stack_esp"
+	lodsd; DEBUG_DWORD eax,"gs"
+	lodsd; DEBUG_DWORD eax,"fs"
+	lodsd; DEBUG_DWORD eax,"es"
+	lodsd; DEBUG_DWORD eax,"ds"
+	lodsd; DEBUG_DWORD eax,"ss"
+	lodsd;#DEBUG_DWORD eax,"edi"
+	lodsd;#DEBUG_DWORD eax,"esi"
+	lodsd;#DEBUG_DWORD eax,"ebp"
+	lodsd;#DEBUG_DWORD eax,"esp"
+	lodsd;#DEBUG_DWORD eax,"ebx"
+	lodsd;#DEBUG_DWORD eax,"edx"
+	lodsd;#DEBUG_DWORD eax,"ecx"
+	lodsd;#DEBUG_DWORD eax,"eax"
+	lodsd; DEBUG_DWORD eax,"eip"
+	lodsd; DEBUG_DWORD eax,"cs"
+	lodsd; DEBUG_DWORD eax,"eflags"
+	lodsd; DEBUG_DWORD eax,"esp"
+	lodsd; DEBUG_DWORD eax,"ss"
+	ret
+
+
+
 # precondition: [task_queue_sem] locked.
 # out: eax + edx = runnable task
 # out: CF = 1 = no tasks can be run at this time: run idle task.
@@ -666,6 +719,7 @@ scheduler_get_task$:
 
 	mov	eax, [task_queue]
 	mov	edx, [scheduler_current_task_idx]
+	mov	[scheduler_prev_task_idx], edx		# for debugging
 	mov	[eax + edx + task_stack_esp], ebp	# preliminary
 
 	# check for privilege level change
@@ -1026,24 +1080,29 @@ task_done:
 0:	MUTEX_LOCK SCHEDULER, nolocklabel=0b
 0:	SEM_SPINLOCK [task_queue_sem], nolocklabel=0b
 
-	mov	edx, [esp]
+	mov	ebx, [esp]
 	mov	eax, [task_queue]
 	.if TASK_SWITCH_DEBUG_TASK
-		DEBUGS [eax + edx + task_label], "done"
+		DEBUGS [eax + ebx + task_label], "done"
 	.endif
-	add	edx, eax
-	or	[edx + task_flags], dword ptr TASK_FLAG_DONE
+	add	ebx, eax
+	or	[ebx + task_flags], dword ptr TASK_FLAG_DONE
 
-	mov	eax, [edx + task_page_dir]
+	mov	eax, [ebx + task_page_dir]
 	call	mfree_page_phys
-	mov	eax, [edx + task_page_tab_lo]
+	mov	eax, [ebx + task_page_tab_lo]
 	call	mfree_page_phys
-	mov	eax, [edx + task_page_tab_hi]
+	mov	eax, [ebx + task_page_tab_hi]
 	call	mfree_page_phys
 
+	test	dword ptr [ebx + task_flags], TASK_FLAG_RING_MASK
+#	jz	1f
+	mov	eax, [ebx + task_stack0_top]
+	call	free_task_priv_stack
+1:
 
 	xor	eax, eax
-	xchg	eax, [edx + task_stackbuf]
+	xchg	eax, [ebx + task_stackbuf]
 	call	mfree
 
 	SEM_UNLOCK [task_queue_sem]
@@ -1316,11 +1375,21 @@ schedule_task:
 	mov	ds, eax
 	mov	es, eax
 
+	# activate access to page directory
+	mov	eax, cr3
+	push	eax
+	cmp	eax, [page_directory_phys]
+	jz	1f	# same - no need to invalidate TLB
+	mov	eax, [page_directory_phys]
+	mov	cr3, eax
+1:
+
+
 	SEM_SPINLOCK [task_queue_sem], nolocklabel=99f
 
 	# duplicate schedule check: allow multiple instances of same task
 	test	dword ptr [ebp + TASK_REG_SIZE - 12 + 12], TASK_FLAG_TASK
-	jnz	1f	# no
+	jnz	1f	# it's a task, not a job.
 	# check whether job is already scheduled
 	mov	ebx, [ebp + TASK_REG_SIZE - 12 + 4]	# eip
 	call	task_is_queued	# out: ecx
@@ -1371,6 +1440,7 @@ schedule_task:
 
 	lodsd	# task flags
 	and	eax, TASK_FLAG_TASK | TASK_FLAG_RING_MASK
+	# TODO: check if caller has permission to schedule CPL0 tasks
 	mov	[ebx + task_flags], eax
 	lodsd	# task tabel
 	mov	[ebx + task_label], eax
@@ -1385,7 +1455,7 @@ schedule_task:
 	or	dword ptr [ebx + task_flags], TASK_FLAG_TASK
 	.else
 	test	dword ptr [ebx + task_flags], TASK_FLAG_TASK
-	jz	7f
+	jz	7f	# a job - don't allocate stack
 	.endif
 	# check if the entry already has a stack
 	mov	eax, [ebx + task_stackbuf]
@@ -1440,6 +1510,7 @@ schedule_task:
 	mov	ecx, TASK_REG_SIZE / 4
 	rep	movsd
 
+	# if the task is not CPL0, fill in ss,esp on stack
 	test	dword ptr [ebx + task_flags], TASK_FLAG_RING_MASK
 	jz	1f
 	push	eax
@@ -1454,6 +1525,26 @@ schedule_task:
 	mov	[ebx + task_regs + task_reg_esp], eax
 	mov	[ebx + task_regs + task_reg_ss], edx # ss
 
+	# if the task is not CPL0, allocate a CPL0 stack
+	# (can be optimized but done separately for clarity)
+	test	dword ptr [ebx + task_flags], TASK_FLAG_RING_MASK
+#	jz	1f
+	call	alloc_task_priv_stack
+	# TODO: jc / unregister task
+	mov	[ebx + task_stack0_top], eax
+#	DEBUG_DWORD eax,"stack top"
+	mov	edx, eax
+	sub	eax, 4096 >> offset TASK_PRIV_STACK_SHIFT
+	and	eax, ~4095
+#	DEBUG_DWORD eax,"stackpage"
+	mov	esi, [ebx + task_cr3]
+	call	paging_idmap_page
+#	call	paging_show_struct_
+	GDT_GET_BASE eax, ss
+	sub	edx, eax
+	mov	[ebx + task_stack_esp0], edx
+1:
+
 	mov	eax, [ebx + task_pid]
 	mov	[ebp + task_reg_eax], eax
 
@@ -1461,7 +1552,14 @@ schedule_task:
 ########
 7:	SEM_UNLOCK [task_queue_sem]	# doesn't use flags
 
-9:	popd	gs
+9:	pop	eax		# restore CR3 if changed.
+	pushf
+	mov	edx, cr3
+	cmp	eax, edx
+	jz	1f
+	mov	cr3, eax
+1:	popf
+	popd	gs
 	popd	fs
 	popd	es
 	popd	ds
@@ -1522,7 +1620,281 @@ schedule_task:
 0:	printc_ 4, "schedule_task: "
 	ret
 
+############################################################################
+# Task Privileged Stack Allocation
+TASK_PRIV_STACK_DEBUG		= 0	# general messages
+TASK_PRIV_STACK_ASSERT		= 1	# enable some integrity assertions
+TASK_PRIV_STACK_DEBUG_STACK	= 0	# stack pointers
+TASK_PRIV_STACK_DEBUG_BITS	= 0	# bit indices
 
+.data SECTION_DATA_BSS
+# Since the page size is a power of 2, having a whole number of stacks in
+# a page requires dividing by a power of 2.
+TASK_PRIV_STACK_SHIFT = 1
+task_stack_free:	.long 0	# bit array; 1 indicates availability
+task_stack_pages:	.long 0	# ptr array
+.text32
+# in: ebx = task descriptor
+# modifies: ecx, edx, edi, esi
+alloc_task_priv_stack:
+	.if TASK_PRIV_STACK_DEBUG
+		DEBUG "alloc task stack"
+	.endif
+	mov	edi, [task_stack_free]
+	or	edi, edi
+	jz	1f
+
+	.if TASK_PRIV_STACK_DEBUG > 1
+		mov	edx, [edi + array_index]
+		shl	edx, 5-2
+		DEBUG_DWORD edx,"max pages @ free"
+	.endif
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		mov	esi, edi
+		mov	ecx, [edi + array_index]
+		shr	ecx, 2
+	0:	lodsd
+		mov	edx, eax
+		call	printhex8
+		loop	0b
+	.endif
+
+	xor	eax, eax
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	mov	edx, ecx	# remember size
+	repz	scasd	# find dword with at least 1 bit set
+	jz	1f	# no free stacks
+
+	bsf	eax, [edi - 4]	# jz can't happen
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		DEBUG_DWORD [edi-4],"bitstring"
+		DEBUG_DWORD eax,"bit"
+	.endif
+	btc	[edi - 4], eax	# clear bit - mark allocated
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		DEBUG_DWORD [edi-4]
+	.endif
+
+	# carry should be set after btc; use it to dec edx
+	sbb	edx, ecx	# edx = dword index
+
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		# doublecheck
+		sub	edi, 4
+		sub	edi, [task_stack_free]
+		shr	edi, 2
+		DEBUG_DWORD edx, "bitflags index"
+		cmp	edi, edx
+		jz	22f
+		printc 4, "bitflag index calculation error"
+		DEBUG_DWORD edi # should match edx
+		int 3
+	22:
+	.endif
+
+	shl	edx, 5		# * 32 bits
+	add	eax, edx	# eax = bit index
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		DEBUG_DWORD eax,"bitindex"
+	.endif
+	mov	[ebx + task_stack0_bitindex], eax
+
+	# convert bit index to page + stack_offset_in_page
+	mov	edx, eax
+	and	edx, (1<<TASK_PRIV_STACK_SHIFT)-1	# stack_in_page idx
+	shr	eax, TASK_PRIV_STACK_SHIFT		# page index
+
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		DEBUG_DWORD eax,"page index"
+	.endif
+
+	shl	edx, 12-TASK_PRIV_STACK_SHIFT		# stack_in_page offset
+	mov	ecx, [task_stack_pages]
+	mov	eax, [ecx + eax * 4]	# get the page pointer
+	# eax = page; edx = offset in page (stack bottom)
+	.if TASK_PRIV_STACK_DEBUG_STACK
+		DEBUG_DWORD eax,"page ptr"
+		DEBUG_DWORD edx, "stack offset"
+	.endif
+	lea	eax, [eax + edx + (4096>>TASK_PRIV_STACK_SHIFT)]	# stack top
+	.if TASK_PRIV_STACK_DEBUG
+		DEBUG_DWORD eax,"stack"
+	.endif
+	ret
+########
+
+	# get bit index from base
+	#
+	# index =   ptr / 32
+	# bit   = ( ptr / 32 ) * 4
+	#
+	.macro DWORD_PTR_TO_BITARRAY_PTR index, bit, dptr
+.ifnc \dptr,\index;	mov     \index, \dptr    ; .endif
+.ifnc \dptr,\bit;	mov     \bit, \dptr      ; .endif
+			shr     \index, 5-2
+			shr	\bit, 2
+			and     \index, ~3
+			and     \bit, 31
+	.endm
+
+
+1:	# no free stack; allocate.
+	.if TASK_PRIV_STACK_DEBUG
+		DEBUG "allocating stackpage"
+	.endif
+
+	PTR_ARRAY_NEWENTRY [task_stack_pages], 32, 91f
+	mov	edi, eax
+
+	.if TASK_PRIV_STACK_DEBUG > 1
+		DEBUG_DWORD [edi + array_index]
+		DEBUG_DWORD edx
+	.endif
+
+	mov	esi, cr3
+	mov	esi, [page_directory_phys]
+	call	paging_alloc_page_idmap
+	jc	9f
+
+	mov	[edi + edx], eax
+	lea	ecx, [eax + 4096 >> TASK_PRIV_STACK_SHIFT] # stack top
+
+	.if TASK_PRIV_STACK_DEBUG_STACK
+		DEBUG_DWORD eax,"stackpage"
+		DEBUG_DWORD ecx, "stack top"
+		DEBUG_DWORD edx,"dptr"
+	.endif
+
+	shr	edx, 2	# dword index
+	shl	edx, TASK_PRIV_STACK_SHIFT	# stack index
+
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		DEBUG_DWORD edx, "stack index"
+	.endif
+
+	mov	[ebx + task_stack0_bitindex], edx
+	#DWORD_PTR_TO_BITARRAY_PTR index=edx, bit=edi, dptr=edx
+
+	mov	edi, edx
+	shr	edx, 5
+	and	edi, 31
+
+	# pretty much redundant
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		DEBUG_DWORD edx,"idx"
+		DEBUG_DWORD edi,"bit"
+		mov	eax, edx
+		shl	eax, 5
+		add	eax, edi
+		DEBUG_DWORD eax,"bitindex"
+		cmp	[ebx + task_stack0_bitindex], eax
+		jz	22f
+		printc 4, "bitindex calculation error"
+		int 3
+	22:
+	.endif
+
+	mov	eax, [task_stack_free]
+	or	eax, eax
+	jz	2f
+	cmp	edx, [eax + array_index]
+	jb	1f
+2:	PTR_ARRAY_NEWENTRY [task_stack_free], 4, 91f
+	# mark all stacks in the page as free
+	mov	[eax + edx], dword ptr (1<<TASK_PRIV_STACK_SHIFT)-1
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		DEBUG_DWORD [eax+edx]
+	.endif
+1:	btc	[eax + edx], edi	# clear bit - mark allocated
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		DEBUG_DWORD [eax+edx]
+	.endif
+	mov	eax, ecx
+	ret
+
+91:	printlnc 4, "alloc_task_priv_stack: cannot allocate array"
+	stc
+	ret
+9:	printlnc 4, "alloc_task_priv_stack: no more pages"
+	stc
+	ret
+
+# in: eax = task_esp0
+# in: ebx = task descriptor
+free_task_priv_stack:
+	.if TASK_PRIV_STACK_DEBUG
+		DEBUG "free_task_priv_stack"
+		mov	esi, [ebx + task_label]
+		call	print
+		DEBUG_DWORD eax, "stack top"
+	.endif
+
+	sub	eax, 4096 >> TASK_PRIV_STACK_SHIFT	# get base
+	.if TASK_PRIV_STACK_DEBUG_STACK
+		DEBUG_DWORD eax,"stack base"
+	.endif
+	mov	edx, eax
+	and	eax, ~4095			# page-align
+	.if TASK_PRIV_STACK_DEBUG_STACK
+		DEBUG_DWORD eax,"page"
+	.endif
+	and	edx, 4095			# stack_in_page offset
+	.if TASK_PRIV_STACK_DEBUG_STACK
+		DEBUG_DWORD edx,"stack offs"
+	.endif
+	shr	edx, 12-TASK_PRIV_STACK_SHIFT	# stack_in_page index
+
+	mov	edi, [task_stack_pages]
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	mov	esi, ecx
+	repnz	scasd				# find page
+	jnz	9f
+	sub	esi, ecx			# page index + 1
+	dec	esi
+
+	# esi = page index
+	# edx = stack_in_page index
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		DEBUG_DWORD esi, "page index"
+		DEBUG_DWORD edx, "stack_in_page idx"
+	.endif
+	# convert to bit index.
+	shl	esi, TASK_PRIV_STACK_SHIFT
+	or	edx, esi
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		DEBUG_DWORD edx,"stack index"
+	.endif
+	.if TASK_PRIV_STACK_ASSERT
+		cmp	edx, [ebx + task_stack0_bitindex]
+		jz	1f
+		printc 4, "bitindex mismatch: ";
+		DEBUG_DWORD [ebx + task_stack0_bitindex]; DEBUG_DWORD edx
+		int 3
+	1:
+	.endif
+
+	mov	edi, [task_stack_free]
+	# split the bitindex into 32-bit base/index
+	mov	eax, edx
+	shr	eax, 5		# dword index
+	and	edx, 31		# bit index
+	.if TASK_PRIV_STACK_DEBUG_BITS
+		DEBUG_DWORD eax,"bitstring dword idx"
+		DEBUG_DWORD edx, "bit"
+	.endif
+	bts	[edi + eax * 4], edx	# set bit - mark free
+
+0:	ret
+9:	printc 4, "free_tasks_priv_stack: unknown page: "
+	DEBUG_DWORD edx
+
+	int 3
+	jmp	0b
+
+
+####################################
 task_get_by_pid:
 	ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, ebx, ecx, 9f
 	cmp	eax, [ebx + ecx + task_pid]
@@ -1596,6 +1968,7 @@ task_setup_paging:
 .if 1	# mask active and dirty flags to track task page access
 0:	lodsd
 	and	eax, ~(PTE_FLAG_A|PTE_FLAG_D)
+or	ax, PTE_FLAG_U|PTE_FLAG_RW
 	stosd
 	loop	0b
 .else
@@ -1608,7 +1981,7 @@ task_setup_paging:
 
 	# map the low PT (0..4mb region)
 	mov	eax, [ebp + task_page_tab_lo]
-	or	eax, PDE_FLAG_P | PDE_FLAG_U | PDE_FLAG_RW
+	or	eax, PDE_FLAG_P | PDE_FLAG_RW ##| PDE_FLAG_U # allow userlevel access (task user stack)
 	mov	[esi], eax	# map low 4mb
 
 #######################################################
@@ -1624,7 +1997,7 @@ task_setup_paging:
 	# after allocation, such as creating a new task.
 	mov	ecx, eax	# ASSUMPTION: page_dir, page_tab_(lo|hi) are
 	shr	ecx, 22		# in the same 4Mb.
-	or	eax, PDE_FLAG_P | PDE_FLAG_U | PDE_FLAG_RW # no RW = kb fail
+	or	eax, PDE_FLAG_P | PDE_FLAG_RW #  no RW = kb fail
 	mov	[esi + ecx * 4], eax	# register mapping for hi
 
 	###################################################
@@ -1633,15 +2006,17 @@ task_setup_paging:
 	add	esi, edx
 	# mapped because it is copied for new tasks
 	mov	eax, [ebp + task_page_dir]
-	or	ax, PTE_FLAG_U | PTE_FLAG_P	# read-only
+	or	ax, PTE_FLAG_P | PTE_FLAG_U  	# page-dir read-only
 	call	paging_idmap_page_f
 	# idem
 	mov	eax, [ebp + task_page_tab_lo]
-	or	ax, PTE_FLAG_U | PTE_FLAG_P	# read-only
+	or	ax, PTE_FLAG_P			# page-table read-only
+or ax, PTE_FLAG_U|PTE_FLAG_RW
 	call	paging_idmap_page_f
 	# mapped because allocating new pages requires write access to map them
 	mov	eax, [ebp + task_page_tab_hi]
-	call	paging_idmap_page
+	or	ax, PTE_FLAG_P | PTE_FLAG_RW	# high pages RW
+	call	paging_idmap_page_f
 #######################################################
 
 
