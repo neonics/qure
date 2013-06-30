@@ -1748,12 +1748,21 @@ cmd_int:
 	cmp	eax, 0xff
 	ja	9f
 	mov	[1f], al
+	DEBUG_WORD cs
+	DEBUG_DWORD (offset 3f), "eip"
+	DEBUG_WORD ss
+	DEBUG_DWORD esp
+	call	newline
+	mov	dl, al
+	print "Generating int 0x"
+	call	printhex2
+	call	newline
 	jmp	2f
 2:	jmp	2f
 2:
 		.byte 	0xcd
 	1:	.byte 0
-
+3:
 	ret
 9:	printlnc 4, "usage: int <int_nr_hex_max_ff>"
 	ret
@@ -1763,11 +1772,7 @@ cmd_gpf:
 	mov edx, esp
 	call printhex8
 	call newline
-#	int	0x0d
-	#mov	eax, [0xffffffff]
-#	mov	ds, eax	# just in case...
 
-#	pushad
 	push	ebp
 
 	mov	eax, -1
@@ -2542,12 +2547,32 @@ sb_play_wave_file$:
 
 
 cmd_paging:
-	mov	edx, cr3
+	mov	eax, cs
+	and	al, 3
+	jz	1f
+	call	SEL_kernelCall:0
+1:
+	cli	# don't allow task switching as it will trash cr3
+
+	mov	eax, cr3
+	push	eax
+
+	mov	eax, [page_directory_phys]
+	mov	cr3, eax
+
+	mov	edx, [scheduler_current_task_idx]
+	add	edx, [task_queue]
+	mov	edx, [edx + task_page_dir]
+	and	edx, 0xfffff000
+
 	xor	edi, edi	# task label
 	lodsd
 	lodsd
 	or	eax, eax
-	jz	paging_show_struct
+	jnz	1f
+	call	paging_show_struct
+	jmp	0f
+1:
 ################################
 	CMD_ISARG "-p"
 	jnz	1f
@@ -2582,15 +2607,20 @@ cmd_paging:
 	call	println
 
 1:	mov	esi, edx
-	jmp	ebx	# in: esi
+	call	ebx	# in: esi
+
+0:	pop	eax
+	mov	cr3, eax
+	sti
+	ret
 
 9:	printlnc 4, "usage: paging [-p <pid>] [usage]"
-	ret
+	jmp	0b
 91:	printc 4, "unknown task: "
 	mov	edx, eax
 	call	printdec32
 	call	newline
-	ret
+	jmp	0b
 
 .include "../lib/xml.s"
 .endif
