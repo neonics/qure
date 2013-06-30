@@ -220,6 +220,8 @@ SHELL_COMMAND_CATEGORY "experimental"
 SHELL_COMMAND "svga"		cmd_svga
 SHELL_COMMAND "xml"		cmd_xml
 SHELL_COMMAND "play"		cmd_play
+SHELL_COMMAND "kapi"		cmd_kapi
+SHELL_COMMAND "kapi_test"	cmd_kapi_test
 .data SECTION_DATA_SHELL_CMDS
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -272,6 +274,8 @@ shell:	push	ds
 	#
 
 	lea	eax, [ebx + shell_cwd]
+FOO:
+#	call	KAPI_fs_opendir # fs_opendir
 	call	fs_opendir
 	mov	[ebx + shell_cwd_handle], eax
 

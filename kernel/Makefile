@@ -11,7 +11,7 @@ kernel.bin: kernel.o
 	@echo "   OBJ  $@"
 	@objcopy -O binary -R .strtab $< $@
 
-KERNEL_SRC = kernel.s defines.s macros.s debug.s oo.s debugger.s \
+KERNEL_SRC = kernel.s defines.s macros.s debug.s oo.s debugger.s kapi.s \
 	realmode.s print.s \
 	pmode.s pic.s gdt.s idt.s tss.s \
 	mem.s mem_handle.s hash.s list.s ll.s string.s schedule.s hwdebug.s \

@@ -1177,6 +1177,8 @@ fs_close:	# fs_free_handle
 # 
 # in: eax = pointer to path string
 # out: eax = directory handle (pointer to struct), to be freed with fs_close.
+KAPI_DECLARE fs_openfile
+KAPI_DECLARE fs_opendir
 fs_openfile:
 fs_opendir:
 	push	edx

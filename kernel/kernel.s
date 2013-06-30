@@ -74,11 +74,13 @@ code_\name\()_end:
 DEFINE=0
 .include "debug.s"
 .include "mutex.s"
+.include "print.s"
 DEFINE=1
 include "print.s", print
 include "debug.s", debug
 include "pmode.s", pmode
 include "paging.s", paging
+include "kapi.s", kapi
 include "pit.s", pit
 include "keyboard.s", keyboard
 include "console.s", console
@@ -259,6 +261,8 @@ kmain:
 	call	mem_init
 
 	call	paging_init
+
+	call	kapi_init	# initialize the kernel api (uses paging)
 
 MEM_TEST = 0
 SCHEDULE_EARLY = 0
@@ -569,6 +573,12 @@ data_classes_end:
 data_pci_driverinfo_end:
 .data SECTION_DATA_FONTS
 data_fonts_end:
+.data SECTION_DATA_KAPI_IDX
+data_kapi_idx_end:
+.data SECTION_DATA_KAPI_STR
+data_kapi_str_end:
+.data SECTION_DATA_KAPI_PTR
+data_kapi_ptrx_end:
 .data SECTION_DATA_BSS
 data_bss_end:
 .data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1

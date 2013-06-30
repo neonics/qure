@@ -171,6 +171,8 @@ GDT_ring0SS:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING0, (FL_32|FL_GR4kb)
 GDT_tss_pf:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 GDT_tss_df:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 
+GDT_kapi:	DEFGDT 4096, 4095, ACCESS_CODE, (FL_32|FL_GR1b)
+
 pm_gdtr:.word . - GDT -1
 	.long GDT
 rm_gdtr:.word 0
@@ -216,7 +218,8 @@ rm_gdtr:.word 0
 .equ SEL_ring0SS,	8 * 29	# e8
 .equ SEL_tss_pf,	8 * 30	# f0
 .equ SEL_tss_df,	8 * 31	# f8
-.equ SEL_MAX, SEL_tss_df + 0b11	# ring level 3
+.equ SEL_kapi,		8 * 32	# 100
+.equ SEL_MAX, SEL_kapi + 0b11	# ring level 3
 
 
 .macro GDT_STORE_SEG seg

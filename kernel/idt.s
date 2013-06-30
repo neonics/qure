@@ -1241,7 +1241,7 @@ ex_df_task_isr:
 
 	DEBUG_DWORD ecx
 	inc	ecx
-
+call more
 	iret	# doesn't use stack if EFLAGS.NT (next task)
 	DEBUG "again!"
 	call newline
@@ -1261,6 +1261,21 @@ ex_pf_task_isr:
 	pushfd
 	pop	eax
 	DEBUG_DWORD eax, "flags"
+	call	newline
+
+	mov	eax, [TSS_PF + tss_LINK]
+	DEBUG_DWORD eax,"linked TSS"
+	GDT_GET_BASE edx, eax
+	DEBUG_DWORD edx, "linked TSS base"
+	GDT_GET_BASE eax, ds
+	sub	edx, eax
+	mov	ebp, [edx + tss_ESP]
+	DEBUG_DWORD ebp, "linked task ESP"
+	DEBUG_DWORD [ebp + 0], "eip"
+	DEBUG_DWORD [ebp + 4], "cs"
+	DEBUG_DWORD [ebp + 8], "eflags"
+	DEBUG_DWORD [ebp + 12], "esp"
+	DEBUG_DWORD [ebp + 16], "ss"
 	call	newline
 
 	str	dx
