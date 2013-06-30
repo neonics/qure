@@ -228,17 +228,6 @@ kmain:
 	int 0x0d
 .endif
 
-.if 0	###################################################################
-	PRINT	"Press a key to switch to kernel task."
-	call	keyboard
-
-	mov	[tss_EIP], dword ptr offset kernel_task
-	call	task_switch
-
-	PRINTLNc 0x0c "Back from task"
-	jmp	halt
-.endif
-
 
 .if 0	# generate GPF ####################################################
 	mov	ax, 1024
@@ -434,7 +423,27 @@ OPEN_SHELL_DEFAULT = 0
 	I "Shell"
 	call	newline
 
+.if 0
+	PUSH_TXT "kcons"
+	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING0
+	push	cs
+	push	dword ptr offset console_shell # or shell
+	# task args:
+	mov	eax, [console_cur_ptr]
+	mov	ebx, [console_kb_cur]
+	mov	esi, [esp + 12]
+	call	schedule_task
+	mov	ebx, [console_cur_ptr]
+	mov	[ebx + console_pid], eax
+
+	println "Kernel idle loop"
+	xor	eax, eax
+	call	suspend_task
+0:	hlt
+	jmp	0b
+.else
 	call	shell
+.endif
 kernel_shell_return$:	# debug symbol
 	##################################################################
 
