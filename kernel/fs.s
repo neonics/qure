@@ -970,6 +970,7 @@ fs_handle_read_:
 # in: eax = handle
 # out: esi = buffer
 # out: ecx = buffer size
+KAPI_DECLARE fs_handle_read
 fs_handle_read:
 	LOCK_READ [fs_handles_sem]
 	push	eax
@@ -1016,6 +1017,7 @@ fs_handle_read:
 # in: eax = handle
 # in: edi = buffer	# minimal 2kb
 # in: ecx = bytes to read
+KAPI_DECLARE fs_read
 fs_read:
 	LOCK_READ [fs_handles_sem]
 	push_	eax ebx ecx edx edi
@@ -1030,7 +1032,7 @@ fs_read:
 	push_ eax edx
 	FS_HANDLE_CALL_API read, edx
 	pop_ edx eax
-	shr	ecx, 11
+	shr	ecx, 11	# 2kb !! NOTE!! iso9660!
 	add	[eax + edx + fs_handle_dir], ecx	# add lba lseek pos
 
 0:	pop_	edi edx ecx ebx eax
@@ -1104,6 +1106,7 @@ fs_validate_handle$:
 
 
 # in: eax = handle index
+KAPI_DECLARE fs_close
 fs_close:	# fs_free_handle
 	push	edx
 	push	ebx
@@ -1190,7 +1193,9 @@ fs_opendir:
 fs_stat_:
 	call	SEL_kernelCall:0
 # in: eax = path string
+# out: ecx = file size
 # out: CF = 0: exists; 1: does not exist.
+KAPI_DECLARE fs_stat
 fs_stat:
 	push	edx
 	xor	edx, edx
@@ -1199,6 +1204,7 @@ fs_stat:
 	LOCK_READ [fs_handles_sem]
 	mov	edx, [fs_handles$]
 	push	dword ptr [edx + eax + fs_handle_dirent + fs_dirent_attr] # byte
+	mov	ecx, [eax + edx + fs_handle_dirent +  fs_dirent_size] # return
 	UNLOCK_READ [fs_handles_sem]
 	call	fs_close
 	pop	eax
@@ -1212,11 +1218,12 @@ fs_open_:
 # in: eax = pointer to path string
 # in: edx = flags: 0x80000000 = print error
 # out: eax = directory handle (pointer to struct), to be freed with fs_close.
+KAPI_DECLARE fs_open
 fs_open:
 ####################################################################
 	push	ebp
 	push	ebx
-	push	ecx
+	#push	ecx
 	push	edx
 	push	esi
 	push	edi
@@ -1299,6 +1306,9 @@ fs_open:
 		mov	eax, edx
 	.endif
 	mov	eax, [ebp] # get last handle
+	mov	ecx, [fs_handles$]
+	mov	ecx, [ecx + eax + fs_handle_dirent + fs_dirent_size]
+
 	clc
 
 9:	mov	esp, ebp
@@ -1306,7 +1316,7 @@ fs_open:
 	pop	edi
 	pop	esi
 	pop	edx
-	pop	ecx
+	#pop	ecx
 	pop	ebx
 	pop	ebp
 	ret

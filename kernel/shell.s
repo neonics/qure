@@ -1470,7 +1470,8 @@ cmd_cat$:
 	.endif
 
 	mov	eax, offset 88b
-	call	fs_openfile	# out: eax = file handle
+	KAPI_CALL fs_openfile
+#	call	fs_openfile	# out: eax = file handle
 	jc	3f
 	call	fs_handle_read # in: eax = handle; out: esi, ecx
 	jc	6f

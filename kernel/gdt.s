@@ -166,12 +166,12 @@ GDT_kernelCall:	DEFCALLGATE SEL_compatCS, 0, 3, 0
 GDT_kernelMode:	DEFCALLGATE SEL_compatCS, 0, 3, 0
 GDT_kernelGate:	DEFCALLGATE SEL_compatCS, 0, 3, 0
 
-GDT_ring0SS:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING0, (FL_32|FL_GR4kb)
-
 GDT_tss_pf:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 GDT_tss_df:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
+GDT_tss_np:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 
-GDT_kapi:	DEFGDT 4096, 4095, ACCESS_CODE, (FL_32|FL_GR1b)
+# ACC_RING1 works when caller is RING1.
+GDT_kapi:	DEFGDT 0, 4095, ACCESS_CODE|ACC_RING0|ACC_DC, (FL_32|FL_GR1b)
 
 pm_gdtr:.word . - GDT -1
 	.long GDT
@@ -215,9 +215,9 @@ rm_gdtr:.word 0
 .equ SEL_kernelCall,	8 * 26	# d0
 .equ SEL_kernelMode,	8 * 27	# d8
 .equ SEL_kernelGate,	8 * 28	# e0
-.equ SEL_ring0SS,	8 * 29	# e8
-.equ SEL_tss_pf,	8 * 30	# f0
-.equ SEL_tss_df,	8 * 31	# f8
+.equ SEL_tss_pf,	8 * 29	# e8
+.equ SEL_tss_df,	8 * 30	# f0
+.equ SEL_tss_np,	8 * 31	# f8
 .equ SEL_kapi,		8 * 32	# 100
 .equ SEL_MAX, SEL_kapi + 0b11	# ring level 3
 
@@ -578,7 +578,6 @@ init_gdt_16:
 	GDT_STORE_SEG GDT_ring1DS
 	GDT_STORE_SEG GDT_ring2DS
 	GDT_STORE_SEG GDT_ring3DS
-	GDT_STORE_SEG GDT_ring0SS
 
 	# store proper linear (base 0) GDT/IDT address in pointer structure
 	mov	eax, offset GDT
@@ -612,7 +611,7 @@ init_gdt_16:
 
 	# align the stack top with 4kb physical page:
 	add	edx, [database]
-	add	edx, KERNEL_MIN_STACK_SIZE + 4095
+	add	edx, 8*KERNEL_MIN_STACK_SIZE + 4095
 	and	edx, ~4095
 	.if DEBUG
 		print_16 "stack top physical: "
@@ -679,6 +678,12 @@ init_gdt_16:
 	GDT_STORE_SEG GDT_tss_df
 	mov	eax, 108
 	GDT_STORE_LIMIT GDT_tss_df
+
+	mov	eax, offset TSS_NP
+	add	eax, ebx
+	GDT_STORE_SEG GDT_tss_np
+	mov	eax, 108
+	GDT_STORE_LIMIT GDT_tss_np
 
 
 	# set the call gates

@@ -22,21 +22,21 @@ net_service_httpd_main:
 	xor	eax, eax
 	mov	edx, IP_PROTOCOL_TCP<<16 | 80
 	mov	ebx, SOCK_LISTEN
-	call	socket_open_
+	KAPI_CALL socket_open
 	jc	9f
 	printc 11, "HTTP listening on "
-	call	socket_print
+	KAPI_CALL socket_print
 	call	newline
 
 0:	mov	ecx, 10000
-	call	socket_accept_
+	KAPI_CALL socket_accept
 	jc	0b
 
 	push	eax
 	mov	eax, edx
 	.if NET_HTTP_DEBUG
 		printc 11, "HTTP "
-		call	socket_print
+		KAPI_CALL socket_print
 		call	printspace
 	.endif
 
@@ -66,7 +66,7 @@ httpd_sched_client:
 httpd_handle_client:
 	mov	edx, 6	# minimum request size: "GET /\n"
 0:	mov	ecx, 10000
-	call	socket_peek
+	KAPI_CALL socket_peek
 	jc	9f
 
 	lea	edx, [ecx + 1]	# new minimum request size
@@ -85,14 +85,14 @@ httpd_handle_client:
 9:	printlnc 4, "httpd: timeout, closing connection"
 	LOAD_TXT "HTTP/1.1 408 Request timeout\r\n\r\n"
 	call	strlen_
-	call	socket_write
-1:	call	socket_flush
-	call	socket_close
+	KAPI_CALL socket_write
+1:	KAPI_CALL socket_flush
+	KAPI_CALL socket_close
 0:	ret
 
 4:	LOAD_TXT "HTTP/1.1 400 Bad request\r\n\r\n"
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 	jmp	1b
 
 # out: CF = 1: invalid request (request might be incomplete but complete enough
@@ -301,7 +301,7 @@ net_service_tcp_http:
 	mov	word ptr [edi - 1], '/'
 	push	eax
 	mov	eax, offset www_file$
-	call	fs_stat_
+	KAPI_CALL fs_stat
 	pop	eax
 	jnc	1f
 	mov	ebx, -1
@@ -323,7 +323,7 @@ net_service_tcp_http:
 	# now, if it is a directory, append index.html
 	push	eax
 	mov	eax, offset www_file$
-	call	fs_stat_
+	KAPI_CALL fs_stat
 	jc	2f	# takes care of pop eax
 	test	al, FS_DIRENT_ATTR_DIR
 	pop	eax
@@ -346,30 +346,33 @@ net_service_tcp_http:
 	push	edx
 	mov	eax, offset www_file$
 	xor	edx, edx	# fs_open flags argument
-	call	fs_open_
+	KAPI_CALL fs_open
 	pop	edx
 	jc	2f
 
-	call	fs_handle_read_	# out: esi, ecx
-
-	# HACK
-	LOCK_READ [fs_handles_sem]
-	push	edx
 	push	eax
-	call	fs_validate_handle$	# out: edx + eax
-	mov	[eax + edx + fs_handle_buf], dword ptr 0
+	mov	eax, ecx
+	add	eax, 2047
+	and	eax, ~2047
+	call	mallocz
+	mov	edi, eax
+	mov	esi, eax
 	pop	eax
-	pop	edx
-	UNLOCK_READ [fs_handles_sem]
+	jnc 1f; printc 4, "mallocz error"; 1:
+#TODO:	jc	
 
+	KAPI_CALL fs_read	# in: edi,ecx,eax
+	jnc 1f; printc 4, "fs_read error"; 1:
+#TODO:	jc
+	
 	pushf
-	call	fs_close
+	KAPI_CALL fs_close
 	popf
 	pop	eax
 	jnc	1f
 
 	push	eax
-	mov	eax, esi
+	mov	eax, edi
 	call	mfree
 2:	pop	eax
 	mov	esi, offset www_code_404$
@@ -377,6 +380,7 @@ net_service_tcp_http:
 
 ########
 1:	# esi, ecx = file contents
+	mov	esi, edi
 	.if NET_HTTP_DEBUG
 		println "200 "
 	.endif
@@ -388,16 +392,16 @@ net_service_tcp_http:
 
 	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: "
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 
 	mov	esi, offset www_file$
 	call	http_get_mime	# out: esi
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 
 	LOAD_TXT "\r\nConnection: close\r\n\r\n"
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 
 	mov	ebx, [ebp - 8]	# buf
 
@@ -416,7 +420,7 @@ net_service_tcp_http:
 
 	push	ecx
 	mov	ecx, edx
-	call	socket_write
+	KAPI_CALL socket_write
 	pop	ecx
 2:
 # use edi,ecx
@@ -430,9 +434,9 @@ net_service_tcp_http:
 
 1:	mov	ecx, [ebp - 12]
 	mov	esi, ebx
-	call	socket_write
-	call	socket_flush
-	call	socket_close
+	KAPI_CALL socket_write
+	KAPI_CALL socket_flush
+	KAPI_CALL socket_close
 
 	mov	eax, [ebp - 8]
 	call	mfree
@@ -773,7 +777,7 @@ www_expr_handle:
 	.endif
 
 	mov	eax, [esp]
-	call	socket_write
+	KAPI_CALL socket_write
 
 9:	pop	eax
 	pop	edi
@@ -802,30 +806,30 @@ www_err_response:
 
 	mov	esi, offset www_h$
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 
 	mov	esi, edx
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 
 	mov	esi, offset www_h2$
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 
 	mov	esi, offset www_content1$
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 
 	lea	esi, [edx + 4]
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 
 	mov	esi, offset www_content2$
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 
-	call	socket_flush
-	call	socket_close
+	KAPI_CALL socket_flush
+	KAPI_CALL socket_close
 	ret
 
 
@@ -833,7 +837,7 @@ www_err_response:
 www_send_screen:
 	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 
 .data SECTION_DATA_STRINGS
 _color_css$:
@@ -860,7 +864,7 @@ _color_css$:
 
 	mov	esi, offset _color_css$
 	call	strlen_
-	call	socket_write
+	KAPI_CALL socket_write
 
 SEND_BUFFER = 1
 	push	fs
@@ -942,7 +946,7 @@ SEND_BUFFER = 1
 	mov	esi, offset _www_scr$
 	mov	ecx, edi
 	sub	ecx, esi
-	call	socket_write
+	KAPI_CALL socket_write
 	pop	ecx
 	dec	ecx
 	jnz	0b
@@ -951,7 +955,7 @@ SEND_BUFFER = 1
 
 	LOAD_TXT "</pre></body></html>\n"
 	call	strlen_
-	call	socket_write
-	call	socket_flush
-	call	socket_close
+	KAPI_CALL socket_write
+	KAPI_CALL socket_flush
+	KAPI_CALL socket_close
 	ret

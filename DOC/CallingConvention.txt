@@ -1915,3 +1915,26 @@ Paging solution, continued
 The kernel API page can be mapped right before the task's code start.
 
 
+
+Using 0xb - Segment Not Present
+===============================
+The idea is to avoid exposing real method offsets, because this allows code to
+jump to any address.
+
+Using the Segment Not Present:
+
+	and	[GDT_tss_np + 5], ~ACC_PR
+	mov	[TSS_NP + tss_EIP], offset kapi_np
+
+Invoking a call:
+
+	call	SEL_kapi:1
+
+The error code will be the segment, but the offset of the call cannot be
+retrieved except by decompiling the calling instruction.
+
+
+Using 0xd - General Protection Fault
+====================================
+The same as Segment Not Present. Triggered by setting the limit to 0 or 1.
+

@@ -37,8 +37,7 @@ socket_array: .long 0
 # in: ebx = flags (SOCK_LISTEN)
 # out: eax = socket index
 # out: CF
-socket_open_:
-	call	SEL_kernelCall:0
+KAPI_DECLARE socket_open
 socket_open:
 	push	edi
 	push	edx
@@ -116,6 +115,7 @@ socket_open:
 	stc
 	jmp	9b
 
+KAPI_DECLARE socket_close
 socket_close:
 	MUTEX_SPINLOCK_ SOCK
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
@@ -136,14 +136,6 @@ socket_close:
 	mov	eax, [edx + eax + sock_conn]
 	cmp	eax, -1
 	jz	22f
-		push	eax
-		mov	eax, cs
-		and	al, 3
-		pop	eax
-		jz	11f
-		call	net_tcp_fin_priv$
-		jmp	22f
-	11:
 	call	net_tcp_fin
 22:	pop	eax
 1:
@@ -178,9 +170,6 @@ socket_close:
 8:	printc 12, "socket_close: socket already closed"
 	jmp	0b
 
-net_tcp_fin_priv$:
-	call	SEL_kernelCall:0
-	jmp	net_tcp_fin
 
 socket_list:
 	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, ebx, ecx, 9f
@@ -212,6 +201,7 @@ socket_list:
 9:	ret
 
 # in: eax = socket
+KAPI_DECLARE socket_print	# not needed?
 socket_print:
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	eax
@@ -319,6 +309,7 @@ socket_read:
 # in: ecx = timeout in milliseconds
 # in: edx = min bytes
 # similar to socket_read, except the buffer_start is not updated (bytes not marked read).
+KAPI_DECLARE socket_peek
 socket_peek:
 	call	socket_buffer_read
 	jc	9f
@@ -405,6 +396,7 @@ socket_buffer_read:
 # out: esi = data not written
 # out: ecx = datalen not written
 # out: CF: 1: write fail (unsupported proto)
+KAPI_DECLARE socket_write
 socket_write:
 	MUTEX_SPINLOCK_ SOCK
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
@@ -424,25 +416,14 @@ socket_write:
 
 socket_write_tcp$:
 	mov	eax, [eax + sock_conn]	# tcp connection
-		push	ebx
-		mov	ebx, cs
-		and	bl, 3
-		pop	ebx
-		jz	1f
-		call	socket_write_tcp_priv$
-		jmp	9f
-	1:
 	call	net_tcp_sendbuf
 
 9:	pop	eax
 	MUTEX_UNLOCK_ SOCK
 	ret
 
-socket_write_tcp_priv$:
-	call	SEL_kernelCall:0
-	jmp	net_tcp_sendbuf
-
 # flushes pending writes
+KAPI_DECLARE socket_flush
 socket_flush:
 	MUTEX_SPINLOCK_ SOCK
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
@@ -451,22 +432,11 @@ socket_flush:
 	cmp	byte ptr [eax + sock_proto], IP_PROTOCOL_TCP
 	jnz	9f
 	mov	eax, [eax + sock_conn]
-		push	eax
-		mov	eax, cs
-		and	al, 3
-		pop	eax
-		jz	1f
-		call	net_tcp_sendbuf_flush_priv$
-		jmp	9f
-	1:
 	call	net_tcp_sendbuf_flush
 9:	pop	eax
 	MUTEX_UNLOCK_ SOCK
 	ret
 
-net_tcp_sendbuf_flush_priv$:
-	call	SEL_kernelCall:0
-	jmp	net_tcp_sendbuf_flush
 
 # TCP socket usage:
 #
@@ -538,8 +508,7 @@ net_sock_deliver_accept:
 # in: ecx = timeout: 0: peek; any other value: block.
 # out: edx = connected peer socket
 # out: CF
-socket_accept_:
-	call	SEL_kernelCall:0
+KAPI_DECLARE socket_accept
 socket_accept:
 	MUTEX_SPINLOCK_ SOCK
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE

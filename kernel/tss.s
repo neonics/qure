@@ -35,6 +35,7 @@ TSS_STRUCT_SIZE = .
 TSS:	.space TSS_STRUCT_SIZE
 TSS_DF:	.space TSS_STRUCT_SIZE	# TSS for Double Fault handler
 TSS_PF:	.space TSS_STRUCT_SIZE	# TSS for Page Fault handler
+TSS_NP:	.space TSS_STRUCT_SIZE	# TSS for Segment Not Present handler
 NUM_TSS = (. - TSS) / TSS_STRUCT_SIZE
 
 .text16

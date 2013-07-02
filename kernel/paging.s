@@ -192,6 +192,7 @@ mov eax, cr3
 mov [TSS + tss_CR3], eax
 mov [TSS_DF + tss_CR3], eax
 mov [TSS_PF + tss_CR3], eax
+mov [TSS_NP + tss_CR3], eax
 	call	paging_show_struct
 	ret
 

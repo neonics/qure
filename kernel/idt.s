@@ -903,11 +903,17 @@ debug_print_gdt_descriptor:
 	mov	dl, al
 	call	printbin8
 	# better called SEGMENT flag: 1 = segment, 0 = descriptor (gate[int,call,trap],LDT,TSS)
-	test	al, ACC_SYS	# SYS flag 0 = descriptor; 1 = segment
+	test	al, ACC_NRM	# SYS flag 0 = descriptor; 1 = segment
 	jz	1f
 	# it's a segment selector
 	PRINTFLAG al, ACC_CODE, "Code", "Data"
 	PRINTBITSb al, ACC_RING_SHIFT, 2, " DPL"
+	GDT_GET_BASE edx, ebx
+	print " Base: "
+	call	printhex8
+	print " Limit: "
+	GDT_GET_LIMIT edx, ebx
+	call	printhex8
 	jmp	9f
 
 1:	and	al, 0xf	# low 4 bits is the GATE type
@@ -1226,6 +1232,7 @@ ex_df_task_isr:
 	#mov	es, eax
 	#mov	ds, eax
 	printc 0xf4, "Double Fault"
+jmp 0f
 	DEBUG_DWORD ecx
 	DEBUG_WORD ss
 	DEBUG_DWORD esp
@@ -1241,7 +1248,8 @@ ex_df_task_isr:
 
 	DEBUG_DWORD ecx
 	inc	ecx
-call more
+#call more
+0:hlt;jmp 0b
 	iret	# doesn't use stack if EFLAGS.NT (next task)
 	DEBUG "again!"
 	call newline
@@ -1282,9 +1290,28 @@ ex_pf_task_isr:
 	call	print_tss
 
 	inc	ecx
-
+debug "ex_pf_task_isr returning"
+mov ebp, esp
+DEBUG_DWORD [ebp], "eip"
+DEBUG_DWORD [ebp+4], "cs"
+DEBUG_DWORD [ebp+8], "eflags"
 	iret	# EFLAGS.NT
 	jmp	ex_pf_task_isr
+
+
+ex_np_task_isr:
+	printc 4, "Segment Not Present"
+0:hlt; jmp 0b
+	iret
+	jmp	ex_np_task_isr
+
+ex_gp_task_isr:
+	printc 4, "General Protection Fault"
+0:hlt; jmp 0b
+	iret
+	jmp	ex_np_task_isr
+
+
 ###################################################################
 
 
@@ -1311,8 +1338,37 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	# update int 3: make CPL3 accessible
 	mov	[IDT + 3*8 + 5], byte ptr (ACC_PR|IDT_ACC_GATE_INT32|ACC_RING3)
 
-	push	esi
+	push_	esi edi ebx edx
+BAR:
+	mov	esi, offset TSS_PF
+	mov	edi, EX_PF
+	mov	edx, SEL_tss_pf
+	mov	ebx, offset ex_pf_task_isr
+	call	idt_init_ex
+
+	mov	esi, offset TSS_DF
+	mov	edi, EX_DF
+	mov	edx, SEL_tss_df
+	mov	ebx, offset ex_df_task_isr
+	call	idt_init_ex
+
 .if 1
+	mov	esi, offset TSS_NP
+	mov	edi, EX_NP
+	mov	edx, SEL_tss_np
+	mov	ebx, offset ex_np_task_isr
+	call	idt_init_ex
+.endif
+
+.if 0
+	mov	esi, offset TSS_NP	# reuse the tss
+	mov	edi, EX_GP
+	mov	edx, SEL_tss_np
+	mov	ebx, offset ex_gp_task_isr
+	call	idt_init_ex
+.endif
+
+.if 0
 	# update page fault handler: IDT offset is ignored when using TSS
 	mov	[IDT + EX_PF*8 + 2], word ptr SEL_tss_pf
 	mov	[IDT + EX_PF*8 + 4], word ptr (ACC_PR|ACC_RING0|IDT_ACC_GATE_TASK32)<<8
@@ -1330,6 +1386,7 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	mov	eax, [esi + tss_ESP0]
 	mov	[esi + tss_ESP], eax
 .endif
+.if 0
 
 	# update double fault handler: IDT offset is ignored when using TSS
 	mov	[IDT + EX_DF*8 + 2], word ptr SEL_tss_df
@@ -1347,12 +1404,8 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	mov	[esi + tss_CR3], eax
 	mov	eax, [esi + tss_ESP0]
 	mov	[esi + tss_ESP], eax
-
-	DEBUG_DWORD [esi + tss_ESP]
-	DEBUG_DWORD [esi + tss_CR3]
-#	call more
-
-	pop	esi
+.endif
+	pop_	edx ebx edi esi
 
 .if IRQ_SHARING
 	# register the IRQ core handlers
@@ -1376,4 +1429,30 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 
 	popf	# leave IF (cli/sti) as it was
 	ret
+
+
+# in: edx = selector
+# in: edi = exception nr
+# in: esi = TSS
+# in: ebx = handler offset
+idt_init_ex:
+
+	# update page fault handler: IDT offset is ignored when using TSS
+	mov	[IDT + edi*8 + 2], dx # word ptr SEL_tss_pf
+	mov	[IDT + edi*8 + 4], word ptr (ACC_PR|ACC_RING0|IDT_ACC_GATE_TASK32)<<8
+
+	# this determines what code is called when the TSS is activated:
+	mov	[esi + tss_EIP], ebx # dword ptr offset ex_pf_task_isr
+	mov	[esi + tss_SS0], dword ptr SEL_compatDS
+	mov	[esi + tss_SS], dword ptr SEL_compatDS
+	mov	[esi + tss_DS], dword ptr SEL_compatDS
+	mov	[esi + tss_ES], dword ptr SEL_compatDS
+	mov	[esi + tss_CS], dword ptr SEL_compatCS
+	mov	eax, [page_directory_phys]
+	mov	[esi + tss_CR3], eax
+	mov	eax, [esi + tss_ESP0]
+	mov	[esi + tss_ESP], eax
+
+	ret
+
 
