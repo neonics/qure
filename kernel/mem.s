@@ -2165,13 +2165,16 @@ malloc_page_phys:
 	xor	ebx, ebx
 	mov	ecx, [esi + array_index]
 	shr	ecx, 2
+	.if MALLOC_PAGE_DEBUG
+		DEBUG_DWORD ecx
+	.endif
 0:	lodsd
 	.if MALLOC_PAGE_DEBUG
 		DEBUG_DWORD eax
 	.endif
 	bsf	edx, eax	# set edx to first bit set in eax
 	jnz	2f		# found
-	add	ebx, 4
+	add	ebx, 4*32	# increment dword index
 	loop	0b
 	.if MALLOC_PAGE_DEBUG
 		DEBUG "no free page"
@@ -2186,6 +2189,9 @@ malloc_page_phys:
 	btr	dword ptr [esi - 4], edx	# mark allocated
 	add	ebx, [mem_pages]
 	mov	eax, [ebx + edx * 4]
+	.if MALLOC_PAGE_DEBUG
+		DEBUG_DWORD eax
+	.endif
 	clc
 	jmp	0f	# done
 1:	########################
@@ -2213,8 +2219,9 @@ malloc_page_phys:
 	# split index into 32-bit base + bit index
 	mov	ebx, edx
 	mov	ecx, edx
-	shr	ebx, 5	# 32 bits per entry
+	shr	ebx, 5-2	# 32 bits per entry * 4
 	and	ecx, 31	# bit index
+	and	bl, ~3
 
 	.if MALLOC_PAGE_DEBUG
 		DEBUG_DWORD edx
@@ -2229,29 +2236,17 @@ malloc_page_phys:
 	jb	2f
 
 1:	PTR_ARRAY_NEWENTRY [mem_pages_free], 4, 9f
-	mov	dword ptr [eax + edx], 0 # mark allocated so wont reuse
+	mov	dword ptr [eax + ebx], 0 # mark allocated so wont reuse
 	# we ignore edx, and calc it again
 2:
-	btr	[eax + ebx * 4], ecx	# mark allocated
+	btr	[eax + ebx], ecx	# mark allocated
 
 	mov	eax, [mem_heap_high_start_phys]
 	clc
 
 0:
 	.if MALLOC_PAGE_DEBUG
-		pushf
-		call	newline
-		push_	esi eax  edx
-		mov	esi, [mem_pages_free]
-		mov	ecx, [esi + array_index]
-	0:	lodsd
-		mov	edx, eax
-		call	printhex8
-		call	printspace
-		loop	0b
-		call	newline
-		pop_	edx eax esi
-		popf
+		call	page_phys_print_free$
 	.endif
 
 	pop_	ecx esi edx ebx
@@ -2264,6 +2259,7 @@ malloc_page_phys:
 # in: eax = page(s) physical base address
 mfree_page_phys:
 	# assume that malloc_page_phys is called, [mem_pages(_free)] setup.
+	LOCK_WRITE [mem_pages_sem]
 	push_	edi ecx
 	mov	edi, [mem_pages]
 	mov	ecx, [edi + array_index]
@@ -2293,21 +2289,39 @@ mfree_page_phys:
 	bts	[edi], ecx
 
 	.if MALLOC_PAGE_DEBUG
-		call	newline
-		push_	esi eax  edx
-		mov	esi, [mem_pages_free]
-		mov	ecx, [esi + array_index]
-	0:	lodsd
-		mov	edx, eax
-		call	printhex8
-		call	printspace
-		loop	0b
-		call	newline
-		pop_	edx eax esi
+		call	page_phys_print_free$
 	.endif
 
 	pop_	ecx edi
+	UNLOCK_WRITE [mem_pages_sem]
 	ret
 9:	printc 4, "mfree_page_phys: unknown page: "
 	push edx; mov edx, eax; call printhex8; pop edx;
 	call	newline
+
+
+.if MALLOC_PAGE_DEBUG
+page_phys_print_free$:
+	pushf
+	call	newline
+	DEBUG "free:"
+	push_	esi eax  edx
+	mov	esi, [mem_pages_free]
+	mov	ecx, [esi + array_index]
+	shr	ecx, 2
+	DEBUG_BYTE cl
+	inc ecx
+0:	lodsd
+	mov	edx, eax
+	call	printhex8
+	call	printspace
+	loop	0b
+	call	newline
+	pop_	edx eax esi
+	popf
+	ret
+.endif
+
+cmd_page_phys:
+	
+	ret
