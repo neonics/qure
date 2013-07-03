@@ -99,9 +99,9 @@ print_tss:
 	movzx	edx, dx
 0:	DEBUG_WORD dx, "TSS"
 	GDT_GET_FLAGS al, edx
-	DEBUG_BYTE al, "F="
+	DEBUG_BYTE al, "F"
 	GDT_GET_ACCESS al, edx
-	DEBUG_BYTE al, "A="
+	DEBUG_BYTE al, "A"
 
 
 	GDT_GET_BASE eax, edx
@@ -111,7 +111,7 @@ print_tss:
 	DEBUG_DWORD [eax + tss_ESP0], "esp0"
 	DEBUG_DWORD [eax + tss_CS], "cs"
 	DEBUG_DWORD [eax + tss_EIP], "eip"
-	DEBUG_DWORD [eax + tss_LINK], "LINK"
+	DEBUG_WORD [eax + tss_LINK], "LINK"
 	call	newline
 	mov	edx, [eax + tss_EIP]
 	call	debug_printsymbol
