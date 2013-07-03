@@ -7,6 +7,8 @@ kapi_idx:
 kapi_ptr:
 .data SECTION_DATA_KAPI_STR
 kapi_str:
+.data SECTION_DATA_KAPI_ARG
+kapi_arg:
 .text32
 
 KAPI_NUM_METHODS = ( offset data_kapi_idx_end - offset kapi_idx ) / 4
@@ -17,7 +19,7 @@ KAPI_BASE	= 4096 * KAPI_PAGE
 _KAPI_COUNTER = 0
 
 
-.macro KAPI_DECLARE name
+.macro KAPI_DECLARE name, stackargs=0
 	_PTR = .	# get .text offset
 	.data SECTION_DATA_KAPI_STR
 	999: .asciz "\name"
@@ -25,6 +27,8 @@ _KAPI_COUNTER = 0
 	.long 999b
 	.data SECTION_DATA_KAPI_PTR
 	.long	_PTR
+	.data SECTION_DATA_KAPI_ARG
+	.long	\stackargs
 
 	KAPI_\name = _KAPI_COUNTER
 	.print "Declare Kernel API: \name"
@@ -68,6 +72,13 @@ kapi_init: #ret
 	mov	eax, offset kapi_pf
 	xchg	eax, dword ptr [TSS_PF + tss_EIP]
 	mov	[kapi_pf_next], eax
+
+	# update the callgate selector:
+	mov	eax, offset kapi_callgate
+	mov	[GDT_kernelGate + 0], ax
+	shr	eax, 16
+	mov	[GDT_kernelGate + 6], ax
+
 	ret
 9:	printlnc 4, "kapi init error"
 	int 3
@@ -120,11 +131,16 @@ kapi_pf:
 	.if KAPI_PF_DEBUG
 		DEBUG "linked TSS"
 		DEBUG_WORD dx, "link"
-		DEBUG_DWORD [edi + tss_CS]
-		DEBUG_DWORD [edi + tss_EIP]
-		DEBUG_DWORD [edi + tss_EFLAGS]
-		DEBUG_DWORD [edi + tss_ESP]
-		DEBUG_DWORD [edi + tss_EAX]
+		GDT_GET_ACCESS al, edx
+		DEBUG_BYTE al, "A"
+		GDT_GET_FLAGS al, edx
+		DEBUG_BYTE al, "F"
+		DEBUG_DWORD [edi + tss_CS],"CS"
+		DEBUG_DWORD [edi + tss_EIP],"EIP"
+		DEBUG_DWORD [edi + tss_EFLAGS],"EFLAGS"
+		DEBUG_DWORD [edi + tss_SS],"SS"
+		DEBUG_DWORD [edi + tss_ESP],"ESP"
+		DEBUG_DWORD [edi + tss_SS0],"SS0"
 		call	newline
 	.endif
 
@@ -146,14 +162,9 @@ kapi_pf:
 		call	newline
 	.endif
 
-	# alter the linked tss stack - we're not actually going to execute
-	# code in SEL_kapi.
-	# the below will effectively 'nop' the call
-	mov	edx, [ebp]
-	mov	[edi + tss_EIP], edx
-	mov	edx, [ebp + 4]
-	mov	[edi + tss_CS], edx
-	add	dword ptr [edi + tss_ESP], 8	# far call
+	# TODO: check the acess (error code 0)
+
+	# check the address
 
 	mov	edx, cr2
 	mov	ebx, edx
@@ -165,6 +176,11 @@ kapi_pf:
 	cmp	ebx, KAPI_NUM_METHODS
 	jae	9f
 
+
+
+	# alter the linked tss stack - we're not actually going to execute
+	# code in SEL_kapi.
+	# the below will effectively 'nop' the call
 	mov	edx, [kapi_ptr + ebx * 4]
 	.if KAPI_PF_DEBUG 
 		print "KAPI call!"
@@ -173,42 +189,63 @@ kapi_pf:
 		mov	esi, [kapi_idx + ebx * 4]
 		call	print
 		call	printspace
+		mov	ecx, [kapi_arg + ebx * 4]
+		DEBUG_DWORD ecx, "ARG",0x07
 		call	printhex8
 		call	debug_printsymbol
 		call	newline
 	.endif
+	# the called method may block, thereby keeping the TSS busy, causing
+	# a #DF on the next call. This could be handled there, but it is best
+	# to let the call continue in the interrupted TSS, which is already
+	# set up with the task SS0 (but is not using it yet because this handler
+	# is declared as a TASK using it's own TSS.).
 
-	# now call the method.
-	# we'll need to restore the registers:
-	pushfd		# save our flags
+	# ebp = linked tss stack
+	# edx = KAPI method
+	
+	mov	eax, [ebp+4]	# get task cs
 
-	push	edx	# method address
+	mov	[edi + tss_CS], eax	# replace SEL_kapi with original cs
 
-	push	edi	# save the tss pointer
-	mov	eax, [edi + tss_EAX]
-	mov	ebx, [edi + tss_EBX]
-	mov	ecx, [edi + tss_ECX]
-	mov	edx, [edi + tss_EDX]
-	mov	esi, [edi + tss_ESI]
-	mov	ebp, [edi + tss_EBP]
-	pushd	[edi + tss_EFLAGS]
-	popfd
-	mov	edi, [edi + tss_EDI]
-	call	[esp+4]
-	mov	[esp+4], edi	# overwrite method offs
-	pop	edi		# tss ptr
+	cmp	eax, SEL_compatCS	# check if the call was made from kernel mode
+	jnz	2f
+	# it's a kernel mode call
+	.if KAPI_PF_DEBUG
+		DEBUG "kernel->kernel"
+	.endif
 
-	pushfd
-	popd	[edi + tss_EFLAGS]
-	mov	[edi + tss_EAX], eax
-	mov	[edi + tss_EBX], ebx
-	mov	[edi + tss_ECX], ecx
-	mov	[edi + tss_EDX], edx
-	mov	[edi + tss_ESI], esi
-	mov	[edi + tss_EBP], ebp
-	popd	[edi + tss_EDI]
+	# we adjust the stack to make it a near call
+	mov	ebx, [ebp]
+	mov	[ebp + 4], ebx
+	add	[edi + tss_ESP], dword ptr 4
+	# now we set the continuation address:
+	mov	[edi + tss_EIP], edx	# the method
+	jmp	3f	# and done.
 
-	popfd		# restore our flags
+2:	# it's a call from unprivileged code. This means that we must first switch
+	# back to the original task to execute the call in it's TSS context,
+	# and then use a callgate to enter kernel mode to call the method.
+	mov	[edi + tss_EIP], dword ptr offset kapi_proxy
+	# put the api method and stackargs count on the stack
+	sub	dword ptr [edi + tss_ESP], 8
+	mov	ebp, [edi + tss_ESP]
+	mov	[ebp + 4], edx
+	mov	[ebp + 0], ecx
+	# the kapi_proxy will take care of calling the callgate.
+
+3:
+	.if KAPI_PF_DEBUG
+		call	newline
+		DEBUG_DWORD edx
+		DEBUG_DWORD [ebp]
+		DEBUG_DWORD [ebp+4]
+		DEBUG_DWORD [ebp+8]
+		DEBUG_DWORD [edi+tss_CS]
+		DEBUG_DWORD [edi+tss_EIP]
+		DEBUG_DWORD [edi+tss_ESP]
+	.endif
+
 
 0:	iret
 	jmp	kapi_pf
@@ -230,6 +267,113 @@ print "not KAPI call"
 1:	DEBUG "returned"
 	iret
 	jmp	kapi_pf
+
+
+KAPI_PROXY_DEBUG = 0
+
+# runs unprivileged in original task
+# in: [esp + 0] = stackarg count
+# in: [esp + 4] = method pointer
+# in: [esp + 8] = return eip
+# in: [esp +12] = return cs
+kapi_proxy:
+	.if KAPI_PF_DEBUG
+		DEBUG "kapi_proxy"
+		DEBUG_WORD cs
+		DEBUG_WORD ss
+		DEBUG_DWORD esp
+		push ebp
+		lea ebp, [esp+4]
+		DEBUG_DWORD [ebp]
+		DEBUG_DWORD [ebp+4]
+		DEBUG_DWORD [ebp+8]
+		DEBUG_DWORD [ebp+12]
+		pop ebp
+	.endif
+
+	call	SEL_kernelGate:0	# call kapi_callgate
+	# the callgate takes care of popping the 2 stackargs
+	# from this stack aswell.
+
+	.if KAPI_PROXY_DEBUG
+		DEBUG "KMETHOD return"
+		DEBUG_DWORD cs
+		DEBUG_DWORD ss
+		DEBUG_DWORD esp
+		push	ebp;lea ebp,[esp+4]
+		DEBUG_DWORD [ebp+0]
+		DEBUG_DWORD [ebp+4]
+		DEBUG_DWORD [ebp+8]
+		DEBUG_DWORD [ebp+12]
+		pop	ebp
+	.endif
+	retf
+
+# built to accept 2 stackargs (8 bytes)
+# (GDT descriptor: GDT_kernelGate)
+kapi_callgate:
+
+	.if KAPI_PROXY_DEBUG
+		DEBUG "kapi_callgate", 0xb0
+		DEBUG_DWORD esp
+		push ebp; lea ebp,[esp+4];
+		DEBUG_DWORD[ebp],"cEIP"		# caller eip
+		DEBUG_DWORD[ebp+4],"cCS"	# caller cs
+		DEBUG_DWORD[ebp+8],"argc"	# nr of stackargs to copy
+		DEBUG_DWORD[ebp+12],"meth"	# method to call
+		DEBUG_DWORD[ebp+16],"cESP"	# caller esp
+		DEBUG_DWORD[ebp+20],"cSS"	# caller ss
+		pop ebp
+	.endif
+
+	cmp	dword ptr [esp + 8], 0
+	jz	1f
+	# it's a stackarg method.
+	# it will expect esp to point to a near address followed by the args.
+	# adjust the stack.
+	push_	eax ebp
+	lea	ebp, [esp + 8]		# remember orig stack ptr
+	mov	eax, [ebp + 8]		# stackarg count
+	shl	eax, 2
+	sub	esp, eax
+
+	push_	esi edi ecx
+	mov	ecx, [ebp + 8]
+	lea	edi, [esp + 12]
+	mov	esi, [ebp + 16]		# get caller esp
+	add	esi, 8			# skip far return
+	rep	movsd
+	pop_	ecx edi esi
+
+	# esp:
+	# [stackargs]
+	# [eax ebp]
+	# [c EIP CS] [argc method] [cESP cSS]
+	
+	pushd	offset 2f
+	pushd	[ebp + 12]
+	ret
+2:	DEBUG "callgate stackargs called"
+	mov	esp, ebp
+	pop_	ebp eax
+	jmp	2f
+
+#########
+1:	call	[esp + 12]
+
+2:	.if KAPI_PROXY_DEBUG
+		DEBUG "method called"
+		push ebp; lea ebp,[esp+4];
+		DEBUG_DWORD[ebp]
+		DEBUG_DWORD[ebp+4]
+		DEBUG_DWORD[ebp+8]
+		DEBUG_DWORD[ebp+12]
+		pop ebp
+	.endif
+	retf	8
+
+
+
 
 kapi_np:
 	print "KAPI - Segment Not Present"

@@ -164,7 +164,7 @@ GDT_ring3DS:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING3, (FL_32|FL_GR4kb)
 # the first 0 is the offset, but can't do math due to GAS limitations
 GDT_kernelCall:	DEFCALLGATE SEL_compatCS, 0, 3, 0
 GDT_kernelMode:	DEFCALLGATE SEL_compatCS, 0, 3, 0
-GDT_kernelGate:	DEFCALLGATE SEL_compatCS, 0, 3, 0
+GDT_kernelGate:	DEFCALLGATE SEL_compatCS, 0, 3, 2 # stackargs: argcnt, method
 
 GDT_tss_pf:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 GDT_tss_df:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
@@ -885,7 +885,8 @@ kernel_callgate_2:
 	# now, on return, the stack is:
 	# [esp] = caller cs, esp, ss
 
-kernel_callgate_3:
+
+kernel_callgate_3: # unreferenced
 	printlnc 0xf0, "kernel callgate 3"
 	DEBUG_WORD cs
 	DEBUG_WORD ds

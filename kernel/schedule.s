@@ -1349,18 +1349,10 @@ task_can_run$:
 # in: all registers are preserved and offered to the task.
 # out: eax = pid
 # calling convention: stdcall [rtl, callee (this method) cleans stack]
+KAPI_DECLARE schedule_task, 4
 schedule_task:
 	cmp	dword ptr [task_queue_sem], -1
 	jz	8f
-
-	# enter CPL0 if needed
-	push	eax
-	mov	eax, cs
-	and	al, 3
-	pop	eax
-	jz	1f
-	call SEL_kernelCall:0
-1:
 
 	# copy regs to stack
 	pushad
@@ -1374,16 +1366,6 @@ schedule_task:
 	mov	eax, SEL_compatDS
 	mov	ds, eax
 	mov	es, eax
-
-	# activate access to page directory
-	mov	eax, cr3
-	push	eax
-	cmp	eax, [page_directory_phys]
-	jz	1f	# same - no need to invalidate TLB
-	mov	eax, [page_directory_phys]
-	mov	cr3, eax
-1:
-
 
 	SEM_SPINLOCK [task_queue_sem], nolocklabel=99f
 
@@ -1407,8 +1389,6 @@ schedule_task:
 
 	call	task_setup_paging	# out: eax
 	jc	55f
-	#mov	eax, cr3
-	#mov	[ebx + task_cr3], eax
 
 	# copy registers
 	lea	edi, [ebx + task_regs]
@@ -1552,14 +1532,7 @@ schedule_task:
 ########
 7:	SEM_UNLOCK [task_queue_sem]	# doesn't use flags
 
-9:	pop	eax		# restore CR3 if changed.
-	pushf
-	mov	edx, cr3
-	cmp	eax, edx
-	jz	1f
-	mov	cr3, eax
-1:	popf
-	popd	gs
+9:	popd	gs
 	popd	fs
 	popd	es
 	popd	ds
@@ -1925,6 +1898,7 @@ continue_task:
 	pop	ebx
 	ret
 
+# in: ebx = task descriptor
 task_setup_paging:
 	push_	edx ebx esi edi ecx ebp
 	mov	ebp, ebx
@@ -1932,6 +1906,7 @@ task_setup_paging:
 	# a task may be scheduled from a task not the kernel task.
 	# get the active page directory to operate upon, as we want
 	# the pages accessible in the current context.
+	# UPDATE: this code runs in the kernel context.
 	mov	esi, cr3
 
 	call	paging_alloc_page_idmap
@@ -2018,6 +1993,8 @@ or ax, PTE_FLAG_U|PTE_FLAG_RW
 	or	ax, PTE_FLAG_P | PTE_FLAG_RW	# high pages RW
 	call	paging_idmap_page_f
 #######################################################
+
+	#
 
 
 	clc

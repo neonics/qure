@@ -1231,13 +1231,20 @@ ex_df_task_isr:
 	#mov	eax, SEL_compatDS
 	#mov	es, eax
 	#mov	ds, eax
+	call	newline
 	printc 0xf4, "Double Fault"
-jmp 0f
-	DEBUG_DWORD ecx
+#jmp 0f
 	DEBUG_WORD ss
 	DEBUG_DWORD esp
-	DEBUG_DWORD [TSS_PF + tss_ESP], "ESP"
-	DEBUG_DWORD [TSS_PF + tss_ESP0], "ESP0"
+	mov	ebp, esp
+	DEBUG_DWORD [ebp],"error"
+	xor	edx, edx
+	str	dx
+	GDT_GET_BASE ebx, ds
+	GDT_GET_BASE eax, edx
+	sub	eax, ebx
+	DEBUG_DWORD [eax + tss_ESP], "ESP"
+	DEBUG_DWORD [eax + tss_ESP0], "ESP0"
 	pushfd
 	pop	eax
 	DEBUG_DWORD eax, "flags"
@@ -1246,14 +1253,15 @@ jmp 0f
 	str	dx
 	call	print_tss
 
-	DEBUG_DWORD ecx
-	inc	ecx
 #call more
-0:hlt;jmp 0b
+.if 1
+	jmp	halt
+.else
 	iret	# doesn't use stack if EFLAGS.NT (next task)
 	DEBUG "again!"
 	call newline
 	jmp	ex_df_task_isr
+.endif
 	#pop_	ebp eax ds es
 ###################################################################
 # Page Fault Interrupt Task Gate

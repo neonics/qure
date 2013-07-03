@@ -2112,7 +2112,7 @@ cmd_fork:
 	push	eax
 	mov	eax, [fork_counter$]
 	inc	dword ptr [fork_counter$]
-	call	schedule_task
+	KAPI_CALL schedule_task
 	ret
 
 

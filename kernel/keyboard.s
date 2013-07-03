@@ -443,7 +443,7 @@ isr_keyboard:
 	mov	eax, offset kb_task
 	add	eax, [realsegflat]
 	xchg	eax, [esp]	# restore eax - the key (arg to kb_task)
-	call	schedule_task	# caller cleanup
+	KAPI_CALL schedule_task	# caller cleanup
 	.if 0
 	jnc 1f
 	DEBUG "*** KB TASK SCHED FAIL ***"

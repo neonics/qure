@@ -427,9 +427,9 @@ OPEN_SHELL_DEFAULT = 0
 	I "Shell"
 	call	newline
 
-.if 0
+.if 1
 	PUSH_TXT "kcons"
-	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING0
+	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING1
 	push	cs
 	push	dword ptr offset console_shell # or shell
 	# task args:
