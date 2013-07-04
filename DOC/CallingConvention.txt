@@ -1938,3 +1938,54 @@ Using 0xd - General Protection Fault
 ====================================
 The same as Segment Not Present. Triggered by setting the limit to 0 or 1.
 
+
+--
+
+
+kapi: Current Approach
+================
+At current, the following happens when an unprivileged task does a kernel call.
+
+It will do a far call to a code selector mapped to a non-present page.
+This results in the task being suspended (the TSS selector is set busy
+and the TSS register fields are updated), and the TSS for the page fault
+handler to be activated.
+
+This means that the page fault handler runs in it's own privileged stack,
+in a global TSS. 
+Kernel calls generally cause task suspension (WAIT_IO and such).
+In order to free the Page fault TSS for other task's calls, the kernel call
+must be made in the privileged stack of the calling task.
+The page fault handler task will modify the unprivileged calling task's stack
+and CS:EIP so that on continuation (an iret in the PF task), the unprivileged
+task will continue at kapi_proxy.
+kapi_proxy will call a callgate that causes the task's TSS (the global
+task-switching TSS that is updated with the privileged stack on each
+scheduler's task switch) to become elevated, and thus using it's own
+privileged stack. This means that all tasks can do a kernel call and
+be suspended.
+The callgate will then take care of copying the stack and calling the
+kernel method. Upon return to kapi_proxy, it will drop privilege,
+clean the stack of the argcount and method pointer, and return after
+the task's KAPI_CALL.
+
+This is not efficient: for each kernel call, there are two (hardware)
+task switches - in and out of the GP handler - followed by entering
+and exiting the callgate, which does a partial taskswitch: it replaces
+the code selector and the stack to elevated versions and vice versa.
+Thus, each call triggers two full task switches and two partial ones.
+
+It would be more efficient if the calling task would switch to it's 
+privileged stack before the page fault handler is called.
+This can be done by declaring the page fault handler as an interrupt
+gate rather than a task, which means it will use the tasks' elevated
+stack - use the current TSS.
+
+Approach: 
+
+	kapi_init: update the IDT to point to a new kapi_pf_isr.
+
+	kapi_pf_isr: will have to do a CR3 switch (CPL0 cs/stack already done).
+	No callgate is needed.
+
+
