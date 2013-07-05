@@ -76,7 +76,23 @@
 .equ ACC_SYS,	0 << 4	# gate / tss
 
 # this applies for ACC_SYS: for other gates, see idt.s
-.equ ACC_GATE_CALL, ACC_SYS | 0b1100
+.equ ACC_T_RESERVED16,	ACC_SYS | 0b0000
+.equ ACC_T_TSS16,	ACC_SYS | 0b0001
+.equ ACC_T_LDT,		ACC_SYS | 0b0010
+.equ ACC_T_TSS16b,	ACC_SYS | 0b0011
+.equ ACC_T_GATE_CALL16,	ACC_SYS | 0b0100
+.equ ACC_T_GATE_TASK32,	ACC_SYS | 0b0101 # TASK Gate. selector:offset = TSS:0.
+.equ ACC_T_GATE_INT16,	ACC_SYS | 0b0110
+.equ ACC_T_GATE_TRAP16,	ACC_SYS | 0b0111
+
+.equ ACC_T_RESERVED32,	ACC_SYS | 0b1000
+.equ ACC_T_TSS32,	ACC_SYS | 0b1001
+.equ ACC_T_RESERVED32_2,ACC_SYS | 0b1010
+.equ ACC_T_TSS32b,	ACC_SYS | 0b1011
+.equ ACC_T_GATE_CALL32,	ACC_SYS | 0b1100
+.equ ACC_T_GATE_INT32,	ACC_SYS | 0b1110 # 0xe
+.equ ACC_T_GATE_TRAP32,	ACC_SYS | 0b1111
+
 
 .equ ACC_CODE,	1 << 3
 .equ ACC_DATA,	0 << 3
@@ -157,7 +173,7 @@ GDT_ring3DS:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING3, (FL_32|FL_GR4kb)
 .word \offs & 0xffff
 .word \sel
 .byte \pc & 0b11111	# param count, upper 3 bits must be 0
-.byte ACC_PR | ((\dpl & 3) << 5) | ACC_GATE_CALL
+.byte ACC_PR | ((\dpl & 3) << 5) | ACC_T_GATE_CALL32
 .word \offs >> 16
 .endm
 
@@ -171,7 +187,9 @@ GDT_tss_np:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 
 # ACC_RING1 works when caller is RING1.
 GDT_kapi:	DEFGDT 0, 4095, ACCESS_CODE|ACC_RING0|ACC_DC, (FL_32|FL_GR1b)
+GDT_ldt:	DEFGDT 0, 0, ACC_PR|ACC_T_LDT, 0
 
+#.align 2
 pm_gdtr:.word . - GDT -1
 	.long GDT
 rm_gdtr:.word 0
@@ -218,7 +236,8 @@ rm_gdtr:.word 0
 .equ SEL_tss_df,	8 * 30	# f0
 .equ SEL_tss_np,	8 * 31	# f8
 .equ SEL_kapi,		8 * 32	# 100
-.equ SEL_MAX, SEL_kapi + 0b11	# ring level 3
+.equ SEL_ldt,		8 * 33	# 108
+.equ SEL_MAX, SEL_ldt + 0b11	# ring level 3
 
 
 .macro GDT_STORE_SEG seg
@@ -240,7 +259,7 @@ rm_gdtr:.word 0
 	# ignore ah as realmode addresses are 20 bits
 .endm
 
-.macro GDT_GET_FLAGS target, sel
+.macro GDT_GET_FLAGS target, sel, table=GDT
 	IS_REG8 _, \target
 	.if !_
 	.error "\target must be 8 bit register"
@@ -259,16 +278,16 @@ xor \target,\target
 	push	_R
 	mov	_R, \sel
 	and	_R, ~7
-	mov	\target, byte ptr [GDT + _R + 6]
+	mov	\target, byte ptr [\table + _R + 6]
 	shr	\target, 4
 	pop	_R
 	.else
-	mov	\target, byte ptr [GDT + \sel + 6]
+	mov	\target, byte ptr [\table + \sel + 6]
 	shr	\target, 4
 	.endif
 .endm
 
-.macro GDT_GET_ACCESS target, sel
+.macro GDT_GET_ACCESS target, sel, table=GDT
 	IS_REG8 _, \target
 	.if !_
 	.error "\target must be 8 bit register"
@@ -287,17 +306,17 @@ xor \target,\target
 	push	_R
 	mov	_R, \sel
 	and	_R, ~7
-	mov	\target, byte ptr [GDT + _R + 5]
+	mov	\target, byte ptr [\table + _R + 5]
 	pop	_R
 	.else
 	push	\sel
 	and	\sel, ~7
-	mov	\target, byte ptr [GDT + \sel + 5]
+	mov	\target, byte ptr [\table + \sel + 5]
 	pop	\sel
 	.endif
 .endm
 
-.macro GDT_GET_BASE target, sel
+.macro GDT_GET_BASE target, sel, table=GDT
 	push	esi
 	mov	esi, \sel
 	and	esi, ~7
@@ -307,14 +326,16 @@ xor \target,\target
 	R8H \target
 	R8L \target
 
-	mov	_R8H, byte ptr [GDT + esi + 7]
-	mov	_R8L, byte ptr [GDT + esi + 4]
+	mov	_R8H, byte ptr [\table + esi + 7]
+	mov	_R8L, byte ptr [\table + esi + 4]
 	shl	_R32, 16
-	mov	_R16, word ptr [GDT + esi + 2]
+	mov	_R16, word ptr [\table + esi + 2]
 	pop	esi
 .endm
 
 .macro GDT_SET_BASE sel, reg
+	IS_REG32 _, \reg
+	.if _
 	R16 \reg
 	R8L \reg
 	R8H \reg
@@ -323,11 +344,16 @@ xor \target,\target
 	mov	[GDT + \sel + 4], _R8L
 	mov	[GDT + \sel + 7], _R8H
 	ror	\reg, 16
+	.else
+	mov	[GDT + \sel + 2], word ptr (\reg)&0xffff
+	mov	[GDT + \sel + 4], byte ptr (\reg >> 16)&0xff
+	mov	[GDT + \sel + 7], byte ptr (\reg >> 24)&0xff
+	.endif
 .endm
 
-.macro GDT_SET_LIMIT sel, reg
+.macro GDT_SET_LIMIT sel, reg, table=GDT
 	IS_REG32 _, \reg
-	and	byte ptr [GDT + \sel + 6], ((~(FL_GR4kb<<4)) & 0xf0)
+	and	byte ptr [\table + \sel + 6], ((~(FL_GR4kb<<4)) & 0xf0)
 
 	.if _
 	R16 \reg
@@ -338,32 +364,32 @@ xor \target,\target
 	jz	100f
 	add	\reg, 4095
 	shr	\reg, 12
-	mov	[GDT + \sel + 0], _R16
+	mov	[\table + \sel + 0], _R16
 	shr	\reg, 16
 	or	_R8L, FL_GR4kb
-	or	[GDT + \sel + 6], _R8L
+	or	[\table + \sel + 6], _R8L
 	jmp	101f
 
-100:	mov	[GDT + \sel + 0], _R16
+100:	mov	[\table + \sel + 0], _R16
 	shr	\reg, 16
-	or	[GDT + \sel + 6], _R8L
+	or	[\table + \sel + 6], _R8L
 101:	pop	\reg
 
 	.else
 
 	.if \reg > 0x000fffff
 	_TMP = (\reg + 0xfff) >> 12
-	mov	[GDT + \sel + 0], word ptr (_TMP & 0xffff)
-	or	[GDT + \sel + 6], byte ptr ((_TMP >> 16) & 0x0f)|(FL_GR4kb<<4)
+	mov	[\table + \sel + 0], word ptr (_TMP & 0xffff)
+	or	[\table + \sel + 6], byte ptr ((_TMP >> 16) & 0x0f)|(FL_GR4kb<<4)
 	.else
-	mov	[GDT + \sel + 0], word ptr \reg & 0xffff
-	or	[GDT + \sel + 6], byte ptr (\reg >> 16) & 0x0f
+	mov	[\table + \sel + 0], word ptr \reg & 0xffff
+	or	[\table + \sel + 6], byte ptr (\reg >> 16) & 0x0f
 	.endif
 
 	.endif
 .endm
 
-.macro GDT_GET_LIMIT target, sel
+.macro GDT_GET_LIMIT target, sel, table=GDT
 	.if 0
 		# The lsl instruction does not work for segment registers
 		IS_SEGREG _, \sel
@@ -378,13 +404,13 @@ xor \target,\target
 			lsl	\target, \sel
 		.endif
 	.else
-		GDT_READ_LIMIT_b \target, \sel
+		GDT_READ_LIMIT_b \target, \sel, \table
 	.endif
 .endm
 
 
 # Reads the segment limit from the GDT, adjusted to byte granularity
-.macro GDT_READ_LIMIT_b target, sel
+.macro GDT_READ_LIMIT_b target, sel, table=GDT
 	push	esi
 	mov	esi, \sel
 	and	esi, ~7
@@ -393,11 +419,11 @@ xor \target,\target
 	R8H \target
 	R8L \target
 	xor	_R8H, _R8H
-	mov	_R8L, [GDT + esi + 6]
+	mov	_R8L, [\table + esi + 6]
 	and	_R8L, 0xf
 	shl	_R32, 16
-	mov	_R16, [GDT + esi + 0]
-	test	[GDT + esi + 6], byte ptr FL_GR4kb << 4
+	mov	_R16, [\table + esi + 0]
+	test	[\table + esi + 6], byte ptr FL_GR4kb << 4
 	pop	esi
 	jz	99f
 	shl	\target, 12
