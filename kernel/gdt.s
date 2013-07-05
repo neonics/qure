@@ -161,10 +161,9 @@ GDT_ring3DS:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING3, (FL_32|FL_GR4kb)
 .word \offs >> 16
 .endm
 
-# the first 0 is the offset, but can't do math due to GAS limitations
-GDT_kernelCall:	DEFCALLGATE SEL_compatCS, 0, 3, 0
-GDT_kernelMode:	DEFCALLGATE SEL_compatCS, 0, 3, 0
-GDT_kernelGate:	DEFCALLGATE SEL_compatCS, 0, 3, 2 # stackargs: argcnt, method
+GDT_kernelCall:	DEFCALLGATE SEL_compatCS, (kernel_callgate  -.text), 3, 0
+GDT_kernelMode:	DEFCALLGATE SEL_compatCS, (kernel_callgate_2-.text), 3, 0
+GDT_kernelGate:	DEFCALLGATE SEL_compatCS, (kernel_callgate_3-.text), 3, 2 # stackargs: argcnt, method
 
 GDT_tss_pf:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 GDT_tss_df:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
@@ -684,24 +683,6 @@ init_gdt_16:
 	GDT_STORE_SEG GDT_tss_np
 	mov	eax, 108
 	GDT_STORE_LIMIT GDT_tss_np
-
-
-	# set the call gates
-	mov	eax, offset kernel_callgate
-	mov	[GDT_kernelCall + 0], ax
-	shr	eax, 16
-	mov	[GDT_kernelCall + 6], ax
-
-	mov	eax, offset kernel_callgate_2
-	mov	[GDT_kernelMode + 0], ax
-	shr	eax, 16
-	mov	[GDT_kernelMode + 6], ax
-
-	mov	eax, offset kernel_callgate_3
-	mov	[GDT_kernelGate + 0], ax
-	shr	eax, 16
-	mov	[GDT_kernelGate + 6], ax
-
 
 	# Load GDT
 

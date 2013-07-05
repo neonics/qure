@@ -50,8 +50,10 @@ rm_idtr:.word 256 * 4
 	.long 0
 
 IDT:
+_I=0
 .rept 256
-DEFIDT 0, SEL_flatCS, ACC_PR+ACC_RING0+ACC_SYS+IDT_ACC_GATE_INT32
+DEFIDT (isr_jump_table-.text+_I), SEL_flatCS, ACC_PR|ACC_RING0|ACC_SYS|IDT_ACC_GATE_INT32
+_I=_I+8
 .endr
 
 
@@ -876,7 +878,7 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	#mov	edx, fs:[ebx + edx * 4] # causes page fault
 	mov	edx, fs:[ebx + edx * 4]
 	call	printhex8
-
+	.if 0
 		mov	eax, edx
 		call	printspace
 		and	edx, ~((1<<22)-1)
@@ -886,6 +888,7 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 		call	printspace
 		call	printhex8
 	call	newline
+	.endif
 	0: hlt; jmp 0b
 
 	pop	fs
@@ -1328,26 +1331,10 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	pushf
 	cli
 
-	mov	ecx, 256
-	mov	esi, offset IDT
-
-	mov	eax, offset isr_jump_table
-
-0:	mov	[esi], ax
-	mov	[esi + 2], word ptr SEL_compatCS
-	mov	[esi + 4], word ptr (ACC_PR|ACC_RING0|IDT_ACC_GATE_INT32) << 8
-	ror	eax, 16
-	mov	[esi + 6], ax
-	ror	eax, 16
-	add	esi, 8
-	add	eax, JMP_ENTRY_LEN
-	loop	0b
-
 	# update int 3: make CPL3 accessible
 	mov	[IDT + 3*8 + 5], byte ptr (ACC_PR|IDT_ACC_GATE_INT32|ACC_RING3)
 
 	push_	esi edi ebx edx
-BAR:
 	mov	esi, offset TSS_PF
 	mov	edi, EX_PF
 	mov	edx, SEL_tss_pf
@@ -1374,44 +1361,6 @@ BAR:
 	mov	edx, SEL_tss_np
 	mov	ebx, offset ex_gp_task_isr
 	call	idt_init_ex
-.endif
-
-.if 0
-	# update page fault handler: IDT offset is ignored when using TSS
-	mov	[IDT + EX_PF*8 + 2], word ptr SEL_tss_pf
-	mov	[IDT + EX_PF*8 + 4], word ptr (ACC_PR|ACC_RING0|IDT_ACC_GATE_TASK32)<<8
-
-	# this determines what code is called when the TSS is activated:
-	mov	esi, offset TSS_PF
-	mov	[esi + tss_EIP], dword ptr offset ex_pf_task_isr
-	mov	[esi + tss_SS0], dword ptr SEL_compatDS
-	mov	[esi + tss_SS], dword ptr SEL_compatDS
-	mov	[esi + tss_DS], dword ptr SEL_compatDS
-	mov	[esi + tss_ES], dword ptr SEL_compatDS
-	mov	[esi + tss_CS], dword ptr SEL_compatCS
-	mov	eax, [page_directory_phys]
-	mov	[esi + tss_CR3], eax
-	mov	eax, [esi + tss_ESP0]
-	mov	[esi + tss_ESP], eax
-.endif
-.if 0
-
-	# update double fault handler: IDT offset is ignored when using TSS
-	mov	[IDT + EX_DF*8 + 2], word ptr SEL_tss_df
-	mov	[IDT + EX_DF*8 + 4], word ptr (ACC_PR|ACC_RING0|IDT_ACC_GATE_TASK32)<<8
-
-	mov	esi, offset TSS_DF
-	# this determines what code is called when the TSS is activated:
-	mov	[esi + tss_EIP], dword ptr offset ex_df_task_isr
-	mov	[esi + tss_SS0], dword ptr SEL_compatDS
-	mov	[esi + tss_SS], dword ptr SEL_compatDS
-	mov	[esi + tss_DS], dword ptr SEL_compatDS
-	mov	[esi + tss_ES], dword ptr SEL_compatDS
-	mov	[esi + tss_CS], dword ptr SEL_compatCS
-	mov	eax, [page_directory_phys]
-	mov	[esi + tss_CR3], eax
-	mov	eax, [esi + tss_ESP0]
-	mov	[esi + tss_ESP], eax
 .endif
 	pop_	edx ebx edi esi
 
