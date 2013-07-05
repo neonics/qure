@@ -52,11 +52,9 @@ rm_idtr:.word 256 * 4
 IDT:
 _I=0
 .rept 256
-DEFIDT (isr_jump_table-.text+_I), SEL_flatCS, ACC_PR|ACC_RING0|ACC_SYS|IDT_ACC_GATE_INT32
+DEFIDT (isr_jump_table-.text+_I), SEL_compatCS, ACC_PR|ACC_RING0|ACC_SYS|IDT_ACC_GATE_INT32
 _I=_I+8
 .endr
-
-
 .text32
 
 # in: ax = interrupt number (at current: al, as the IDT only has 256 ints)
@@ -746,6 +744,8 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	str	dx	# load TR into dx
 	call	debug_print_tss$
 
+	sldt	dx
+	DEBUG_WORD dx,"LDTR"
 	call	debug_print_exception_registers$
 
 ########
@@ -1255,6 +1255,8 @@ ex_df_task_isr:
 
 	str	dx
 	call	print_tss
+	sldt	dx
+	DEBUG_WORD dx,"LDTR"
 
 #call more
 .if 1
@@ -1269,7 +1271,7 @@ ex_df_task_isr:
 ###################################################################
 # Page Fault Interrupt Task Gate
 ex_pf_task_isr:
-	printc 0xf4, "Page Fault"
+	printc 0xf4, "Page Fault!"
 	DEBUG_DWORD ecx
 	DEBUG_WORD ss
 	DEBUG_DWORD esp
@@ -1306,12 +1308,22 @@ mov ebp, esp
 DEBUG_DWORD [ebp], "eip"
 DEBUG_DWORD [ebp+4], "cs"
 DEBUG_DWORD [ebp+8], "eflags"
+jmp halt
 	iret	# EFLAGS.NT
 	jmp	ex_pf_task_isr
 
 
 ex_np_task_isr:
 	printc 4, "Segment Not Present"
+	push	ebp
+	lea	ebp, [esp + 4]
+	DEBUG_DWORD [ebp], "error"
+	DEBUG_DWORD [ebp+4], "eip"
+	DEBUG_DWORD [ebp+8], "cs"
+	DEBUG_DWORD [ebp+12], "eflags"
+	DEBUG_DWORD [ebp+16], "esp?"
+	DEBUG_DWORD [ebp+20], "ss?"
+	pop	ebp
 0:hlt; jmp 0b
 	iret
 	jmp	ex_np_task_isr
@@ -1335,19 +1347,20 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	mov	[IDT + 3*8 + 5], byte ptr (ACC_PR|IDT_ACC_GATE_INT32|ACC_RING3)
 
 	push_	esi edi ebx edx
+.if 1
 	mov	esi, offset TSS_PF
 	mov	edi, EX_PF
 	mov	edx, SEL_tss_pf
 	mov	ebx, offset ex_pf_task_isr
 	call	idt_init_ex
-
+.endif
 	mov	esi, offset TSS_DF
 	mov	edi, EX_DF
 	mov	edx, SEL_tss_df
 	mov	ebx, offset ex_df_task_isr
 	call	idt_init_ex
 
-.if 1
+.if 0
 	mov	esi, offset TSS_NP
 	mov	edi, EX_NP
 	mov	edx, SEL_tss_np
