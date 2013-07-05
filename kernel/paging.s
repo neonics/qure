@@ -711,7 +711,7 @@ paging_print_pt_struct$:
 	test	eax, PDE_FLAG_S
 	jz	4f
 	println "  4Mb page"
-	jmp	1f	# skip PTE: it's a 4mb page
+	ret	# skip PTE: it's a 4mb page
 
 4:	cmp	ecx, 1024
 	jnz	2f
