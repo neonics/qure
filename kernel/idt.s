@@ -868,9 +868,10 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	call	printhex8
 	print " CR2: "
 	mov	edx, cr2	# fault address
+	mov	eax, edx
 	call	printhex8
 
-	print " PDE #"
+	print " PDE#"
 	shr	edx, 22
 	call	printdec32
 	call	printspace
@@ -878,6 +879,17 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	#mov	edx, fs:[ebx + edx * 4] # causes page fault
 	mov	edx, fs:[ebx + edx * 4]
 	call	printhex8
+	.if 1
+	and	edx, 0xfffff000
+	and	eax, (1<<22)-1
+	shr	eax, 12
+	PRINT " PTE#"
+	xchg	eax, edx
+	call	printdec32
+	call	printspace
+	mov	edx, fs:[eax + edx * 4]
+	call	printhex8
+	.endif
 	.if 0
 		mov	eax, edx
 		call	printspace
@@ -1347,7 +1359,7 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	mov	[IDT + 3*8 + 5], byte ptr (ACC_PR|IDT_ACC_GATE_INT32|ACC_RING3)
 
 	push_	esi edi ebx edx
-.if 1
+.if 0
 	mov	esi, offset TSS_PF
 	mov	edi, EX_PF
 	mov	edx, SEL_tss_pf
