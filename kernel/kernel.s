@@ -429,7 +429,7 @@ OPEN_SHELL_DEFAULT = 0
 
 .if 1
 	PUSH_TXT "kcons"
-	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING1
+	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING_SERVICE
 	push	cs
 	push	dword ptr offset console_shell # or shell
 	# task args:
@@ -578,7 +578,7 @@ data_kapi_idx_end:
 .data SECTION_DATA_KAPI_STR
 data_kapi_str_end:
 .data SECTION_DATA_KAPI_PTR
-data_kapi_ptrx_end:
+data_kapi_ptr_end:
 .data SECTION_DATA_BSS
 data_bss_end:
 .data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1

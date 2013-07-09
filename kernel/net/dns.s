@@ -179,7 +179,7 @@ dns_type_label_idx_end$:
 cmd_dnsd:
 	I "Starting DNS Daemon"
 	PUSH_TXT "dnsd"
-	push	dword ptr 2	# context switch task
+	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE	# context switch task
 	push	cs
 	push	dword ptr offset net_service_dnsd_main
 	call	schedule_task

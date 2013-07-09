@@ -106,8 +106,6 @@ mov [tls], ebx
 	mov	eax, [eax + console_pid]
 	cmp	eax, -1
 	jz	2f
-#	call	continue_task
-	#jnc 1f; DEBUG "continue_task error"; 1:
 
 0:	ret
 
@@ -116,7 +114,7 @@ mov [tls], ebx
 	call	strdup
 	add	[eax + 7], bl
 	push	eax
-	push	dword ptr offset TASK_FLAG_TASK | TASK_FLAG_RING1
+	push	dword ptr offset TASK_FLAG_TASK | TASK_FLAG_RING_SERVICE
 	push	cs
 	push	dword ptr offset console_shell
 
@@ -124,7 +122,7 @@ mov [tls], ebx
 	mov	eax, [console_cur_ptr]
 	mov	ebx, [console_kb_cur]
 	mov	esi, [esp + 12]
-	call	schedule_task	# caller cleanup
+	KAPI_CALL schedule_task	# caller cleanup
 	jc	9f
 	#DEBUG_DWORD eax, "PID"
 

@@ -10,7 +10,7 @@ NET_HTTP_DEBUG = 1		# 1: log requests; 2: more verbose
 cmd_httpd:
 	I "Starting HTTP Daemon"
 	PUSH_TXT "httpd"
-	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING1
+	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING_SERVICE
 	push	cs
 	push	dword ptr offset net_service_httpd_main
 	call	schedule_task
@@ -55,7 +55,7 @@ net_service_httpd_main:
 httpd_sched_client:
 	call	SEL_kernelCall:0
 	PUSH_TXT "httpc-"
-	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING1
+	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING_SERVICE
 	push	cs
 	push	dword ptr offset httpd_handle_client
 	call	schedule_task

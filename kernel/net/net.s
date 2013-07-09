@@ -648,7 +648,7 @@ net_rx_packet:
 	jc	8f
 
 	PUSH_TXT "net"
-	push	dword ptr 0 # TASK_FLAG_RESCHEDULE # flags
+	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE
 	push	cs
 	push	eax
 	mov	eax, offset net_rx_packet_task

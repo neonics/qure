@@ -13,7 +13,7 @@ sshd_num_clients:	.word 0
 cmd_sshd:
 	I "Starting SSH Daemon"
 	PUSH_TXT "sshd"
-	push	dword ptr TASK_FLAG_TASK	# context switch task
+	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE	# context switch task
 	push	cs
 	push	dword ptr offset net_service_sshd_main
 	call	schedule_task

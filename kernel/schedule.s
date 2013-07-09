@@ -153,6 +153,11 @@ task_flags:	.long 0
 	TASK_FLAG_RING3		= 0x0003 << 16
 	TASK_FLAG_RING_MASK	= 0x0003 << 16
 	TASK_FLAG_RING_SHIFT	= 16
+
+	TASK_FLAG_RING_SERVICE = TASK_FLAG_RING2
+	# using ring1 or ring2: paging distinguishes between CPL[012] and CPL3
+	# using the "U" bit.
+	# syscall would only work with ring0 and ring3.
 task_parent:	.long 0
 task_tls:	.long 0
 task_stackbuf:	.long 0	# remembered for mfree

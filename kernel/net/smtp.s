@@ -18,7 +18,7 @@ smtp_num_clients:	.word 0
 cmd_smtpd:
 	I "Starting SMTP Daemon"
 	PUSH_TXT "smtpd"
-	push	dword ptr 2	# context switch task
+	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE	# context switch task
 	push	cs
 	push	dword ptr offset net_service_smtpd_main
 	call	schedule_task
