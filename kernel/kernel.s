@@ -397,7 +397,7 @@ SCHEDULE_EARLY = 0
 	call	cmd_sshd
 	call	cmd_sipd
 
-OPEN_SHELL_DEFAULT = 0
+OPEN_SHELL_DEFAULT = 1	# see .if 1 below - kcons also prints the message
 
 
 	.if !OPEN_SHELL_DEFAULT
@@ -444,6 +444,7 @@ OPEN_SHELL_DEFAULT = 0
 	xor	eax, eax
 	call	suspend_task
 0:	hlt
+kernel_idle$:	# debug symbol
 	jmp	0b
 .else
 	call	shell
@@ -579,6 +580,8 @@ data_kapi_idx_end:
 data_kapi_str_end:
 .data SECTION_DATA_KAPI_PTR
 data_kapi_ptr_end:
+.data SECTION_DATA_KAPI_LDT
+data_kapi_ldt_end:
 .data SECTION_DATA_BSS
 data_bss_end:
 .data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1

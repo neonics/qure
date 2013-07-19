@@ -1989,3 +1989,57 @@ Approach:
 	No callgate is needed.
 
 
+KAPI: Call Gates
+================
+
+In case of a non-stackarg method, it is possible to not copy parts of the stack,
+but simply add another call, which is required as a post-call-handler to restore
+the state. The call _could_ be made from the interrupt itself, as it already runs
+on the proper stack. However, the interrupt flag is disabled.
+Approach for kapi_int32_call_myself:
+
+	sti
+	jecxz	1f
+	# rep pushd:
+	lea	eax, [ecx * 4]
+	mov	edi, esp
+	lea	esi, [esp + 12] / mov	esi, [esp + 12]
+	nop			/ add	[esp + 12], eax	# pop stackargs
+	sub	esp, eax
+	std
+	rep	movsd
+	cld
+1:	
+	mov	(eax|ebx|ecx|esi|edi|ebp), [ebp + STACK_(reg)]
+	call	[kapi_ptr + ebx * 4]	# if stackarg, they are popped.
+
+	mov	[esp], offset 1f
+	mov	[esp + 4], cs
+	iret
+
+1:	retf
+
+
+
+
+	| stackargs |
+	| ret cs    |
+	| ret eip   |
+	---------------------->	| ss
+				| esp
+	________________________________
+	| eflags |
+	| SEL	 |     & 3 
+	| API	 |
+
+
+KAPI: Sysenter/Sysexit
+======================
+
+This method at current does not yet work, because of the descriptor/selector
+layout.
+The scheduler must be updated to write the MSR for CPL0 ESP, similar to
+updating the TSS ESP0.
+
+Stackarg methods are still somewhat problematic.
+

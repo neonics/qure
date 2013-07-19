@@ -144,8 +144,8 @@ GDT_vid_txt:	DEFGDT 0xb8000, 0x00ffff, ACCESS_DATA|ACC_RING3, FLAGS_16
 GDT_vid_gfx:	DEFGDT 0xa0000, 0x00ffff, ACCESS_DATA|ACC_RING3, FLAGS_16
 
 GDT_compatCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, (FL_32|FL_GR1b) #FLAGS_TSS #ffff 0000 00 9a 00 00
-GDT_compatSS:	DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 9a 00 00
 GDT_compatDS:	DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 9a 00 00
+GDT_compatSS:	DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_32 #ffff 0000 00 9a 00 00
 
 GDT_realmodeCS:	DEFGDT 0, 0x00ffff, ACCESS_CODE, FLAGS_16 #ffff 0000 00 9a 00 00
 GDT_realmodeDS: DEFGDT 0, 0x00ffff, ACCESS_DATA, FLAGS_16 #ffff 0000 00 92 00 00
@@ -189,6 +189,12 @@ GDT_tss_np:	DEFTSS 0, 0xffffff, ACCESS_TSS, FLAGS_TSS #ffff 0000 00 89 40 00
 GDT_kapi:	DEFGDT 0, 4095, ACCESS_CODE|ACC_RING0|ACC_DC, (FL_32|FL_GR1b)
 GDT_ldt:	DEFGDT 0, 0, ACC_PR|ACC_T_LDT, 0
 
+# sysenter/exit: flat 4Gb segments.
+GDT_sysCS:	DEFGDT 0, 0xffffff, ACCESS_CODE, (FL_32|FL_GR4kb)
+GDT_sysSS:	DEFGDT 0, 0xffffff, ACCESS_DATA, (FL_32|FL_GR4kb)
+GDT_usrCS:	DEFGDT 0, 0xffffff, ACCESS_CODE, (FL_32|FL_GR4kb)
+GDT_usrSS:	DEFGDT 0, 0xffffff, ACCESS_DATA, (FL_32|FL_GR4kb)
+
 #.align 2
 pm_gdtr:.word . - GDT -1
 	.long GDT
@@ -207,8 +213,8 @@ rm_gdtr:.word 0
 .equ SEL_vid_gfx, 	8 * 5	# 28
 
 .equ SEL_compatCS, 	8 * 6	# 30 # same as realmodeCS except 32 bit
-.equ SEL_compatSS, 	8 * 7	# 38 same as realmodeSS except 32 bit
-.equ SEL_compatDS, 	8 * 8	# 40 same as realmodeDS except 32 bit
+.equ SEL_compatDS, 	8 * 7	# 38 same as realmodeDS except 32 bit
+.equ SEL_compatSS, 	8 * 8	# 40 same as realmodeSS except 32 bit
 
 .equ SEL_realmodeCS, 	8 * 9	# 48
 .equ SEL_realmodeDS,	8 * 10	# 50
@@ -237,7 +243,13 @@ rm_gdtr:.word 0
 .equ SEL_tss_np,	8 * 31	# f8
 .equ SEL_kapi,		8 * 32	# 100
 .equ SEL_ldt,		8 * 33	# 108
-.equ SEL_MAX, SEL_ldt + 0b11	# ring level 3
+
+.equ SEL_sysCS,		8 * 34
+.equ SEL_sysSS,		8 * 35
+.equ SEL_usrCS,		8 * 36
+.equ SEL_usrSS,		8 * 37
+
+.equ SEL_MAX, SEL_usrSS + 0b11	# ring level 3
 
 
 .macro GDT_STORE_SEG seg

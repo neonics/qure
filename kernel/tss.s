@@ -69,6 +69,8 @@ init_tss_16:
 	add	si, TSS_STRUCT_SIZE
 	loop	0b
 
+	mov	[kernel_sysenter_stack], edx
+
 	pop_	edi esi edx ecx eax
 	ret
 

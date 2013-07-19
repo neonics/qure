@@ -332,7 +332,10 @@ schedule_top_delay$: .long 0
 
 	cmp	bl, 3
 	jb	100f
+	push ebp
+	mov ebp, eax
 	call	schedule_print
+	pop ebp
 
 100:	pop	esi
 	pop	edx
@@ -440,6 +443,7 @@ scheduler_init:
 
 idle_task:
 	hlt
+idle_task$:	# debug symbol
 	jmp idle_task
 
 # spinlock
@@ -1516,15 +1520,35 @@ schedule_task:
 #	jz	1f
 	call	alloc_task_priv_stack
 	# TODO: jc / unregister task
+
+	.if 1 # TASK_PRIV_STACK_ASSERT
+		pushad
+		sub	ebx, [task_queue]
+		ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, edx, ecx, 9999f
+		cmp	ecx, ebx
+		jz	9991f 
+		cmp	eax, [edx + ecx + task_stack0_top]
+		jnz	9991f
+		printc 12, "ERROR: task duplicate privstack alloc: "
+		DEBUG_DWORD eax
+		DEBUG_DWORD ecx
+		DEBUG_DWORD ebx
+		DEBUGS [edx + ecx + task_label], "prior:"
+		DEBUGS [edx + ebx + task_label], "cur"
+		call newline
+		int 3
+	9991:
+		ARRAY_ENDL
+	9999:
+		popad
+	.endif
+
 	mov	[ebx + task_stack0_top], eax
-#	DEBUG_DWORD eax,"stack top"
 	mov	edx, eax
 	sub	eax, 4096 >> offset TASK_PRIV_STACK_SHIFT
 	and	eax, ~4095
-#	DEBUG_DWORD eax,"stackpage"
 	mov	esi, [ebx + task_cr3]
 	call	paging_idmap_page
-#	call	paging_show_struct_
 	GDT_GET_BASE eax, ss
 	sub	edx, eax
 	mov	[ebx + task_stack_esp0], edx
@@ -1649,12 +1673,12 @@ alloc_task_priv_stack:
 		DEBUG_DWORD [edi-4],"bitstring"
 		DEBUG_DWORD eax,"bit"
 	.endif
-	btc	[edi - 4], eax	# clear bit - mark allocated
+	btr	[edi - 4], eax	# clear bit - mark allocated
 	.if TASK_PRIV_STACK_DEBUG_BITS
 		DEBUG_DWORD [edi-4]
 	.endif
 
-	# carry should be set after btc; use it to dec edx
+	# carry should be set after btr; use it to dec edx
 	sbb	edx, ecx	# edx = dword index
 
 	.if TASK_PRIV_STACK_DEBUG_BITS
@@ -1685,6 +1709,7 @@ alloc_task_priv_stack:
 
 	.if TASK_PRIV_STACK_DEBUG_BITS
 		DEBUG_DWORD eax,"page index"
+		DEBUG_DWORD edx,"S_I_P index", 0xf0
 	.endif
 
 	shl	edx, 12-TASK_PRIV_STACK_SHIFT		# stack_in_page offset
@@ -1784,7 +1809,7 @@ alloc_task_priv_stack:
 	.if TASK_PRIV_STACK_DEBUG_BITS
 		DEBUG_DWORD [eax+edx]
 	.endif
-1:	btc	[eax + edx], edi	# clear bit - mark allocated
+1:	btr	[eax + edx], edi	# clear bit - mark allocated
 	.if TASK_PRIV_STACK_DEBUG_BITS
 		DEBUG_DWORD [eax+edx]
 	.endif
@@ -2022,6 +2047,7 @@ or ax, PTE_FLAG_U|PTE_FLAG_RW
 
 # in: [esp] = address of mutex
 # Callee frees stack.
+# NOTE: this accesses the task structure, which should become hidden to tasks.
 task_wait_io:
 	push_	eax ecx ebp
 	lea	ebp, [esp + 3*4 + 4]
@@ -2117,6 +2143,7 @@ TASK_PRINT_TLS		= 1
 TASK_PRINT_SOURCE_LINE	= 1
 TASK_PRINT_BG_COLOR = 0x10
 
+# in: ebp = task
 schedule_print:
 	push	eax
 	push	ebx
@@ -2189,15 +2216,6 @@ cmd_tasks:
 
 	call	task_print_h$
 
-		cmp	dword ptr [ebp], 't'|('o'<<8)|('p'<<16)
-		jz	1f
-	printc_ TASK_PRINT_BG_COLOR | 15, "C "	# for current, see
-	mov	eax, [task_queue]
-	mov	ebx, [scheduler_current_task_idx]
-	call	task_print$
-	call	newline
-	1:
-
 	xor	ecx, ecx # index counter, saves dividing ebx by SCHED_STR_SIZE
 	ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, eax, ebx, 9f
 	.if TASK_PRINT_DEAD_JOBS == 0	# default, to keep an eye on array reuse
@@ -2205,12 +2223,7 @@ cmd_tasks:
 	jz	3f
 	.endif
 	mov	edx, ecx
-	cmp	ebx, [task_index]
-	jnz	1f
-	color	TASK_PRINT_BG_COLOR | 15
-1:	call	printdec32
-	color	TASK_PRINT_BG_COLOR | 7
-	call	printspace
+1:	color	TASK_PRINT_BG_COLOR | 7
 
 	cmp	ebx, [scheduler_current_task_idx]
 	jnz	1f
@@ -2239,7 +2252,7 @@ cmd_tasks:
 task_print_h$:
 .data SECTION_DATA_STRINGS	# a little kludge to keep the string from wrappi
 200:
-.ascii " idx pid. P addr.... stack... flags... "
+.ascii "idx pid P addr.... stack... flags... "
 .if TASK_PRINT_2
 .if TASK_PRINT_TLS;	.ascii "tls..... "; .else; .ascii "registrr "; .endif
 .if TASK_PRINT_PARENT;	.ascii "parent.. "; .else; .ascii "eflags.. "; .endif
@@ -2281,6 +2294,7 @@ task_print$:
 	call	printhex1
 	call	printspace
 	mov	edx, [eax + ebx + task_regs + task_reg_eip]
+mov edx, [eax + ebx + task_stack0_top]
 	call	printhex8
 	call	printspace
 	mov	edx, [eax + ebx + task_stack_esp]#task_regs + task_reg_esp]
@@ -2343,7 +2357,6 @@ task_print$:
 	.if TASK_PRINT_SOURCE_LINE
 	call	debug_getsource
 	jc	1f
-	pushcolor TASK_PRINT_BG_COLOR | 14
 	PUSHCOLOR TASK_PRINT_BG_COLOR | 9
 	call	nprint
 	push	edx
@@ -2353,9 +2366,6 @@ task_print$:
 	pop	edx
 	POPCOLOR
 	call	printspace
-#	call	newline
-#	jmp	9f
-	popcolor
 1:
 	.endif
 
@@ -2380,12 +2390,16 @@ task_print$:
 	jb	2f
 	sub	edx, eax
 	printchar_ '+'
-	call	printhex4	# meaningful relative offsets are usually < 64k
+	cmp	edx, 0xff	# try not to line-wrap
+	ja	3f
+	call	printhex2
 2:	popcolor
 1:	call	newline
 
 9:	popad
 	ret
+3:	call	printhex4	# meaningful relative offsets are usually < 64k
+	jmp	2b
 
 #############################################################################
 cmd_top:

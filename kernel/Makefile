@@ -5,13 +5,15 @@ clean:
 
 # i486 due to bswap (and cmpxchg)
 AS = as --32 -march=i486 -R -n --warn --fatal-warnings --gstabs --MD kernel.dep
+# sysenter requires Pentium II (i686) 
+#AS = as --32 -march=i686 -R -n --warn --fatal-warnings --gstabs --MD kernel.dep
 
 kernel.bin: kernel.o
 	@../util/checksymbols $<
 	@echo "   OBJ  $@"
 	@objcopy -O binary -R .strtab $< $@
 
-KERNEL_SRC = kernel.s defines.s macros.s debug.s oo.s debugger.s kapi.s \
+KERNEL_SRC = kernel.s defines.s macros.s debug.s oo.s debugger.s kapi*.s \
 	realmode.s print.s \
 	pmode.s pic.s gdt.s idt.s tss.s \
 	mem.s mem_handle.s hash.s list.s ll.s string.s schedule.s hwdebug.s \
