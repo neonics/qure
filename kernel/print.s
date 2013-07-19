@@ -2052,7 +2052,7 @@ console_set:
 
 
 	mov	eax, SCREEN_BUF_SIZE + 1024
-	call	malloc
+	call	mallocz
 	jc	9f
 	mov	esi, eax
 	mov	[edx + console_screen_buf], eax

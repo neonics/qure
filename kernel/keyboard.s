@@ -700,6 +700,8 @@ keyboard_buffer_wo:	.long 0 # read offset
 .endif
 .text32
 
+# in: ebx = console_kb struct (from console_kb_get) if VIRTUAL_CONSOLES
+# (called from buf_avail only!)
 buf_err$:
 	pushf
 	push	edx
@@ -708,8 +710,6 @@ buf_err$:
 	call	printhex8
 	PRINTc 0xf4, " R="
 .if VIRTUAL_CONSOLES
-	push	ebx
-	call	console_kb_get
 	mov	edx, [ebx + console_kb_buf_ro]
 .else
 	mov	edx, [keyboard_buffer_ro]
@@ -718,7 +718,7 @@ buf_err$:
 	PRINTc 0xf4, " W="
 .if VIRTUAL_CONSOLES
 	mov	edx, [ebx + console_kb_buf_wo]
-	pop	ebx
+	pop	ebx	# see buf_avail below
 .else
 	mov	edx, [keyboard_buffer_wo]
 .endif
@@ -735,7 +735,6 @@ buf_avail:
 	mov	ebx, [console_kb_cur]
 	mov	eax, [ebx + console_kb_buf_ro]
 	sub	eax, [ebx + console_kb_buf_wo]
-	pop	ebx
 .else
 	mov	eax, [keyboard_buffer_ro]
 	sub	eax, [keyboard_buffer_wo]
@@ -745,7 +744,8 @@ buf_avail:
 	# wo < 0, so ad KB_BUF_SIZE
 	add	eax, KB_BUF_SIZE
 	js	buf_err$ # shouldnt happen..
-0:	ret
+0:	pop	ebx
+	ret
 
 buf_putkey:
 	push	esi

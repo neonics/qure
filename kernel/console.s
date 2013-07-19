@@ -98,7 +98,7 @@ mov [tls], ebx
 #	call	suspend_task
 	#jnc 1f; DEBUG "suspend_task error"; 1:
 
-	mov	al, bl
+	movzx	eax, bl
 	call	console_set
 	call	console_kb_set
 
@@ -122,9 +122,8 @@ mov [tls], ebx
 	mov	eax, [console_cur_ptr]
 	mov	ebx, [console_kb_cur]
 	mov	esi, [esp + 12]
-	KAPI_CALL schedule_task	# caller cleanup
+	KAPI_CALL schedule_task	# callee stack cleanup
 	jc	9f
-	#DEBUG_DWORD eax, "PID"
 
 	mov	ebx, [console_cur_ptr]
 	mov	dword ptr [ebx + console_pid], eax
