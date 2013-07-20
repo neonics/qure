@@ -147,21 +147,21 @@ kapi_pf_isr:
 	iret
 
 kapi_catch:
-	#DEBUG "kapi_catch"
 	push	eax
 	mov	eax, [esp + 4 + 8]
 	mov	cr3, eax
 	.if KAPI_PF_DEBUG
-	lea eax, [esp + 4 + 12]
+	DEBUG "kapi_catch", 0xd0
+	lea	eax, [esp + 4]
 	DEBUG_DWORD eax
-	DEBUG_DWORD[eax-12],"EIP"
-	DEBUG_DWORD[eax- 8],"CS"
-	DEBUG_DWORD[eax- 4],"CR3"
-	DEBUG_DWORD[eax- 0],"ESP"
-	DEBUG_DWORD[eax+ 4],"SS"
+	DEBUG_DWORD[eax+ 0],"EIP"
+	DEBUG_DWORD[eax+ 4],"CS"
+	DEBUG_DWORD[eax+ 8],"CR3"
+	DEBUG_DWORD[eax+12],"ESP"
+	DEBUG_DWORD[eax+16],"SS"
 	.endif
 	pop	eax
-	
+
 	retf 4	# also pops from other stack!
 
 
@@ -174,6 +174,7 @@ kapi_catch:
 	.if KAPI_PF_DEBUG
 		DEBUG "unpriv"
 		DEBUG_DWORD [ebp + 20],"esp"
+		DEBUG_DWORD ecx,"#sa"
 	.endif
 	mov	[ebp], edx
 	shl	ecx, 2
@@ -194,6 +195,7 @@ kapi_catch:
 	.endif
 # CPL>0: ebp:      [meth][argsize][ebp][cs][eflags][esp][ss]
 	sub	esp, [esp+4]
+	sub	esp, 8
 # CPL>0:[argsppace][meth][argsize][ebp][cs][eflags][esp][ss]
 # CPL>0:[meth][cs][eflags][catch][stackargs][ret][cs][cr3][esp][ss]
 	pushad
@@ -202,7 +204,7 @@ kapi_catch:
 	mov	eax, [ebp]	# method
 	lea	edi, [esp + 32]
 	stosd
-	mov	ecx, [edi]	# ebp+4 = stacksize
+	mov	ecx, [ebp + 4]#[edi]	# ebp+4 = stacksize
 	mov	[edi], cs
 	add	edi, 4
 	# [meth][cs] done now.
@@ -221,7 +223,16 @@ kapi_catch:
 	lodsd
 	mov	edx, eax	# ret eip
 	lodsd			# ret cs
+.if 0
+DEBUG_DWORD ecx, "ARGS:"
+jecxz 9999f
+push eax
+9990: lodsd; DEBUG_DWORD eax,"a"; stosd; loop 9990b
+pop eax
+9999: 
+.else
 	rep	movsd	# stackargs
+.endif
 	mov	[edi], edx
 	mov	[edi + 4], eax
 	mov	eax, cr3
@@ -238,10 +249,22 @@ kapi_catch:
 		push	ebp
 		call	newline
 		lea	ebp,[esp+4]
+		DEBUG_WORD cs, "CS", 0xe0
+		DEBUG_DWORD ebp, "EBP",0xe0
 		DEBUG_DWORD [ebp+0], "method"
-		DEBUG_DWORD [ebp+4], "cs"
+		DEBUG_DWORD [ebp+4], "cs" #ok
 		DEBUG_DWORD [ebp+8], "eflags"
 		DEBUG_DWORD [ebp+12], "catch"
+		# stack args here
+# we don't have the nr of stackargs available on the stack anymore:
+# little hack - schedule_task is the only stackarg method so far.
+cmp [ebp+0], dword ptr offset schedule_task
+jnz 9999f
+DEBUG_DWORD [ebp+16], "A0"; add ebp, 4
+DEBUG_DWORD [ebp+16], "A1"; add ebp, 4
+DEBUG_DWORD [ebp+16], "A2"; add ebp, 4
+DEBUG_DWORD [ebp+16], "A3"; add ebp, 4
+9999:
 		DEBUG_DWORD [ebp+16], "ret"
 		DEBUG_DWORD [ebp+20], "cs"
 		DEBUG_DWORD [ebp+24], "cr3"
