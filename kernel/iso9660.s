@@ -1018,6 +1018,8 @@ iso9660_make_fs_entry$:
 
 	lea	esi, [edx + iso9660_dr_dir_name]
 	lea	edi, [edi + fs_dirent_name]
+	# ecx is free
+	mov	ecx, 254	# fs_dirent_name size
 0:	lodsb
 	cmp	al, ';'
 	jz	0f
