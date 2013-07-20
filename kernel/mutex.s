@@ -41,15 +41,7 @@ tls_mutex: .long 0
 .text32
 
 .macro YIELD
-	.if 1
-		call	schedule_near
-		#hlt #GP
-	.else
-		pushf
-		sti
-		hlt
-		popf
-	.endif
+	KAPI_CALL yield
 .endm
 
 
@@ -400,6 +392,7 @@ tls_mutex: .long 0
 # scheduler specific:
 
 .macro YIELD_SEM sem
+	# TODO: make system call.
 	push	\sem
 	call	task_wait_io
 .endm
