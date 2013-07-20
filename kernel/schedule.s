@@ -518,6 +518,7 @@ schedule_far:
 
 # this is callable as a near call.
 # in: [esp] = eip
+KAPI_DECLARE yield
 schedule_near:
 	cmp	dword ptr [task_queue_sem], -1
 	jz	9b	# scheduling disabled...
@@ -790,6 +791,8 @@ scheduler_get_task$:
 
 	test	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE #| TASK_FLAG_SUSPENDED
 	jz	1f
+	lea	ebx, [eax + edx]
+	call	task_cleanup$	# in: eax + ecx
 2:	mov	[eax + edx + task_flags], dword ptr -1
 	jmp	0f
 1:	and	[eax + edx + task_flags], dword ptr ~TASK_FLAG_RUNNING
@@ -934,6 +937,8 @@ schedule_isr_TEST:
 
 	test	[ecx + eax + task_flags], dword ptr TASK_FLAG_DONE
 	jz	1f
+	lea	ebx, [ecx + eax]
+	call	task_cleanup$	# free stacks
 	mov	[ecx + eax + task_flags], dword ptr -1 # mark as available
 	jmp	2f
 1:	and	[ecx + eax + task_flags], dword ptr ~TASK_FLAG_RUNNING
@@ -1086,17 +1091,38 @@ job_done:
 
 
 task_done:
+	mov	ebx, [esp]	# task index
+	KAPI_CALL task_exit	# does not return.
+0:	print "."
+	YIELD
+	jmp	0b
+
+
+# mark task as done
+KAPI_DECLARE task_exit
+task_exit:
 0:	MUTEX_LOCK SCHEDULER, nolocklabel=0b
 0:	SEM_SPINLOCK [task_queue_sem], nolocklabel=0b
 
-	mov	ebx, [esp]
+#	mov	ebx, [esp]
 	mov	eax, [task_queue]
 	.if TASK_SWITCH_DEBUG_TASK
 		DEBUGS [eax + ebx + task_label], "done"
 	.endif
-	add	ebx, eax
-	or	[ebx + task_flags], dword ptr TASK_FLAG_DONE
+	or	[eax + ebx + task_flags], dword ptr TASK_FLAG_DONE
 
+	SEM_UNLOCK [task_queue_sem]
+	MUTEX_UNLOCK SCHEDULER
+	# invoke the scheduler
+	YIELD
+	printc 0x4f, "Zombie task scheduled!"
+	ret
+
+
+# in: ebx = task
+# PRECONDITION: task_queue_sem locked
+task_cleanup$:
+	push	eax
 	mov	eax, [ebx + task_page_dir]
 	call	mfree_page_phys
 	mov	eax, [ebx + task_page_tab_lo]
@@ -1113,21 +1139,15 @@ task_done:
 	xor	eax, eax
 	xchg	eax, [ebx + task_stackbuf]
 	call	mfree
+	pop	eax
+	ret
 
-	SEM_UNLOCK [task_queue_sem]
-	MUTEX_UNLOCK SCHEDULER
-
+.if 1
 	pushf
 	pushd	cs
 	push	dword ptr offset 0f
 	jmp	schedule_isr
-
-	# in case the scheduler is locked (TASK_SWITCH_INTERVAL>0 for instance)
-task_done_:	# debug label: nice output in task list
-0:	printchar '.'
-	YIELD
-	jmp	0b
-
+.endif
 
 
 
@@ -1363,6 +1383,19 @@ schedule_task:
 	cmp	dword ptr [task_queue_sem], -1
 	jz	8f
 
+.if 0
+DEBUG_DWORD esp
+push ebp
+lea ebp, [esp + 4]
+mov ecx, 5 #(0x200 - 0x1e0)/4
+push ecx
+0:DEBUG_DWORD [ebp]
+add ebp, 4
+loop 0b
+pop ecx
+pop ebp
+#cmp [fork_counter$], dword ptr 0; jz 2f; cli; jmp halt; 2:
+.endif
 	# copy regs to stack
 	pushad
 	pushd	ss
@@ -1375,7 +1408,6 @@ schedule_task:
 	mov	eax, SEL_compatDS
 	mov	ds, eax
 	mov	es, eax
-
 	SEM_SPINLOCK [task_queue_sem], nolocklabel=99f
 
 	# duplicate schedule check: allow multiple instances of same task
@@ -1428,7 +1460,8 @@ schedule_task:
 	mov	dword ptr [ebx + task_regs + task_reg_eflags], eax
 
 	lodsd	# task flags
-	and	eax, TASK_FLAG_TASK | TASK_FLAG_RING_MASK
+	test	eax, ~(TASK_FLAG_TASK | TASK_FLAG_RING_MASK)
+	jnz	44f	# invalid bits
 	# TODO: check if caller has permission to schedule CPL0 tasks
 	mov	[ebx + task_flags], eax
 	lodsd	# task tabel
@@ -1578,6 +1611,7 @@ schedule_task:
 	popf
 	.endif
 
+#cmp [fork_counter$], dword ptr 0; jnz halt
 	ret	16
 ########
 8:	test	[esp + 12], dword ptr TASK_FLAG_TASK
@@ -1616,6 +1650,16 @@ schedule_task:
 
 55:	call	0f
 	printlnc_ 4, "can't allocate paging structure"
+	stc
+	jmp	7b
+
+44:	call	0f
+	printc_ 4, "invalid task flags: "
+	push	edx
+	mov	edx, eax
+	call	printhex8
+	pop	edx
+	call	newline
 	stc
 	jmp	7b
 
@@ -1826,6 +1870,7 @@ alloc_task_priv_stack:
 # in: eax = task_esp0
 # in: ebx = task descriptor
 free_task_priv_stack:
+	push_	esi edi edx
 	.if TASK_PRIV_STACK_DEBUG
 		DEBUG "free_task_priv_stack"
 		mov	esi, [ebx + task_label]
@@ -1889,7 +1934,8 @@ free_task_priv_stack:
 	.endif
 	bts	[edi + eax * 4], edx	# set bit - mark free
 
-0:	ret
+0:	pop_	edx edi esi
+	ret
 9:	printc 4, "free_tasks_priv_stack: unknown page: "
 	DEBUG_DWORD edx
 
@@ -2048,6 +2094,7 @@ or ax, PTE_FLAG_U|PTE_FLAG_RW
 # in: [esp] = address of mutex
 # Callee frees stack.
 # NOTE: this accesses the task structure, which should become hidden to tasks.
+KAPI_DECLARE task_wait_io, 1
 task_wait_io:
 	push_	eax ecx ebp
 	lea	ebp, [esp + 3*4 + 4]

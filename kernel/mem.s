@@ -2287,17 +2287,24 @@ mfree_page_phys:
 
 	add	edi, [mem_pages_free]
 	bts	[edi], ecx
+	jc	91f
 
 	.if MALLOC_PAGE_DEBUG
 		call	page_phys_print_free$
 	.endif
 
-	pop_	ecx edi
+0:	pop_	ecx edi
 	UNLOCK_WRITE [mem_pages_sem]
 	ret
 9:	printc 4, "mfree_page_phys: unknown page: "
 	push edx; mov edx, eax; call printhex8; pop edx;
 	call	newline
+	jmp	0b
+
+91:	printc 4, "mfree_page_phys: error: page already free: "
+	push edx; mov edx, eax; call printhex8; pop edx
+	call	newline
+	jmp	0b
 
 
 .if MALLOC_PAGE_DEBUG
