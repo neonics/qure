@@ -434,7 +434,7 @@ scheduler_init:
 	push	cs
 	push	dword ptr offset idle_task
 	call	schedule_task
-	#call	suspend_task
+	#call	task_suspend
 	ret
 
 9:	printlnc 4, "No more tasks"
@@ -873,10 +873,7 @@ scheduler_get_task$:
 
 	# we have no tasks that can be scheduled.
 1:	printlnc 4, "Task queue empty"
-1:	PUSHSTRING "ps"
-	mov	esi, esp
-	call	cmd_tasks
-	add	esp, 4
+1:	call	cmd_ps$
 	int 3
 	jmp 	halt
 
@@ -1560,6 +1557,8 @@ pop ebp
 		ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, edx, ecx, 9999f
 		cmp	ecx, ebx
 		jz	9991f 
+		cmp	[edx + ecx + task_flags], dword ptr -1
+		jz	9991f
 		cmp	eax, [edx + ecx + task_stack0_top]
 		jnz	9991f
 		printc 12, "ERROR: task duplicate privstack alloc: "
@@ -1944,6 +1943,8 @@ free_task_priv_stack:
 
 
 ####################################
+# in: eax = pid
+# out: ebx + ecx
 task_get_by_pid:
 	ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, ebx, ecx, 9f
 	cmp	eax, [ebx + ecx + task_pid]
@@ -1953,7 +1954,7 @@ task_get_by_pid:
 1:	ret
 
 # in: eax = pid
-suspend_task:
+task_suspend:
 	push	ebx
 	push	ecx
 	call	task_get_by_pid
@@ -1964,7 +1965,7 @@ suspend_task:
 	ret
 
 # in: eax = pid
-continue_task:
+task_resume:
 	push	ebx
 	push	ecx
 	call	task_get_by_pid
@@ -2228,6 +2229,11 @@ schedule_print:
 	ret
 
 #############################################################################
+cmd_ps$:
+	PUSHSTRING "ps"
+	mov	esi, esp
+	call	cmd_tasks
+	ret	4
 
 cmd_tasks:
 	push	ebp
@@ -2467,7 +2473,37 @@ cmd_top:
 	ret
 #############################################################################
 cmd_kill:
+	call	cmd_get_task$
+	jc	9f	# errormsg already printed
+	printc 11, "killing pid "
+	mov	edx, [ebx + ecx + task_pid]
+	call	printhex8
+	printc 11, " '"
+	mov	esi, [ebx + ecx + task_label]
+	call	print
+	printlnc 11, "'"
+	or	[ebx + ecx + task_flags], dword ptr TASK_FLAG_DONE
+9:	ret
+
+cmd_suspend:
+	call	cmd_get_task$
+	jc	9f
+	call	task_suspend
+9:	ret
+
+cmd_resume:
+	call	cmd_get_task$
+	jc	9f
+	call	task_resume
+9:	ret
+
+# in: esi = commandline
+# out: ebx + ecx = task structure ptr
+# out: eax = pid
+# NOTE! no semlocks!
+cmd_get_task$:
 	lodsd
+	mov	edi, eax	# for errormsg
 	lodsd	# CMD_EXPECTARG 9f
 	or	eax, eax
 	jz	9f
@@ -2480,12 +2516,9 @@ cmd_kill:
 	jc	9f
 	mov	edx, eax
 
-#	SEM_SPINLOCK [task_queue_sem], 8f	# destroys eax, ecx
-	ARRAY_LOOP [task_queue], SCHEDULE_STRUCT_SIZE, ebx, ecx, 1f
-	cmp	[ebx + ecx + task_pid], edx
-	jz	2f
-	ARRAY_ENDL
-	jmp	1f
+	call	task_get_by_pid
+	jc	7f
+	jmp	2f
 
 1:	cmp	edx, '-'|'i'<<8
 	jnz	9f
@@ -2498,20 +2531,20 @@ cmd_kill:
 	mov	ebx, [task_queue]
 	cmp	ecx, [ebx + array_index]
 	jae	7f
+	mov	eax, [ebx + ecx + task_pid]
 
-2:	printc_ 11, "killing pid "
-	mov	edx, [ebx + ecx + task_pid]
-	call	printhex8
-	printc_ 11, " '"
-	mov	esi, [ebx + ecx + task_label]
-	call	print
-	printlnc_ 11, "'"
-	or	[ebx + ecx + task_flags], dword ptr TASK_FLAG_DONE
-1:#	SEM_UNLOCK [task_queue_sem]
+2:	clc
 	ret
+
 7:	printlnc 4, "no such task"
-	jmp	1b
-8:	printlnc 4, "cannot lock task queue"
+	stc
 	ret
-9:	printlnc_ 12, "usage: kill [-i <idx> | -p <hex pid>]"
+8:	printlnc 4, "cannot lock task queue"
+	stc
+	ret
+9:	printc 12, "usage: "
+	mov	esi, edi
+	call	print
+	printlnc 12, " [-i <idx> | -p <hex pid>]"
+	stc
 	ret

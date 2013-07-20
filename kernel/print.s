@@ -472,15 +472,10 @@ COLOR_STACK_SIZE = 2
 .endm
 
 .macro PRINTc_ color, str=esi
-	pushcolor \color
-	PRINT_ "\str"
-	popcolor
+	PRINTc \color, "\str"
 .endm
-
-.macro PRINTLNc_ color, str
-	pushcolor \color
-	PRINTLN_ "\str"
-	popcolor
+.macro PRINTLNc_ color, str=esi
+	PRINTLNc \color, "\str"
 .endm
 
 .macro PRINTc color, str=esi

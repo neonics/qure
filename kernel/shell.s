@@ -192,6 +192,8 @@ SHELL_COMMAND "fork"		cmd_fork
 SHELL_COMMAND "top"		cmd_top
 SHELL_COMMAND "ps"		cmd_tasks
 SHELL_COMMAND "kill"		cmd_kill
+SHELL_COMMAND "bg"		cmd_suspend
+SHELL_COMMAND "fg"		cmd_resume
 # Debugger:
 SHELL_COMMAND_CATEGORY "debugging"
 SHELL_COMMAND "breakpoint"	cmd_breakpoint

@@ -442,7 +442,7 @@ OPEN_SHELL_DEFAULT = 1	# see .if 1 below - kcons also prints the message
 
 	println "Kernel idle loop"
 	xor	eax, eax
-	call	suspend_task
+	call	task_suspend
 0:	hlt
 kernel_idle$:	# debug symbol
 	jmp	0b
