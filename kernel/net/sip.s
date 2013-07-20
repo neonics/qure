@@ -8,10 +8,10 @@
 cmd_sipd:
 	I "Starting SIP Daemon"
 	PUSH_TXT "sipd"
-	push	dword ptr 2	# context switch task
+	push	dword ptr TASK_FLAG_RING_SERVICE|TASK_FLAG_TASK
 	push	cs
 	push	dword ptr offset net_service_sipd_main
-	call	schedule_task
+	KAPI_CALL schedule_task
 	jc	9f
 	OK
 9:	ret
@@ -20,11 +20,11 @@ net_service_sipd_main:
 	xor	eax, eax
 	mov	edx, IP_PROTOCOL_UDP<<16 | 5060
 	mov	ebx, SOCK_LISTEN
-	call	socket_open
+	KAPI_CALL socket_open
 	jc	9f
 
 0:	mov	ecx, 10000
-	call	socket_accept
+	KAPI_CALL socket_accept
 	jc	0b
 	push	eax
 	mov	eax, edx
@@ -37,11 +37,11 @@ net_service_sipd_main:
 
 sipd_handle_client:
 	printc 11, "SIP connection: "
-	call	socket_print
+	KAPI_CALL socket_print
 	call	newline
 
 0:	mov	ecx, 10000
-	call	socket_read
+	KAPI_CALL socket_read
 	jnc	sipd_handle_packet
 
 	printlnc 4, "sipd: request timeout"
@@ -56,7 +56,7 @@ sipd_handle_packet:
 # in: esi = asciz message
 sipd_close:	# NOTE: identical to smtp_close
 	call	strlen_
-	call	socket_write
-	call	socket_flush
-	call	socket_close
+	KAPI_CALL socket_write
+	KAPI_CALL socket_flush
+	KAPI_CALL socket_close
 	ret

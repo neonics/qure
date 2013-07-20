@@ -343,7 +343,7 @@ cmd_ping:
 		mov     edx, IP_PROTOCOL_ICMP << 16 | 0
 		mov	ebx, SOCK_READPEER | SOCK_READTTL
 		mov	eax, -1
-		call	socket_open
+		KAPI_CALL socket_open
 		jc	1f
 		mov	[ebp + 4], eax
 	1:	pop	eax
@@ -367,7 +367,7 @@ cmd_ping:
 	push	eax
 	mov	eax, [ebp + 4]
 	mov	ecx, 2000 # 2 seconds
-	call	socket_read # in: eax, ecx
+	KAPI_CALL socket_read # in: eax, ecx
 	pop	eax
 	jc	3f
 	mov	ecx, [esi]	# SOCK_READPEER
@@ -456,7 +456,7 @@ cmd_ping:
 	mov	eax, [ebp + 4]
 	or	eax, eax
 	js	1f
-	call	socket_close
+	KAPI_CALL socket_close
 1:	add	esp, 8
 	.else
 	add	esp, 4	# local var

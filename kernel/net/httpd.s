@@ -13,7 +13,7 @@ cmd_httpd:
 	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING_SERVICE
 	push	cs
 	push	dword ptr offset net_service_httpd_main
-	call	schedule_task
+	KAPI_CALL schedule_task
 	jc	9f
 	OK
 9:	ret
@@ -58,7 +58,7 @@ httpd_sched_client:
 	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING_SERVICE
 	push	cs
 	push	dword ptr offset httpd_handle_client
-	call	schedule_task
+	KAPI_CALL schedule_task
 	ret
 
 # in: eax = socket
@@ -339,7 +339,7 @@ net_service_tcp_http:
 		printc 13, "Serving file: '"
 		mov	esi, offset www_file$
 		call	print
-		printlnc 13, "'"
+		printc 13, "' "
 	.endif
 
 	push	eax	# preserve socket

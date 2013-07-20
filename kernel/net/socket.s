@@ -231,6 +231,7 @@ socket_print:
 	pop	eax
 	ret
 
+KAPI_DECLARE socket_get_lport
 socket_get_lport:
 	MUTEX_SPINLOCK_ SOCK
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
@@ -269,6 +270,7 @@ socket_get_lport:
 # in: ecx = timeout in milliseconds
 # out: esi, ecx
 # out: CF = timeout.
+KAPI_DECLARE socket_read
 socket_read:
 	push	edx
 	mov	edx, 1

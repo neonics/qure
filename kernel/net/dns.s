@@ -179,10 +179,10 @@ dns_type_label_idx_end$:
 cmd_dnsd:
 	I "Starting DNS Daemon"
 	PUSH_TXT "dnsd"
-	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE	# context switch task
+	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE
 	push	cs
 	push	dword ptr offset net_service_dnsd_main
-	call	schedule_task
+	KAPI_CALL schedule_task
 	jc	9f
 	OK
 9:	ret
@@ -191,14 +191,14 @@ net_service_dnsd_main:
 	xor	eax, eax
 	mov	edx, IP_PROTOCOL_UDP << 16 | 53
 	mov	ebx, SOCK_READPEER	#SOCK_LISTEN
-	call	socket_open
+	KAPI_CALL socket_open
 	jc	9f
 	printc 11, "DNS listening on "
-	call	socket_print
+	KAPI_CALL socket_print
 	call	newline
 
 0:	mov	ecx, 10000
-	call	socket_read
+	KAPI_CALL socket_read
 	jc	0b
 
 	push	eax
@@ -555,6 +555,7 @@ dns_parse_name$:
 	jmp	9b		# ref is last, so, done
 
 #############################################################################
+.if 0	# deprecated - this register format is used by udp.s' handler.
 # in: ebx = nic
 # in: edx = ipv4 frame
 # in: eax = udp frame
@@ -570,6 +571,7 @@ net_dns_service_:
 	pop	edx
 	pop	eax
 	ret
+.endif
 
 # in: eax = peer address (ipv4)
 # in: dx = local port << 16 | peer port (network byte order)
@@ -1002,7 +1004,7 @@ dns_resolve_name:
 	mov	dx, ax
 	xor	eax, eax	# ip
 	xor	ebx, ebx	# flags
-	call	socket_open
+	KAPI_CALL socket_open
 	pop	ebx
 	pop	edx
 	jc	9f
@@ -1018,7 +1020,7 @@ dns_resolve_name:
 	call	net_dns_request
 
 	mov	ecx, 2 * 1000
-	call	socket_read	# in: eax, ecx; out: esi, ecx
+	KAPI_CALL socket_read	# in: eax, ecx; out: esi, ecx
 	jc	8f
 
 	.if NET_DNS_DEBUG > 1
@@ -1178,7 +1180,7 @@ dns_resolve_name:
 7:
 	pop	eax
 
-0:	call	socket_close
+0:	KAPI_CALL socket_close
 	mov	eax, edx
 	.if NET_DNS_DEBUG > 1
 		DEBUG_DWORD eax, "resolve: ip"
@@ -1241,7 +1243,7 @@ net_dns_request:
 	jc	9f
 
 #	call	net_udp_port_get
-	call	socket_get_lport	# in: eax; out: edx=dx
+	KAPI_CALL socket_get_lport	# in: eax; out: edx=dx
 	mov	ax, dx
 	shl	eax, 16
 	mov	ax, 0x35 	# DNS port 53

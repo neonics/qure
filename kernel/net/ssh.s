@@ -13,10 +13,10 @@ sshd_num_clients:	.word 0
 cmd_sshd:
 	I "Starting SSH Daemon"
 	PUSH_TXT "sshd"
-	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE	# context switch task
+	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE
 	push	cs
 	push	dword ptr offset net_service_sshd_main
-	call	schedule_task
+	KAPI_CALL schedule_task
 	jc	9f
 	OK
 9:	ret
@@ -25,14 +25,14 @@ net_service_sshd_main:
 	xor	eax, eax
 	mov	edx, IP_PROTOCOL_TCP<<16 | 22
 	mov	ebx, SOCK_LISTEN
-	call	socket_open
+	KAPI_CALL socket_open
 	jc	9f
 	printc 11, "SSH Daemon listening on "
-	call	socket_print
+	KAPI_CALL socket_print
 	call	newline
 
 0:	mov	ecx, 10000
-	call	socket_accept
+	KAPI_CALL socket_accept
 	jc	0b
 	push	eax
 	mov	eax, edx
@@ -54,7 +54,7 @@ sshd_handle_client:
 	push	dword ptr TASK_FLAG_TASK	# context switch
 	push	cs
 	push	dword ptr offset 1f
-	call	schedule_task
+	KAPI_CALL schedule_task
 	ret
 
 .data
@@ -68,17 +68,17 @@ sshc_state: .byte 0;
 	mov	byte ptr [sshc_state], SSH_STATE_CLIENT_PROTOCOL
 
 	printc 11, "SSH connection: "
-	call	socket_print
+	KAPI_CALL socket_print
 	call	newline
 
 
 	LOAD_TXT "SSH-2.0-QuRe_SSHD_0.1\r\n"
 	call	strlen_
-	call	socket_write
-	call	socket_flush
+	KAPI_CALL socket_write
+	KAPI_CALL socket_flush
 
 0:	mov	ecx, 10000
-	call	socket_read
+	KAPI_CALL socket_read
 	jc	9f
 	pushad
 	call	sshd_parse
@@ -97,9 +97,9 @@ sshc_state: .byte 0;
 # in: esi = asciz message
 sshd_close:
 	#call	strlen_
-	#call	socket_write
-	call	socket_flush
-	call	socket_close
+	#KAPI_CALL socket_write
+	KAPI_CALL socket_flush
+	KAPI_CALL socket_close
 	ret
 
 sshd_parse:

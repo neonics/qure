@@ -18,10 +18,10 @@ smtp_num_clients:	.word 0
 cmd_smtpd:
 	I "Starting SMTP Daemon"
 	PUSH_TXT "smtpd"
-	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE	# context switch task
+	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE
 	push	cs
 	push	dword ptr offset net_service_smtpd_main
-	call	schedule_task
+	KAPI_CALL schedule_task
 	jc	9f
 	OK
 9:	ret
@@ -30,14 +30,14 @@ net_service_smtpd_main:
 	xor	eax, eax
 	mov	edx, IP_PROTOCOL_TCP<<16 | 25
 	mov	ebx, SOCK_LISTEN
-	call	socket_open
+	KAPI_CALL socket_open
 	jc	9f
 	printc 11, "SMTP Daemon listening on "
-	call	socket_print
+	KAPI_CALL socket_print
 	call	newline
 
 0:	mov	ecx, 10000
-	call	socket_accept
+	KAPI_CALL socket_accept
 	jc	0b
 	push	eax
 	mov	eax, edx
@@ -56,25 +56,25 @@ smtpd_handle_client:
 	jae	smtp_close
 
 	PUSH_TXT "smtpd-c"
-	push	dword ptr 2	# context switch
+	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE
 	push	cs
 	push	dword ptr offset 1f
-	call	schedule_task
+	KAPI_CALL schedule_task
 	ret
 
 1:	lock inc word ptr [smtp_num_clients]
 
 	printc 11, "SMTP connection: "
-	call	socket_print
+	KAPI_CALL socket_print
 	call	newline
 
 	LOAD_TXT "220 cloud.neonics.com QuRe Assembly OS smtpd\r\n"
 	call	strlen_
-	call	socket_write
-	call	socket_flush
+	KAPI_CALL socket_write
+	KAPI_CALL socket_flush
 
 0:	mov	ecx, 10000
-	call	socket_read
+	KAPI_CALL socket_read
 	jc	9f
 	call	smtp_parse
 	jnc	0b
@@ -93,9 +93,9 @@ smtpd_handle_client:
 # in: esi = asciz message
 smtp_close:
 	call	strlen_
-	call	socket_write
-	call	socket_flush
-	call	socket_close
+	KAPI_CALL socket_write
+	KAPI_CALL socket_flush
+	KAPI_CALL socket_close
 	ret
 
 # Handle SMTP data
@@ -104,7 +104,7 @@ smtp_close:
 # in: ecx = data len
 net_service_tcp_smtp:
 	printc 11, " SMTP: "
-	call	socket_print
+	KAPI_CALL socket_print
 	call	smtp_parse
 	ret
 
@@ -217,8 +217,8 @@ smtp_parse:
 502:	LOAD_TXT "502 Not implemented\r\n"
 2:	call	strlen_
 	mov	eax, [esp + 8]	# socket
-	call	socket_write
-	call	socket_flush
+	KAPI_CALL socket_write
+	KAPI_CALL socket_flush
 	clc
 
 221:	pop	ecx

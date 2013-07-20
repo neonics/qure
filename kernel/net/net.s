@@ -158,27 +158,27 @@ NET_BUFFERS_NUM = 4
 
 # out: eax = mem address of BUFFER_SIZE bytes, paragraph aligned
 # modifies: edx
-net_buffer_allocate:
+net_buffer_allocate$:
 	PTR_ARRAY_NEWENTRY [net_buffers], NET_BUFFERS_NUM, 9f	# out: eax + edx
 	jc	9f
 	mov	[net_buffer_index], edx
 	add	edx, eax
 	mov	eax, BUFFER_SIZE + 16
 	call	malloc
-	jc	9f
 	mov	[edx], eax
-	add	eax, 15
-	and	al, 0xf0
-	ret
+	jnc	1f
 9:	printlnc 0x4f, "net_buffer_allocate: malloc error"
 	stc
+	pop_	edx eax
 	ret
+# KEEP-WITH-NEXT (1f)
 
-# mod: eax edx
+# out: edi
 net_buffer_get:
+	push_	eax edx
 	mov	eax, [net_buffers]
 	or	eax, eax
-	jz	net_buffer_allocate
+	jz	net_buffer_allocate$
 	mov	edx, [net_buffer_index]
 	add	edx, 4
 	cmp	edx, [eax + array_capacity]
@@ -187,33 +187,37 @@ net_buffer_get:
 0:	mov	[net_buffer_index], edx
 	cmp	edx, [eax + array_index]
 	mov	eax, [eax + edx]
-	jnb	net_buffer_allocate
-	add	eax, 15
+	jnb	net_buffer_allocate$
+1:	add	eax, 15
 	and	al, 0xf0
+	mov	edi, eax
+	pop_	edx eax
 	clc
 	ret
 
 # out: edi
 .macro NET_BUFFER_GET
-	push	eax
-	push	edx
 	call	net_buffer_get
-	mov	edi, eax
-	pop	edx
-	pop	eax
 .endm
 
 # in: esi = start of buffer
 # in: ecx = length of buffer
 # in: ebx = nic
-net_buffer_send:
+net_buffer_send$:
 	push	eax
 	mov	eax, cs
 	and	al, 3
 	pop	eax
-	jz	1f
-	call	SEL_kernelCall:0	# simulated call
-1:	call	[ebx + nic_api_send]
+	jz	net_buffer_send
+	KAPI_CALL net_buffer_send
+	ret
+
+# in: esi = start of buffer
+# in: ecx = length of buffer
+# in: ebx = nic
+KAPI_DECLARE net_buffer_send
+net_buffer_send:
+	call	[ebx + nic_api_send]
 	ret
 
 # in: esi = start of buffer
@@ -223,7 +227,7 @@ net_buffer_send:
 .macro NET_BUFFER_SEND
 	mov	ecx, edi
 	sub	ecx, esi
-	call	net_buffer_send
+	call	net_buffer_send$
 .endm
 
 ##############################################################################
@@ -654,7 +658,7 @@ net_rx_packet:
 	mov	eax, offset net_rx_packet_task
 	add	eax, [realsegflat]
 	xchg	eax, [esp]
-	call	schedule_task
+	KAPI_CALL schedule_task
 	jc	9f	# lock fail, already scheduled, ...
 0:	pop	esi
 	ret
@@ -947,7 +951,9 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 	mov	eax, offset net_rx_queue_handler
 	add	eax, [realsegflat]
 	xchg	eax, [esp]
-	call	schedule_task
+	# use KAPI because it requires page mapping and CR3 is not
+	# modified for normal (network) interrupts.
+	KAPI_CALL schedule_task
 	.if NET_RX_QUEUE_DEBUG
 		setc	al
 		DEBUG_BYTE al

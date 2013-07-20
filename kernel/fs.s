@@ -925,6 +925,7 @@ fs_handle_getname:
 # out: esi = fs_dirent
 # out: CF = error
 # out: ZF = no next entry
+KAPI_DECLARE fs_nextentry
 fs_nextentry:
 	LOCK_READ [fs_handles_sem]
 	push	eax
@@ -965,8 +966,6 @@ fs_nextentry:
 	stc
 	jmp	0b
 
-fs_handle_read_:
-	call	SEL_kernelCall:0
 # in: eax = handle
 # out: esi = buffer
 # out: ecx = buffer size
