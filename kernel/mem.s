@@ -2187,6 +2187,7 @@ malloc_page_phys:
 	.endif
 
 	btr	dword ptr [esi - 4], edx	# mark allocated
+	#jc 99f; DEBUG "ERROR: page already allocated", 0x4f; 99:
 	add	ebx, [mem_pages]
 	mov	eax, [ebx + edx * 4]
 	.if MALLOC_PAGE_DEBUG
@@ -2235,7 +2236,8 @@ malloc_page_phys:
 	cmp	ebx, [eax + array_index]
 	jb	2f
 
-1:	PTR_ARRAY_NEWENTRY [mem_pages_free], 4, 9f
+1:	PTR_ARRAY_NEWENTRY [mem_pages_free], 4, 9f	# out: eax+edx
+	# assert ebx == edx
 	mov	dword ptr [eax + ebx], 0 # mark allocated so wont reuse
 	# we ignore edx, and calc it again
 2:

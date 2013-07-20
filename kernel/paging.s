@@ -284,7 +284,11 @@ paging_idmap_page_f:
 	print " ("
 	call	printhex4
 	print ") "
-	mov	edx, [esp + 4 * 4]
+	mov	edx, [esp + 4]
+	print "PD: "
+	call	printhex8
+	mov	edx, eax
+	mov	edx, [esp + 4 * 5]
 	call	debug_printsymbol
 	int 3
 	jmp	0b
@@ -313,8 +317,8 @@ paging_idmap_memrange:
 # it will use the new page as the page table for the region it is in,
 # and will then recurse.
 #
-# in: eax = physical page address
 # in: esi = physical PD address
+# out: eax = physical page address
 paging_alloc_page_idmap:
 	push_	edx ebx edi ecx
 

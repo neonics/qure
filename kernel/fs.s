@@ -1212,11 +1212,10 @@ fs_stat:
 	ret
 
 
-fs_open_:
-	call	SEL_kernelCall:0
 # in: eax = pointer to path string
 # in: edx = flags: 0x80000000 = print error
 # out: eax = directory handle (pointer to struct), to be freed with fs_close.
+# out: ecx = file size
 KAPI_DECLARE fs_open
 fs_open:
 ####################################################################

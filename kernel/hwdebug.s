@@ -209,6 +209,7 @@ breakpoint_set_code:
 #
 # out: CF = 1: ignore the interrupt
 debugger_handle_int:
+DEBUG "DEBUGGER INTERRUPT!", 0x4f
 	# debugger condition check.
 	# hardcode test: assume breakpoint
 	mov	edx, dr6	# debug status reg
@@ -223,8 +224,8 @@ debugger_handle_int:
 	mov	edx, [edx]# get the value
 	cmp	edx, 0x20657669	# this is the check!
 	stc	# tell caller to ignore the interrupt
-	jnz	9f
-	DEBUG_DWORD edx
+#	jnz	9f
+#	DEBUG_DWORD edx
 
 	mov	edx, dr6; DEBUG_DWORD edx, "dr6"
 	mov	edx, dr3; DEBUG_DWORD edx, "dr3"

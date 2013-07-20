@@ -274,9 +274,7 @@ shell:	push	ds
 	#
 
 	lea	eax, [ebx + shell_cwd]
-FOO:
-#	call	KAPI_fs_opendir # fs_opendir
-	call	fs_opendir
+	KAPI_CALL fs_opendir
 	mov	[ebx + shell_cwd_handle], eax
 
 start$:
@@ -1008,7 +1006,7 @@ cmd_quit$:
 	call	cmdline_history_delete
 
 	mov	eax, [ebx + shell_cwd_handle]
-	call	fs_close
+	KAPI_CALL fs_close
 
 	mov	eax, ebx
 	call	mfree
@@ -1257,15 +1255,15 @@ cmd_cd$:
 	1:
 
 	mov	eax, [ebx + shell_cwd_handle]
-	call	fs_close
+	KAPI_CALL fs_close
 
 	lea	eax, [ebx + shell_cd_cwd]
-	call	fs_opendir
+	KAPI_CALL fs_opendir
 	jc	6f
 	mov	[ebx + shell_cwd_handle], eax
 
 	.if SHELL_DEBUG_FS
-	call	fs_handle_printinfo
+	KAPI_CALL fs_handle_printinfo
 	call	newline
 	.endif
 
@@ -1327,7 +1325,7 @@ cmd_ls$:
 		printc	11, "ls "
 		call	println
 	.endif
-	call	fs_opendir	# out: eax
+	KAPI_CALL fs_opendir	# out: eax
 	jc	9f
 
 	printc 11, "Directory Listing for "
@@ -1337,7 +1335,7 @@ cmd_ls$:
 	printcharc 11, ':'
 	call	newline
 
-0:	call	fs_nextentry	# in: eax; out: esi
+0:	KAPI_CALL fs_nextentry	# in: eax; out: esi
 	jc	0f
 	push	eax
 
@@ -1427,7 +1425,7 @@ cmd_ls$:
 	pop	eax
 	jmp	0b
 
-0:	call	fs_close	# in: eax
+0:	KAPI_CALL fs_close	# in: eax
 9:	ret
 
 ########################################################################
@@ -1471,9 +1469,9 @@ cmd_cat$:
 
 	mov	eax, offset 88b
 	KAPI_CALL fs_openfile
-#	call	fs_openfile	# out: eax = file handle
+#	KAPI_CALL fs_openfile	# out: eax = file handle
 	jc	3f
-	call	fs_handle_read # in: eax = handle; out: esi, ecx
+	KAPI_CALL fs_handle_read # in: eax = handle; out: esi, ecx
 	jc	6f
 
 	push	eax
@@ -1489,7 +1487,7 @@ cmd_cat$:
 	call	newline_if
 	pop	eax
 
-6:	call	fs_close
+6:	KAPI_CALL fs_close
 3:	ret
 
 9:	printlnc 12, "usage: cat <filename>"
@@ -1989,17 +1987,17 @@ cmd_exe:
 	mov	bl, [boot_drive]
 	add	bl, 'a'
 	mov	[eax + 1], bl
-	call	fs_openfile
-	jc	9f
-	call	fs_handle_read
-	jc	10f
-		# HACK
-		LOCK_READ [fs_handles_sem]
-		push	eax
-		call	fs_validate_handle$	# out: edx + eax
-		mov	[eax + edx + fs_handle_buf], dword ptr 0
-		pop	eax
-		UNLOCK_READ [fs_handles_sem]
+	KAPI_CALL fs_openfile
+	jc	91f
+	push	eax
+	mov	eax, ecx
+	call	mallocz
+	mov	edi, eax
+	pop	eax
+	jc	92f
+	KAPI_CALL fs_read	# in: eax, edi, ecx
+	jc	93f
+	mov	esi, edi
 ########
 	cmp	[esi], word ptr 'M' | 'Z' << 8
 	jz	1f
@@ -2008,17 +2006,28 @@ cmd_exe:
 	jz	2f
 
 	printlnc 4, "unknown file format"
-	jmp	10f
+	jmp	11f
 
 ######## EXE
 1:	println "EXE/PE32 not supported yet"
-	jmp	10f
+	jmp	11f
 ######## ELF
 2:	call	exe_elf
 ########
-10:	call	fs_close
+11:	push	eax
+	mov	eax, edi
+	call	mfree
+	pop	eax
+10:	KAPI_CALL fs_close
 	jc	9f
 9:	ret
+
+91:	printlnc 4, "file not found"
+	ret
+92:	printlnc 4, "malloc fail"
+	jmp	10b
+93:	printlnc 4, "read error"
+	jmp	11b
 
 
 .include "elf.s"
@@ -2034,14 +2043,14 @@ cmd_init:
 	I "Init: "
 
 	mov	eax, esi
-	call	fs_openfile
+	KAPI_CALL fs_openfile
 	jc	9f
 
 	I2 "executing "
 	call	print
 	call	printspace
 
-	call	fs_handle_read	# out: esi, ecx
+	KAPI_CALL fs_handle_read	# out: esi, ecx
 	jc	7f
 
 	printc 10, "load OK"
@@ -2087,7 +2096,7 @@ cmd_init:
 
 	pop	eax
 
-8:	call	fs_close
+8:	KAPI_CALL fs_close
 9:	ret
 7:	printlnc 4, ": read error"
 	jmp	8b
@@ -2105,7 +2114,7 @@ cmd_fork:
 	mov	edx, [fork_counter$]
 	call	sprintdec32
 
-	push	dword ptr 2	# context switch task
+	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING_SERVICE
 	push	cs
 	mov	eax, offset clock_task
 	add	eax, [realsegflat]
@@ -2130,11 +2139,11 @@ clock_task:
 	# do it twice so 'top' shows EIP changing
 0:	mov	dl, '0'
 	call	0f
-	hlt
+	YIELD
 dbg_clk_0:	# debug label
 	mov	dl, '1'
 	call	0f
-	hlt
+	YIELD
 dbg_clk_1:	# debug label
 	jmp	0b
 
@@ -2422,7 +2431,7 @@ cmd_play:
 	mov	[eax + 1], dl
 	mov	ebx, eax	# backup to print error
 1:	xor	edx, edx
-	call	fs_open
+	KAPI_CALL fs_open
 	jc	91f
 	mov	[ebp - 4], eax
 	mov	[sb_play_fhandle], eax
@@ -2431,7 +2440,7 @@ cmd_play:
 	mov	edi, [dma_buffer]
 	mov	ecx, [dma_buffersize]
 	mov	eax, [ebp -4]
-	call	fs_read
+	KAPI_CALL fs_read
 	jc	92f
 
 	######################################
@@ -2502,7 +2511,7 @@ $riff_fmt:
 1:	mov	eax, [sb_play_fhandle]
 	or	eax, eax
 	jz	9f
-	call	fs_close
+	KAPI_CALL fs_close
 
 9:	mov	esp, ebp
 	pop	ebp
@@ -2532,11 +2541,11 @@ sb_play_wave_file$:
 
 	pushfd
 	sti
-	call    fs_read
+	KAPI_CALL fs_read
 	jnc	1f
 	printc 4, "fs_read error"
 
-	call	fs_close
+	KAPI_CALL fs_close
 	mov	dword ptr [sb_play_fhandle], 0
 	mov	[SB_StopPlay], byte ptr 1
 1:
