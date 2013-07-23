@@ -5,6 +5,8 @@ clean:
 
 # i486 due to bswap (and cmpxchg)
 AS = as --32 -march=i486 -R -n --warn --fatal-warnings --gstabs --MD kernel.dep
+# rdtsc requires Pentium I (i586) 
+#AS = as --32 -march=i586 -R -n --warn --fatal-warnings --gstabs --MD kernel.dep
 # sysenter requires Pentium II (i686) 
 #AS = as --32 -march=i686 -R -n --warn --fatal-warnings --gstabs --MD kernel.dep
 

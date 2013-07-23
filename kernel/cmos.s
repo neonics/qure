@@ -193,3 +193,115 @@ cmos_list:
 0:	call	newline
 .endif
 	ret
+
+.if 0	# code not used
+#############################################################################
+# port 0x70: register select, NMI flag
+#	0xA, 0xB and 0XC: RTC.
+# port 0x71: data in/out
+rtc_init:
+	I "Real-Time Clock"
+	mov	ecx, cs
+	mov	ebx, offset rtc_isr
+	mov	ax, IRQ_BASE + IRQ_RTC
+	call	hook_isr
+
+	cli
+	mov	al, 0x8b	# 0x80 = disable NMI; 0xb = select reg B
+	out	0x70, al
+	in	al, 0x71	# read reg 0xb; (resets reg to 0xd)
+	mov	ah, al
+	mov	al, 0x8b	# reselect reg B
+	out	0x70, al
+	mov	al, 0x40	# enable RTC interrupts
+	or	al, ah
+	out	0x71, al
+
+	# set interupt rate:
+	mov	al, 0x8a
+	out	0x70, al
+	in	al, 0x71
+	DEBUG_BYTE al
+	mov	ah, al
+	mov	al, 0x8a
+	out	0x70, al
+	and	ah, 0xf0
+	mov	al, 3	# 32768 >> (3-1) = 8192 Hz
+	or	al, ah
+	out	0x71, al
+
+#	INTERRUPTS_ON	# nmi on, sti
+	sti
+
+	PIC_ENABLE_IRQ IRQ_RTC
+	OK
+
+	.rept 10; hlt; .endr
+
+	# measure:
+
+	PIC_GET_MASK
+	push	eax
+	PIC_SET_MASK ~((1<<IRQ_RTC)|(1<<IRQ_TIMER)|(1<<IRQ_CASCADE))
+
+	mov	ecx, 10
+0:	push	ecx
+	call	calib_rtc
+	pop	ecx
+	loop	0b
+
+	pop	eax
+	PIC_SET_MASK
+	ret
+
+
+calib_rtc:
+	mov	eax, [rtc_count]
+0:	mov	ecx, [rtc_count]
+	cmp	eax, ecx
+	jnz	0b
+
+	call	get_time_ms_40_24
+	push_	edx eax
+	shld	edx, eax, 8
+	# sleep 1 second without scheduler
+	lea	ebx, [edx + 100]
+1:	hlt
+	call	get_time_ms
+	cmp	eax, ebx
+	jb	1b
+
+	mov	eax, [rtc_count]
+0:	mov	edx, [rtc_count]
+	cmp	edx, eax
+	jnz	0b
+	call	get_time_ms_40_24
+	sub	ecx, [rtc_count]
+	neg	ecx
+	sub	eax, [esp]
+	sbb	edx, [esp+4]
+	add	esp, 8
+	div	ecx
+	print "time per RTC tick: "
+	xor	edx, edx	# ignore rest
+	shld	edx, eax, 8
+	shl	eax, 8
+	mov	bl, 9
+	call	print_fixedpoint_32_32$
+	println "ms"
+	ret
+
+.data SECTION_DATA_BSS
+rtc_count:	.long 0
+.text32
+rtc_isr:
+	inc	dword ptr [rtc_count]
+	push	eax
+	# read register 0xC to reset interrupt flag
+	mov	al, 0xc		# select register C
+	out	0x70, al
+	in	al, 0x71
+	pop	eax
+	PIC_SEND_EOI IRQ_RTC
+	iret
+.endif

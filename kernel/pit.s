@@ -336,22 +336,37 @@ pit_isr:
 	mov	ds, edx
 	mov	es, edx
 
+	.if 0	# don't read the counter, it's no use
 	#xor	al, al		# read channel 0 (bits 6,7 = channel)
 	mov	al, byte ptr PIT_CW_RW_CL | PIT_CW_SC_0
 	out	PIT_PORT_CONTROL, al	# 0x43
 
-
 	in	al, PIT_PORT_COUNTER_0	# 0x40
-	mov	dl, al
+	movzx	edx, al
 	in	al, PIT_PORT_COUNTER_0	# 0x40
 	mov	dh, al
+	.endif
 
 	inc	dword ptr [clock]
 
+	.if 1
+	# pit_timer_period stored as 32:32 fixed point
+	# convert to 40:24
+	mov	eax, [pit_timer_period + 4]
+	mov	edx, [pit_timer_period + 0]
+	shrd	eax, edx, 8
+	shr	edx, 8
+	# clock_ms now 40:24 fp
+	add	[clock_ms + 4], eax
+	adc	[clock_ms + 0], edx
+
+	.else
+	# clock_ms 32:32 fp
 	mov	eax, [pit_timer_period + 4]
 	add	[clock_ms + 4], eax
 	mov	eax, [pit_timer_period + 0]
 	adc	[clock_ms + 0], eax
+	.endif
 
 ########
 	cmp	byte ptr [pit_print_timer$], 0
@@ -411,35 +426,49 @@ udelay:
 	ret
 
 # in: eax = milliseconds
+# returns: time slept in ms
 sleep:
-	push	edx
-	add	eax, [clock_ms]
-0:	YIELD
-	cmp	eax, [clock_ms]
-	pause
-	ja	0b
-	pop	edx
+	push_	ebx edx
+	mov	edx, eax
+	call	get_time_ms
+	add	edx, eax
+	mov	ebx, eax
+0:	cmp	dword ptr [task_queue_sem], -1
+	jz	1f
+	YIELD
+	jmp	2f
+1:	hlt
+2:	call	get_time_ms
+	cmp	eax, edx
+	jb	0b
+	sub	eax, ebx
+0:	pop_	edx ebx
 	ret
 
-get_time_ms:
+
+.data
+last_time: .long 0,0
+last_clock_ms: .long 0,0
+.text32
+# out: edx:eax >> 24 = milliseconds (24 bit fractional part)
+get_time_ms_40_24:
 	mov	eax, cs
 	and	al, 3
 	jz	1f
 	call	SEL_kernelCall:0
 1:
-	push	edx
-	push	ebx
-
-	xor	edx, edx
+	push_	ebx ecx edi esi
 
 	pushf
 	cli	# lock pit port
-	mov	al, byte ptr PIT_CW_RW_CL | PIT_CW_SC_0
+	mov	esi, [clock_ms+4]
+	mov	edi, [clock_ms+0]
+	mov	eax, PIT_CW_RW_CL | PIT_CW_SC_0
 	out	PIT_PORT_CONTROL, al
 	in	al, PIT_PORT_COUNTER_0
-	mov	dl, al
+	mov	ah, al
 	in	al, PIT_PORT_COUNTER_0
-	mov	dh, al
+	xchg	al, ah
 	popf
 
 	# edx = counter (counts down!)
@@ -447,29 +476,81 @@ get_time_ms:
 	# fraction * pit_timer_period = ms
 
 	mov	ebx, [pit_timer_interval]
-	sub	edx, ebx
-	neg	edx		# edx = elapsed counter
+	sub	eax, ebx 	# elapsed counter
+	neg	eax
+	mov	edx, eax
 	xor	eax, eax
-	div	ebx		# eax = fraction
+	div	ebx		# eax = fraction <<32
 
 	# multiply by the period:
 	mov	ebx, eax
 	mov	edx, [pit_timer_period]
 	mov	eax, [pit_timer_period+4]
 
-	# otherwise overflow:
 	shrd	eax, edx, 16
 	shr	edx, 16
+
 	mul	ebx
+	# shr 16: have edx be ms since boot, and eax the fractional part
+	# shr 8: divide by 256, so that eax>>24 == ms.
+	# this allows for 34.865 years of uptime (without the >>8 only 49 days)
+	shrd	eax, edx, 16+8
+	shr	edx, 16+8
+	
+	add	eax, esi#[clock_ms+4]
+	adc	edx, edi#[clock_ms]
 
-	shrd	eax, edx, 16
-	shr	edx, 16
+	# check for negative time
+	mov	edi, [last_time]
+	mov	esi, [last_time+4]
+	mov	ecx, edx
+	mov	ebx, eax
+	sub	ebx, esi
+	sbb	ecx, edi
+	jns	2f	# allright
 
-	add	eax, [clock_ms+4]
-	adc	edx, [clock_ms]
+	# we'll adjust, assuming we missed a tick
+	mov	edi, [pit_timer_period]
+	mov	esi, [pit_timer_period+4]
+
+	shrd	esi, edi, 8
+	shr	edi, 8
+	add	eax, esi
+	adc	edx, edi
+1:
+	# check again
+	mov	edi, [last_time]
+	mov	esi, [last_time+4]
+	mov	ecx, edx
+	mov	ebx, eax
+	sub	ebx, esi
+	sbb	ecx, edi
+	jns	2f
+
+	printc 4, "ERROR: last time diff"
+	DEBUG_DWORD edx
+	DEBUG_DWORD eax
+	DEBUG_DWORD edi
+	DEBUG_DWORD esi
+	call	newline
+	DEBUG_DWORD [clock_ms]
+	DEBUG_DWORD [clock_ms+4]
+	DEBUG_DWORD [last_clock_ms]
+	DEBUG_DWORD [last_clock_ms+4]
+
+2:	mov	[last_time], edx
+	mov	[last_time+4], eax
+	mov	ecx, [clock_ms]
+	mov	[last_clock_ms], ecx
+	mov	ebx, [clock_ms+4]
+	mov	[last_clock_ms+4], ebx
+	pop_	esi edi ecx ebx
+	ret
+
+get_time_ms:
+	push	edx
+	call	get_time_ms_40_24
+	shld	edx, eax, 8
 	mov	eax, edx
-
-	pop	ebx
 	pop	edx
-	add	eax, [clock_ms]
 	ret

@@ -14,7 +14,12 @@ icmp_type: .byte 0
 	# 1,2	reserved
 	# 3	destination unreachable
 	#	codes: 0=net / 1=host / 2=protocol / 3=port unreachable
-	#	  4=fragmentation needed & DontFrag set; 5=src route failed
+	#	  4=fragmentation needed & DontFrag set; 5=src route failed,
+	#	  6=dest net unknown, 7=dest host unknown, 8=source host
+	#	  isolated, 9 = dest net comm prohibit, 10=dest host admin prhbt
+	#	  11 = dest net unreach for TOS, 12=dest Host unr for TOS,
+	#	  13 = comm prohibit, 14 = host precedence violation,
+	#	  15 = precedence cutoff in effect.
 	#	msg format: [type][code][checksum], [id][seq] unused,
 	#	[internet header][64 bits of original datagram].
 	#	codes 0,1,4,5: gateway; codes 2,3: host

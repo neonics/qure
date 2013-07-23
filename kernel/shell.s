@@ -224,6 +224,7 @@ SHELL_COMMAND "xml"		cmd_xml
 SHELL_COMMAND "play"		cmd_play
 SHELL_COMMAND "kapi"		cmd_kapi
 SHELL_COMMAND "kapi_test"	cmd_kapi_test
+SHELL_COMMAND "uptime"		cmd_uptime
 .data SECTION_DATA_SHELL_CMDS
 .space SHELL_COMMAND_STRUCT_SIZE
 ### End of Shell Command list
@@ -1898,6 +1899,7 @@ cmd_breakpoint:
 	ret
 
 cmd_pic:
+	call	SEL_kernelCall, 0
 	call	pic_get_mask32
 	mov	dx, ax
 	call	printbin16
@@ -2637,6 +2639,18 @@ cmd_paging:
 	call	printdec32
 	call	newline
 	jmp	0b
+
+cmd_uptime:
+	print "Uptime: "
+	call	get_time_ms_40_24
+	call	print_time_ms_40_24
+	call printspace
+	call get_time_ms
+	mov edx, eax
+	call printdec32
+	print "ms"
+	call	newline
+	ret
 
 .include "../lib/xml.s"
 .endif

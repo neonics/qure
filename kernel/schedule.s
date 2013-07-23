@@ -173,6 +173,9 @@ task_page_dir:	.long 0	# for mfree_page_phys
 task_page_tab_lo:.long 0 # for mfree_page_phys
 task_page_tab_hi:.long 0 # for mfree_page_phys
 task_io_sem_ptr:.long 0
+task_time_start:.long 0, 0	# timestamp value on resume
+task_time_stop:	.long 0, 0	# timestamp value on interrupted/suspended
+task_time:	.long 0, 0	# total running time
 # these values are only used for jobs:
 .align 4	# for movsd (future modifications)
 task_regs:	.space TASK_REG_SIZE
@@ -625,6 +628,8 @@ schedule_isr:
 	mov	[scheduler_current_task_idx], edx
 	mov	[task_index], edx
 
+lea ebx, [eax + edx]
+call task_update_time_resume$
 	# since we've locked the task_queue sem, collapse eax and edx:
 	add	edx, eax
 
@@ -731,7 +736,8 @@ scheduler_get_task$:
 	mov	edx, [scheduler_current_task_idx]
 	mov	[scheduler_prev_task_idx], edx		# for debugging
 	mov	[eax + edx + task_stack_esp], ebp	# preliminary
-
+lea ebx, [eax + edx]
+call task_update_time_suspend$
 	# check for privilege level change
 	mov	ebx, [ebp + 20+32+ 4]	# interrupted cs
 	and	bl, 3
@@ -885,6 +891,50 @@ scheduler_get_task$:
 	DO_SCHEDULER_DEBUG_TOP
 	popad
 	iret
+
+
+# out: ax
+pit_read_time:
+	pushf
+	cli     # lock pit port
+	mov     al, byte ptr PIT_CW_RW_CL | PIT_CW_SC_0
+	out     PIT_PORT_CONTROL, al
+	in      al, PIT_PORT_COUNTER_0
+	mov     ah, al
+	in      al, PIT_PORT_COUNTER_0
+	popf
+	ret
+
+
+# in: ebx = task ptr
+task_update_time_suspend$:
+	push_	eax edx esi edi
+	mov	edi, [ebx + task_time_start+0]	# read start time
+	mov	esi, [ebx + task_time_start+4]
+	#rdtsc
+	call	get_time_ms_40_24
+	# edx:eax = now/stop
+	# edi:esi = start
+	mov	[ebx + task_time_stop+0], edx	# write end time (not needed)
+	mov	[ebx + task_time_stop+4], eax
+	# calc delta
+	sub	eax, esi
+	sbb	edx, edi
+		jns 1f; printc 4, "NEGATIVE TIME"; 1:
+	add	[ebx + task_time+4], eax	# write delta
+	adc	[ebx + task_time+0], edx	
+	pop_	edi esi edx eax
+	ret
+
+task_update_time_resume$:
+	push_	eax edx
+	#rdtsc	
+	call	get_time_ms_40_24
+	mov	[ebx + task_time_start+0], edx	# write start time
+	mov	[ebx + task_time_start+4], eax
+	pop_	edx eax
+	ret
+
 
 
 .if SCHEDULE_JOBS
@@ -1161,13 +1211,13 @@ task_queue_newentry:
 	ARRAY_ENDL
 2:	ARRAY_NEWENTRY [task_queue], SCHEDULE_STRUCT_SIZE, 4, 9f
 	DEBUG "+", 0x4f
-	push_	edi eax ecx
+1:	push_	edi eax ecx
 	lea	edi, [eax + edx]
 	xor	eax, eax
 	mov	ecx, SCHEDULE_STRUCT_SIZE / 4
 	rep	stosd
 	pop_	ecx eax edi
-1:	ret
+	ret
 9:	printlnc 4, "task_queue_newentry: malloc fail"
 	stc
 	ret
@@ -2206,13 +2256,7 @@ schedule_print:
 	rep	stosw
 	PRINT_END
 	POP_SCREENPOS
-
 	PUSH_SCREENPOS 160*1
-	pushfd
-	pop	edx
-	DEBUG_DWORD edx, "FLAGS"
-	DEBUG_DWORD [ebp+task_reg_eflags]
-	call printspace
 
 	PUSHSTRING "top"
 	mov	esi, esp
@@ -2265,6 +2309,9 @@ cmd_tasks:
 	call	printdec32
 .endif
 .endif
+	print " Uptime: "
+	call	get_time_ms_40_24
+	call	print_time_ms_40_24
 	call	newline
 
 	call	task_print_h$
@@ -2405,6 +2452,43 @@ mov edx, [eax + ebx + task_stack0_top]
 1:	add	ecx, 80-37-8
 .endif
 
+	.if 1
+		pushcolor 0xf0
+		push_ eax ebx
+#		DEBUG_WORD [eax+ebx + task_tsc_stop],"v"
+#		DEBUG_DWORD [eax+ebx + task_tsc_stop+4],"v"
+#		DEBUG_WORD [eax+ebx + task_tsc],"^"
+#		DEBUG_DWORD [eax+ebx + task_tsc+4],"^"
+		mov	edx, [eax + ebx + task_time]
+		mov	eax, [eax + ebx + task_time+4]
+#		shld	edx, eax, 8
+#		shl	eax, 8
+
+		call	print_time_ms_40_24
+		pop_ ebx eax
+		popcolor
+	.elseif 0
+		push_ eax ebx
+		#call	printdec32
+		xor	eax, eax
+		shrd	eax, edx, 16
+		mov bl, 6
+		call	print_fixedpoint_32_32$
+		pop_ ebx eax
+
+#		DEBUG_DWORD [eax+ebx+task_tsc],"+"
+#		DEBUG_DWORD [eax+ebx+task_tsc_stop],"-"
+		mov edx, [eax+ebx+task_tsc]
+		sub edx, [eax+ebx+task_tsc_stop]
+		DEBUG_DWORD edx
+	.else
+		mov edx, [eax + ebx + task_time+4]
+		call	printhex8
+		mov edx, [eax + ebx + task_time]
+		call	printhex8
+	.endif
+
+
 	mov	edx, [eax + ebx + task_regs + task_reg_eip]
 
 	.if TASK_PRINT_SOURCE_LINE
@@ -2428,8 +2512,9 @@ mov edx, [eax + ebx + task_stack0_top]
 	call	nprint
 	call	newline
 	popcolor
-	jmp	9f
+	jmp	3f
 1:	# no exact match, also print offset
+	push_	eax ebx
 	call	debug_get_preceeding_symbol
 	jc	1f
 	pushcolor TASK_PRINT_BG_COLOR | 13
@@ -2448,6 +2533,9 @@ mov edx, [eax + ebx + task_stack0_top]
 	call	printhex2
 2:	popcolor
 1:	call	newline
+	pop_	ebx eax
+
+3:
 
 9:	popad
 	ret

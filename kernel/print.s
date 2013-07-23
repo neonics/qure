@@ -1694,6 +1694,119 @@ sprint_size_:
 	pop	eax
 	ret
 
+##############################################################################
+# Printing Time-periods
+
+# in: edx:eax = ms << 24 (and 24-bit fraction)
+print_time_ms_40_24:
+	push_	ebx edx eax
+
+	# milliseconds
+	cmp	edx, 0
+	jnz	1f
+	cmp	eax, 1<<24	# 1 ms
+	jae	1f
+	# microseconds
+	mov	ebx, 1000 << 8
+	imul	ebx
+	mov	bl, 3
+	call	print_fixedpoint_32_32$
+	print "us"
+	jmp	9f
+1:
+
+	cmp	edx, 1000 >> 8
+	ja	1f
+
+	shld	edx, eax, 8	# align: edx = ms, eax = frac
+	shl	eax, 8
+
+	mov	bl, 3
+	call	print_fixedpoint_32_32$
+	print "ms"
+	jmp	9f
+
+1:	# seconds
+	cmp	edx, 60000 >> 8
+	ja	1f
+
+	# edx:eax << 8 = ms
+	mov	ebx, 1000
+	div	ebx
+	# edx = mod 1000
+	xor	edx, edx
+	shld	edx, eax, 8
+	shl	eax, 8
+	mov	bl, 3
+	call	print_fixedpoint_32_32$
+
+	print "s"
+	jmp	9f
+
+1:	# minutes:seconds
+	cmp	edx, 3600000 >> 8
+	jae	1f
+
+3:	mov	ebx, 60000
+	div	ebx
+	xor	edx, edx
+	shld	edx, eax, 8
+	shl	eax, 8
+	cmp	edx, 10
+	jae	2f
+	printchar '0'
+2:	call	printdec32
+
+	# eax = fraction
+	mov	edx, 60
+	mul	edx
+	printchar 'm'
+	cmp	edx, 10
+	jae	2f
+	printchar '0'
+2:	mov	bl, 3
+	call	print_fixedpoint_32_32$
+	printchar 's'
+	jmp	9f
+
+
+1:	# hour
+	cmp	edx, 3600000 * 24 >> 8
+	jae	1f
+4:	mov	ebx, 3600000
+	div	ebx
+	xor	edx, edx
+	shld	edx, eax, 8
+	shl	eax, 8
+	cmp	edx, 10
+	jae	2f
+	printchar '0'
+2:	call	printdec32
+	printchar 'h'
+	mov	edx, 3600000
+	mul	edx
+
+	shrd	eax, edx, 8
+	shr	edx, 8
+	jmp	3b
+
+1:	# days
+	mov	ebx, 3600000 * 24
+	idiv	ebx	# using idiv in case negative time (no #DE)
+	xor	edx, edx
+	shld	edx, eax, 8
+	shl	eax, 8
+	call	printdec32
+	printchar 'd'
+	mul	ebx
+	shrd	eax, edx, 8
+	shr	edx, 8
+	jmp	4b
+
+9:	pop_	eax edx ebx
+	ret
+
+
 ############################ PRINT FORMATTED STRING ###########
 PRINTF_DEBUG = 0
 # in: stack
