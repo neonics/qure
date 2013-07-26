@@ -273,10 +273,9 @@ inc ecx
 
 	push	esi
 	mov	ecx, [esi + coff_oh_pe32_dd + coff_oh_dd_idata + 4]
-	mov	esi, [esi + coff_oh_pe32_dd + coff_oh_dd_idata]
-	DEBUG_DWORD esi, "IDATA PTR"
+	mov	eax, [esi + coff_oh_pe32_dd + coff_oh_dd_idata]
+	DEBUG_DWORD eax, "IDATA PTR"
 	DEBUG_DWORD ecx, "IDATA SIZE"
-
 	pop	esi
 
 	push	esi
@@ -328,6 +327,23 @@ call more
 #	DEBUG_DWORD eax, "coff_base-pe_base"
 #call more
 
+	mov	edx, esi
+	push	edx
+
+	.struct 0
+	coff_sect_name: .space 8
+	coff_sect_vsize: .long 0
+	coff_sect_vaddr: .long 0
+	coff_sect_disksize: .long 0
+	coff_sect_diskoffs: .long 0
+	coff_sect_relocptr: .long 0
+	coff_sect_lineptr: .long 0
+	coff_sect_reloccnt: .word 0
+	coff_sect_linecnt: .word 0
+	coff_sect_charactr: .long 0
+	.text32
+
+
 	println "vsize... vaddr... disksize diskoffs relocptr #rel charactr label"
 	# 40 bytes / entry
 0:	# section name: max 8 bytes asciz; or "/<decimal>" -> stringtable ptr
@@ -344,16 +360,46 @@ call more
 	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "characteristics"
 	sub	esi, 40
 
-	call	coff_print_sect_name$
+	call	coff_print_sect_name$	# out: eax = section name
+	LOAD_TXT ".idata", edx
+	push ecx; mov ecx, 6
+	call	strcmp
+	pop ecx
+	jnz	1f
+	DEBUG "IDATA"
+	.data; coff_sect_idata:.long 0;.text32
+	sub	esi, 8
+	mov	[coff_sect_idata], esi
+	add	esi, 8
+
+1:
 	add	esi, 40-8
 #	add	esi, 40-8-4*8
 	call	newline
 #	loop	0b
 	dec	ecx
 	jnz	0b
-	
-	
+
 	call	newline
+
+	pop	edx
+
+	# print IDATA:
+	push	esi
+	mov	esi, [coff_sect_idata]
+	mov	edx, [esi + coff_sect_vaddr]
+	mov	ecx, [esi + coff_sect_vsize]
+	mov	esi, [esi + coff_sect_diskoffs]
+	DEBUG_DWORD esi,".idata DiskOffs"
+	DEBUG_DWORD ecx,".idata Size" # 0, should not be!
+	DEBUG_DWORD edx, "vaddr"
+	sub	edx, esi
+	call	more
+	add	esi, [pe_base]
+	call	coff_idata_print$
+	pop	esi
+
+
 	DEBUG "Symbol Table:",0xf0
 	call	coff_print_symtab$
 
@@ -364,7 +410,101 @@ call more
 	lodsd; DEBUG_DWORD eax, "size"
 	call	newline
 	ret
-	
+
+.struct 0	# idata directory table
+coff_idata_dt_ilt_rva:	.long 0
+coff_idata_dt_timstamp:	.long 0
+coff_idata_dt_fwdchain:	.long 0
+coff_idata_dt_name_rva:	.long 0
+coff_idata_dt_iat_rva:	.long 0
+.text32
+
+# in: esi = ptr to idata section
+# in: ecx = idata size
+# in: edx = vaddr-addr adjustment: vaddr-diskoffs (sub!)
+coff_idata_print$:
+	#format: 
+	#  directory table
+	#  null directory entry
+	#.rept
+	#  DLL import lookup table
+	#  null
+	#.endr
+	# hint-name table
+	println "ILT..... TimeStmp FwdChain NameRVA. IAT....."
+0:	push	ebx
+	xor	ebx, ebx
+	push	edx
+	lodsd; add ebx, eax; mov edx, eax; call printhex8; call printspace
+	lodsd; add ebx, eax; mov edx, eax; call printhex8; call printspace
+	lodsd; add ebx, eax; mov edx, eax; call printhex8; call printspace
+	lodsd; add ebx, eax; mov edx, eax; call printhex8; call printspace
+	lodsd; add ebx, eax; mov edx, eax; call printhex8; call printspace
+	pop	edx
+	or	ebx, ebx
+	pop	ebx
+	jz	1f
+
+	mov	eax, [esi - 8]	# nameRVA
+	sub	eax, edx	# correct vaddr to image rel
+	DEBUG_DWORD eax
+	add	eax, [pe_base]
+	DEBUG_DWORD eax
+	push	eax
+	call	_s_print
+	call	newline
+
+	# print the table.
+	push	esi
+	mov	esi, [esi - 20] # ILT
+	sub	esi, edx	# vaddr correct
+	add	esi, [pe_base]
+	push	edx
+	call	coff_idata_print_ilt$
+	pop	edx
+	pop	esi
+	jmp	0b
+1:
+	ret
+
+# in: esi = ilt ptr
+coff_idata_print_ilt$:	# PE32
+0:	lodsd
+	or	eax, eax
+	jz	9f
+	test	eax, 0x80000000
+	jz	1f
+	print "ORD  "
+	push	edx
+	mov	dx, ax
+	call	printhex4
+	pop	edx
+	call	newline
+	jmp	0b
+
+1:	print "NAME "
+	and	eax, 0x7fffffff
+	push	edx
+	mov	edx, eax
+	call	printhex8
+	pop	edx
+	call	printspace
+	sub	eax, edx
+	add	eax, [pe_base]
+	# eax point to the hint/name table
+	push_	esi edx
+	mov	esi, eax
+	lodsw	# hint
+	mov	dx, ax
+	call	printhex2
+	call	printspace
+	call	print	#name
+	pop_	edx esi
+	call	newline
+	jmp	0b
+
+9:	ret
+
 # in: esi = section table entry
 # in: edi = string table
 # out: esi+=8
@@ -387,6 +527,7 @@ coff_print_sect_name$:
 0:	lodsb
 	call	printchar
 	loop	0b
+	lea	eax, [esi - 8]
 	pop	ecx
 3:	ret
 
