@@ -19,7 +19,7 @@ KERNEL_SRC = kernel.s defines.s macros.s debug.s oo.s debugger.s kapi*.s \
 	realmode.s print.s \
 	pmode.s pic.s gdt.s idt.s tss.s \
 	mem.s mem_handle.s hash.s list.s ll.s string.s schedule.s hwdebug.s \
-	elf.s libc.s \
+	elf.s pe.s libc.s \
 	mutex.s console.s paging.s buffer.s
 
 HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s dma.s \

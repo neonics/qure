@@ -1986,8 +1986,9 @@ cmd_ramdisk:
 
 
 cmd_exe:
-	#LOAD_TXT "/c/a.exe", eax
-	LOAD_TXT "/a/a.elf", eax
+	#LOAD_TXT "/a/a.elf", eax
+	#LOAD_TXT "/a/test.elf", eax
+	LOAD_TXT "/a/a.exe", eax
 	mov	bl, [boot_drive]
 	add	bl, 'a'
 	mov	[eax + 1], bl
@@ -2003,6 +2004,7 @@ cmd_exe:
 	jc	93f
 	mov	esi, edi
 ########
+	push_	edi esi eax
 	cmp	[esi], word ptr 'M' | 'Z' << 8
 	jz	1f
 
@@ -2013,12 +2015,14 @@ cmd_exe:
 	jmp	11f
 
 ######## EXE
-1:	println "EXE/PE32 not supported yet"
+1:	call	exe_pe
 	jmp	11f
 ######## ELF
 2:	call	exe_elf
 ########
-11:	push	eax
+11:	pop_	eax esi edi
+
+	push	eax
 	mov	eax, edi
 	call	mfree
 	pop	eax
@@ -2035,6 +2039,7 @@ cmd_exe:
 
 
 .include "elf.s"
+.include "pe.s"
 .include "libc.s"
 
 
