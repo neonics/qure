@@ -435,6 +435,7 @@ isr_keyboard:
 .if KEYBOARD_TASK
 	cmp	byte ptr [task_queue_sem], -1
 	jnz	1f
+	# scheduler locked - debugger active.
 	call	buf_putkey
 	jmp	2f
 
@@ -456,7 +457,9 @@ isr_keyboard:
 	2:
 	.endif
 .else
-	call	buf_putkey
+	pushad
+	call	kb_task
+	popad
 .endif
 2:
 	PIC_SEND_EOI IRQ_KEYBOARD
