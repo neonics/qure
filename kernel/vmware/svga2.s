@@ -5,7 +5,7 @@
 
 VID_DEBUG = 1
 
-VID_STARTUP_CHECK = 1
+VID_STARTUP_CHECK = 0
 
 VMSVGA2_DEBUG = 0
 
@@ -429,6 +429,7 @@ vmwsvga2_init:
 
 9:	call	newline
 
+.if VID_STARTUP_CHECK
 	# TEST: set video mode.
 	# set up the fifo
 	push	fs
@@ -545,7 +546,6 @@ vmwsvga2_init:
 
 	call	newline
 
-.if VID_STARTUP_CHECK
 	# this will automatically sync/flush on vid mem write,
 	# as the FIFO doesn't work as expected yet.
 	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_TRACES
@@ -622,7 +622,6 @@ jnz 0b
 
 pop	dword ptr [screen_update]
 	call	newline
-.endif
 
 	# disable SVGA, return to VGA. (textmode!)
 	VID_WRITE ENABLE, 0
@@ -630,6 +629,7 @@ pop	dword ptr [screen_update]
 	#VID_WRITE HEIGHT, [ebx+vmwsvga2_txtmode_h]
 	#VID_WRITE BITS_PER_PIXEL, [ebx+vmwsvga2_txtmode_bpp]
 
+.endif	# VID_STARTUP_CHECK
 	clc
 	pop	edx
 	pop_	eax edx ebp
@@ -900,11 +900,47 @@ screen_update_old: .long 0
 .text32
 
 cmd_gfx:
+	lodsd
+	lodsd
+	or	eax, eax
+	jnz	9f
+
+
+	mov	eax, cs
+	and	al, 3
+	jz	1f
+	call	SEL_kernelCall, 0
+1:
+	mov	eax, cr3
+	push	eax
+	mov	eax, [page_directory_phys]
+	mov	cr3, eax
+
 	xor	byte ptr [gfx_mode$], 1
 	jz	init_textmode$
 
-# enter gfx mode:
+	# enter gfx mode:
+	cmp	eax, [esp]
+	jz	1f	# already in kernel mode - don't map
 	mov	ebx, [vmwsvga_dev]
+
+	# map the device IO to the task's PD
+	mov	esi, [page_directory_phys]
+	GDT_GET_BASE edx, ds
+	sub	esi, edx
+	mov	eax, [ebx + vid_fifo_addr]
+	shr	eax, 22	# get PDE index
+	mov	edx, [esi + eax * 4]	# get FIFO PDE
+	mov	ecx, [ebx + vid_fb_addr]
+	shr	ecx, 22
+	mov	ebx, [esi + ecx * 4]	# get FB PDE
+	mov	esi, [esp]	# load task PD
+	GDT_GET_BASE ebx, ds
+	sub	esi, ebx
+	mov	[esi + eax * 4], edx	# map FIFO
+	mov	[esi + ecx * 4], ebx	# map FB
+
+1:	mov	ebx, [vmwsvga_dev]
 
 	push	fs
 	mov	eax, SEL_flatDS	# fifo out of range of kernel DS
@@ -942,6 +978,7 @@ cmd_gfx:
 	VID_WRITE IRQMASK, 0
 	pop	fs
 
+
 	mov	edi, [ebx + vid_fb_addr]
 	mov	[vidfbuf], edi
 
@@ -957,14 +994,16 @@ cmd_gfx:
 	mov	eax, [screen_update]
 	mov	[screen_update_old], eax
 
+
 	mov	[curfont], dword ptr offset fonts4k#font_4k_courier #_courier56
 	mov	[fontwidth], dword ptr 8
 	mov	[fontheight], dword ptr 16
 	mov	[gfx_printchar_ptr], dword ptr offset gfx_printchar_8x16
 
 	mov	[screen_update], dword ptr offset svga_txt_screen_update
-
 	println "entered gfx mode"
+0:	pop	eax
+	mov	cr3, eax
 	ret
 
 
@@ -976,7 +1015,7 @@ init_textmode$:
 	mov	dx, [ebx + dev_io]
 	VID_WRITE ENABLE, 0
 	println	"entered text mode"
-	ret
+	jmp	0b
 
 9:	printlnc 4, "usage: gfx"
 	printlnc 4, "   toggles between gfx/textmode"
@@ -994,7 +1033,6 @@ svga_txt_screen_update:
 	mov	eax, SEL_compatDS
 	mov	ds, eax
 	mov	es, eax
-
 	call	gfx_txt_screen_update
 
 	pushad

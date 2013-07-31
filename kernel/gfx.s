@@ -86,6 +86,7 @@ gfx_last_scroll_lines$: .long 0
 .text32
 # event handler: called from PRINT_END macro through [screen_update]
 gfx_txt_screen_update:
+push eax; mov eax, cr3; push eax; mov eax, [page_directory_phys]; mov cr3, eax
 	push	gs
 	push	es
 	push	ecx
@@ -170,6 +171,7 @@ gfx_txt_screen_update:
 	pop	ecx
 	pop	es
 	pop	gs
+pop eax; mov cr3, eax; pop eax
 	ret
 
 
