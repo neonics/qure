@@ -1938,7 +1938,15 @@ cmd_ramdisk:
 	movzx	ebx, word ptr [ramdisk]
 	shl	eax, 4
 	add	eax, ebx
+mov bx, cs
+cmp bx, SEL_compatCS
+jz 1f
+mov bx, ds
+add bx, SEL_ring0DSf - SEL_ring0DS
+jmp 2f
+1:
 	mov	bx, SEL_flatDS
+2:
 	mov	fs, bx
 	DEBUG "ramdisk address:"
 	DEBUG_DWORD eax
@@ -2601,7 +2609,7 @@ cmd_paging:
 	jnz	1f
 
 	lodsd
-	call	atoi
+	call	htoi
 	jc	9f
 	call	task_get_by_pid	# out: ebx + ecx
 	jc	91f
@@ -2637,7 +2645,7 @@ cmd_paging:
 	sti
 	ret
 
-9:	printlnc 4, "usage: paging [-p <pid>] [usage]"
+9:	printlnc 4, "usage: paging [-p <hex pid>] [usage]"
 	jmp	0b
 91:	printc 4, "unknown task: "
 	mov	edx, eax
