@@ -256,6 +256,10 @@ paging_idmap_page:
 paging_idmap_page_f:
 	push	eax
 1:	push_	ecx edx esi ebx
+		mov	edx, cr3
+		push	edx
+		mov	edx, [page_directory_phys]
+		mov	cr3, edx
 	GDT_GET_BASE edx, ds
 	# TODO: instruction pipelining
 
@@ -274,8 +278,11 @@ paging_idmap_page_f:
 
 	mov	[esi + ecx * 4], eax
 
-0:	pop_	ebx esi edx ecx
+0:		pop	edx
+		mov	cr3, edx
+	pop_	ebx esi edx ecx
 	pop	eax
+	invlpg	[eax]
 	ret
 
 9:	printc 4, "ERROR: No PT for PDE # "
@@ -283,9 +290,8 @@ paging_idmap_page_f:
 	call	printdec32
 	print " ("
 	call	printhex4
-	print ") "
+	print ") PD: "
 	mov	edx, [esp + 4]
-	print "PD: "
 	call	printhex8
 	mov	edx, eax
 	mov	edx, [esp + 4 * 5]
@@ -520,7 +526,11 @@ paging_print_$:
 	PRINTFLAG eax, PDE_FLAG_P, "P ",". "
 	call	newline
 
-	call	edi	# in: eax, ebx
+	mov	edx, 1024
+	sub	edx, ecx
+	shl	edx, 22	# 4mb range
+
+	call	edi	# in: eax, ebx, edx
 
 1:	dec	ecx
 	jnz	0b
@@ -723,10 +733,11 @@ paging_print_pt_struct$:
 	ret
 2:
 
-	push	eax
+	push	eax	# PDE
 	push	esi
 	push	ecx
 	push	edi
+	push	edx	# 4mb base
 	xor	edi, edi
 	mov	ecx, 1024
 	mov	esi, eax
@@ -745,7 +756,14 @@ paging_print_pt_struct$:
 	mov	edx, 1024
 	sub	edx, ecx
 	call	printdec32
-	call	printspace
+		print " ("
+		shl	edx, 12
+		add	edx, [esp] # 4mb base
+		call	printhex8
+		printchar '-'
+		add	edx, 1<<12
+		call	printhex8
+		print ") "
 
 	mov	edx, eax
 	call	printhex8
@@ -771,6 +789,7 @@ paging_print_pt_struct$:
 	mov	edx, edi
 	call	printdec32
 	println "/1024 entries"
+	pop	edx
 	pop	edi
 	pop	ecx
 	pop	esi
