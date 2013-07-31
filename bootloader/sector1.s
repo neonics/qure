@@ -4,6 +4,7 @@
 DEBUG_BOOTLOADER = 0	# 0: no keypress. 1: keypress; 2: print ramdisk/kernel bytes.
 
 MULTISECTOR_LOADING = 1	# 0: 1 sector, 1: 128 sectors(64kb) at a time
+KERNEL_ALIGN_PAGE = 1	# load kernel at page boundary
 
 .text
 .code16
@@ -587,7 +588,12 @@ load_ramdisk_kernel:
 	print "Loading kernel: "
 #####	# prepare load address
 	movzx	ebx, word ptr [ramdisk_address]
+.if KERNEL_ALIGN_PAGE
+	add	ebx, 4095	# page align
+	and	ebx, ~4095
+.else
 	add	bx, 0x200
+.endif
 
 	xor	edx, edx
 	mov	dx, ds
