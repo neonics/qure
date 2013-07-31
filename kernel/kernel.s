@@ -44,6 +44,8 @@ data_pci_driverinfo_start:
 # .long 0	# alignment - total size: 16 bytes
 .data SECTION_DATA_FONTS
 data_fonts_start:
+.data SECTION_DATA_KAPI_IDX
+data_kapi_start:
 .data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
 data_signature_start:
 .data SECTION_DATA_BSS
@@ -582,6 +584,7 @@ data_kapi_str_end:
 data_kapi_ptr_end:
 .data SECTION_DATA_KAPI_LDT
 data_kapi_ldt_end:
+data_kapi_end:
 .data SECTION_DATA_BSS
 data_bss_end:
 .data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1

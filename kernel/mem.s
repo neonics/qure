@@ -1945,6 +1945,7 @@ cmd_mem$:
 	PRINT_MEMRANGE data_classes
 	PRINT_MEMRANGE data_pci_driverinfo
 	PRINT_MEMRANGE data_fonts
+	PRINT_MEMRANGE data_kapi
 	.if SECTION_DATA_SIGNATURE < SECTION_DATA_BSS
 	PRINT_MEMRANGE data_signature
 	PRINT_MEMRANGE data_bss
@@ -1953,7 +1954,6 @@ cmd_mem$:
 	PRINT_MEMRANGE data_signature
 	.endif
 	mov	edi, [kernel_load_end_flat]
-	sub	edi, [database]
 	PRINT_MEMRANGE "<slack>", ecx, edi
 	PRINT_MEMRANGE "<free>", ecx, [kernel_symtab]
 	PRINT_MEMRANGE "symbol table", [kernel_symtab], [kernel_symtab_size], sz=1
