@@ -1,6 +1,82 @@
 .intel_syntax noprefix
 
-LIBC_DEBUG = 0
+LIBC_DEBUG = 1
+
+# NULL-base (flat cs/ds)
+.macro DEFSTUB name
+	_c_\name:
+		call	setregs$
+		printc 0xb0, "\name";
+		int 3
+		pushfd
+#		or	dword ptr [esp], 1 << 8 # trap flag
+		popfd
+		retf
+1:	# in flat cs
+		call	restoreregs$
+		ret
+.endm
+
+# modifies stack: esp:[ret] to [ret][es][ds][base][cs]
+setregs$:
+	sub	esp, 12
+	pushd	[esp+12]	# copy ret
+	push	eax
+	mov	[esp + 8], es
+	mov	[esp +12], ds
+	mov	[esp +20], cs
+	mov	eax, ds
+	add	eax, SEL_ring0CS - SEL_ring0CSf
+	mov	ds, eax
+	mov	es, eax
+	GDT_GET_BASE eax, SEL_compatCS
+	mov	[esp+16], eax
+	sub	[esp+4], eax	# adjust ret offset
+	pop	eax
+	pushd	cs
+	addd	[esp], SEL_ring0CS - SEL_ring0CSf
+	pushd	offset 2f
+#	int 3
+	#DEBUG "retf1"
+	retf
+2:	# in ds-rel cs
+
+
+	.if LIBC_DEBUG > 1
+	push ebp; lea ebp, [esp+4]
+	DEBUG_DWORD [ebp],"ret"
+	DEBUG_DWORD [ebp+4],"es"
+	DEBUG_DWORD [ebp+8],"ds"
+	DEBUG_DWORD [ebp+12],"base"
+	DEBUG_DWORD [ebp+16],"cs"
+	pop ebp
+	.endif
+#	int 3
+
+	ret
+
+restoreregs$:
+	.if LIBC_DEBUG > 1
+		DEBUG "restoreregs"
+		push ebp; lea ebp, [esp+4]
+		DEBUG_DWORD [ebp],"ret"
+		DEBUG_DWORD [ebp+4],"es"
+		DEBUG_DWORD [ebp+8],"ds"
+		DEBUG_DWORD [ebp+12],"base"
+		DEBUG_DWORD [ebp+16],"cs"
+		DEBUG_DWORD [ebp+20],"libret"
+		pop ebp
+		#int 3
+	.endif
+	mov	ds, [esp + 8]
+	mov	es, [esp + 4]
+	push	eax
+	mov	eax, [esp + 4]	# get ret
+	add	[esp + 4 + 12], eax	# update far ret eip
+	pop	eax
+	add	esp, 12
+	retf
+
 
 .data SECTION_DATA_BSS	# WARNING: singleton
 proc_esp:	.long 0
@@ -8,12 +84,15 @@ proc_ebp:	.long 0
 
 .text32
 
+# see elf.s, find_symbol: scans _c_ prefixes - for any lib, for now.
+
 _c___main:
+	call	setregs$
 	mov	[proc_esp], esp
 	mov	[proc_ebp], ebp
 
 	.if LIBC_DEBUG
-		call	SEL_kernelCall:0
+		#call	SEL_kernelCall:0
 
 		printc 0xb0, "MAIN!"
 		# remember these for exit..
@@ -28,6 +107,7 @@ _c___main:
 		pop edx
 		call	newline
 	.endif
+	call	restoreregs$
 	ret
 
 _c_exit:
@@ -53,8 +133,10 @@ _c_malloc:
 	ret
 
 _c_puts:
-	call SEL_kernelCall:0
+	call	setregs$
 	printlnc 0xb0, "puts"
+	call	restoreregs$
+#	pushfd;ord [esp], 1<<8;popfd
 	ret
 
 _c_printf:
@@ -107,3 +189,19 @@ _c_read:
 	call	SEL_kernelCall:0
 	printlnc 0xb0, "read"
 	ret
+
+# cygwin1.dll / ansi
+# cygwin1.dll:
+DEFSTUB "_dll_crt0@0"
+DEFSTUB _impure_ptr
+DEFSTUB calloc
+DEFSTUB cygwin_detach_dll
+DEFSTUB cygwin_internal
+DEFSTUB dll_dllcrt0
+DEFSTUB free
+DEFSTUB realloc
+
+# KERNEL32.DLL
+DEFSTUB GetModuleHandleA
+DEFSTUB GetProcAddress
+

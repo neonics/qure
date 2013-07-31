@@ -147,6 +147,8 @@ task_flags:	.long 0
 	TASK_FLAG_DONE_SHIFT	= 24	# for 'bt'
 	TASK_FLAG_CHILD_JOB	= 0x0010 << 16	# a job is using this stack
 
+	TASK_FLAG_FLATSEG	= 0x0020 << 16
+
 	TASK_FLAG_RING0		= 0x0000 << 16
 	TASK_FLAG_RING1		= 0x0001 << 16
 	TASK_FLAG_RING2		= 0x0002 << 16
@@ -176,6 +178,8 @@ task_io_sem_ptr:.long 0
 task_time_start:.long 0, 0	# timestamp value on resume
 task_time_stop:	.long 0, 0	# timestamp value on interrupted/suspended
 task_time:	.long 0, 0	# total running time
+
+task_cur_cr3:	.long 0
 # these values are only used for jobs:
 .align 4	# for movsd (future modifications)
 task_regs:	.space TASK_REG_SIZE
@@ -415,6 +419,7 @@ scheduler_init:
 
 	mov	esi, cr3
 	mov	[eax + edx + task_cr3], esi
+	mov	[eax + edx + task_cur_cr3], esi
 	inc	dword ptr [pid_counter]
 
 	# enable the scheduler
@@ -648,7 +653,7 @@ call task_update_time_resume$
 	mov	ebx, [edx + task_stack_esp0]
 	mov	[TSS + tss_ESP0], ebx
 
-	mov	eax, [edx + task_cr3]
+	mov	eax, [edx + task_cur_cr3]
 	mov	cr3, eax
 
 	SEM_UNLOCK [task_queue_sem]
@@ -778,6 +783,8 @@ call task_update_time_suspend$
 
 1:
 #########################################################################
+	mov	ebx, cr3
+	mov	[eax + edx + task_cur_cr3], ebx
 
 	mov	ebx, [tls]
 	mov	[eax + edx + task_tls], ebx
@@ -1139,6 +1146,16 @@ job_done:
 
 task_done:
 	mov	ebx, [esp]	# task index
+
+		mov eax, cs
+		cmp eax, SEL_ring0CSf
+		jb 1f
+		add	eax, SEL_ring0CS - SEL_ring0CSf + 8
+		# NOTE: making eax 0 will cause system hang, due to ds/es being cs...
+		# (had expected a GPF).
+		mov	ds, eax
+		mov	es, eax
+	1:
 	KAPI_CALL task_exit	# does not return.
 0:	print "."
 	YIELD
@@ -1146,8 +1163,10 @@ task_done:
 
 
 # mark task as done
+# in: ebx = task index
 KAPI_DECLARE task_exit
 task_exit:
+DEBUG_DWORD ebx,"TASK_EXIT idx", 0xf0
 0:	MUTEX_LOCK SCHEDULER, nolocklabel=0b
 0:	SEM_SPINLOCK [task_queue_sem], nolocklabel=0b
 
@@ -1163,6 +1182,9 @@ task_exit:
 	# invoke the scheduler
 	YIELD
 	printc 0x4f, "Zombie task scheduled!"
+0:	hlt
+	printchar_ '.'
+	jmp	0b
 	ret
 
 
@@ -1216,6 +1238,7 @@ task_queue_newentry:
 	xor	eax, eax
 	mov	ecx, SCHEDULE_STRUCT_SIZE / 4
 	rep	stosd
+	mov	[edi - SCHEDULE_STRUCT_SIZE + task_flags], dword ptr TASK_FLAG_SUSPENDED
 	pop_	ecx eax edi
 	ret
 9:	printlnc 4, "task_queue_newentry: malloc fail"
@@ -1430,19 +1453,6 @@ schedule_task:
 	cmp	dword ptr [task_queue_sem], -1
 	jz	8f
 
-.if 0
-DEBUG_DWORD esp
-push ebp
-lea ebp, [esp + 4]
-mov ecx, 5 #(0x200 - 0x1e0)/4
-push ecx
-0:DEBUG_DWORD [ebp]
-add ebp, 4
-loop 0b
-pop ecx
-pop ebp
-#cmp [fork_counter$], dword ptr 0; jz 2f; cli; jmp halt; 2:
-.endif
 	# copy regs to stack
 	pushad
 	pushd	ss
@@ -1451,10 +1461,6 @@ pop ebp
 	pushd	fs
 	pushd	gs
 	mov	ebp, esp
-	# just in case:
-	mov	eax, SEL_compatDS
-	mov	ds, eax
-	mov	es, eax
 	SEM_SPINLOCK [task_queue_sem], nolocklabel=99f
 
 	# duplicate schedule check: allow multiple instances of same task
@@ -1481,21 +1487,24 @@ pop ebp
 	# copy registers
 	lea	edi, [ebx + task_regs]
 	mov	esi, ebp
-	mov	ecx, TASK_REG_SIZE - 12	# eip, cs, eflags not copied
-	rep	movsb
+	mov	ecx, (TASK_REG_SIZE - 12)/4 # eip, cs, eflags not copied
+	rep	movsd
 	add	esi, 4	# skip method return
 	movsd	# eip
 	# calculate the selectors to use according to CPL.
-	lodsd	# cs
+	add	esi, 4	# cs
 	mov	eax, [esi] # task flags
 	and	eax, TASK_FLAG_RING_MASK
 	shr	eax, TASK_FLAG_RING_SHIFT - 4	# eax = 16 * RPL = 2 selectors
 	mov	ecx, eax
 	shr	ecx, 4	# remember RPL
 	add	eax, SEL_ring0CS
-	or	al, cl	# add RPL
+	test	dword ptr [esi], TASK_FLAG_FLATSEG # next esi=flags
+	jz	1f
+	add	eax, SEL_ring0CSf - SEL_ring0CS # use flat selectors
+1:	or	al, cl	# add RPL
 	stosd	# cs
-	add	eax, 8
+	add	eax, 8	# data sel = code sel + 8
 
 	mov	[ebx + task_regs + task_reg_ds], eax
 	mov	[ebx + task_regs + task_reg_es], eax
@@ -1507,10 +1516,18 @@ pop ebp
 	mov	dword ptr [ebx + task_regs + task_reg_eflags], eax
 
 	lodsd	# task flags
-	test	eax, ~(TASK_FLAG_TASK | TASK_FLAG_RING_MASK)
+	test	eax, ~(TASK_FLAG_TASK | TASK_FLAG_RING_MASK|TASK_FLAG_SUSPENDED|TASK_FLAG_FLATSEG)
 	jnz	44f	# invalid bits
+
+#		test eax, TASK_FLAG_SUSPENDED
+#		jz 1f
+#		or dword ptr [ebx + task_regs + task_reg_eflags], 1<<8 # Trap
+#	1:
 	# TODO: check if caller has permission to schedule CPL0 tasks
+	or	eax, TASK_FLAG_SUSPENDED
 	mov	[ebx + task_flags], eax
+
+
 	lodsd	# task tabel
 	mov	[ebx + task_label], eax
 	mov	eax, [ebp + task_reg_eip]	# method return, conveniently
@@ -1526,6 +1543,97 @@ pop ebp
 	test	dword ptr [ebx + task_flags], TASK_FLAG_TASK
 	jz	7f	# a job - don't allocate stack
 	.endif
+
+	call	task_setup_stack$	# out: ebp = task stack
+	jc	66f	# malloc fail
+
+	mov	eax, [ebx + task_pid]
+	mov	[ebp + task_reg_eax], eax
+
+	# enable the task, unless input flag says to keep it suspended
+	test	dword ptr [esp + 5*4+32+4+8], TASK_FLAG_SUSPENDED
+	jnz	1f
+	and	dword ptr [ebx + task_flags], ~TASK_FLAG_SUSPENDED
+1:
+
+	clc
+########
+7:	SEM_UNLOCK [task_queue_sem]	# doesn't use flags
+
+9:	popd	gs
+	popd	fs
+	popd	es
+	popd	ds
+	popd	ss
+	popad
+
+	.if 0
+	pushf
+	push	esi
+	mov	esi, [esp + 8 + 16]
+	call	print
+	println " scheduled"
+	pop	esi
+	popf
+	.endif
+
+	ret	16
+
+########
+8:	test	[esp + 12], dword ptr TASK_FLAG_TASK
+	jz	1f	# don't print for kernel jobs
+	DEBUG "scheduling disabled: caller="
+	push	edx
+	mov	edx, [esp + 4]
+	call	printhex8
+	pop 	edx
+	call	newline
+1:	stc
+	ret	16
+######## error messages
+99:	call	0f
+	printlnc_ 4, "can't lock task queue"
+	stc
+	jmp	9b
+
+88:	test	[ebp + TASK_REG_SIZE - 12 + 12], dword ptr TASK_FLAG_TASK
+	stc
+	jz	7b	# don't print for kernel jobs
+	call	0f
+	printlnc_ 4, "task already scheduled"
+	stc
+	jmp	7b
+
+77:	call	0f
+	printlnc_ 4, "can't allocate task entry"
+	stc
+	jmp	7b
+
+66:	call	0f
+	printlnc_ 4, "can't allocate task stack"
+	stc
+	jmp	7b
+
+55:	call	0f
+	printlnc_ 4, "can't allocate paging structure"
+	stc
+	jmp	7b
+
+44:	call	0f
+	printc_ 4, "invalid task flags: "
+	push	edx
+	mov	edx, eax
+	call	printhex8
+	pop	edx
+	call	newline
+	stc
+	jmp	7b
+
+0:	printc_ 4, "schedule_task: "
+	ret
+
+
+task_setup_stack$:
 	# check if the entry already has a stack
 	mov	eax, [ebx + task_stackbuf]
 	or	eax, eax
@@ -1533,7 +1641,7 @@ pop ebp
 	# allocate a stack
 	mov	eax, JOB_STACK_SIZE
 	call	mallocz
-	jc	66f
+	jc	9f	# continues to 66b
 	mov	[ebx + task_stackbuf], eax
 1:
 
@@ -1542,7 +1650,7 @@ pop ebp
 	mov	edi, eax
 	mov	ecx, JOB_STACK_SIZE / 4
 	xor	eax, eax
-	rep	stosd	# BUG: edi
+	rep	stosd
 	pop	eax
 	.endif
 
@@ -1557,6 +1665,11 @@ pop ebp
 	# sub edx, [task_queue]
 	mov	[eax + 4], edx	# set task index
 	mov	[eax], dword ptr offset task_done
+	test	dword ptr [ebx + task_flags], TASK_FLAG_FLATSEG
+	jz	1f
+	GDT_GET_BASE edx, cs
+	add	[eax], edx	# correct for flat offset
+1:
 	.endif
 
 	movzx	edx, word ptr [ebx + task_regs + task_reg_ds]
@@ -1635,85 +1748,8 @@ pop ebp
 	sub	edx, eax
 	mov	[ebx + task_stack_esp0], edx
 1:
-
-	mov	eax, [ebx + task_pid]
-	mov	[ebp + task_reg_eax], eax
-
 	clc
-########
-7:	SEM_UNLOCK [task_queue_sem]	# doesn't use flags
-
-9:	popd	gs
-	popd	fs
-	popd	es
-	popd	ds
-	popd	ss
-	popad
-
-	.if 0
-	pushf
-	push	esi
-	mov	esi, [esp + 8 + 16]
-	call	print
-	println " scheduled"
-	pop	esi
-	popf
-	.endif
-
-#cmp [fork_counter$], dword ptr 0; jnz halt
-	ret	16
-########
-8:	test	[esp + 12], dword ptr TASK_FLAG_TASK
-	jz	1f	# don't print for kernel jobs
-	DEBUG "scheduling disabled: caller="
-	push	edx
-	mov	edx, [esp + 4]
-	call	printhex8
-	pop 	edx
-	call	newline
-1:	stc
-	ret	16
-######## error messages
-99:	call	0f
-	printlnc_ 4, "can't lock task queue"
-	stc
-	jmp	9b
-
-88:	test	[ebp + TASK_REG_SIZE - 12 + 12], dword ptr TASK_FLAG_TASK
-	stc
-	jz	7b	# don't print for kernel jobs
-	call	0f
-	printlnc_ 4, "task already scheduled"
-	stc
-	jmp	7b
-
-77:	call	0f
-	printlnc_ 4, "can't allocate task entry"
-	stc
-	jmp	7b
-
-66:	call	0f
-	printlnc_ 4, "can't allocate task stack"
-	stc
-	jmp	7b
-
-55:	call	0f
-	printlnc_ 4, "can't allocate paging structure"
-	stc
-	jmp	7b
-
-44:	call	0f
-	printc_ 4, "invalid task flags: "
-	push	edx
-	mov	edx, eax
-	call	printhex8
-	pop	edx
-	call	newline
-	stc
-	jmp	7b
-
-0:	printc_ 4, "schedule_task: "
-	ret
+9:	ret
 
 ############################################################################
 # Task Privileged Stack Allocation
@@ -2038,7 +2074,8 @@ task_setup_paging:
 
 	call	paging_alloc_page_idmap
 	jc	9f
-	mov	[ebp + task_page_dir], eax	# PDE
+	mov	[ebp + task_page_dir], eax	# PDE, aka task_cr3
+	mov	[ebp + task_cur_cr3], eax	# PDE
 
 	call	paging_alloc_page_idmap
 	jc	91f
@@ -2140,6 +2177,40 @@ or ax, PTE_FLAG_U|PTE_FLAG_RW
 9:	pop	ebx
 	ret
 
+# stores the page as a PTE in the PD
+# in: ebx= task ptr
+# in: eax= page address
+# in: edx = address to map it to
+task_map_pde:
+	push	ecx
+	mov	ecx, cr3
+	push	ecx
+	mov	ecx, [page_directory_phys]
+	mov	cr3, ecx
+
+	test	edx, ((1<<22)-1)
+	jnz	9f
+	push	edx
+	shr	edx,22
+	shl	edx, 2
+	add	edx, [ebx + task_page_dir]
+#	invlpg	[edx]
+	GDT_GET_BASE ecx, ds
+	sub	edx, ecx
+	mov	[edx], eax
+	pop	edx
+#	invlpg	[edx]
+
+	clc
+0:
+	pop	ecx
+	mov	cr3, ecx
+	pop	ecx
+	ret
+9:	printlnc 4, "task_map_pde: not 4Mb boundary/flags"
+	int 3
+	stc
+	jmp	0b
 ##############################################################################
 
 # in: [esp] = address of mutex

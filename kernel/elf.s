@@ -1,5 +1,5 @@
 .intel_syntax noprefix
-ELF_DEBUG = 0	# 0..2
+ELF_DEBUG = 1	# 0..2
 
 ######## ELF
 .struct 0
@@ -24,12 +24,34 @@ elf_shstrndx:		.word 0
 .struct 0 # elf_shdr
 elf_sh_name:		.long 0
 elf_sh_type:		.long 0
+	ELF_SHT_NULL	= 0
+	ELF_SHT_PROGBITS= 1
+	ELF_SHT_SYMTAB	= 2
+	ELF_SHT_STRTAB	= 3
+	ELF_SHT_RELA	= 4
+	ELF_SHT_HASH	= 5
+	ELF_SHT_DYNAMIC	= 6
+	ELF_SHT_NOTE	= 7
+	ELF_SHT_NOBITS	= 8
+	ELF_SHT_REL	= 9	# related symbol table
+	ELF_SHT_SHLIB	= 10
+	ELF_SHT_DYNSYM	= 11
+	ELF_SHT_LOPROC	= 0x70000000
+	ELF_SHT_HIPROC	= 0x7fffffff
+	ELF_SHT_LOUSER	= 0x80000000
+	ELF_SHT_HIUSER	= 0xffffffff
 elf_sh_flags:		.long 0
+	ELF_SHF_WRITE	= 1
+	ELF_SHF_ALLOC	= 2
+	ELF_SHF_EXEC	= 4
+	ELF_SHF_MASKPROC= 0xf0000000
 elf_sh_addr:		.long 0
 elf_sh_offset:		.long 0
 elf_sh_size:		.long 0
-elf_sh_link:		.long 0
+elf_sh_link:		.long 0	# string table section header index
+	# ELF_SHT: DYNAMIC,HASH,REL,RELA,SYMTAB,DYNSYM
 elf_sh_info:		.long 0
+	# ELF_SHT: REL, RELA, SYMTAB, DYNSYM
 elf_sh_addralign:	.long 0
 elf_sh_entsize: 	.long 0
 .struct 0 # elf_phdr
@@ -54,6 +76,8 @@ elf_vaddr_base:	.long 0	# virtual load address: phent[0].vaddr-phent[0].offset
 elf_img_size:	.long 0
 elf_stack_top:	.long 0
 elf_main:	.long 0
+elf_pd:		.long 0
+elf_pt:		.long 0
 # image layout:
 # [elf_base] code/data start
 # [elf_base]+[elf_img_size] code/data end, stack start
@@ -85,8 +109,8 @@ ELF_STACK_SIZE = 4096
 69:
 .endm
 
-.macro ELF_LOOP table base=ebx entptr=esi delta=edi
-	ELF_FOR \table \base \entptr \delta
+.macro ELF_LOOP table base=ebx entptr=esi delta=edi, loop=1
+	ELF_FOR \table \base \entptr \delta loop=\loop
 	ELF_DO
 .endm
 
@@ -108,6 +132,7 @@ ELF_STACK_SIZE = 4096
 # in: esi, ecx: elf image
 exe_elf:
 	push	eax
+
 	# note: singleton access (for now)
 	mov	[elf_main], dword ptr -1
 	mov	[elf_vaddr_base], dword ptr 0
@@ -122,7 +147,12 @@ exe_elf:
 		DEBUG_DWORD [ebx+elf_entry]
 	.endif
 
-	.if ELF_DEBUG > 1
+
+	call	malloc_page_phys
+	mov	[elf_pt], eax
+
+	.if ELF_DEBUG# > 1
+		call	elf_ph_print
 		call	elf_sh_print
 	.endif
 
@@ -131,9 +161,11 @@ exe_elf:
 	push	esi
 	push	ecx
 
+.if 1 # realloc & move - not needed with paging
 	call	elf_ph_process
 	mov	[elf_base], ebx
 	mov	[elf_img_size], ecx
+.endif
 
 	call	elf_sh_process
 	jc	9f	# symbol not found etc..
@@ -143,7 +175,7 @@ exe_elf:
 	cmp	dword ptr [elf_main], -1
 	jz	8f
 
-	.if ELF_DEBUG
+	.if 1#ELF_DEBUG
 		call	newline
 		DEBUG "About to execute"
 		call	newline
@@ -161,6 +193,23 @@ exe_elf:
 		call	more
 	.endif
 
+
+		# ALTERNATIVE: using scheduler
+		.if 1
+			PUSH_TXT "a.elf"
+			push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING_SERVICE
+			pushd	cs
+			add	ebx, [elf_main]
+			pushd	ebx
+#			mov [esp], dword ptr offset 999f
+			KAPI_CALL schedule_task
+			#call	more
+			990: yield; jmp 990b
+			999: printlnc 11, "ELF TASK!"
+			990: yield; jmp 990b
+		.endif
+
+
 ELF_REL_KERNEL = 1
 
 .if 1
@@ -173,14 +222,6 @@ ELF_REL_KERNEL = 1
 	GDT_SET_LIMIT SEL_taskCS, 0x001fffff
 	GDT_SET_BASE SEL_taskDS, eax
 	GDT_SET_LIMIT SEL_taskDS, 0x001fffff
-
-	.if ELF_DEBUG
-		call	newline
-		pushad
-		PRINT_GDT SEL_taskCS
-		PRINT_GDT SEL_taskDS
-		popad
-	.endif
 
 	mov	edx, [elf_main]
 
@@ -231,7 +272,7 @@ xor ecx, ecx
 	# the ss:esp are used when there is privilege level change
 	push	eax	# ss
 	push	edi	# dword ptr [elf_stack_top] - 12
-	push	dword ptr SEL_taskCS | 3
+	push	dword ptr SEL_taskCS | 2
 	push	edx
 	retf
 
@@ -275,7 +316,7 @@ xor ecx, ecx
 elf_sh_process:
 	call	elf_calc_shstrtab	# out: edi=shstrtab base ptr
 
-	ELF_LOOP sh delta=edx
+	ELF_LOOP sh delta=edx loop=0
 	push	esi
 	push	edx
 	push	ecx
@@ -308,7 +349,7 @@ elf_sh_process:
 	pop	edx
 	pop	esi
 	jc	9f
-	ELF_ENDL # esi, edx
+	ELF_ENDL loop=0 # esi, edx
 9:	ret
 
 
@@ -316,6 +357,7 @@ elf_sh_process:
 # in: ebx = base
 # in: esi = strtab section pointer
 elf_symtab_process:
+	DEBUG_DWORD esi,"processing symbol table"
 	push	esi
 
 	call	elf_calc_strtab	# out: edi=linked strtab base ptr
@@ -334,6 +376,13 @@ elf_symtab_process:
 	mov	eax, [esi + elf_symtab_name]
 
 	call	elf_getstring
+	.if 0
+		push	eax
+		call	_s_print
+		call	printspace
+		push edx; mov edx, [esi + elf_symtab_value]; call printhex8; call newline; pop edx
+	.endif
+
 	cmp	dword ptr [eax], '_'|'m'<<8|'a'<<16|'i'<<24
 	jnz	1f
 	cmp	word ptr [eax + 4], 'n'
@@ -342,15 +391,17 @@ elf_symtab_process:
 	mov	eax, [esi + elf_symtab_value]
 	mov	[elf_main], eax
 	.if ELF_DEBUG
-		print	"_main found at: "
+		printc	11, "_main found at: "
 		push	edx
 		mov	edx, eax
 		call	printhex8
 		pop	edx
 		call	newline
 	.endif
-	
-1:	add	esi, edx
+
+1:
+
+	add	esi, edx
 	sub	ecx, edx
 	jg	0b
 
@@ -456,40 +507,47 @@ elf_symtab_print:
 
 
 elf_sh_print:
+	pushad
 	call	elf_calc_shstrtab	# out: edi=shstrtab base ptr
-	mov	esi, [ebx + elf_shoff]
-	add	esi, ebx
-	movzx	ecx, word ptr [ebx + elf_shnum]
+#	mov	esi, [ebx + elf_shoff]
+#	add	esi, ebx
+#	movzx	ecx, word ptr [ebx + elf_shnum]
+#XXXXXXX
+#elf_sh_name:		.long 0
+#elf_sh_type:		.long 0
+#elf_sh_flags:		.long 0
+#elf_sh_addr:		.long 0
+#elf_sh_offset:		.long 0
+#elf_sh_size:		.long 0
+#elf_sh_link:		.long 0
+#elf_sh_info:		.long 0
+#elf_sh_addralign:	.long 0
+#elf_sh_entsize: 	.long 0
+call newline
+println "S  type flg addr.... offset.. size.... link.... info.... align... name"
+	ELF_LOOP sh delta=edx, loop=0
 ########
 0:	push	esi
 	push	edx
 	push	ecx
 #######
-	print "section "
 	movzx	edx, word ptr [ebx + elf_shnum]
 	sub	edx, ecx
-	call	printdec32
+	call	printhex2
 	call	printspace
-	.if ELF_DEBUG > 1
-		sub	esi, ebx
-		DEBUG_DWORD esi
-		add	esi, ebx
-	.endif
-	print " size "
-	mov	edx, [esi + elf_sh_size]
-	call	printhex8
-	print " offset "
-	mov	edx, [esi + elf_sh_offset]
-	call	printhex8
-	print " addr "
-	mov	edx, [esi + elf_sh_addr]
-	call	printhex8
-	print " name "
-	.if ELF_DEBUG 
-	mov	edx, [esi + elf_sh_name]
-	call	printhex8
-	call	printspace
-	.endif
+	mov	edx, [esi + elf_sh_type]; call printhex4;call printspace
+	mov	edx, [esi + elf_sh_flags];
+		PRINTFLAG dl, ELF_SHF_EXEC, "x", "."
+		PRINTFLAG dl, ELF_SHF_ALLOC, "a", "."
+		PRINTFLAG dl, ELF_SHF_WRITE, "w", "."
+		#call printhex4
+		call printspace
+	mov	edx, [esi + elf_sh_addr]; call printhex8;call printspace
+	mov	edx, [esi + elf_sh_offset]; call printhex8;call printspace
+	mov	edx, [esi + elf_sh_size]; call printhex8;call printspace
+	mov	edx, [esi + elf_sh_link]; call printhex8;call printspace
+	mov	edx, [esi + elf_sh_info]; call printhex8;call printspace
+	mov	edx, [esi + elf_sh_addralign]; call printhex8;call printspace
 
 	mov	eax, [esi + elf_sh_name]
 	call	elf_getstring
@@ -504,11 +562,13 @@ elf_sh_print:
 	pop	ecx
 	pop	edx
 	pop	esi
-	add	esi, edx
-	dec	ecx
-	jnz	0b
+	#add	esi, edx
+	#dec	ecx
+	#jnz	0b
+	ELF_ENDL loop=0
 #	loop	0b
 ########
+	popad
 	ret
 
 # in: eax = section number
@@ -583,6 +643,31 @@ elf_getstring:
 
 
 elf_ph_print:
+	pushad
+	println "type.... offs.... vaddr... paddr... filesize memsize. flags... align..."
+	ELF_LOOP ph
+	push	esi
+	.rept 8
+	lodsd; mov edx, eax; call printhex8; call printspace
+	.endr
+	pop	esi
+#	DEBUG_DWORD [esi + elf_ph_vaddr]
+#	DEBUG_DWORD [esi + elf_ph_paddr]
+#elf_ph_type:	.long 0 #.word 0
+#elf_ph_offset:	.long 0
+#elf_ph_vaddr:	.long 0
+#elf_ph_paddr:	.long 0
+#elf_ph_filesz:	.long 0 #.word 0
+#elf_ph_memsz:	.long 0 #.word 0
+#elf_ph_flags:	.long 0 #.word 0
+#elf_ph_align:	.long 0 #.word 0
+#	call	malloc_page_phys
+	call	newline
+	ELF_ENDL
+	popad
+	ret
+
+elf_ph_print_old$:
 	push	edx
 	push	edi
 	push	esi
@@ -701,6 +786,8 @@ elf_ph_verify:
 	stc
 	ret
 
+elf_ph_process:
+ret
 # loops through the program header, and checks whether:
 # - filesize equals memsize
 # - specified relative virtual load address matches actual
@@ -714,7 +801,7 @@ elf_ph_verify:
 # in: ebx = elf image base
 # out: ebx = new elf image base (if needed)
 # out: ecx = new elf image size (if needed)
-elf_ph_process:
+elf_ph_process_$_make_mem_ok:
 	.if ELF_DEBUG
 		call	elf_ph_print
 		DEBUG "calc"
@@ -737,6 +824,7 @@ elf_ph_process:
 		DEBUG_DWORD edx
 		DEBUG_DWORD [elf_img_size]
 	.endif
+
 
 	mov	edx, [elf_img_size]
 	add	edx, ELF_STACK_SIZE + 16	# align
@@ -772,15 +860,17 @@ elf_ph_process:
 
 
 elf_ph_move:
+DEBUG_DWORD [ebx + 0x5000],"ILT",0xa0
+DEBUG_DWORD [ebx + 0x4000],"ILT",0xa0
 	push	ebp	# reserve variable pointer
-	ELF_LOOP ph
+	ELF_LOOP ph base=ebx entptr=esi delta=edi # ecx 
 	mov	eax, [esi + elf_ph_vaddr]
 	mov	edx, [esi + elf_ph_paddr]
 	cmp	eax, edx
 	push	ecx
 	mov	ebp, esp	# [+0] and [-4]
-	push	edi
-	push	esi
+	push	edi	# delta (sh ent size)
+	push	esi	# entry ptr
 	jnz	1f
 0:	pop	esi
 	pop	edi
@@ -788,6 +878,9 @@ elf_ph_move:
 	jc	9f
 	ELF_ENDL
 9:	pop	ebp
+DEBUG "moved.", 0xa0
+DEBUG_DWORD [ebx + 0x5000],"ILT",0xa0
+DEBUG_DWORD [ebx + 0x4000],"ILT",0xa0
 	clc
 	ret
 
@@ -798,14 +891,21 @@ elf_ph_move:
 # in: FLAGS: cmp vaddr, paddr
 # in: [esp] = total discrepancy (growth)
 1:	jb	1f	# should not happen due to verify
-	
+DEBUG "moving", 0xa0; DEBUG_DWORD edx,"from", 0xa0; DEBUG_DWORD eax, "to", 0xa0
+DEBUG_DWORD [ebx + 0x5000],"ILT",0xa0
+DEBUG_DWORD [ebx + 0x4000],"ILT",0xa0
 	mov	edi, eax
-	sub	edi, edx
-2:	add	[esi + elf_ph_offset], edi	# update addresses
+	sub	edi, edx	# edi = vaddr - paddr delta
+2:
+DEBUG_DWORD [ebx + 0x5000],"ILT",0xa0
+DEBUG_DWORD [ebx + 0x4000],"ILT",0xa0
+	add	[esi + elf_ph_offset], edi	# update addresses
 	add	[esi + elf_ph_paddr], edi
 	add	esi, [ebp-4]
 	loop	2b
-	
+
+DEBUG_DWORD [ebx + 0x5000],"ILT",0xa0
+DEBUG_DWORD [ebx + 0x4000],"ILT",0xa0
 	.if ELF_DEBUG > 1
 		call	newline
 		DEBUG "update sh"
@@ -814,7 +914,7 @@ elf_ph_move:
 	# update the section header pointers: esi + elf_sh_offset
 	push	edi
 	push	eax
-	mov	eax, edi	# delta
+	mov	eax, edi	# vaddr - paddr: mem shift
 
 	.if ELF_DEBUG > 1
 		DEBUG_DWORD edx
@@ -864,8 +964,13 @@ elf_ph_move:
 	# move the data
 
 	mov	ecx, [elf_img_size]
-	sub	ecx, eax	# vaddr..end or paddr..(end - ecx)
-
+	sub	ecx, edx	# vaddr..end or paddr..(end - ecx)
+DEBUG_DWORD edx, "movs from", 0xb0
+DEBUG_DWORD eax, "movs to", 0xb0
+DEBUG_DWORD [ebx + 0x5000]
+DEBUG_DWORD [ebx + 0x5004]
+DEBUG_DWORD [ebx + 0x4000]
+DEBUG_DWORD [ebx + 0x4004]
 	lea	esi, [ebx + edx]	# paddr
 	lea	edi, [ebx + eax]	# vaddr
 
@@ -892,16 +997,21 @@ elf_ph_move:
 		DEBUG_DWORD edi
 		pop edi
 
-		
-		call newline
-		call elf_ph_print	
-	.endif
 
+		call newline
+		call elf_ph_print
+	.endif
+DEBUG_DWORD ecx
 	std
 	add	esi, ecx
 	add	edi, ecx
 	rep	movsb
 	cld
+
+DEBUG_DWORD [ebx + 0x5000]
+DEBUG_DWORD [ebx + 0x5004]
+DEBUG_DWORD [ebx + 0x4000]
+DEBUG_DWORD [ebx + 0x4004]
 	clc
 	jmp	0b
 
@@ -909,8 +1019,6 @@ elf_ph_move:
 	stc
 	jmp	0b
 ###################################
-
-
 
 
 elf_relocation:
@@ -961,6 +1069,7 @@ elf_relocation:
 
 
 # in: eax = prog base
+# in: dx = reloc entry
 elf_relocate_ptr:
 	pushad
 	and	dh, 15	# low 12 bits only
@@ -1039,59 +1148,147 @@ elf_relocate_ptr:
 		print "]"
 	.endif
 	pop	edi
-	popad	
+	popad
 	ret
 
 
 
 # .idata: see gnu-binutils/src/binutils/dlltool.c
 .struct 0
-# .idata consists of .idata$[2-7]
+# .idata consists of .idata$[2-7]. Each dll's .idata$2 (etc) are concatenated
 # .idata$2: import directory table: array of IMAGE_IMPORT_DESCRIPTOR
 elf_idata_idt_ilt:	.long 0	# ptr to import lookup table (idata 4
 elf_idata_idt_tds:	.long 0 # timedate stamp (0)
 elf_idata_idt_fwdc:	.long 0 # forwarder chain (0)
 elf_idata_idt_name:	.long 0 # ptr to lib name (idata 6)
 elf_idata_idt_ft:	.long 0 # PIMAGE_THUNK_DATA first thunk: ptr to .idata$5
+ELF_IDATA_IDT_STRUCT_SIZE = .
 #.idata$3: null terminating entry for idata 2
 #.idata$4: import lookup table: array of array of poitners to hint name table
 # array for each lib being imported from. Each set terminated with NULL.
 #
-#.idata$5: import address table: array of arra of p....
-#.idata$6: hint name table
+#.idata$5: import address table: array of arra of p....(same as idata$4, but
+#	   loader overwrites with address of function)
+#.idata$6: hint name table: {ordinal:.short; fname: .asciz}
 #.idata$7: dll name.
 .text32
 elf_import: # destroys: eax,ecx,edx,esi
+#	enter	16
+	push	ebp
+	sub	esp, 16
+	mov	ebp, esp
 	push	edi
 
 	mov	ecx, [esi + elf_sh_size]
 
 	.if ELF_DEBUG
 		print ".idata IMPORT table:"
-		DEBUG "size"
-		mov	edx, ecx
-		call	printhex8
-		DEBUG "offset"
-		mov	edx, [esi + elf_sh_offset]
-		call	printhex8
+		DEBUG_DWORD esi;sub esi, ebx; DEBUG_DWORD esi; add esi, ebx
+		DEBUG_DWORD ecx, "size"
+		DEBUG_DWORD [esi + elf_sh_offset], "offset"
+		call	newline
 	.endif
 
 	mov	esi, [esi + elf_sh_offset]
 	add	esi, ebx
 
+0:
 	.if ELF_DEBUG
-		DEBUG_DWORD [esi+elf_idata_idt_ilt]
-		DEBUG_DWORD [esi+elf_idata_idt_name]
-		DEBUG_DWORD [esi+elf_idata_idt_ft]
-		DEBUG_DWORD [esi+elf_idata_idt_ft+4] # null terminator
+		DEBUG_DWORD [esi+elf_idata_idt_ilt], "ILT"
+		DEBUG_DWORD [esi+elf_idata_idt_name], "NAME"
+		DEBUG_DWORD [esi+elf_idata_idt_ft], "FT"
+	.endif
 
+	push	esi
+	call	elf_idata_process_lib$	# mod: eax, ecx, edx, esi, edi
+	pop	esi
+	add	esi, ELF_IDATA_IDT_STRUCT_SIZE
+	# check for null entry (size 20 probably)
+	cmp	dword ptr [esi], 0
+	jnz	0b
+
+	pop	edi
+	add	esp, 16
+	pop	ebp
+	ret
+
+elf_idata_print_idt$:
+	call	newline
+	LOAD_TXT ".idata", edx
+	call	elf_get_section$
+	jc	9f
+
+DEBUG "===================", 0xf0
+DEBUG_DWORD esi,"idata sh ptr"
+		sub esi, ebx; DEBUG_DWORD esi; add esi, ebx
+	mov	esi, [esi + elf_sh_offset]
+DEBUG_DWORD esi,"idata section"
+call newline
+	add	esi, ebx
+
+0:
+	.if ELF_DEBUG
+		sub	esi, ebx
+		DEBUG_DWORD esi
+		add	esi, ebx
+		DEBUG_DWORD [esi+elf_idata_idt_ilt], "ILT"
+		DEBUG_DWORD [esi+elf_idata_idt_name], "NAME"
+		DEBUG_DWORD [esi+elf_idata_idt_ft], "FT"
+		call	newline
+		print " ILT: "
+		push	esi
+		mov	esi, [esi + elf_idata_idt_ilt]
+		add	esi, ebx
+		push	ecx
+		mov	ecx, 10
+	1:	lodsw; DEBUG_WORD ax
+		or	ax, ax
+		jz	1f
+		loop	1b
+	1:	pop	ecx
+		pop	esi
+		call	newline
+
+		push	esi
+		mov	esi, [esi + elf_idata_idt_ft]
+		add	esi, ebx
+		push	ecx
+		mov	ecx, 10
+	1:	lodsw; DEBUG_WORD ax
+		or	eax, eax
+		jz	1f
+		loop	1b
+	1:	pop	ecx
+		pop	esi
+		call	newline
+
+
+	.endif
+
+	add	esi, ELF_IDATA_IDT_STRUCT_SIZE
+	cmp	dword ptr [esi], 0
+	jnz	0b
+
+	ret
+9:	printc 4, "can't find .idata section"
+	ret
+
+
+# in: esi = ptr to elf_idata_idt structure
+elf_idata_process_lib$:
+	.if ELF_DEBUG
 		push	esi
 		mov	esi, [esi + elf_idata_idt_name]
 		add	esi, ebx
 		print "library name: "
 		call	println
 		pop	esi
+
 	.endif
+
+	sub esi, ebx; DEBUG_DWORD esi; add esi, ebx
+	mov	edx, [esi + elf_idata_idt_ilt]
+	DEBUG_DWORD edx, "ILT"
 
 #############################
 	mov	edi, esi
@@ -1101,14 +1298,26 @@ elf_import: # destroys: eax,ecx,edx,esi
 	.endif
 
 	push	dword ptr 0	# unresolved symbol counter (so can print all)
+	DEBUG_DWORD esi, "idt ptr"
 	mov	esi, [esi + elf_idata_idt_ilt]
+	DEBUG_DWORD esi, "ilt ptr"
 	add	esi, ebx
+
+
+		push esi
+		mov ecx, 10
+		0: lodsd; DEBUG_DWORD eax; loop 0b
+		pop esi
+
+		pushad; call elf_idata_print_idt$;popad
+
 	xor	ecx, ecx
 
-0:	lodsd
+0:	sub esi, ebx; DEBUG_DWORD esi,"LOADING", 0xb0; add esi, ebx
+	lodsd; DEBUG_DWORD eax; DEBUG_DWORD [esi]
 	or	eax, eax
 	jz	2f
-1:	
+1:
 	.if ELF_DEBUG
 		mov	edx, eax
 		call	printhex8
@@ -1118,8 +1327,12 @@ elf_import: # destroys: eax,ecx,edx,esi
 
 	push	esi
 	lea	esi, [ebx + eax]
+	DEBUG_DWORD eax
+	DEBUG_DWORD esi
+call more
 	lodsw
 	mov	dx, ax
+	DEBUG_WORD dx
 
 	.if ELF_DEBUG
 		call	printhex4
@@ -1135,7 +1348,7 @@ elf_import: # destroys: eax,ecx,edx,esi
 	pop	edi
 	pop	esi
 	jnc	4f
-	inc	dword ptr [esp]	# # symbols not found	
+	inc	dword ptr [esp]	# # symbols not found
 	jmp	3f	# don't update for unfound symbols
 4:
 	# update symbol
@@ -1149,7 +1362,7 @@ elf_import: # destroys: eax,ecx,edx,esi
 	add	esi, ebx
 	mov	[esi + ecx * 4], eax
 	pop	esi
-3:	
+3:
 	.if ELF_DEBUG
 		println "] "
 	.endif
@@ -1158,6 +1371,7 @@ elf_import: # destroys: eax,ecx,edx,esi
 
 
 2: # repeated for each lib, so we need to know the libcount.
+DEBUG "end"
 #	lodsd
 #	or	eax, eax
 #	jnz	1b
@@ -1172,15 +1386,14 @@ elf_import: # destroys: eax,ecx,edx,esi
 	# the values i nhere point to the lookup table initally, but
 	# are overwritten with the real addresses.
 
-
 .if ELF_DEBUG
 	call	elf_idata_print_iat
 	# arrived at hint table:
 	call	elf_idata_print_hints
 .endif
+
 	clc
-9:	pop	edi
-	ret
+9:	ret
 
 
 .if ELF_DEBUG
@@ -1211,7 +1424,7 @@ elf_idata_print_hints:
 	mov ecx, 10
 0:
 	lodsw			# ordinal
-	mov	dx, ax	
+	mov	dx, ax
 	call	printhex4
 	call	printspace
 #cmp	byte ptr [esi], 0
@@ -1224,6 +1437,41 @@ elf_idata_print_hints:
 	call	newline
 	ret
 .endif
+
+
+
+# in: edx = section name
+# out: esi = section pointer
+# out: CF
+elf_get_section$:
+	push_	ecx edi edx
+	DEBUG_DWORD edx; DEBUGS edx
+	call	elf_calc_shstrtab	# out: edi=shstrtab base ptr
+
+	ELF_LOOP sh delta=edx
+	push	esi
+	push	edx
+	push	ecx
+#######
+	mov	eax, [esi + elf_sh_name]
+	call	elf_getstring	# out: eax = stringptr
+	DEBUGS eax
+	xchg	edx, [esp + 12]
+	call	strcmp	# eax, edx
+	xchg	edx, [esp + 12]
+	clc
+	jz	2f
+	stc
+#######
+2:	pop	ecx
+	pop	edx
+	pop	esi
+	jnc	9f
+	ELF_ENDL # esi, edx
+9:	pop_	edx edi ecx
+	ret
+
+
 
 
 # in: edi = libname
@@ -1246,10 +1494,12 @@ find_symbol:
 	.endif
 
 	# (hack) calculate symbol prefix:
+	.if 0 # use prefix always
 	cmp	[edi], dword ptr 'l' | 'i'<<8 |'b'<<16|'c'<<24
 	jnz	1f
 	cmp	[edi+4], byte ptr '.'
 	jnz	1f
+	.endif
 	# use prefix:
 	mov	[ebp -4], dword ptr 3
 1:
@@ -1336,7 +1586,7 @@ find_symbol:
 		DEBUG_DWORD eax
 	.endif
 	clc
-	
+
 2:	pop	ebx
 	pop	edx
 	pop	edi

@@ -195,6 +195,17 @@ GDT_sysSS:	DEFGDT 0, 0xffffff, ACCESS_DATA, (FL_32|FL_GR4kb)
 GDT_usrCS:	DEFGDT 0, 0xffffff, ACCESS_CODE, (FL_32|FL_GR4kb)
 GDT_usrSS:	DEFGDT 0, 0xffffff, ACCESS_DATA, (FL_32|FL_GR4kb)
 
+
+GDT_ring0CSf:	DEFGDT 0, 0xffffff, ACCESS_CODE|ACC_RING0, (FL_32|FL_GR4kb)
+GDT_ring0DSf:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING0, (FL_32|FL_GR4kb)
+GDT_ring1CSf:	DEFGDT 0, 0xffffff, ACCESS_CODE|ACC_RING1, (FL_32|FL_GR4kb)
+GDT_ring1DSf:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING1, (FL_32|FL_GR4kb)
+GDT_ring2CSf:	DEFGDT 0, 0xffffff, ACCESS_CODE|ACC_RING2, (FL_32|FL_GR4kb)
+GDT_ring2DSf:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING2, (FL_32|FL_GR4kb)
+GDT_ring3CSf:	DEFGDT 0, 0xffffff, ACCESS_CODE|ACC_RING3, (FL_32|FL_GR4kb)
+GDT_ring3DSf:	DEFGDT 0, 0xffffff, ACCESS_DATA|ACC_RING3, (FL_32|FL_GR4kb)
+
+
 #.align 2
 pm_gdtr:.word . - GDT -1
 	.long GDT
@@ -249,7 +260,16 @@ rm_gdtr:.word 0
 .equ SEL_usrCS,		8 * 36
 .equ SEL_usrSS,		8 * 37
 
-.equ SEL_MAX, SEL_usrSS + 0b11	# ring level 3
+.equ SEL_ring0CSf,	8 * 38
+.equ SEL_ring0DSf,	8 * 39
+.equ SEL_ring1CSf,	8 * 40
+.equ SEL_ring1DSf,	8 * 41
+.equ SEL_ring2CSf,	8 * 42
+.equ SEL_ring2DSf,	8 * 43
+.equ SEL_ring3CSf,	8 * 44
+.equ SEL_ring3DSf,	8 * 45
+
+.equ SEL_MAX, SEL_ring3DSf + 0b11	# ring level 3
 
 
 .macro GDT_STORE_SEG seg

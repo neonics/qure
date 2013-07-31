@@ -69,7 +69,6 @@ exe_pe:
 	add	esi, 4
 	mov	[coff_base], esi
 
-	call	coff_print_header$
 
 	cmp	[esi + coff_h_machine], word ptr 0x14c	# i386+
 	jnz	94f
@@ -79,6 +78,23 @@ exe_pe:
 	and	ax, COFF_IF_EXECUTABLE | COFF_IF_32BIT
 	cmp	ax, COFF_IF_EXECUTABLE | COFF_IF_32BIT
 	jnz	95f
+
+	call	coff_print_header$
+	mov	ebx, esi
+	call	coff_calc$
+	call	coff_sections_print$
+
+	DEBUG "sections printed"
+
+	call	coff_calc$
+	call	coff_sections_map$
+
+	DEBUG "executing"
+	mov	esi, [pe_base]
+	add	esi, 0x400
+	DEBUG_DWORD [esi], "opcodes"
+	call more
+	DEBUG "not executing..."#call	esi
 
 	ret
 91:	printlnc 4, "not MZ"
@@ -91,6 +107,13 @@ exe_pe:
 	ret
 96:	print "dll: "
 95:	printlnc 4, "not executable"
+	ret
+97:	printlnc 4, "malloc_page_phys fail"
+	ret
+
+
+coff_relocate:
+	
 	ret
 
 coff_print_header$:
@@ -194,6 +217,7 @@ coff_oh_dd_reserved:	.long 0,0
 
 .text32
 coff_oh_pe32$:
+	mov	ebx, esi	# coff_base
 	push	esi
 	add	esi, COFF_H_STRUCT_SIZE
 	mov	dx, [esi+coff_oh_linker_version + 0]
@@ -207,32 +231,38 @@ coff_oh_pe32$:
 	DEBUG_DWORD [esi + coff_oh_text_size], "size"
 	DEBUG_DWORD [esi + coff_oh_text_base], "base"
 	DEBUG_DWORD [esi + coff_oh_entrypoint], "entrypoint"
+	call	newline
 	DEBUG ".data"
 	DEBUG_DWORD [esi + coff_oh_data_size], "size"
+	call	newline
 	DEBUG ".bss"
 	DEBUG_DWORD [esi + coff_oh_bss_size], "size"
+	call	newline
 
-	
-
-	DEBUG_DWORD [esi + coff_oh_pe32_data_base]#.long 0	# PE32; absent in PE32+
-	DEBUG_DWORD [esi + coff_oh_pe32_image_base]#.long 0
-	DEBUG_DWORD [esi + coff_oh_section_alignment]#.long 0
-	DEBUG_DWORD [esi + coff_oh_file_alignment]#	.long 0
-	DEBUG_DWORD [esi + coff_oh_os_version]#	.word 0, 0	# maj, min
-	DEBUG_DWORD [esi + coff_oh_img_version]#	.word 0, 0	# maj, min
-	DEBUG_DWORD [esi + coff_oh_subsys_version]#	.word 0, 0	# maj, min
-	DEBUG_DWORD [esi + coff_oh_w32ver_RESERVED]#.long 0
-	DEBUG_DWORD [esi + coff_oh_img_size]#	.long 0
-	DEBUG_DWORD [esi + coff_oh_hdr_size]#	.long 0
-	DEBUG_DWORD [esi + coff_oh_checksum]#	.long 0
-	DEBUG_WORD [esi + coff_oh_subsystem]#	.word 0
-	DEBUG_WORD [esi + coff_oh_dll_char]#	.word 0	# DLL characteristics
-	DEBUG_DWORD [esi + coff_oh_pe32_stack_reserve]#	.long 0
-	DEBUG_DWORD [esi + coff_oh_pe32_stack_commit]#	.long 0
-	DEBUG_DWORD [esi + coff_oh_pe32_heap_reserve]#	.long 0
-	DEBUG_DWORD [esi + coff_oh_pe32_heap_commit]#	.long 0
-	DEBUG_DWORD [esi + coff_oh_pe32_loader_flags]#	.long 0
-	DEBUG_DWORD [esi + coff_oh_pe32_rva_count]#		.long 0	# nr of data directory entries
+	DEBUG_DWORD [esi + coff_oh_pe32_data_base], "data_base"
+	DEBUG_DWORD [esi + coff_oh_pe32_image_base], "image_base"
+	DEBUG_DWORD [esi + coff_oh_section_alignment], "section_alignment"
+	DEBUG_DWORD [esi + coff_oh_file_alignment], "file_alignment"
+	call	newline
+	DEBUG_DWORD [esi + coff_oh_os_version], "OSver"
+	DEBUG_DWORD [esi + coff_oh_img_version], "IMGver"
+	DEBUG_DWORD [esi + coff_oh_subsys_version], "SubSysVer"
+	DEBUG_DWORD [esi + coff_oh_w32ver_RESERVED], "RSVD"
+	DEBUG_DWORD [esi + coff_oh_img_size], "IMG size"
+	DEBUG_DWORD [esi + coff_oh_hdr_size], "HDR size"
+	DEBUG_DWORD [esi + coff_oh_checksum], "CKSUM"
+	DEBUG_WORD [esi + coff_oh_subsystem], "SubSys"
+	DEBUG_WORD [esi + coff_oh_dll_char], "DLLchar"
+	call	newline
+	DEBUG "Stack"
+	DEBUG_DWORD [esi + coff_oh_pe32_stack_reserve], "reserve"
+	DEBUG_DWORD [esi + coff_oh_pe32_stack_commit], "commit"
+	DEBUG "heap"
+	DEBUG_DWORD [esi + coff_oh_pe32_heap_reserve], "reserve"
+	DEBUG_DWORD [esi + coff_oh_pe32_heap_commit], "commit"
+	DEBUG_DWORD [esi + coff_oh_pe32_loader_flags], "loaderFlags"
+	DEBUG_DWORD [esi + coff_oh_pe32_rva_count], "DD count"
+	call	newline
 
 	push	esi
 	mov	ecx, [esi + coff_oh_pe32_rva_count]
@@ -287,102 +317,15 @@ inc ecx
 	call	newline
 
 	# section table follows the data directory
-	mov	eax, [esi + coff_oh_pe32_rva_count]
-	shl	eax, 3
-	DEBUG_DWORD eax
-	add	eax, offset coff_oh_pe32_dd
-	DEBUG_DWORD eax
-	DEBUG_DWORD [esi + coff_oh_hdr_size], "oh hdr size"
-	DEBUG_WORD [esi + coff_h_opthdrsize - COFF_H_STRUCT_SIZE], "opthdr size"
-
-	movzx	ecx, word ptr [esi + coff_h_sections - COFF_H_STRUCT_SIZE]
-	lea	ebx, [esi - COFF_H_STRUCT_SIZE]
-	add	esi, eax	# or: add esi, coff_h_opthdrsize
-	DEBUG_DWORD ecx, "nr sections"
-
-
-	# string table follows symbol table.
-	# symbol table entry size: 18 bytes
-	mov	eax, [ebx + coff_h_symcount]
-	DEBUG_DWORD eax,"symcount"
-	mov	edx, 18
-	mul	edx
-	mov	edi, eax
-
-##	mov	edx, eax
-#	shl	edx, 4	# * 16
-#	lea	eax, [eax + edx * 2]	# 18
-
-	DEBUG_DWORD eax, "symcount size"
-	DEBUG_DWORD [ebx + coff_h_symtab]
-	add	edi, [ebx + coff_h_symtab]
-	DEBUG_DWORD edi, "symtab end"
-
-#	mov	edi, 0xb71a
-	add	edi, [pe_base]
-
+	call	coff_calc$
 call more
 #	mov	eax, [coff_base]
 #	sub	eax, [pe_base]
 #	DEBUG_DWORD eax, "coff_base-pe_base"
 #call more
 
-	mov	edx, esi
-	push	edx
-
-	.struct 0
-	coff_sect_name: .space 8
-	coff_sect_vsize: .long 0
-	coff_sect_vaddr: .long 0
-	coff_sect_disksize: .long 0
-	coff_sect_diskoffs: .long 0
-	coff_sect_relocptr: .long 0
-	coff_sect_lineptr: .long 0
-	coff_sect_reloccnt: .word 0
-	coff_sect_linecnt: .word 0
-	coff_sect_charactr: .long 0
-	.text32
-
-
-	println "vsize... vaddr... disksize diskoffs relocptr #rel charactr label"
-	# 40 bytes / entry
-0:	# section name: max 8 bytes asciz; or "/<decimal>" -> stringtable ptr
-
-	add	esi, 8
-	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "vsize"
-	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "vaddr"
-	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "disksize"
-	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "diskoffs"
-	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "relocptr"
-	lodsd;#mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "lineptr"
-	lodsw;mov edx,eax;call printhex4;call printspace # DEBUG_WORD ax, "#relocs"
-	lodsw;#mov edx,eax;call printhex4;call printspace # DEBUG_WORD ax, "#lines"
-	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "characteristics"
-	sub	esi, 40
-
-	call	coff_print_sect_name$	# out: eax = section name
-	LOAD_TXT ".idata", edx
-	push ecx; mov ecx, 6
-	call	strcmp
-	pop ecx
-	jnz	1f
-	DEBUG "IDATA"
-	.data; coff_sect_idata:.long 0;.text32
-	sub	esi, 8
-	mov	[coff_sect_idata], esi
-	add	esi, 8
-
-1:
-	add	esi, 40-8
-#	add	esi, 40-8-4*8
+	call	coff_sections_print$
 	call	newline
-#	loop	0b
-	dec	ecx
-	jnz	0b
-
-	call	newline
-
-	pop	edx
 
 	# print IDATA:
 	push	esi
@@ -411,6 +354,332 @@ call more
 	call	newline
 	ret
 
+# section table follows the data directory
+# in: ebx = coff_base
+# out: esi = section ptr
+# out: ecx = nr sections
+# out: edi = stringtable ptr
+# destroys: edx, eax
+coff_calc$:
+	lea	esi, [ebx + COFF_H_STRUCT_SIZE]
+	mov	eax, [esi + coff_oh_pe32_rva_count]
+	shl	eax, 3
+	DEBUG_DWORD eax
+	add	eax, offset coff_oh_pe32_dd
+	DEBUG_DWORD eax
+	DEBUG_DWORD [esi + coff_oh_hdr_size], "oh hdr size"
+	DEBUG_WORD [ebx + coff_h_opthdrsize], "opthdr size"
+
+	add	esi, eax	# or: add esi, coff_h_opthdrsize
+
+	movzx	ecx, word ptr [ebx + coff_h_sections]
+	DEBUG_DWORD ecx, "nr sections"
+
+
+	# string table follows symbol table.
+	# symbol table entry size: 18 bytes
+	mov	eax, [ebx + coff_h_symcount]
+	DEBUG_DWORD eax,"symcount"
+	mov	edx, 18
+	mul	edx
+	mov	edi, eax
+	DEBUG_DWORD eax, "symcount size"
+	DEBUG_DWORD [ebx + coff_h_symtab]
+	add	edi, [ebx + coff_h_symtab]
+	DEBUG_DWORD edi, "symtab end"
+	add	edi, [pe_base]
+	ret
+
+
+
+.struct 0
+coff_sect_name: .space 8
+coff_sect_vsize: .long 0
+coff_sect_vaddr: .long 0
+coff_sect_disksize: .long 0
+coff_sect_diskoffs: .long 0
+coff_sect_relocptr: .long 0
+coff_sect_lineptr: .long 0
+coff_sect_reloccnt: .word 0
+coff_sect_linecnt: .word 0
+coff_sect_flags: .long 0 #'characteristics'
+	COFF_SECT_FLAG_NO_PAD	= 0x08	# deprecated - use ALIGN_1BYTES
+	# Content:
+	COFF_SECT_FLAG_CNT_CODE	= 0x20
+	COFF_SECT_FLAG_CNT_DATA	= 0x40
+	COFF_SECT_FLAG_CNT_BSS	= 0x80
+	# object file flags:
+	COFF_SECT_FLAG_LNK_INFO	= 0x200	# .drective (obj files)
+	COFF_SECT_FLAG_LNK_REMOVE=0x800
+	COFF_SECT_FLAG_LNK_COMDAT=0x1000
+	#
+	COFF_SECT_FLAG_GPREL	= 0x8000	# global pointer data
+	# object files: (all powers of 2 represented up to 4096)
+	COFF_SECT_FLAG_ALIGN_MASK= 0x00f00000
+	COFF_SECT_FLAG_ALIGN_SHIFT=20
+	COFF_SECT_FLAG_ALIGN1	= 0x00100000
+	COFF_SECT_FLAG_ALIGN1024= 0x00b00000
+	COFF_SECT_FLAG_ALIGN8192= 0x00e00000
+	# align = 1 << ( (x & ALIGN_MASK) >> ALIGN_SHIFT - 1), 0xf (16k) undef!
+	COFF_SECT_FLAG_NRELOC_OVFL=0x01000000 # extended relocations
+	COFF_SECT_FLAG_MEM_DISCARD=0x02000000 # section can be discarded if needed
+	COFF_SECT_FLAG_MEM_NOCACHE=0x04000000	# cannot be cached
+	COFF_SECT_FLAG_MEM_NOPAGE=0x08000000	# not pageable
+	COFF_SECT_FLAG_MEM_SHARED=0x10000000	# can be shared
+	COFF_SECT_FLAG_MEM_EXEC = 0x20000000	# can be executed
+	COFF_SECT_FLAG_MEM_READ = 0x40000000
+	COFF_SECT_FLAG_MEM_WRITE =0x80000000
+.text32
+# call coff_calc$ with ebx = [coff_base] first
+coff_sections_print$:
+	call	newline
+	println "vsize... vaddr... disksize diskoffs relocptr #rel charactr algn mode stp label"
+	# 40 bytes / entry
+0:	# section name: max 8 bytes asciz; or "/<decimal>" -> stringtable ptr
+
+	add	esi, 8
+	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "vsize"
+	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "vaddr"
+	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "disksize"
+	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "diskoffs"
+	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "relocptr"
+	lodsd;#mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "lineptr"
+	lodsw;mov edx,eax;call printhex4;call printspace # DEBUG_WORD ax, "#relocs"
+	lodsw;#mov edx,eax;call printhex4;call printspace # DEBUG_WORD ax, "#lines"
+	lodsd;mov edx,eax;call printhex8;call printspace # DEBUG_DWORD eax, "characteristics"
+	sub	esi, 40
+
+	mov	eax, [esi + coff_sect_flags]
+	# print align:
+	push	ecx
+	mov	ecx, eax
+	and	ecx, COFF_SECT_FLAG_ALIGN_MASK#= 0x00f00000
+	shr	ecx, COFF_SECT_FLAG_ALIGN_SHIFT#=20
+	dec	ecx
+	mov	edx, 1
+	shl	edx, cl
+	cmp	edx, 1000
+	ja	1f
+	call	printspace
+	cmp	dl, 100
+	ja	1f
+	call	printspace
+	cmp	dl, 10
+	ja	1f
+	call	printspace
+1:	call	printdec32
+	pop	ecx
+	call	printspace
+
+	# print mode
+	PRINTFLAG eax, COFF_SECT_FLAG_MEM_SHARED, "S", " "
+	PRINTFLAG eax, COFF_SECT_FLAG_MEM_EXEC, "x", "-"
+	PRINTFLAG eax, COFF_SECT_FLAG_MEM_READ, "r", "-"
+	PRINTFLAG eax, COFF_SECT_FLAG_MEM_WRITE, "w", "-"
+
+	call	printspace
+	# print section type
+	PRINTFLAG ax, COFF_SECT_FLAG_CNT_CODE, "C", " "
+	PRINTFLAG ax, COFF_SECT_FLAG_CNT_DATA, "D", " "
+	PRINTFLAG ax, COFF_SECT_FLAG_CNT_BSS, "B", " "
+	call	printspace
+
+
+	call	coff_print_sect_name$	# out: eax = section name
+
+	####### check for import data
+	push	ecx
+	LOAD_TXT ".idata", edx
+	mov	ecx, 6
+	call	strcmp
+	pop	ecx
+	jnz	1f
+	.data; coff_sect_idata:.long 0;.text32
+	mov	[coff_sect_idata], esi
+1:	########
+
+	add	esi, 40
+#	add	esi, 40-8-4*8
+	call	newline
+#	loop	0b
+	dec	ecx
+	jnz	0b
+	ret
+
+
+# call coff_calc$ with ebx = [coff_base] first
+# in: ebx = coff_base
+# in: esi = section ptr
+# in: ecx = nr sections
+# in: edi = stringtable ptr
+coff_sections_map$:
+	DEBUG_DWORD esp
+	KAPI_CALL coff_sections_map_
+	DEBUG "returned from KAPI call"
+	DEBUG_DWORD esp
+	ret
+
+
+KAPI_DECLARE coff_sections_map_
+
+	PUSH_TXT "COFF_exe"
+	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_SUSPENDED|TASK_FLAG_FLATSEG
+	pushd	cs
+	mov	eax, [ebx + COFF_H_STRUCT_SIZE + coff_oh_pe32_image_base]
+	DEBUG_DWORD [ebx + COFF_H_STRUCT_SIZE + coff_oh_pe32_image_base], "img base",0xf0
+	add	eax, [ebx + COFF_H_STRUCT_SIZE + coff_oh_entrypoint]
+	DEBUG_DWORD [ebx + COFF_H_STRUCT_SIZE + coff_oh_entrypoint], "entry",0xf0
+	DEBUG_DWORD eax,"entrypoint"
+# mod it:
+mov eax,0x401170 # _main
+	push	eax
+	call	schedule_task # out: eax=pid
+
+	DEBUG "task scheduled";call  newline
+
+	mov	edx, eax	# pid
+
+	push	ebp
+	mov	ebp, esp
+	push	edi # stringtable
+
+#coff_sect_name: .space 8
+#coff_sect_vsize: .long 0
+#coff_sect_vaddr: .long 0
+#coff_sect_disksize: .long 0
+#coff_sect_diskoffs: .long 0
+#coff_sect_relocptr: .long 0
+#coff_sect_lineptr: .long 0
+#coff_sect_reloccnt: .word 0
+#coff_sect_linecnt: .word 0
+#coff_sect_flags: .long 0 #'characteristics'
+
+	push	esi
+	mov	esi, [page_directory_phys]#cr3
+	call	paging_alloc_page_idmap
+	pop	esi
+	jc	9f
+
+	mov	edi, eax	# PTE
+
+	push_	ebx ecx
+	mov	eax, edx
+	mov	edx, [ebx + COFF_H_STRUCT_SIZE + coff_oh_pe32_image_base]
+	DEBUG_DWORD edx, "img base"
+	call	task_get_by_pid # in: eax; out: ebx + ecx
+	DEBUG_DWORD ecx, "TASK IDX", 0xf0
+	add	ebx, ecx
+
+	# edx=image bage
+	# eax=pid
+	# ebx=task
+	# edi=page
+	mov	eax, edi
+	DEBUG_DWORD edx, "img base"
+	or	ax, PDE_FLAG_U|PDE_FLAG_P|PDE_FLAG_RW
+	call	task_map_pde # in: eax=page, edx=tgt addr|flags
+	
+	pop_	ecx ebx
+
+	DEBUG_DWORD edi, "PTE"
+
+		# map the page in the task struct
+
+
+	GDT_GET_BASE eax, ds
+	sub	edi, eax
+
+0:	mov	eax, [esi + coff_sect_flags]
+	test	eax, COFF_SECT_FLAG_MEM_DISCARD
+	jnz	1f
+	print "mapping "
+	push edi
+	mov edi,[ebp-4] # stringtable
+	call	coff_print_sect_name$	# out: eax = section name
+	pop edi
+	DEBUG_DWORD [esi + coff_sect_vaddr],"vaddr"
+
+mov eax, cr3
+push eax
+cli
+	push	esi
+	mov	esi, cr3
+
+mov eax, [page_directory_phys]
+mov cr3, eax
+	DEBUG_DWORD esi,"CR3"
+mov esi,eax
+	call	paging_alloc_page_idmap
+	pop	esi
+	jc	9f
+	mov	edx, eax
+
+	mov	eax, [esi + coff_sect_vaddr]
+	shr	eax, 12
+	or	dx, PTE_FLAG_U|PTE_FLAG_RW|PTE_FLAG_P
+
+push edx
+GDT_GET_BASE edx, ds
+add edx, edi
+print "PTE";call printhex8
+lea edx, [edx + eax*4]
+print " ptr ";call printhex8
+pop edx
+DEBUG_DWORD edx,"page"
+
+	mov	[edi + eax*4], edx
+
+
+	and	edx, ~((1<<12)-1) # mask out flags
+	# copy the page:
+	push_	edi esi ecx
+	mov	edi, edx
+	DEBUG_DWORD edi, "flat tgt"
+GDT_GET_BASE edx, ds
+sub edi, edx
+DEBUG_DWORD edi, "dsrel"
+
+#pushad;
+#mov esi, cr3
+#call paging_show_struct
+#call more
+#popad;
+	mov	esi, [esi + coff_sect_diskoffs]
+	DEBUG_DWORD esi, "disoffs"
+	add esi, [pe_base]
+
+	mov	ecx, 1024
+	rep	movsd
+#	mov	[edi - 4096], byte ptr 0xcc
+DEBUG "DST:", 0xf0
+sub edi, 4096
+mov ecx, 40
+mov esi, edi
+10: lodsb; mov dl, al; call printhex2; call printspace; loop 10b
+	pop_	ecx esi edi
+
+pop eax
+mov cr3, eax
+sti
+
+1:	
+	call	newline
+	add	esi, 40
+	dec ecx;jnz 0b#loop	0b
+	clc
+
+0:	pop edi;#mov	esp, ebp
+	pop	ebp
+	call	more
+	ret
+
+9:	printlnc 4, "can't alloc page"
+	stc
+	jmp	0b
+
+
+
+
 .struct 0	# idata directory table
 coff_idata_dt_ilt_rva:	.long 0
 coff_idata_dt_timstamp:	.long 0
@@ -419,6 +688,7 @@ coff_idata_dt_name_rva:	.long 0
 coff_idata_dt_iat_rva:	.long 0
 .text32
 
+# PREREQUISITE: coff_sections_print sets up [coff_sect_idata]!!
 # in: esi = ptr to idata section
 # in: ecx = idata size
 # in: edx = vaddr-addr adjustment: vaddr-diskoffs (sub!)
@@ -426,6 +696,8 @@ coff_idata_print$:
 	#format: 
 	#  directory table
 	#  null directory entry
+	#  (-note- the code only works with the above; the data described
+	#   below are the ILT and IAT, referenced from the dir table)
 	#.rept
 	#  DLL import lookup table
 	#  null
@@ -456,6 +728,7 @@ coff_idata_print$:
 
 	# print the table.
 	push	esi
+	lea	eax, [esi - 20]
 	mov	esi, [esi - 20] # ILT
 	sub	esi, edx	# vaddr correct
 	add	esi, [pe_base]
@@ -468,8 +741,29 @@ coff_idata_print$:
 	ret
 
 # in: esi = ilt ptr
+# in: eax = dll directory table. iat ptr
 coff_idata_print_ilt$:	# PE32
+	push_	ebx edi
+		
+		# get libname ptr
+		mov	ebx, [eax + coff_idata_dt_name_rva]
+		sub	ebx, edx
+		add	ebx, [pe_base]
+	push	ebx	# libname
+
+		mov	eax, [eax + coff_idata_dt_iat_rva]
+		sub	eax, edx
+		add	eax, [pe_base]
+		mov	ebx, eax
+		mov	edi, eax
+		sub	edi, [pe_base]
+		sub	edi, 4
+		add	edi, edx
+		sub	ebx, 4
+
 0:	lodsd
+		add	ebx, 4
+		add	edi, 4
 	or	eax, eax
 	jz	9f
 	test	eax, 0x80000000
@@ -496,18 +790,56 @@ coff_idata_print_ilt$:	# PE32
 	mov	esi, eax
 	lodsw	# hint
 	mov	dx, ax
+		mov	eax, esi
 	call	printhex2
 	call	printspace
 	call	print	#name
 	pop_	edx esi
+
+		DEBUG_DWORD edi	# target (ptr storage)
+		DEBUG_DWORD [ebx]
+		# resolve symbol
+		push_	edi esi eax
+		mov	edi, [esp + 12]	# get libname
+		mov	esi, eax
+		call	find_symbol #in: esi=sym, edi=lib; out: eax
+		jc	1f
+		printc 0xf0, "Found symbol: "
+		push edx; mov edx, eax
+		call	printhex8
+		pop edx
+		call	printspace
+			mov	edi, [esp + 8] # get edi=target
+			DEBUG_DWORD edi
+			sub edi, edx; 
+			DEBUG_DWORD edi
+			DEBUG_DWORD [pe_base]
+			add edi, [pe_base]
+			DEBUG_DWORD edi
+			# adjust for flat
+			push edx
+			GDT_GET_BASE edx, ds
+			add	eax, edx
+			DEBUG_DWORD eax
+			pop edx
+			stosd
+
+		jmp	2f
+	1:	printc 0xf4, "symbol not found"
+	2:
+		pop_	eax esi edi
+
+
+		
 	call	newline
 	jmp	0b
 
-9:	ret
+9:	pop_	edi edi ebx
+	ret
 
 # in: esi = section table entry
 # in: edi = string table
-# out: esi+=8
+# out: eax = ptr to string
 coff_print_sect_name$:
 	cmp	byte ptr [esi], '/'
 	jnz	1f
@@ -517,18 +849,19 @@ coff_print_sect_name$:
 	add	eax, edi
 	push	eax
 	call	_s_print
-	add	esi, 8
 	ret
 
 4:	printc 4, "invalid name:"
 
-1:	push	ecx
+1:	push_	esi ecx
 	mov	ecx, 8
 0:	lodsb
+	or	al, al
+	jz	1f
 	call	printchar
 	loop	0b
-	lea	eax, [esi - 8]
-	pop	ecx
+1:	pop_	ecx esi
+	mov	eax, esi
 3:	ret
 
 
