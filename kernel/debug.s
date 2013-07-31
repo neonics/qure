@@ -32,7 +32,6 @@
 
 .macro MORE
 	pushf
-	sti
 	push	eax
 	call	newline
 	PUSH_SCREENPOS
