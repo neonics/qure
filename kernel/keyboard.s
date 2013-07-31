@@ -8,6 +8,8 @@
 
 DEBUG_KB = 0
 
+KEYBOARD_TASK	= 0	# 1=schedule task on keystroke (scheduler stresstest)
+
 # Keyboard registers:
 # * one byte input buffer	: R 0x60
 # * one byte output buffer	: W 0x60
@@ -430,6 +432,7 @@ isr_keyboard:
 	call	kb_get_mutators$
 	ror	eax, 16
 
+.if KEYBOARD_TASK
 	cmp	byte ptr [task_queue_sem], -1
 	jnz	1f
 	call	buf_putkey
@@ -452,6 +455,9 @@ isr_keyboard:
 	DEBUG "%%%% KB SCHED %%%%%"
 	2:
 	.endif
+.else
+	call	buf_putkey
+.endif
 2:
 	PIC_SEND_EOI IRQ_KEYBOARD
 	pop	edx
