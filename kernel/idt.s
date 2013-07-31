@@ -548,9 +548,11 @@ jz 11f
 	PRINTFLAG dl, 1<<2, "U", "S"
 	PRINTFLAG dl, 1<<3, "R", " "
 	PRINTFLAG dl, 1<<4, "C", "D"
-	PRINT	" LinAddr: "
+	PRINTc	15, " LinAddr: "
 	mov	edx, cr2
+	pushcolor 7
 	call	printhex8
+	popcolor
 
 	jmp	5f
 4:
@@ -641,6 +643,7 @@ jz 11f
 	mov	edx, [edx + task_pid]
 	printc 7, "task "
 	call	printhex4
+
 1:	call	newline
 
 0:	COLOR 8
@@ -696,7 +699,10 @@ jz 11f
 	push	fs
 	mov	fs, ax
 	mov	ebx, edx
+	push	ebx
+	and	ebx, 4095	# stay in page
 	cmp	ebx, 4
+	pop	ebx
 	jb	2f
 	mov	edx, fs:[ebx-4]	# check instruction XXX
 	.rept 3
@@ -714,7 +720,14 @@ jz 11f
 	.endr
 	call	printhex2
 
+	push	ebx
+	and	ebx, 4095
+	cmp	ebx, 2
+	pop	ebx
+	mov dx, -1
+	jb 1f
 	mov	dx, fs:[ebx - 2] # location of INT instruction
+1:
 	pop	fs
 	PRINTCHARc 9, ']'
 
@@ -879,7 +892,7 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	#mov	edx, fs:[ebx + edx * 4] # causes page fault
 	mov	edx, fs:[ebx + edx * 4]
 	call	printhex8
-	.if 1
+
 	and	edx, 0xfffff000
 	and	eax, (1<<22)-1
 	shr	eax, 12
@@ -887,21 +900,18 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	xchg	eax, edx
 	call	printdec32
 	call	printspace
+
+	mov	ebx, cr3
+	push	ebx
+	mov	ebx, [page_directory_phys]
+	mov	cr3, ebx
+
 	mov	edx, fs:[eax + edx * 4]
+
+	pop	ebx
+	mov	cr3, ebx
+
 	call	printhex8
-	.endif
-	.if 0
-		mov	eax, edx
-		call	printspace
-		and	edx, ~((1<<22)-1)
-		call	printhex8
-		mov	edx, eax
-		and	edx, (1<<22)-1
-		call	printspace
-		call	printhex8
-	call	newline
-	.endif
-	0: hlt; jmp 0b
 
 	pop	fs
 	jmp	2b
