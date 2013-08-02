@@ -530,8 +530,7 @@ KAPI_DECLARE coff_sections_map_
 	add	eax, [ebx + COFF_H_STRUCT_SIZE + coff_oh_entrypoint]
 	DEBUG_DWORD [ebx + COFF_H_STRUCT_SIZE + coff_oh_entrypoint], "entry",0xf0
 	DEBUG_DWORD eax,"entrypoint"
-# mod it:
-mov eax,0x401170 # _main
+
 	push	eax
 	call	schedule_task # out: eax=pid
 

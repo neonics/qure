@@ -17,6 +17,8 @@ LIBC_DEBUG = 1
 		ret
 .endm
 
+SETREGS_STACK_SIZE = 16
+
 # modifies stack: esp:[ret] to [ret][es][ds][base][cs]
 setregs$:
 	sub	esp, 12
@@ -123,8 +125,9 @@ _c_exit:
 	ret
 
 _c_hello:
-	call SEL_kernelCall:0
+	call	setregs$
 	printlnc 0xb0, "HELLO!"
+	call	restoreregs$
 	ret
 
 _c_malloc:
@@ -133,14 +136,21 @@ _c_malloc:
 	ret
 
 _c_puts:
+	#flat, so not needed: push edx; GDT_GET_BASE edx, ds; add [esp+8], edx; pop edx
 	call	setregs$
-	printlnc 0xb0, "puts"
+	push edx; GDT_GET_BASE edx, ds; sub [esp+8+SETREGS_STACK_SIZE], edx; pop edx
+	printc 0xb0, "puts:"
+	pushd [esp + 4 + SETREGS_STACK_SIZE]
+	call	_s_println
 	call	restoreregs$
 #	pushfd;ord [esp], 1<<8;popfd
 	ret
 
 _c_printf:
-	call SEL_kernelCall:0
+	call	setregs$
+	# realign the format string:
+	push edx; GDT_GET_BASE edx, ds; sub [esp+8+SETREGS_STACK_SIZE], edx; pop edx
+	# the other strings are not realigned!
 	.if LIBC_DEBUG
 		printlnc 0xb0, "printf"
 	.if LIBC_DEBUG > 1
@@ -157,12 +167,15 @@ _c_printf:
 		pop esi
 	.endif
 	.endif
-	jmp	printf
+	call	printf
+	call	restoreregs$
+	ret
 
 
 _c_asnprintf:
-	call	SEL_kernelCall:0
+	call	setregs$
 	printlnc 0xb0, "asnprintf"
+	call	restoreregs$
 	ret
 
 _c_lseek:

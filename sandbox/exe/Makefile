@@ -56,7 +56,7 @@ LD_OPTS = -nostartfiles -nodefaultlibs -nostdlib \
 .PHONY: all clean init
 
 all: Makefile libc.so a.exe a.elf
-	cp a.elf ../../root/
+	cp a.elf a.exe ../../root/
 
 init:
 
@@ -85,7 +85,7 @@ libc.o: lib.c Makefile
 test.o: test.c Makefile
 	gcc -O3 -c $(CC_OPTS) $< -o $@
 
-a.exe: test.o Makefile
+a.exe: test.o Makefile libc.dll
 	ld $(LD_OPTS) -pie -Bdynamic -L . -lc $< -o $@
 
 a.elf: a.exe
