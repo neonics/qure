@@ -2,6 +2,8 @@
 .intel_syntax noprefix
 
 .data SECTION_DATA_BSS
+kernel_reloc:		.long 0
+kernel_reloc_size:	.long 0
 kernel_symtab:		.long 0
 kernel_symtab_size:	.long 0
 kernel_stabs:		.long 0
@@ -31,12 +33,13 @@ DEBUG_RAMDISK_DIY=0
 
 	GDT_GET_BASE ecx, ds
 
-	.macro DEBUG_LOAD_TABLE name, label
+	.macro DEBUG_LOAD_TABLE name, label, isreloc=0
 
 	.if DEBUG_RAMDISK_DIY
 	mov	edx, fs:[eax + 4]	# load start
 	mov	ebx, fs:[eax + 12]	# load end
 	.else
+	# this depends on realmode.s initializing these
 	mov	edx, [\name\()_load_start_flat]
 	mov	ebx, [\name\()_load_end_flat]
 	.endif
@@ -65,15 +68,26 @@ DEBUG_RAMDISK_DIY=0
 	sub	edx, ebx
 	call	printhex8
 	mov	[kernel_\name\()_size], edx
-	I2 " symbols "
 	mov	edx, [ebx]
+	.if \isreloc
+	I2 " addr16: "
+	call	printdec32
+	lea	edx, [ebx + edx * 2 + 4]
+	mov	edx, [edx]
+	I2 " addr32: "
+	call	printdec32
+	call	newline
+	.else
+	I2 " symbols "
 	call	printdec32
 	print " ("
 	call	printhex8
+	.endif
 	println ")"
 18:
 	.endm
 
+	DEBUG_LOAD_TABLE reloc, "relocation table", 1
 	DEBUG_LOAD_TABLE symtab, "symbol table"
 	DEBUG_LOAD_TABLE stabs, "source line table"
 	ret
@@ -720,8 +734,10 @@ debugger:
 	jnz	6b
 	cmp	ax, offset K_TAB
 	jz	13f	# mode
-	cmp	al, 'c'
+	cmp	al, 'c'	# continue
 	jz	9f
+	cmp	al, 't'	# trap
+	jz	22f
 	# the rest of the keys/commands has print output, so do newline:
 	call	newline
 	cmp	al, 'p'	# print registers
@@ -736,6 +752,13 @@ debugger:
 	jz	3f
 	cmp	al, 'e' # cmdline
 	jz	33f
+	jmp	6b
+
+22:	# toggle trap flag
+	# 36: local stack.
+	# : 2 + 4*9 + 2 + 8(see idt.s)
+	DEBUG_DWORD [ebp + 36 + 2+4*9+2+8+8]
+	xor	[ebp + 36 + 2+4*9+2+8+8], dword ptr 1 << 8
 	jmp	6b
 
 10:	mov	edi, [ebp]

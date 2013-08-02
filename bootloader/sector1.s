@@ -129,6 +129,19 @@ main:
 	call	load_ramdisk_fat
 	call	load_ramdisk_kernel
 
+mov ebx, [ramdisk_buffer]
+	add	si, 16		# ignore entry count and check size
+	cmp	[si + ramdisk_entry_size], dword ptr 0
+	jz	1f
+	print "Loading relocation table: "
+	call	load_ramdisk_entry_hi
+	# compact:
+	mov	eax, [si + ramdisk_entry_size]
+	neg	eax
+	and	eax, 0x1ff
+	sub	[image_high], eax
+1:
+
 #	mov	ebx, [si + ramdisk_entry_load_end]
 mov ebx, [ramdisk_buffer]
 	add	si, 16		# ignore entry count and check size

@@ -333,11 +333,17 @@ realmode_kernel_entry:
 	jmp	4f
 3:	cmp	di, 1
 	jnz	3f
+	mov	[reloc_load_start_flat], edx
+	mov	[reloc_load_end_flat], esi
+	LOAD_TXT_16 "Relocation "
+	jmp	4f
+3:	cmp	di, 2
+	jnz	3f
 	mov	[symtab_load_start_flat], edx
 	mov	[symtab_load_end_flat], esi
 	LOAD_TXT_16 "Symtab "
 	jmp	4f
-3:	cmp	di, 2
+3:	cmp	di, 3
 	jnz	3f
 	mov	[stabs_load_start_flat], edx
 	mov	[stabs_load_end_flat], esi
@@ -613,6 +619,8 @@ ramdisk_load_end_flat:	.long 0	# flat address of last ramdisk entry
 ramdisk_load_end:	.long 0	# realmode-cs-adjusted address
 kernel_load_start_flat:	.long 0	# ramdisk info
 kernel_load_end_flat:	.long 0
+reloc_load_start_flat:	.long 0
+reloc_load_end_flat:	.long 0
 symtab_load_start_flat:	.long 0
 symtab_load_end_flat:	.long 0
 stabs_load_start_flat:	.long 0

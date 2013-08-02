@@ -214,3 +214,271 @@ the location and size of the bootloader code, instead of chainloading.
 ---------------------
 
 
+Memory Mapping / Flat
+=====================
+At current, the kernel uses relative (non-flat) selectors.
+This is conventient because the kernel selectors are set to the minimum
+required size (for both code and data) to operate.
+The code selector begins at the kernel code start, and ends at the code end,
+thus preventing the kernel from executing code outside it's defined code.
+
+Paging
+------
+Tasks with their own paging structures can (and will) use flat selectors.
+Calling library functions then poses a problem, as these functions are
+implemented in kernel space, which uses relative selectors, whereas
+the task uses flat selectors.
+The printf function, for instance, takes a variable amount of stack
+arguments, some of which may be pointers. Having replaced ds with the kernel
+ds for referencing kernel data, the user data must be converted. This would
+mean to either parameterize the printf function with a pointer-delta
+to be applied, or to have two versions.
+Further, the stack selector may or may not be flat, and thus copying data
+from/to stack can be problematic. A flat-mem task will have a flat ss,
+and kernel/libc.s setregs$ only changes cs, ds and es.
+
+In short, kernel code expects data to be relative to cs (or ds/es).
+
+Making the kernel flat-mem
+--------------------------
+This approach would prevent tasks from having another base as the kernel - the
+problem is then reversed.
+An easy way would be to do away with any relative selectors and rely more
+heavily on paging.
+
+One problem with specifying the '.org' for the 32 bit kernel code is that
+the 16 bit code won't work anymore due to it being located beyond the 1mb range.
+
+A temporary simple fix is to .org the kernel at the current load address (0x00013000),
+however this address can change if the bootloader changes.
+
+A more advanced fix is to extract the relocation information (or implement
+COFF/ELF kernel loading in realmode). This is implemented in this commit.
+The ramdisk entries are changed: the relocation table is inserted directly
+after the kernel. It will appear to miss .data relocations due to the GAS -R
+option (fold .data into .text).
+The relocation table can be used by the kernel to modify itself once in protected
+mode, and even copy itself to another address or change it's addressing scheme.
+
+Kernel application dependent
+----------------------------
+The kernel as a service to tasks must establish agreements. One such agreement
+is addressing.As shown, the kernel does not have to use the same address space
+(the base of segment selectors), as it can convert, which is costly.
+
+ Paging
+ ------
+ The kernel will need access to user data which it will reference using addresses.
+ Therefore, the kernel library will need to have those pages mapped and adressable
+ using the pointers given by the application. 
+ (to be really secure, a vararg method such as printf should evaluate all pointers
+ to see if they refer to the task address space. Paging would allow this,
+ by having a special mapping: the library code, it's static data, and the task.
+ See Paging.txt for more.)
+
+Selector Overflow
+-----------------
+A technique that can be used to translate may be to use a selector overflow,
+where the offset of the application, plus the selector base, exceeds the 4Gb limit
+(not the selector limit) and wraps around. This appears to be used in linus' kernel.
+
+An application expecting to be mapped at 0x0040000 would have a selector base
+equal to the kernel's selectors (at current 0x0130000). The logical memory address
+cs:0x0040000 then becomes the linear memory address 0x0053000. This solution
+would require only to map the task's memory at that logical address. So far there
+is no need for selector overflow, since the kernel is located before tasks.
+
+The result of this will be, that the kernel will have a base relative to 0.
+All memory below it is inaccessible, except using protected flat selectors.
+It appears to be a useful feature, no doubt replicatable in other ways. However,
+kernel libraries that take task pointers may not necessarily be able to be guaranteed
+to be safe, as there is no way to distinguish a pointer to kernel memory from a
+pointer to task memory that is hardware supported, except by using far pointers.
+This would require a lot of segment register switching.
+
+Security
+--------
+So far, we've seen that there is a memory area that can be completely protected
+except by CPL0 code which can switch out for flat selectors.
+Therefore, a secure kernel will have CPL0 code that does not use task provided
+pointers. Ofcourse, the most obvious exception would be the scheduler.
+Now, the above (the relative selector approach) will only work if selector overflow
+does not reach the kernel data. Otherwise, if the kernel is located say at 1Mb,
+then any task could use it's selectors to point to it by using offset -1Mb.
+This should be able to be prevented by setting the selector limit below 4Gb.
+Areas:
+
+	0.....|selector base........|selector limit.......4Gb.
+
+The selector limit could be -selector base, making the data after 4Gb (before the
+selector) inaccessible.
+
+The scheduler allocates the task stack itself, and thus controls it. It's contents
+will point to the task data initially, and may be set up by the task to attempt to
+execute kernel code. Such calls (using pointers) only reside on a privileged stack.
+The code is such, that data pointers are never used to execute code. This means,
+that their contents are not decisive of what code is run, except as dictated
+by kernel code, which only refers to kernel code. In other words, there is no
+use of code-pointers controllable from task space through the stack.
+The memory where code pointers are stored (static data) must be protected from write
+access. 
+Any code that writes to memory addresses passed on the stack should take extra care.
+This care must be taken at the kernel api level. Functions such as printf pose
+no modification threat but can expose the kernel. Read functions can potentially
+overwrite the kernel.
+Buffer read functions (character or block) can check simply if the memory address
+given is from the task heap.
+
+
+	ring0.s:			 +*   *) protected instructions:
+		Code control GDT, IDT, TR+*   control registers: crX, drX, MSR, eflags
+		  (CR, DR, GDT, IDT, TR)
+		Memory (PaGing)		 +*
+		TSS (IO)		 +*   -) not protected/privileged
+		scheduler	(iret)	 +*
+	ring1.s:			 +-   +) privileged memory access:
+		IO drivers (raw data)	 +-	 paging distinguishes CPL0,1,2 from 3
+	ring2.s:			 +-	 
+		kernel tasks/API (fs,net)+-	 instructions operate on a CPL0 vs
+	ring3.s:			 --	 1, 2, 3.
+		unprivileged tasks	 --
+
+The scheduler could use a popf,retf, and thus not require ring0, but it would
+only be able to switch to a particular state (i.e., interrupts on).
+THe privileged stack will be ring2.
+The above leaves ring 1 and ring 2 identical in terms of memory access and
+instruction availability. Here is where EFLAGS.IOPL is used: IOPL=1, therefore,
+all drivers have access to all ports, just like ring0. This can be further
+specified using the TSS.IO permissions, either by switching out TR in the
+scheduler, or by updating the TSS IO field (which should take at most 4 memory
+access per 32 IO ports, and at most 0x400 * 2).
+
+At any ring, code will be able to switch out the code and stack selectors for one of
+the same or lower privilege level. First the case where 'conforming' = 0 (i.e.,
+the DPL must be the CPL, in other case, the CPL cannot change). This allows to
+hide memory from lesser rings from higher rings (besides ring0).
+
+Code control involves deciding what code to run when. It specifies, at first,
+only it's own code to run at privilege level 0. All possible entrypoints that
+are hardware detectable, such as interrupts and execution of certain kinds of
+instructions and certain memory references or register changes, are configured
+to execute ring0 kernel code. In short, exception handling.
+
+Interrupt Handling
+------------------
+Next, there is interrupt handling, using another range of the interrupt table.
+These are also captured by ring0 kernel code, but delegate to ring1 driver event
+handlers. These are managed interrupts, as they are delivered to all tasks who
+register a handler. Inter-task-communication could thus occur using such interrupts
+by extending the range beyond the area reserved for IO device interrupts.
+
+Task Detection
+--------------
+By registering an interrupt handler at MAX_IRQ + 1, a task could establish
+communication with other tasks, as it is a broadcast channel.
+The task would execute such a call by preparing it's register contents,
+and issuing an interrupt. These interrupts can be configured to be allowable
+at certain privilege levels in the IDT.
+The first 19 interrupts are reserved for the kernel, as they are exception handlers.
+The kernel determines when these are triggered, and therefore should not be used
+directly by tasks, unless there is an agreement.
+
+For task communication, a task will need to determine whether or not it sent
+the message on the broadcast channel. This will require a unique number among
+the tasks for each task - a name. Such a number is provided by the kernel - the
+task id (legacy name: pid).
+If it were up to the tasks to determine a number, a task could first listen, but
+it would need to have established timing agreements firsts. It would then wait
+for messages confirming the already known identifications, and computing an unused
+one. This approach is slow, since it takes time.
+A task then, could detect duplicates, by the following protocol:
+(starting situation: 2 tasks running who have established connection; 1 new task
+starting communication:)
+	it would broadcast the number 1.
+	1) all tasks respond by sending their number.
+	2) all tasks respond by echoing that number, and their own number.
+
+Option 1 will result in the task receiving the numbers 1, 1 and 2. The first 1
+the one it sent, then the numbers of the other two tasks. It sees the duplicate,
+but cannot be sure whether all tasks have responded (they may have an attitude).
+So it claims number 3, and sends it. In the above scenario, task number 3 does not
+yet exist, as the one joining the two is the third. Therefore, there will be no
+response.
+If task 3 was keeping silent so far, it can now speak up by sending it's number.
+The task will read 3, followed by 3 - the first the one it sent, the second the
+number of task 3.
+The two scenario's so far, are that a task may or may not choose to respond with
+it's number when it reads another number. (task 3, above, could aswell have been task
+2).
+
+Assuming communication is set up that will result in information received over
+the connection is stored in the task, the task may or may not choose to maintain
+a list of numbers and when it last saw them.
+A persistent information storage cannot be based on an operating system provided
+number, as the number changes with each task instance.
+[implications on DNA: governmental identity limits cross-lifetime memory].
+Therefore, the persistent identities must be managed by the communication protocol
+itself.
+In such a persistent system, each task can send any number it likes. Let's say
+that it makes up a name for itself and offers it on the broadcast. The other tasks
+knowing this, cannot be sure whether the name refers to the task they remember
+by that name. For, when a task is met for the first time, it's name will be unknown,
+and there will be no reason not to associate all communications with that name
+to that name. The only potential issue is that another task - say one also known -
+starts to communicate using that identity. [starting scenario: all tasks have
+unique names and all tasks are known to all tasks; enter a new task].
+	new task: i am <existing name>?
+	moderator: I am <existing name>!
+	new task: i am <unknown name>
+	moderator: i am <existing name>
+The moderator here is a role. Each task serves this role to uphold it's identity
+within the collective. This means, that each task moderates their name.
+The new task is in fact trying to establish itself as moderator for <existing name>.
+the moderator for that name, a task known by <existing name>, speaks up and makes
+the same claim.
+All tasks now know, in the case of conflict, that there is an unknown or known task
+impersonating a known task. In the case where there are two messages claiming
+to be an unknown name, all tasks but the one or two tasks generating these
+messages will not take part (or they will, or communicate about it without
+directly claiming to be, or adressing the unknown name). Note that any task,
+known or unknown, can send such messages, giving the illusion of conflict.
+Yet conflict is not communication, and as such, conflicts about unknown names
+cannot be taken seriously, as nothing is known about them, besides this.
+Since tasks are idle in a different way, they do not care much about their names,
+any number will do, as there is no correlation between made up names and reputation.
+
+Say that tasks have their limits, and that after a certain amount of conflicting
+messages they simply can't be bothered anymore with that message, since it simply
+repeats and doesn't change the information (besides keeping track of how many
+times it's name is mentioned). AFter this period, they will not respond to
+the same message. Thus it is possible that a task joins, and attempts to use
+a name that others remember as offensive, without being aware of this. It would
+state the name and receive no response. It would try different names for a while,
+but would give up after a certain amounts of empty echoes, and assumes it is
+alone: a silent task's presence coincides with a new task's first word, as the
+task assuming it is alone cannot tell whether the task was already there
+when it arrived. Therefore, any word will be taken to be a new task.
+
+The next step in the protocol would be for all tasks who acknowledge a new name
+to mention that name. Therefore, situation 2) (as described a while up), where
+each task responds with it's own identification, and the identification of the new
+task. Thus, their int instruction will use two registers.
+
+Since a task cannot be sure of what the convention is, it will put it's name
+in two registers, and make sure the other registers all have different values.
+It could put it in all registers aswell, or all except one, and possibly
+in memory references.
+All tasks would on receiving the broadcast compare all registers with each other,
+or scan for duplicates. In the case where all but one register has the same
+value, which value the identity is meant to be is unknown.
+A task would respond to such a message by leaving some registers as is. It would
+need to leave one identification intact for the sender to recognize it as a response.
+Which value(s) are overwrittenc/changed determine the meaning the task
+ascribes to it, if any. If it writes is own number in one of the registers,
+it then establishes it's identity relative to the message. It may use the register
+that is convention to it. 
+A task may put increasing numbers in it's register, whereby the task offers identities
+for the value-slots to other tasks. This then, if the numbers are consecutive,
+allows to reserve a number-range for the task, for, to allow overlap with other tasks
+is to use a known name. Therefore, the numbers in any register can be contested.
+
