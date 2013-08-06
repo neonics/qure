@@ -203,6 +203,8 @@ SHELL_COMMAND "pic"		cmd_pic
 SHELL_COMMAND "ints",		cmd_int_count
 SHELL_COMMAND "int",		cmd_int
 SHELL_COMMAND "gdt"		cmd_print_gdt
+SHELL_COMMAND "idt"		cmd_print_idt
+SHELL_COMMAND "irq"		print_irq_handlers
 SHELL_COMMAND "cr",		cmd_cr
 SHELL_COMMAND "sline",		cmd_sline
 SHELL_COMMAND "sym",		cmd_sym
@@ -1718,6 +1720,31 @@ cmd_print_gdt:
 	PRINT_GDT ds
 	PRINT_GDT es
 	PRINT_GDT ss
+
+	xor	edx, edx
+0:	call	debug_print_gdt_descriptor; call newline
+	add	edx, 8
+	cmp	edx, SEL_MAX
+	jb	0b
+	ret
+
+cmd_print_idt:
+	xor	eax, eax
+	mov	ecx, IRQ_BASE + 16
+0:	mov	edx, eax
+	shr	edx, 3
+	print "INT "
+	call	printhex2
+	print " Address: "
+	DT_GET_SEL edx, eax, IDT
+	call	printhex8
+	print ":"
+	DT_GET_OFFSET edx, eax, IDT
+	call	printhex8
+	call	newline
+	add	eax, 8
+	dec	ecx
+	jnz	0b
 	ret
 
 cmd_ping_gateway:

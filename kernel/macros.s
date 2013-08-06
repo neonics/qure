@@ -168,6 +168,12 @@ _TLS_SIZE = .
 	\var = _INDEX >= 0
 .endm
 
+.macro IS_REG16 var, val
+	GET_INDEX \val, ax,bx,cx,dx,si,di,bp,sp,cs,ds,es,fs,gs,ss
+	\var = _INDEX >= 0
+.endm
+
+
 .macro IS_REG32 var, val
 	GET_INDEX \val, eax,ebx,ecx,edx,esi,edi,ebp,esp,cs,ds,es,fs,gs,ss
 	\var = _INDEX >= 0

@@ -14,15 +14,20 @@ DEBUG_KERNEL_REALMODE = 0	# 1: require keystrokes at certain points
 CHAIN_RETURN_RM_KERNEL = 1
 #########################################################
 
+.data16
+screen_pos_16: .long 0
+screen_color_16: .word 0
+
+
 .macro PRINT_START_16 col=-1
 	push	es
 	push	di
 	push	ax
 	mov	di, 0xb800
 	mov	es, di
-	mov	di, [screen_pos]
+	mov	di, [screen_pos_16]
 	.ifc \col,-1
-	mov	ah, [screen_color]
+	mov	ah, [screen_color_16]
 	.else
 	.ifc ah,\col
 	.else
@@ -38,7 +43,7 @@ CHAIN_RETURN_RM_KERNEL = 1
 	call	__scroll_16
 99:
 	.endif
-	mov	[screen_pos], di
+	mov	[screen_pos_16], di
 	pop	ax
 	pop	di
 	pop	es	
@@ -85,10 +90,10 @@ CHAIN_RETURN_RM_KERNEL = 1
 .endm
 
 .macro PRINTc_16 c, m
-	push	word ptr [screen_color]
-	mov	[screen_color], byte ptr \c
+	push	word ptr [screen_color_16]
+	mov	[screen_color_16], byte ptr \c
 	PRINT_16 "\m"
-	pop	word ptr [screen_color]
+	pop	word ptr [screen_color_16]
 .endm
 
 
@@ -102,9 +107,9 @@ CHAIN_RETURN_RM_KERNEL = 1
 	call	newline_16
 .endm
 
-.macro PH8_16 m x
+.macro PH8_16 x, m="\x"
 	PRINT_16 "\m"
-	.ifc edx,\x
+	.ifnc edx,\x
 	push	edx
 	mov	edx, \x
 	call	printhex8_16
@@ -116,16 +121,16 @@ CHAIN_RETURN_RM_KERNEL = 1
 
 
 .macro COLOR_16 c
-	mov	[screen_color], byte ptr \c
+	mov	[screen_color_16], byte ptr \c
 .endm
 
 .macro PUSHCOLOR_16 c
-	push	word ptr [screen_color]
-	mov	[screen_color], byte ptr \c
+	push	word ptr [screen_color_16]
+	mov	[screen_color_16], byte ptr \c
 .endm
 
 .macro POPCOLOR_16
-	pop	word ptr [screen_color]
+	pop	word ptr [screen_color_16]
 .endm
 
 .macro rmI m
@@ -158,7 +163,7 @@ CHAIN_RETURN_RM_KERNEL = 1
 # in: ds:cx = ramdisk address
 # in: 0:ebx = kernel load end
 realmode_kernel_entry:
-	int	1	# trigger debugger from pmode - when eip=0
+	int3		# trigger debugger from pmode - when eip=0
 	push	cx
 	mov	ax, 0x0f00
 	xor	di, di
@@ -260,13 +265,13 @@ realmode_kernel_entry:
 	rmI	"Kernel"
 
 	rmI2	" size: "
-	mov	edx, offset kernel_end
+	mov	edx, offset kernel_end - .text # prevent relocation
 	call	printhex8_16
 
 	rmI2	"Signature: "
 	mov	edx, cs
 	shl	edx, 4
-	add	edx, offset kernel_signature
+	add	edx, offset kernel_signature - .text # prevent relocation
 
 	movzx	bx, dl
 	and	bl, 0xf
@@ -307,9 +312,10 @@ realmode_kernel_entry:
 1:	PRINTc_16 12, "Invalid signature"
 	jmp	3f
 
-2:	mov	eax, cs	# calculate minimum load end
+2:	printc_16 10, "Ok"
+	mov	eax, cs	# calculate minimum load end
 	shl	eax, 4
-	add	eax, offset kernel_end
+	add	eax, offset kernel_end - .text # prevent relocation
 
 	mov	ecx, fs:[bx + 8]	# num entries
 	or	ecx, ecx
@@ -382,13 +388,14 @@ realmode_kernel_entry:
 	call	printhex8_16
 	color_16 15
 
-	cmp	edx, offset kernel_end
+	cmp	edx, offset kernel_end - .text # prevent relocation
 	jae	1f
 
 	PRINTc_16 12, "WARNING: kernel end before ramdisk end"
-3:	mov	edx, offset kernel_end
+3:	mov	edx, offset kernel_end - .text # prevent relocation
 
-1:	mov	[ramdisk_load_end], edx
+1:	add	edx, offset .text	# relocation
+	mov	[ramdisk_load_end], edx
 2:	call	newline_16
 
 	##############################################
@@ -596,7 +603,7 @@ realmode_kernel_entry:
 		xor	ah, ah
 		int	0x16
 	.endif
-	mov	di, [screen_pos]
+	mov	di, [screen_pos_16]
 	retf
 .endif
 
@@ -629,6 +636,12 @@ stabs_load_end_flat:	.long 0
 low_memory_size:	.word 0 # in kb
 RM_MEMORY_MAP_MAX_SIZE = 20	# 20 lines (qemu: 5, vmware: 10)
 memory_map:		.space 24 * RM_MEMORY_MAP_MAX_SIZE
+memory_map_end:
+	MEMORY_MAP_TYPE_KERNEL	= 0x10
+	MEMORY_MAP_TYPE_STACK	= 0x11
+	MEMORY_MAP_TYPE_RELOC	= 0x12
+	MEMORY_MAP_TYPE_SYMTAB	= 0x13
+	MEMORY_MAP_TYPE_SRCTAB	= 0x14
 cdrom_spec_packet:	.space 0x13
 ####################################
 .struct 0
@@ -689,12 +702,12 @@ printhex8_16:
 newline_16:
 	push	ax
 	push	dx
-	mov	ax, [screen_pos]
+	mov	ax, [screen_pos_16]
 	mov	dx, 160
 	div	dl
 	mul	dl
 	add	ax, dx
-	mov	[screen_pos], ax
+	mov	[screen_pos_16], ax
 	pop	dx
 	pop	ax
 	ret

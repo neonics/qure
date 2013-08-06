@@ -32,9 +32,6 @@ mem_heap_size:	.long 0, 0
 
 mem_heap_alloc_start: .long 0
 
-mem_sel_base: .long 0
-mem_sel_limit: .long 0
-
 mem_heap_high_end_phys:	.long 0, 0
 mem_heap_high_start_phys:.long 0, 0
 
@@ -300,18 +297,35 @@ mov eax, edx
 	mov	edx, [esi + 0 ] #memory_map_base + 0 ]
 	call	printhex8
 	PRINT	" | "
-# compare start addresses:
-cmp	byte ptr [esi + 16], 2 # don't count type=2 which may be mem-mapped
-jz 1f
-cmp	eax, [mem_phys_total + 4]
-jb	1f
-cmp	edx, [mem_phys_total + 0]
-jb	1f
-# entry has highest memory start address. Add size:
-add	edx, [esi + 8]
-adc	eax, [esi + 12]
-mov	[mem_phys_total + 4], eax
-mov	[mem_phys_total + 0], edx
+
+	# summation over available memory:
+
+	# addressable memory:
+	cmp	dword ptr [esi + 20], 0	# check ACPI
+	jz	1f
+	.data SECTION_DATA_BSS
+	mem_addr_total: .long 0, 0
+	.text32
+	push	edx
+	mov	edx, [esi + 8]
+	add	[mem_addr_total], edx
+	mov	edx, [esi + 8+4]
+	adc	[mem_addr_total+4], edx
+	pop	edx
+1:
+
+	# non-BIOS/memory mapped memory.
+	cmp	byte ptr [esi + 16], 2 # don't count BIOS/mapped memory
+	jz	1f
+	cmp	eax, [mem_phys_total + 4]
+	jb	1f
+	cmp	edx, [mem_phys_total + 0]
+	jb	1f
+	# entry has highest memory start address. Add size:
+	add	edx, [esi + 8]
+	adc	eax, [esi + 12]
+	mov	[mem_phys_total + 4], eax
+	mov	[mem_phys_total + 0], edx
 1:
 	mov	edx, [esi + 12 ] #memory_map_length + 4 ]
 	mov	eax, edx
@@ -339,6 +353,9 @@ mov	[mem_phys_total + 0], edx
 	PRINT	" | "
 	mov	edx, [esi + 20]
 	call	printhex8
+	mov	al, [esi + 16]
+	call	printspace
+	call	memory_map_print_type$
 
 	add	esi, 24 # memory_map_struct_size
 	jmp	0b
@@ -346,6 +363,10 @@ mov	[mem_phys_total + 0], edx
 	print "Total physical memory: "
 	mov	edx, [mem_phys_total + 4]
 	mov	eax, [mem_phys_total + 0]
+	call	print_size
+	print " Total addressable memory: "
+	mov	eax, [mem_addr_total]
+	mov	edx, [mem_addr_total + 4]
 	call	print_size
 	call	newline
 
@@ -359,7 +380,6 @@ mov	[mem_phys_total + 0], edx
 	call	printhex8
 	mov	edx, [edi+8]
 	call	printhex8
-	call	println
 
 	mov	esi, edi
 	mov	edi, offset mem_heap_start
@@ -368,6 +388,11 @@ mov	[mem_phys_total + 0], edx
 	movsd
 	movsd
 
+	call	printspace
+	mov	eax, edx
+	xor	edx, edx
+	call	print_size
+	call	newline
 
 	# > 4Gb check
 
@@ -385,85 +410,48 @@ mov	[mem_phys_total + 0], edx
 	stosd
 
 0:
+
+
 	# Adjust base relative to selectors
 
-	# Get the data selector information
-
-	mov	eax, ds
-
-	mov	edx, eax
-	print "Data Selector "
-	call	printhex4
-
-	print " base "
-	xor	edx, edx
-	mov	dl, [GDT + eax + 7]
-	shl	edx, 16
-	mov	dx, [GDT + eax + 2]
-	mov	[mem_sel_base], edx
-	call	printhex8
-
-	print " segment limit: "
-	lsl	edx, eax
-	mov	[mem_sel_limit], edx
-	call	printhex8
-	printchar ' '
-	call	printdec32
-	printchar ' '
-	shr	edx, 20
-	call	printdec32
-	println "Mb"
-
+	GDT_GET_BASE ebx, ds
 
 	# Adjust the heap start
 
-	print "Adjusting heap: base "
+	print "Adjust heap base "
 	mov	edx, [mem_heap_start]
 	call	printhex8
-	mov	edx, [mem_heap_size]
-	print " size "
-	call	printhex8
-
-
-	print " to: base "
-
-	mov	edx, [mem_sel_base]
-	sub	[mem_heap_start], edx # TODO check if base is byte gran
+	print "->"
+	sub	[mem_heap_start], ebx
 	mov	edx, [mem_heap_start]
 	call	printhex8
 
-	sub	[mem_heap_size], edx
 	mov	[mem_heap_alloc_start], edx
 
-	mov	edx, [mem_heap_size]
-	print " size "
-	call	printhex8
-	print " ("
-	shr	edx, 20
-	call	printdec32
-	print "Mb) High Mem End: "
-
+	print " end "
 	mov	edx, [mem_heap_size]
 	add	edx, [mem_heap_start]
-	GDT_GET_BASE eax, ds
-	sub	edx, eax
 	call	printhex8
-	print " ("
+	print "->"
+	sub	edx, ebx
 	and	edx, ~4095	# page-align
 	call	printhex8
-	println ")"
+	call	newline
 
 	mov	[mem_heap_high_end_phys], edx
 	mov	[mem_heap_high_start_phys], edx
 	ret
 
-###########################################
-print_memory_map:
-	push_	eax edx esi
+#############################################################################
+# Memory map management
+
+memory_map_print:
+	push_	eax edx esi ecx
 	PRINT " Start           | Size             | Type"
 
 	# ecx:ebx = size, edi=index (for max cmp)
 	mov	esi, offset memory_map
+	mov	ecx, RM_MEMORY_MAP_MAX_SIZE
 0:	call	newline
 	cmp	dword ptr [esi + 16 ], 0 # memory_map_attributes], 0
 	jz	0f
@@ -485,11 +473,158 @@ print_memory_map:
 	PRINT	" | "
 	mov	edx, [esi + 20 ]
 	call	printhex8
-
+######## print type
+	call	printspace
+	mov	al, [esi + 16]	# type
+	call	memory_map_print_type$
+#######
 	add	esi, 24 # memory_map_struct_size
-	jmp	0b
-0:	pop_	esi edx eax
+	loop	0b
+0:	pop_	ecx esi edx eax
 	ret
+
+memory_map_print_type$:
+	LOAD_TXT "free", edx	# 1
+	dec	al
+	jz	1f
+	LOAD_TXT "bios", edx	# 2
+	dec	al
+	jz	1f
+
+	LOAD_TXT "kernel", edx	# 0x10
+	sub	al, MEMORY_MAP_TYPE_KERNEL - 2
+	jz	1f
+	js	2f
+
+	LOAD_TXT "stack", edx	# 0x11
+	dec	al
+	jz	1f
+
+	LOAD_TXT "reloc", edx	# 0x12
+	dec	al
+	jz	1f
+	LOAD_TXT "symtab", edx	# 0x13
+	dec	al
+	jz	1f
+	LOAD_TXT "srctab", edx	# 0x14
+	dec	al
+	jz	1f
+	print "?"
+	jmp	2f
+
+1:	push	edx
+	pushw	15
+	call	_s_printc
+2:	ret
+#
+
+# in: edi = memory type to set
+# in: edx = start of mem region
+# in: ebx = region size
+memory_map_update_region:
+	# update the memory map so malloc won't use that area
+	pushad
+	mov	esi, offset memory_map
+	mov	ecx, RM_MEMORY_MAP_MAX_SIZE
+	# find the entry that has higher address:
+0:	cmp	dword ptr [esi + 4], 0	# check high addr 0 (we do 32 bit)
+	jnz	1f		# somehow missed injection pt, continue
+	cmp	dword ptr [esi + 16], 0	# region type
+	jz	2f	# end of list: append
+	cmp	edx, [esi]	# check start address
+	je	3f	# insert
+	jb	4f	#in range of prev entry - not implemented: append.
+1:	add	esi, 24
+	loop	0b
+	printc 4, "memory_map_update: no match"
+
+0:	popad
+	ret
+
+# reached end of list: append
+2:	call	memory_map_store$
+	jmp	0b
+
+# edx=[esi]: insert (since memory map is contiguous, current entry is updated/split)
+3:	cmp	[esi + 8], ebx		# check if the size happens to match
+	jnz	1f
+# identical
+	mov	[esi + 16], edi		# set type
+	jmp	0b
+# insert
+1:	add	esi, 24
+	dec	ecx
+	call	memory_map_insert$	# copy entry
+	mov	[esi - 24 + 8], ebx	# set size
+	mov	[esi - 24 + 16], edi	# set type
+	add	[esi + 0], ebx		# adjust start
+	sub	[esi + 8], ebx		# adjust size
+	jmp	0b
+
+# after start of prev entry
+4:	# check if prev entry can hold the range
+	mov	eax, [esi + 0]		# current entry start
+	sub	eax, ebx		# subtract size from cur entry start
+	cmp	eax, [esi - 24]		# see if offset after prev entry still
+	jb	2b	# nah, the entry is flawed - just append it
+
+	call	memory_map_insert$	# dup and insert current row
+	mov	eax, edx	
+	sub	eax, [esi - 24]		# eax = curstart - prevstart = prev size
+	mov	[esi -24 + 8], eax	# adjust size of prev entry
+	add	[esi], eax		# adjust start of current entry
+	sub	[esi + 8], eax		# adjust size of current entry
+
+	# now split the current entry to store the section.
+	add	esi, 24
+	dec	ecx
+	call	memory_map_insert$
+	# the current entry is the one we needed to store; addr=ok
+	mov	[esi - 24 + 8], ebx	# set size
+	mov	[esi - 24 + 16], edi	# set type
+	sub	[esi + 8], ebx		# subtract next entry size
+	add	[esi + 0], ebx		# add next entry start
+	jmp	0b
+
+# in: edx = start
+# in: ebx = size
+# in: edi = type
+memory_map_store$:
+	mov	[esi + 0], edx		# mem start
+	mov	[esi + 4], dword ptr 0
+	mov	[esi + 8], ebx
+	mov	[esi + 12], dword ptr 0
+	mov	[esi + 16], edi	# mem type
+	ret
+	
+
+# shifts all entries back, producing a duplicate of the current entry.
+# in: edx = start
+# in: ebx = size
+# in: edi = type
+# in: ecx = entries after cur ptr - RM_..MAX_SIZE - current index
+memory_map_insert$:
+	push	ecx
+	cmp	ecx, 1
+	jl	9f
+	jz	0f
+	push_	edi esi
+	imul	ecx, ecx, 6	# each entry is 6 dwords (leaves edx alone..?)
+	lea	edi, [memory_map_end - 4]
+	lea	esi, [edi - 24]
+	std
+	rep	movsd	# make some space	# NOTE: werd
+	cld
+
+	pop_	esi edi
+0:	pop	ecx
+	ret
+
+9:	printlnc 4, "memory_map_insert$: table exhausted"
+	stc
+	jmp	0b
+
+###############################################################
 
 mem_test$:
 	call	mem_print_handles
@@ -855,7 +990,6 @@ mallocz_:
 	.endif
 	push	ecx
 	mov	ecx, eax
-#DEBUG_DWORD ecx,"mallocz"
 	call	malloc_
 _mallocz_malloc_ret$:	# debug symbol
 	.if MEM_DEBUG2
@@ -867,8 +1001,6 @@ _mallocz_malloc_ret$:	# debug symbol
 	push	eax
 	xor	eax, eax
 	push	ecx
-#DEBUG_DWORD edi
-#DEBUG_DWORD ecx
 	and	ecx, 3
 	rep	stosb
 	pop	ecx
@@ -877,33 +1009,6 @@ push ecx
 	rep	stosd
 pop ecx
 	pop	eax
-.if 0
-pushf
-push edi
-push eax
-push ecx
-mov edi, eax
-xor al, al
-DEBUG_DWORD edi,"scan"
-DEBUG_DWORD ecx
-repz scasb
-jz 2f
-or ecx, ecx
-jz 2f
-printc 4, "NOT 0"
-DEBUG_DWORD ecx,"size-index"
-DEBUG_DWORD edi
-mov eax, [esp + 4]
-DEBUG_DWORD eax,"alloccd"
-mov eax, [esp]
-DEBUG_DWORD eax,"ecx"
-call newline
-2:
-pop ecx
-pop eax
-pop edi
-popf
-.endif
 	pop	edi
 	clc
 1:	pop	ecx
@@ -1623,10 +1728,11 @@ mdup:	push	ebp
 CMD_MEM_OPT_HANDLES	= 1 << 0
 CMD_MEM_OPT_KERNELSIZES	= 1 << 1	# kernel pm/rm code,data,symbols,stack
 CMD_MEM_OPT_ADDRESSES	= 1 << 2	# start/end addresses of kernelsizes
-CMD_MEM_OPT_MEMMAP	= 1 << 3	# verbose memory map of all sections
+CMD_MEM_OPT_KERNEL_MEMMAP=1 << 3	# verbose memory map of all sections
 CMD_MEM_OPT_CODESIZES	= 1 << 8	# verbose subsystem code sizes
 CMD_MEM_OPT_HANDLES_A	= 1 << 9
 CMD_MEM_OPT_HANDLES_S	= 1 << 10
+CMD_MEM_OPT_MEMORY_MAP	= 1 << 11
 CMD_MEM_OPT_GRAPH	= 1 << 16	# experimental
 
 cmd_mem$:
@@ -1663,11 +1769,15 @@ cmd_mem$:
 	jmp	2f
 1:	cmp	eax, '-' | ('s'<<8)
 	jnz	1f
-	or	dword ptr [ebp], CMD_MEM_OPT_MEMMAP # print sections/memory map
+	or	dword ptr [ebp], CMD_MEM_OPT_KERNEL_MEMMAP # print sections/memory map
 	jmp	2f
 1:	cmp	eax, '-' | ('c'<<8)	# print verbose
 	jnz	1f
 	or	dword ptr [ebp], CMD_MEM_OPT_CODESIZES
+	jmp	2f
+1:	cmp	eax, '-' | ('m'<<8)	# print memory_map
+	jnz	1f
+	or	dword ptr [ebp], CMD_MEM_OPT_MEMORY_MAP
 	jmp	2f
 	# experimental options:
 1:	cmp	eax, '-' | ('g'<<8)
@@ -1821,6 +1931,17 @@ cmd_mem$:
 	call	newline
 
 	xor	edx, edx
+	mov	eax, [kernel_reloc_size]
+	or	eax, eax
+	jz	2f
+	printc 15, " Relocation tables: "
+	call	print_size
+	mov	edx, [reloc_load_start_flat]
+	mov	eax, [reloc_load_end_flat]
+	mov	ecx, SEL_flatDS
+	call	cmd_mem_print_addr_range$
+
+	xor	edx, edx
 	mov	eax, [kernel_symtab_size]
 	or	eax, eax
 	jz	2f
@@ -1873,7 +1994,7 @@ cmd_mem$:
 	call	mem_print_ll_handles$
 2:
 ######## print memory map
-1:	test	dword ptr [ebp], CMD_MEM_OPT_MEMMAP
+1:	test	dword ptr [ebp], CMD_MEM_OPT_KERNEL_MEMMAP
 	jz	1f
 
 	# in: (besides arguments): ecx = end address of last section/memory range,
@@ -1922,7 +2043,7 @@ cmd_mem$:
 		call	print_memrange$
 	.endm
 
-	xor	ecx, ecx	# end address of previous entry
+	mov	ecx, offset .text	# relocation; end addr of prev entry
 	PRINT_MEMRANGE kernel_rm_code
 	PRINT_MEMRANGE data16
 	PRINT_MEMRANGE kernel_pm_code
@@ -1955,7 +2076,8 @@ cmd_mem$:
 	.endif
 	mov	edi, [kernel_load_end_flat]
 	PRINT_MEMRANGE "<slack>", ecx, edi
-	PRINT_MEMRANGE "<free>", ecx, [kernel_symtab]
+	PRINT_MEMRANGE "<free>", ecx, [kernel_reloc]
+	PRINT_MEMRANGE "relocation table", [kernel_reloc], [kernel_reloc_size], sz=1
 	PRINT_MEMRANGE "symbol table", [kernel_symtab], [kernel_symtab_size], sz=1
 	PRINT_MEMRANGE "stabs", [kernel_stabs], [kernel_stabs_size], sz=1
 	PRINT_MEMRANGE "stack", cs:[ramdisk_load_end], cs:[kernel_stack_top]
@@ -1964,6 +2086,10 @@ cmd_mem$:
 	PRINT_MEMRANGE "<free>", ecx, edi
 	PRINT_MEMRANGE "paging", ds:[mem_heap_high_start_phys], ds:[mem_heap_high_end_phys],fl=1
 
+######## print memory map
+1:	test	dword ptr [ebp], CMD_MEM_OPT_MEMORY_MAP
+	jz	1f
+	call	memory_map_print
 ######## print graph
 1:	test	dword ptr [ebp], CMD_MEM_OPT_GRAPH
 	jz	1f
@@ -1979,8 +2105,9 @@ cmd_mem$:
 	printlnc_ 12, "  -h   print malloc handles"
 	printlnc_ 12, "  -ha  print allocated/free malloc handles by address"
 	printlnc_ 12, "  -hs  print free malloc handles by size"
-	printlnc_ 12, "  -s   print code/data sections/images/memory map"
+	printlnc_ 12, "  -s   print kernel code/data sections/images/memory map"
 	printlnc_ 12, "    -c print detailed code sections"
+	printlnc_ 12, "  -m   print BIOS/ACPI memory map"
 	jmp	1b
 
 

@@ -634,11 +634,11 @@ CONSOLE_STRUCT_SIZE = .
 .data SECTION_DATA_BSS
 console_cur:	.byte 0
 console_cur_ptr:.long consoles	# initialize to first console
-.data16
+.data#16
 consoles:	# 10 CONSOLE_STRUCTs: the first being the screen_ (default)
 .endif	# keep with next:
 
-.data16	# realmode access, keep within 64k
+.data#16	# realmode access, keep within 64k
 	# the first console:
 	screen_color:	.word 0x0f	# is a byte, but word for push/pop
 	screen_pos:	.long 0

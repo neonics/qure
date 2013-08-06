@@ -54,24 +54,33 @@ clean:
 	$(call MAKE,kernel,clean)
 	$(call MAKE,fonts,clean)
 
-build/boot.img: build/boot.bin build/kernel.bin build/write.exe
+build/boot.img: build/boot.bin kernel build/write.exe
 	@build/write.exe -o $@ \
 		-b bootloader/boot.bin \
 		-rd \
-		-b kernel/kernel.bin \
-		-b kernel/kernel.reloc \
-		-b kernel/kernel.sym \
-		-b kernel/kernel.stabs \
+		-b build/kernel.bin \
+		-b build/kernel.reloc \
+		-b build/kernel.sym \
+		-b build/kernel.stabs \
 	&& chmod 644 $@
 
 build/boot.bin:
 	$(call MAKE,bootloader)
 
+.PHONY: kernel
+kernel: build/kernel.bin build/kernel.reloc build/kernel.sym build/kernel.stabs
+
 build/kernel.bin: fonts
-	$(call MAKE,kernel)
-	util/symtab.pl kernel/kernel.o kernel/kernel.sym
-	util/stabs.pl kernel/kernel.o kernel/kernel.stabs
-	util/reloc.pl kernel/kernel.o kernel/kernel.reloc
+	$(call MAKE,kernel) && mv kernel/kernel.bin $@
+
+build/kernel.reloc: build/kernel.bin
+	util/reloc.pl kernel/kernel.o build/kernel.reloc
+
+build/kernel.sym: build/kernel.bin
+	util/symtab.pl kernel/kernel.o build/kernel.sym
+
+build/kernel.stabs: build/kernel.bin
+	util/stabs.pl kernel/kernel.o build/kernel.stabs
 
 .PHONY: fonts
 fonts:

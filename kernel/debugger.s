@@ -33,7 +33,7 @@ DEBUG_RAMDISK_DIY=0
 
 	GDT_GET_BASE ecx, ds
 
-	.macro DEBUG_LOAD_TABLE name, label, isreloc=0
+	.macro DEBUG_LOAD_TABLE name, label, mmaptype, isreloc=0
 
 	.if DEBUG_RAMDISK_DIY
 	mov	edx, fs:[eax + 4]	# load start
@@ -43,13 +43,9 @@ DEBUG_RAMDISK_DIY=0
 	mov	edx, [\name\()_load_start_flat]
 	mov	ebx, [\name\()_load_end_flat]
 	.endif
-	print "checking \label:"
-#	or	edx, edx
-#	jnz	19f
+	mov	edi, MEMORY_MAP_TYPE_\mmaptype
 	call	ramdisk_load_image	# updates memory map
-#	jc	18f
-#19:
-	I "Found \label: "
+	I "\label: "
 	sub	edx, ecx
 	js	8f
 	mov	[kernel_\name\()], edx	# load_start ds-relative
@@ -82,14 +78,13 @@ DEBUG_RAMDISK_DIY=0
 	call	printdec32
 	print " ("
 	call	printhex8
-	.endif
 	println ")"
-18:
+	.endif
 	.endm
 
-	DEBUG_LOAD_TABLE reloc, "relocation table", 1
-	DEBUG_LOAD_TABLE symtab, "symbol table"
-	DEBUG_LOAD_TABLE stabs, "source line table"
+	DEBUG_LOAD_TABLE reloc, "relocation table", RELOC, 1
+	DEBUG_LOAD_TABLE symtab, "symbol table", SYMTAB
+	DEBUG_LOAD_TABLE stabs, "source line table", SRCTAB
 	ret
 
 8:	printlnc 12, "error: symboltable before kernel: "
@@ -102,6 +97,7 @@ DEBUG_RAMDISK_DIY=0
 
 # in: edx = load start
 # in: ebx = load end
+# in: edi = MEMORY_MAP_TYPE_*
 # Format:
 #   .long lba, mem_start, sectors, mem_end
 ramdisk_load_image:
@@ -110,52 +106,9 @@ ramdisk_load_image:
 	printlnc 5, "image not loaded"
 	ret
 
-1:	println "image already loaded"
-
-	sub	ebx, edx	# ebx = load size
-	mov	edi, 10		# the memory type to set
-
-	# update the memory map so malloc won't use that area
-	pushad
-	DEBUG_DWORD edx, "load_start"
-	mov	esi, offset memory_map
-	mov	ecx, RM_MEMORY_MAP_MAX_SIZE
-	# find the entry that has higher address:
-0:	cmp	dword ptr [esi + 16], 0	# region type
-	jz	2f	# end of list: append
-	cmp	dword ptr [esi + 4], 0	# check high addr 0
-	jnz	1f		# somehow missed injection pt, continue
-	cmp	edx, [esi]	# is < 4gb addr, check ramdisk entry before
-	je	3f	# insert
-	#jb	4f	in range of prev entry - not implemented: append.
-1:	add	esi, 24
-	loop	0b
-
-0:	call	print_memory_map
-	popad
+1:	sub	ebx, edx	# ebx = load size
+	call	memory_map_update_region	# in: edx, ebx, edi
 	ret
-
-# append
-2:	#DEBUG "update memory map"; call newline
-	mov	[esi + 0], edx		# mem start
-	mov	[esi + 4], dword ptr 0
-	mov	[esi + 8], ebx
-	mov	[esi + 12], dword ptr 0
-	mov	[esi + 16], edi	# mem type
-	jmp	0b
-# cur entry start matches load address
-3:	#DEBUG "Got exact match"
-	# edx = [esi]: set edx to new start:
-	add	edx, ebx	# edx = start of free mem
-	xchg	ebx, [esi + 8]	# swap mem size
-	sub	ebx, [esi + 8]	# ebx is remaining free mem
-	mov	[esi + 16], edi	# mark allocated; TODO: check if it was 1
-	mov	edi, 1	# on append, mark as free mem
-	#DEBUG_DWORD edx,"free start"
-	#DEBUG_DWORD ebx, "free size"
-	# now, edx and ebx contain the remaining free mem from the block.
-	# we append.
-	jmp	1b	# for now continue to end.
 
 # Idea:
 # Specify another table, containing argument definitions.
@@ -389,8 +342,10 @@ debug_getsource:
 
 # in: edx = address
 debug_printsymbol:
-	push	eax
-	push	esi
+	push_	eax esi edx
+
+	sub	edx, offset .text	# relocation; symtab 0-based.
+	jb	9f			# symbol preceeds kernel
 
 	call	debug_getsource
 	jc	1f
@@ -414,7 +369,6 @@ debug_printsymbol:
 
 1:	push	edi
 	push	ebx
-	push	edx
 	call	debug_get_preceeding_symbol
 	jc	8f
 
@@ -434,12 +388,10 @@ debug_printsymbol:
 	call	print
 	popcolor
 
-8:	pop	edx
-	pop	ebx
+8:	pop	ebx
 	pop	edi
 
-9:	pop	esi
-	pop	eax
+9:	pop_	edx esi eax
 	ret
 
 
@@ -961,6 +913,9 @@ debug_assert_array_index:
 9:	printc 4, " array: "
 	push	[ebp + 12]	# name
 	call	_s_print
+	call	printspace
+	push	ebx
+	call	_s_printhex8
 
 	printc 4, " index="
 	push	dword ptr [ebp + 0]	# index

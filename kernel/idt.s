@@ -116,7 +116,6 @@ hook_isr:
 	shr	ebx, 16
 	mov	[IDT + eax*8 + 6], bx
 
-	sti
 	pop	eax
 	pop	ebx
 	pop	ecx
@@ -588,6 +587,7 @@ jz 11f
 	jnz	3f
 	# it's the GDT
 	# find out what type of descriptor it is:
+	call	printspace
 	call	debug_print_gdt_descriptor
 3:
 
@@ -900,7 +900,7 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	xchg	eax, edx
 	call	printdec32
 	call	printspace
-
+.if 1	# disable this on page faults here..
 	mov	ebx, cr3
 	push	ebx
 	mov	ebx, [page_directory_phys]
@@ -912,6 +912,7 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	mov	cr3, ebx
 
 	call	printhex8
+.endif
 
 	pop	fs
 	jmp	2b
@@ -921,12 +922,20 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 debug_print_gdt_descriptor:
 	push_	ebx esi edx
 	mov	ebx, edx
-	printc 7, " Descriptor: "
+	printc 7, "Descriptor: "
 	call	printhex4
-	call	printspace
+	printc 7, " F:"
+	GDT_GET_FLAGS al, edx
+	mov dl, al
+	call	printhex2
+	mov edx, ebx
+	printc 7, " A:"
 	GDT_GET_ACCESS al, edx
 	mov	dl, al
+	call	printhex2
+	call	printspace
 	call	printbin8
+	call	printspace
 	# better called SEGMENT flag: 1 = segment, 0 = descriptor (gate[int,call,trap],LDT,TSS)
 	test	al, ACC_NRM	# SYS flag 0 = descriptor; 1 = segment
 	jz	1f
@@ -976,6 +985,23 @@ desc_types$:	.asciz "RSV", "TSS", "LDT", "TSS(b)", "CALL", "TASK", "INT", "TRAP"
 	call	print
 	call	printdec32
 	popcolor
+
+	GDT_GET_ACCESS al, ebx
+	and	al, 0b111
+	cmp	al, 0b100	# CALL
+	jnz	9f
+
+	GDT_GET_BASE edx, ebx	# lo word = code selector
+	print " Address: "
+	call	printhex4
+	mov	eax, edx
+	printchar ':'
+	GDT_GET_LIMIT edx, ebx
+	call	printhex8
+	print " arg: "
+	mov	edx, eax
+	shr	edx, 16
+	call	printhex4
 
 	jmp	9f
 
@@ -1360,7 +1386,7 @@ ex_gp_task_isr:
 ###################################################################
 
 
-
+.text32 # for clarity
 init_idt: # assume ds = SEL_compatDS/realmodeDS
 	pushf
 	cli
@@ -1399,13 +1425,28 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 .endif
 	pop_	edx ebx edi esi
 
+
+#KERNEL_RELOCATION
+	mov	ecx, offset .text
+	jecxz	1f
+	# relocate the static offsets in the IDT
+	mov	ecx, 256
+	xor	eax, eax
+0:	DT_GET_OFFSET edx, eax, IDT
+	add	edx, offset .text
+	DT_SET_OFFSET eax, edx, IDT
+	add	eax, 8
+	loop	0b
+1:
+
+
 .if IRQ_SHARING
 	# register the IRQ core handlers
 	mov	al, IRQ_BASE
 	push	ebx
 	mov	ecx, 16
 0:	push	ecx
-	mov	ebx, offset irq_isr
+	mov	ebx, offset irq_isr	# relocation
 	mov	cx, cs
 	call	hook_isr	# changes cx,ebx
 	pop	ecx
@@ -1414,8 +1455,15 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	pop	ebx
 .endif
 
-	mov	eax, [reloc$]#[realsegflat]
-	add	eax, offset IDT
+	# relocation:	realsegflat = 0;	reloc = krnl base (rm cs*16)
+	# without:	realsegflat = krnl base;reloc = realsegflat
+	mov	eax, offset .text	# relocation
+	or	eax, eax
+	mov	eax, [reloc$]
+	jz	1f
+	mov	eax, [realsegflat]
+1:
+	add	eax, offset IDT		# relocation
 	mov	[pm_idtr + 2], eax
 	lidt	[pm_idtr]
 

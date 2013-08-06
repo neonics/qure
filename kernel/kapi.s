@@ -32,7 +32,7 @@ KAPI_MODE = KAPI_MODE_PAGE_INT		# ok
 _KAPI_COUNTER = 0
 
 .macro KAPI_DECLARE name, stackargs=0
-	_PTR = (. - .text)	# get .text offset
+	_PTR = .# (. - .text)	# get .text offset
 	.data SECTION_DATA_KAPI_STR
 	999: .asciz "\name"
 	.data SECTION_DATA_KAPI_IDX
@@ -121,7 +121,6 @@ kapi_init:
 kapi_map_base:
 	mov	esi, [page_directory]
 	mov	eax, [esi + 4*(KAPI_BASE >> 22)]
-	DEBUG_DWORD eax, "PDE"
 	or	eax, eax
 	jnz	1f
 
@@ -135,9 +134,7 @@ kapi_map_base:
 	mov	esi, [page_directory]
 	mov	[esi + 4*(KAPI_BASE>>22)], eax
 	and	eax, 0xfffff000
-1:
-	DEBUG_DWORD eax, "page table"
-	ret
+1:	ret
 9:	printlnc 4, "kapi init error"
 	int 3
 	ret

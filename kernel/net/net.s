@@ -514,7 +514,6 @@ net_handle_packet:
 0:	mov	edx, [eth_proto_struct$ + proto_struct_handler + edi]
 	or	edx, edx
 	jz	1f
-
 	add	edx, [realsegflat]
 	add	esi, ETH_HEADER_SIZE
 	sub	ecx, ETH_HEADER_SIZE
@@ -1073,9 +1072,9 @@ popad
 	ret
 
 net_rx_queue_print:
-	#MUTEX_SPINLOCK_ NET
+	MUTEX_SPINLOCK_ NET
 	call	net_rx_queue_print_
-	#MUTEX_UNLOCK NET
+	MUTEX_UNLOCK NET
 	ret
 
 net_rx_queue_print_:
@@ -1087,7 +1086,6 @@ net_rx_queue_print_:
 	add	ecx, [eax + edx + net_rx_queue_status]	# 1 indicates pkt in q
 	inc	ebx
 	ARRAY_ENDL
-9:
 
 	mov	edx, ecx
 	call	printdec32
@@ -1132,8 +1130,8 @@ net_rx_queue_print_:
 	add	ecx, NET_RX_QUEUE_STRUCT_SIZE
 	cmp	ecx, [eax + array_capacity]
 	jb	0b
-9:	
 .endif
+9:
 
 	ret
 .endif

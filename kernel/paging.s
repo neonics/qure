@@ -193,6 +193,7 @@ mov [TSS + tss_CR3], eax
 mov [TSS_DF + tss_CR3], eax
 mov [TSS_PF + tss_CR3], eax
 mov [TSS_NP + tss_CR3], eax
+call paging_print_pd$
 	call	paging_show_struct
 	ret
 
@@ -229,6 +230,41 @@ paging_disable:
 	ret
 
 ##############################################################################
+paging_print_pd$:
+	pushad
+	GDT_GET_BASE ebx, ds
+	mov	esi, [page_directory]
+	mov	ecx, 1024
+
+0:	lodsd
+	or	eax, eax
+	jz	1f
+	mov	edx, 1024
+	sub	edx, ecx
+	call	printhex4
+	call	printspace
+	shl	edx, 22
+	call	printhex8
+	printchar '-'
+	add	edx, 1<<22
+	call	printhex8
+	call	printspace
+	mov	edx, eax
+	call	printhex8
+.if 0 # causes PF..
+	sub	edx, ebx
+	and	edx, ~((1<<12)-1)
+	DEBUG_DWORD edx
+	mov	edx, [edx]
+	call printspace
+	call printhex8
+.endif
+	call	newline
+1:	loop	0b
+	popad
+	ret
+#####################
+
 
 
 # Maps the given page in the given paging structure with PTE_FLAGs R, U and P
@@ -382,11 +418,26 @@ paging_alloc_page_idmap:
 	# identity mapped? It shouldn't be. This code then will only work
 	# before paging is enabled.
 
+	# clear the page - we don't want to trash the PD.
+	# TODO: this will fail when paging is enabled, but,
+	# so will the call to paging_idmap_page.
+	push_ edi ecx
+	push	eax
+	mov	edi, eax
+	sub	edi, ebx
+	xor	eax, eax
+	mov	ecx, 1024
+	rep	stosd	# IF this generates page fault, surround disable PG
+	pop	eax
+	pop_ ecx edi
+
+
+	# map in PDE as page table (PT)
 	sub	esi, ebx
 	mov	[esi + ecx * 4], edx
 	add	esi, ebx
 	# now we identity map the page, which should succeed:
-	call	paging_idmap_page
+	call	paging_idmap_page	# writes to the PTE in the PT!
 
 	# Now we still need to allocate a free page.
 	# We'll just recurse. There are 2 possibilities:

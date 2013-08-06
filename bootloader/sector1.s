@@ -5,6 +5,7 @@ DEBUG_BOOTLOADER = 0	# 0: no keypress. 1: keypress; 2: print ramdisk/kernel byte
 
 MULTISECTOR_LOADING = 1	# 0: 1 sector, 1: 128 sectors(64kb) at a time
 KERNEL_ALIGN_PAGE = 1	# load kernel at page boundary
+KERNEL_RELOCATION = 0
 
 .text
 .code16
@@ -140,6 +141,8 @@ mov ebx, [ramdisk_buffer]
 	neg	eax
 	and	eax, 0x1ff
 	sub	[image_high], eax
+	mov	eax, [si + ramdisk_entry_load_start]
+	mov	[reloctab], eax
 1:
 
 #	mov	ebx, [si + ramdisk_entry_load_end]
@@ -167,6 +170,10 @@ mov ebx, [ramdisk_buffer]
 1:
 
 ##############################################
+.if KERNEL_RELOCATION
+	call	relocate_kernel
+.endif
+
 	mov	ah, 0xf0
 	print "Chaining to next: "
 	mov	edx, [chain_addr_flat]
@@ -593,6 +600,30 @@ load_ramdisk_fat:
 	.endif	
 	ret
 
+.if 0	# was used in debugging
+ramdisk_print:
+	push	ax
+	push	si
+	push	edx
+	mov	ah, 0xf0
+	mov	si, [ramdisk_address]
+	add	si, 16
+0:	cmp	[si + ramdisk_entry_size], dword ptr 0
+	jz	1f
+	mov	edx, [si + ramdisk_entry_load_start]
+	call	printhex8
+	print "-"
+	mov	edx, [si + ramdisk_entry_load_end]
+	call	printhex8
+	add	si, 16
+	jmp	0b
+1:
+	pop	edx
+	pop	si
+	pop	ax
+	ret
+.endif
+
 ######### first entry: kernel
 ######### second entry: symbol table
 ######### third entry: source line numbers
@@ -601,11 +632,10 @@ load_ramdisk_kernel:
 	print "Loading kernel: "
 #####	# prepare load address
 	movzx	ebx, word ptr [ramdisk_address]
+	add	bx, 0x200
 .if KERNEL_ALIGN_PAGE
 	add	ebx, 4095	# page align
 	and	ebx, ~4095
-.else
-	add	bx, 0x200
 .endif
 
 	xor	edx, edx
@@ -687,6 +717,7 @@ call enter_pmode
 	pop	es
 	pop	ds
 call enter_realmode
+mov ah, 0xf0
 print "copy done"
 
 	.if DEBUG_BOOTLOADER
@@ -699,6 +730,57 @@ print "copy done"
 	ret
 
 
+##################################################
+.data
+reloctab: .long 0
+.if KERNEL_RELOCATION
+.text
+relocate_kernel:
+	print "Relocating kernel"
+
+	call	enter_pmode
+	push	eax
+	push	ecx
+	push	edx
+	push	esi
+	mov	eax, offset SEL_flat
+	mov	fs, eax
+
+
+	mov	esi, [reloctab]
+	mov	edx, [chain_addr_flat]
+
+	# addr16
+	mov	ecx, fs:[esi]
+	add	esi, 4
+.if 1 # don't reloc 16 bit
+	lea	esi, [esi + ecx*2]
+.else
+0:	xor	eax, eax
+	mov	ax, fs:[esi]
+	add	esi, 2
+	add	eax, edx
+	add	fs:[eax], dx
+	ADDR32 loop 0b
+.endif
+
+	# addr32
+	mov	ecx, fs:[esi]
+	add	esi, 4
+0:	mov	eax, fs:[esi]
+	add	esi, 4
+	add	eax, edx
+	add	fs:[eax], edx
+1:	ADDR32 loop 0b
+
+	pop	esi
+	pop	edx
+	pop	ecx
+	pop	eax
+	call	enter_realmode
+	ret
+
+.endif
 ##################################################
 
 debug_print_addr$:
@@ -894,6 +976,11 @@ printc 0x4f, "Warning: ramdisk entry will overwrite BIOS"
 	# ebx = flat address
 	push	eax
 ##
+.if 1
+	mov	edx, ecx
+	shl	edx, 9
+	add	edx, ebx
+.else
 	# if the ramdisk image is loaded consecutively:
 	mov	edx, eax
 	inc	edx	# account for FAT sector
@@ -903,14 +990,13 @@ printc 0x4f, "Warning: ramdisk entry will overwrite BIOS"
 	mov	eax, ds
 	shl	eax, 4
 	add	edx, eax
+.endif
 	# probably need +ebx
 	mov	[si + 12], edx	# image end address (start+count)*512+ds*16
-
 ##
 	pop	eax
 	# edx = image load end (flat address + count sectors * 512)
 	call	print_ramdisk_entry_info$
-
 
 	inc	ecx
 ################################# load loop
@@ -1356,14 +1442,16 @@ gdt:	.long 0,0
 	#.byte 0xff,0xff, 0,0,0, 0b10010010, 0b11001111, 0	# data
 s_code:	DEFGDT 0, 0xffffff, ACCESS_CODE, FLAGS_16#(FLAGS_16|FL_GR4kb)
 s_data:	DEFGDT 0, 0xffffff, ACCESS_DATA, FLAGS_16#32
+s_stack:DEFGDT 0, 0xffffff, ACCESS_DATA, FLAGS_16#32
 s_flat:	DEFGDT 0, 0xffffff, ACCESS_DATA, FLAGS_32
 s_vid:  DEFGDT 0xb8000, 0xffff, ACCESS_DATA, FLAGS_16
 gdt_end:
 
 SEL_code = 8
 SEL_data = 16
-SEL_flat = 24
-SEL_vid = 32
+SEL_stack= 24
+SEL_flat = 32
+SEL_vid = 40
 
 #########
 idt_ptr: .word idt_end - idt - 1
@@ -1381,6 +1469,7 @@ idt_end:
 
 backup_ds: .word 0
 backup_es: .word 0
+backup_ss: .word 0
 .text
 
 enter_pmode:
@@ -1411,8 +1500,9 @@ enter_pmode:
 #	out 0xa0+1, al
 	###############################
 
-	mov	[backup_ds], ds
-	mov	[backup_es], es
+	mov	[backup_ds], ds	# 0x1000
+	mov	[backup_es], es	# 0x1000
+	mov	[backup_ss], ss	# 0, at current
 
 	sgdt	[backup_gdt_ptr]
 	sidt	[backup_idt_ptr]
@@ -1455,6 +1545,9 @@ enter_pmode:
 	mov	ax, SEL_data
 	mov	ds, ax
 	mov	es, ax
+	xor	ax, ax
+	mov	fs, ax
+	mov	gs, ax
 
 	mov	eax, cr0
 	or	al, 1
@@ -1480,6 +1573,9 @@ enter_pmode:
 	mov	ds, eax
 	mov	es, eax
 
+	mov	ax, SEL_stack
+	mov	ss, ax
+
 	# set vid
 	mov	ax, SEL_vid
 	mov	es, ax
@@ -1502,6 +1598,10 @@ enter_realmode:
 
 	mov	ds, cs:[backup_ds]
 	mov	es, [backup_es]
+	mov	ss, [backup_ss]
+	xor	ax, ax
+	mov	fs, ax
+	mov	gs, ax
 
 	lgdt	[backup_gdt_ptr]
 	lidt	[backup_idt_ptr]

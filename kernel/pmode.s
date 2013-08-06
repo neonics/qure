@@ -139,14 +139,18 @@ protected_mode:
 	# realsegflat is realmode cs<<4, used for relocation in other parts
 	# of the kernel in case cs base is not aligned with the compiled
 	# code addresses (which starts at offset 0).
+#if !KERNEL_RELOCATION
+	mov	eax, offset .text
+	or	eax, eax
+	jnz	1f		# init_gdt_16 has set up realsegflat/reloc$.
 	mov	eax, [realsegflat]
 	mov	[reloc$], eax
+1:
+#endif
 	cmp	[bkp_pm_mode], word ptr 0
 	jz	0f
 	mov	[realsegflat], dword ptr 0
 0:
-
-	mov	[screen_sel], word ptr SEL_vid_txt
 
 	.if DEBUG_PM
 		rmOK
@@ -183,15 +187,19 @@ protected_mode:
 
 	# prepare the far jump instruction
 
+	mov	eax, offset pmode_entry$	# relocation
+
 	.if DEBUG_PM > 1
 		rmI "Preparing Entry Point: "
+		push	edx
+		mov	edx, eax
+		call	printhex8_16
+		pop	edx
 	.endif
 
-	mov	eax, offset pmode_entry$
 	mov	cx, SEL_compatCS
 	cmp	[bkp_pm_mode], word ptr 0
 	jnz	0f
-	add	eax, [reloc$]
 	mov	cx, SEL_flatCS
 
 	.if DEBUG_PM > 1
@@ -204,10 +212,10 @@ protected_mode:
 0:	
 	.endif
 
-	mov	[pm_entry + 4], cx # word ptr SEL_flatCS
+	mov	[pm_entry + 4], cx
 	mov	[pm_entry], eax
 
-	.if DEBUG_PM > 2
+	.if DEBUG_PM > 1
 		rmI2 "  - Address: "
 
 		COLOR_16 0x09
@@ -231,7 +239,7 @@ protected_mode:
 		rmI "Entering "
 	.endif
 
-	mov	edi, [screen_pos]
+	mov	edi, [screen_pos_16]
 
 	.if 0	# 0='unreal mode'
 	xor	ax, ax
@@ -261,7 +269,6 @@ protected_mode:
 	.word SEL_flatCS
 .text32
 pmode_entry$:
-
 	# print Pmode
 	mov	ax, SEL_vid_txt
 	mov	es, ax
@@ -280,16 +287,17 @@ pmode_entry$:
 	.endif
 
 	# adjust return address
-	xor	edx, edx
+	xor	edx, edx # (was meant for pop dx)
 	pop	edx	# real mode return address
 	# this offset is based on the realmode segment we were called with.
 	# If we return in flat CS mode, we'll need to adjust it:
 	# setup
-
 	cmp	[bkp_pm_mode], word ptr 0
 	jz	0f
+
 	mov	ax, SEL_compatDS # realmodeDS
 	mov	ds, ax
+	mov	es, ax
 	.if 0
 	mov	ax, SEL_compatSS # realmodeSS
 	mov	ss, ax
@@ -298,14 +306,13 @@ pmode_entry$:
 	mov	ss, ax
 	mov	esp, [kernel_stack_top]
 	.endif
-	mov	ax, SEL_realmodeES
-	mov	es, ax
 	mov	ax, SEL_realmodeFS
 	mov	fs, ax
 	mov	ax, SEL_realmodeGS
 	mov	gs, ax
 	jmp	1f
 0:
+
 	add	edx, [reloc$]	# flat cs, so adjust return addr
 	xor	eax, eax
 	mov	ax, ss	# adjust ss:sp
@@ -318,35 +325,13 @@ pmode_entry$:
 	mov	gs, ax
 	mov	ax, SEL_compatDS
 	mov	ds, ax
-
-	.if 0
-	# RELOCATION CODE GOES HERE
-	# adjust edx
-	
-	push	es
-	push	edi
-	mov	edi, [kernel_location]
-	or	edi, edi
-	jz	0f
-	mov	si, SEL_flatDS
-	mov	es, si
-	mov	esi, offset realmode_kernel_entry
-		mov	eax, edi
-		sub	eax, esi
-		sub	eax, [codeoffset]
-		
-	mov	ecx, offset kernel_end
-	rep	movsb
-0:
-	pop	edi
-	pop	es
-	.endif
-
 1:
 
 	push	edx
 
 	mov	[screen_pos], edi
+	mov	[screen_sel], word ptr SEL_vid_txt
+	mov	[screen_color], byte ptr 7
 
 	.if DEBUG_PM
 		OK
@@ -401,7 +386,43 @@ pmode_entry$:
 		call	printhex8
 	.endif
 
+	call	update_memory_map$
 	ret	# at this point interrupts are on, standard handlers installed.
+
+
+
+###################
+update_memory_map$:
+	# update the memory map with stack as set up by gdt.s:
+
+	push_	edi edx ebx
+	mov	edx, [ramdisk_load_end]
+	mov	ebx, [kernel_stack_top]
+	sub	ebx, edx
+
+	# bootloader: KERNEL_RELOCATION = 0:
+	#	reloc		= 13000
+	#	realsegflat	= 0	# maybe should be 13000?
+	#	database	= 13000
+
+	# bootloader: KERNEL_RELOCATION = 1:
+	#	reloc		= 13000
+	#	realsegflat	= 0
+	#	database	= 0
+
+	add	edx, [database]	# make flat
+
+	mov	edi, MEMORY_MAP_TYPE_STACK
+	call	memory_map_update_region
+
+	# also register the kernel
+	mov	edx, [kernel_load_start_flat]
+	mov	ebx, [kernel_load_end_flat]
+	sub	ebx, edx
+	mov	edi, MEMORY_MAP_TYPE_KERNEL
+	call	memory_map_update_region
+	pop_	ebx edx edi
+	ret
 
 
 
@@ -495,7 +516,7 @@ rm_ret_entry$:
 #		int	0x16
 	.endif
 
-	mov	di, [screen_pos]
+	mov	di, [screen_pos_16]
 
 	retf
 
@@ -774,7 +795,7 @@ rm_entry:
 		call	newline_16
 	.endif
 
-	mov	di, [screen_pos]
+	mov	di, [screen_pos_16]
 
 	retf
 
@@ -833,7 +854,7 @@ reenter_protected_mode_rm:
 		rmI "Preparing Entry Point: "
 	.endif
 
-	mov	eax, offset pmode_entry2$
+	mov	eax, offset pmode_entry2$ # relocation
 	mov	cx, SEL_compatCS
 
 	cmp	[bkp_pm_mode], word ptr 0
@@ -873,7 +894,7 @@ reenter_protected_mode_rm:
 	.if DEBUG_PM > 1
 		rmI "Entering "
 	.endif
-	mov	edi, [screen_pos]
+	mov	edi, [screen_pos_16]
 
 	.if 0
 	xor	ax, ax

@@ -58,7 +58,7 @@ map {
 		# .text: as -R (fold data in text) results in .data
 		# relocations being mentioned in .text.
 		# So we (for now) only need to worry about the .text.
-	#	$secname eq '.text' and
+		$secname eq '.text' and
 		do {
 		#print "$secname [$1] [$2] [$3]\n";
 

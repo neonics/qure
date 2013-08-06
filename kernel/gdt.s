@@ -272,14 +272,6 @@ rm_gdtr:.word 0
 .equ SEL_MAX, SEL_ring3DSf + 0b11	# ring level 3
 
 
-.macro GDT_STORE_SEG seg
-	mov	[\seg + 2], ax
-	ror	eax, 16
-	mov	[\seg + 4], al
-	ror	eax, 16
-	# ignore ah as realmode addresses are 20 bits
-.endm
-
 
 .macro GDT_STORE_LIMIT GDT
 	mov	[\GDT + 0], ax
@@ -349,22 +341,44 @@ xor \target,\target
 .endm
 
 .macro GDT_GET_BASE target, sel, table=GDT
-	push	esi
-	mov	esi, \sel
-	and	esi, ~7
+	IS_REG32 _, \sel	# [e]si is safe as target must be [e][abcd]x.
+	.if _
+		_O = esi
+		_R=1
+	.else
+		IS_REG16 _, \sel
+		.if _
+			_O = si
+			_R=1
+		.else
+			_O=(\sel&~7)
+			_R=0
+		.endif
+	.endif
+
+	.if _R
+	push	_O
+	mov	_O, \sel
+	and	_O, ~7
+	.endif
+
 	_R32 = \target
 	_R16 = -1
 	R16 \target
 	R8H \target
 	R8L \target
 
-	mov	_R8H, byte ptr [\table + esi + 7]
-	mov	_R8L, byte ptr [\table + esi + 4]
+	mov	_R8H, byte ptr [\table + _O + 7]
+	mov	_R8L, byte ptr [\table + _O + 4]
 	shl	_R32, 16
-	mov	_R16, word ptr [\table + esi + 2]
-	pop	esi
+	mov	_R16, word ptr [\table + _O + 2]
+
+	.if _R
+	pop	_O
+	.endif
 .endm
 
+# Safe to use in 16/32 bit mode (set 'sel' to 16/32 bit register/constant)
 .macro GDT_SET_BASE sel, reg
 	IS_REG32 _, \reg
 	.if _
@@ -382,6 +396,44 @@ xor \target,\target
 	mov	[GDT + \sel + 7], byte ptr (\reg >> 24)&0xff
 	.endif
 .endm
+
+.macro DT_GET_SEL dest, sel, table=GDT
+	IS_REG32 _, \dest
+	.if _
+	movzx	\dest, word ptr [\table + \sel + 2]
+	.else
+	mov	\dest, word ptr [\table + \sel + 2]
+	.endif
+.endm
+
+
+.macro DT_GET_OFFSET dest, sel, table=GDT
+	IS_REG32 _, \dest
+	.if _
+	R16 \dest
+	movw	_R16, [\table + \sel + 6]	# hi
+	shl	\dest, 16
+	movw	_R16, [\table + \sel + 0]	# lo
+	.else
+	.error "DT_GET_OFFSET: dest must be reg32"
+	.endif
+.endm
+
+
+.macro DT_SET_OFFSET sel, val, table=GDT
+	IS_REG32 _, \val
+	.if _
+	R16 \val
+	movw	[\table + \sel + 0], _R16	# lo
+	ror	\val, 16
+	movw	[\table + \sel + 6], _R16	# hi
+	ror	\val, 16
+	.else
+	.error "DT_SET_OFFSET: val must be reg32"
+	.endif
+.endm
+
+
 
 .macro GDT_SET_LIMIT sel, reg, table=GDT
 	IS_REG32 _, \reg
@@ -562,8 +614,7 @@ init_gdt_16:
 	sgdt	[rm_gdtr]	# limit=30 base=000FC7F3
 	sidt	[rm_idtr]	# limit=FFFF base=00000000
 
-	push	eax
-	push	ebx
+	push_	eax ebx ecx
 
 	.if DEBUG > 2
 		call	newline_16
@@ -578,18 +629,28 @@ init_gdt_16:
 	mov	ax, cs
 	shl	eax, 4
 
+#if KERNEL_RELOCATION
+	mov	ecx, offset .text	# relocation
+	jecxz	1f
+	mov	[reloc$], eax
+	xor	eax,eax
+1:
+#endif
 	mov	[realsegflat], eax
 	mov	ebx, eax
 
-	GDT_STORE_SEG GDT_realmodeCS
-	GDT_STORE_SEG GDT_compatCS
-	GDT_STORE_SEG GDT_ring0CS
-	GDT_STORE_SEG GDT_ring1CS
-	GDT_STORE_SEG GDT_ring2CS
-	GDT_STORE_SEG GDT_ring3CS
+	GDT_SET_BASE SEL_realmodeCS, eax
+	GDT_SET_BASE SEL_compatCS, eax
+	GDT_SET_BASE SEL_ring0CS, eax
+	GDT_SET_BASE SEL_ring1CS, eax
+	GDT_SET_BASE SEL_ring2CS, eax
+	GDT_SET_BASE SEL_ring3CS, eax
 
 	# find len
 	mov	eax, kernel_code_end - kernel_code_start
+#if KERNEL_RELOCATION
+	add	eax, offset .text	# relocation
+#endif
 	mov	edx, eax
 	#mov	eax, (offset kernel_code_end - offset kernel_code_start + 4095)>> 12
 	#mov eax, 0xffff
@@ -611,8 +672,8 @@ init_gdt_16:
 	mov	[codeoffset], eax
 
 	.if DEBUG > 1
-		PH8_16 "  Code Base: " ebx
-		PH8_16 "  Code Offset: " eax
+		PH8_16 ebx, "  Code Base: "
+		PH8_16 eax, "  Code Offset: "
 	.endif
 
 	# Set up DS
@@ -621,26 +682,32 @@ init_gdt_16:
 	mov	ax, ds
 	shl	eax, 4
 	mov	ebx, eax
+
+	GDT_SET_BASE SEL_realmodeDS, eax
+#if KERNEL_RELOCATION
+	jecxz	1f
+	xor	eax,eax
+	xor	ebx,ebx
+1:
+#.endif
 	mov	[database], eax
 
 	.if DEBUG > 2
-		PH8_16 "  Data base: " eax
+		PH8_16 eax, "  Data base: "
 		call	newline_16
 	.endif
 
-	mov	edx, eax
-	GDT_STORE_SEG GDT_realmodeDS
-	GDT_STORE_SEG GDT_compatDS
-	GDT_STORE_SEG GDT_ring0DS
-	GDT_STORE_SEG GDT_ring1DS
-	GDT_STORE_SEG GDT_ring2DS
-	GDT_STORE_SEG GDT_ring3DS
+	GDT_SET_BASE SEL_compatDS, eax
+	GDT_SET_BASE SEL_ring0DS, eax
+	GDT_SET_BASE SEL_ring1DS, eax
+	GDT_SET_BASE SEL_ring2DS, eax
+	GDT_SET_BASE SEL_ring3DS, eax
 
 	# store proper linear (base 0) GDT/IDT address in pointer structure
-	mov	eax, offset GDT
+	mov	eax, offset GDT	# relocation
 	add	eax, ebx
 	mov	[pm_gdtr+2], eax
-	mov	eax, offset IDT
+	mov	eax, offset IDT	# relocation
 	add	eax, ebx
 	mov	[pm_idtr+2], eax
 
@@ -651,7 +718,7 @@ init_gdt_16:
 	mov	ax, ss
 	shl	eax, 4
 
-	GDT_STORE_SEG GDT_realmodeSS
+	GDT_SET_BASE SEL_realmodeSS, eax
 
 	# make sure the top word of esp is zero
 	xor	eax, eax
@@ -675,8 +742,11 @@ init_gdt_16:
 		call printhex8_16
 	.endif
 	sub	edx, [database]
+print_16 "tss0 stack top: "; call printhex8_16
 	mov	[kernel_tss0_stack_top], edx
+	push edx;sub edx, [ramdisk_load_end]; print_16 "size: "; call printhex8_16;pop edx
 	add	edx, KERNEL_MIN_STACK_SIZE
+print_16 "kernel stack top: "; call printhex8_16
 	mov	[kernel_stack_top], edx
 
 	.if DEBUG
@@ -694,7 +764,7 @@ init_gdt_16:
 	mov	ax, es
 	shl	eax, 4
 
-	GDT_STORE_SEG GDT_realmodeES
+	GDT_SET_BASE SEL_realmodeES, eax
 
 
 	# Set up FS
@@ -703,7 +773,7 @@ init_gdt_16:
 	mov	ax, es
 	shl	eax, 4
 
-	GDT_STORE_SEG GDT_realmodeFS
+	GDT_SET_BASE SEL_realmodeFS, eax
 
 	# Set up GS
 
@@ -711,36 +781,58 @@ init_gdt_16:
 	mov	ax, gs
 	shl	eax, 4
 
-	GDT_STORE_SEG GDT_realmodeGS
+	GDT_SET_BASE SEL_realmodeGS, eax
 
 
 	# Set up TSS (must be done after kernel_stack_top)
 
 	call	init_tss_16
 
-	mov	eax, offset TSS
+	mov	eax, offset TSS	# relocation
 	add	eax, ebx
-	GDT_STORE_SEG GDT_tss
+	GDT_SET_BASE SEL_tss, eax
 	mov	eax, 108 #value doesnt really matter here it seems
 	GDT_STORE_LIMIT GDT_tss
 
-	mov	eax, offset TSS_PF
+	mov	eax, offset TSS_PF	# relocation
 	add	eax, ebx
-	GDT_STORE_SEG GDT_tss_pf
+	GDT_SET_BASE SEL_tss_pf, eax
 	mov	eax, 108
 	GDT_STORE_LIMIT GDT_tss_pf
 
-	mov	eax, offset TSS_DF
+	mov	eax, offset TSS_DF	# relocation
 	add	eax, ebx
-	GDT_STORE_SEG GDT_tss_df
+	GDT_SET_BASE SEL_tss_df, eax
 	mov	eax, 108
 	GDT_STORE_LIMIT GDT_tss_df
 
-	mov	eax, offset TSS_NP
+	mov	eax, offset TSS_NP	# relocation
 	add	eax, ebx
-	GDT_STORE_SEG GDT_tss_np
+	GDT_SET_BASE SEL_tss_np, eax
 	mov	eax, 108
 	GDT_STORE_LIMIT GDT_tss_np
+
+
+#if KERNEL_RELOCATION
+	or	ecx, ecx
+	jz	1f
+	# handle relocation
+	mov	edx, offset .text
+	PH8_16 edx,"relocation "
+
+	DT_GET_OFFSET eax, SEL_kernelCall	# kernel_callgate
+	add	eax, edx
+	DT_SET_OFFSET SEL_kernelCall, eax
+
+	DT_GET_OFFSET eax, SEL_kernelMode	# kernel_callgate_2
+	add	eax, edx
+	DT_SET_OFFSET SEL_kernelMode, eax
+
+	DT_GET_OFFSET eax, SEL_kernelGate	# kernel_callgate_3
+	add	eax, edx
+	DT_SET_OFFSET SEL_kernelGate, eax
+1:
+#endif
 
 	# Load GDT
 
@@ -749,10 +841,21 @@ init_gdt_16:
 		PRINT_DT_16 "    PMode   " pm_gdtr pm_idtr
 	.endif
 
-	DATA32 ADDR32 lgdt	pm_gdtr
+#if KERNEL_RELOCATION
+	jecxz	1f
+	push	ds		# use 0-based offset as pm_gdtr is relocatable.
+	xor	ax,ax
+	mov	ds, ax
+	DATA32 ADDR32 lgdt	pm_gdtr	# relocation
+	pop	ds
+	jmp	2f
+1:
+#else
+	DATA32 ADDR32 lgdt	pm_gdtr	# relocation
+2:
+#endif
 
-	pop	ebx
-	pop	eax
+	pop_	ecx ebx eax
 	ret
 
 .text32

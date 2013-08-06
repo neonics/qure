@@ -1,10 +1,10 @@
 kapi_init_page_int:
 	mov	[IDT + EX_PF*8 + 2], word ptr SEL_compatCS
 	mov	[IDT + EX_PF*8 + 4], word ptr (ACC_PR|ACC_RING0|IDT_ACC_GATE_INT32)<<8
-	mov	[IDT + EX_PF*8 + 0], word ptr (offset kapi_pf_isr-.text)&0xffff
-	mov	[IDT + EX_PF*8 + 6], word ptr ((offset kapi_pf_isr-.text)<<16)&0xffff
+	pushd	offset kapi_pf_isr # relocation
+	popw	[IDT + EX_PF*8 + 0]
+	popw	[IDT + EX_PF*8 + 6]
 	ret
-
 
 kapi_pf_isr:
 	.if KAPI_PF_DEBUG
@@ -43,12 +43,14 @@ kapi_pf_isr:
 	.if KAPI_PF_DEBUG 
 		print "KAPI call!"
 		DEBUG_DWORD ebx
+		DEBUG_DWORD edx
 
 		mov	esi, [kapi_idx + ebx * 4]
 		call	print
 		call	printspace
 		DEBUG_DWORD ecx, "ARG",0x07
 		call	printhex8
+		call	printspace
 		call	debug_printsymbol
 		call	newline
 	.endif
@@ -282,6 +284,17 @@ DEBUG_DWORD [ebp+16], "A3"; add ebp, 4
 9:	printc 4, "unknown KAPI method index: "
 	mov	edx, ebx
 	call	printhex8
+	mov edx, cr2
+	DEBUG_DWORD edx, "cr2"
+		call	newline
+		DEBUG_DWORD [ebp+4], "error"
+		DEBUG_DWORD [ebp+8], "eip"
+		DEBUG_DWORD [ebp+12], "cs"
+		DEBUG_DWORD [ebp+16], "eflags"
+		DEBUG_DWORD [ebp+20], "esp"
+		DEBUG_DWORD [ebp+24], "ss"
+		call	newline
+	int 3
 	jmp	halt
 
 

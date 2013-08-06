@@ -607,12 +607,12 @@ mov si, 0x5b40
 
 		mov dx, es
 		call printhex_16
-		sub [screen_pos], word ptr 2
+		sub [screen_pos_16], word ptr 2
 		mov al, ':'
 		call printchar_16
 		mov dx, si
 		call printhex_16
-		sub [screen_pos], word ptr 2
+		sub [screen_pos_16], word ptr 2
 		call printchar_16
 		mov al, ' '
 		call printchar_16
@@ -698,7 +698,7 @@ rm_trap_isr:
 
 	mov	dx, [bp + 4]
 	call	printhex_16
-	sub	word ptr [screen_pos], 2
+	sub	word ptr [screen_pos_16], 2
 	mov	al, ':'
 	call	printchar_16
 	mov	dx, [bp + 2]
@@ -723,7 +723,7 @@ rm_trap_isr:
 		print_16 "ss:sp="
 		mov	dx, ss
 		call	printhex_16
-		sub	[screen_pos], word ptr 2
+		sub	[screen_pos_16], word ptr 2
 		mov	dx, sp
 		call	printhex_16
 

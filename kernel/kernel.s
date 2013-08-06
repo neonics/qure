@@ -155,11 +155,11 @@ include "shell.s", shell
 .code32
 code_kernel_start:
 kmain:
-
 	# we're in flat mode, so set ds so we can use our data..
 	mov	ax, SEL_compatDS
 	mov	ds, ax
 	mov	es, ax
+	mov	byte ptr [0], 0xcc	# trigger int 3 when executing offset 0
 
 	PRINTLNc 11 "Protected mode initialized."
 	COLOR 7
@@ -254,10 +254,8 @@ kmain:
 	mov	edx, ds
 	call	printhex4
 	PRINTCHAR ':'
-	
 	mov	edx, offset memory_map
 	call	printhex8
-
 	call	newline
 
 	call	mem_init

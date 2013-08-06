@@ -60,7 +60,7 @@ init_tss_16:
 	mov	[si + tss_ESP], edx
 	sub	edx, 0x0200
 	# TODO: setup tss0_(SS|ESP)[12]
-	mov	[si + tss_EIP], dword ptr offset default_task # default
+	mov	[si + tss_EIP], dword ptr offset default_task # relocation
 	mov	[si + tss_CS], dword ptr SEL_compatCS
 	mov	[si + tss_ES], dword ptr SEL_vid_txt
 	mov	[si + tss_DS], dword ptr SEL_compatDS
