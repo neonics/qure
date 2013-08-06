@@ -34,7 +34,7 @@
 #		10 = udnefined / 8 bytes
 #		11 = 4 byte
 
-# DR6	debug status register 0xffff << 16 | BT BS BD | 011111111 | B3 B2 B1 B0
+# DR6	debug status register 0xffff << 16 | BT BS BD 0 | 1111 1111 | B3 B2 B1 B0
 #	b3..b0: breakpoint condition detected; only valid when DR7 Ln or Gn set
 #	BD (bit 13): next instr accesses DR0..7; only valid when DR7.GD is set
 #	BS (bit 14): interrupt cause is single step (TF flag in EFLAGS)
@@ -58,9 +58,12 @@ enable_breakpoint_memwrite_dword:
 
 
 breakpoint_set_memwrite_dword:
+call bp_disabled
+	push_	eax ebx
 	mov	ebx, dr7
 	#	ebx, 0b11111111111111110010011111111111 # 0=reserved bit
 	#              f   f   f   f   2   7   aabbccdd
+	#	       0   0   0   0   0   4   0   0
 
 	test	al, 1
 	jz	1f
@@ -74,7 +77,7 @@ breakpoint_set_memwrite_dword:
 	and	ebx, 0b11110000000000001111111111111111 # clear bits to change
 	or	ebx, 0b00000101000100010000000000010101 # len 1, data wr only
 	mov	dr7, ebx
-
+	pop_	ebx eax
 	ret
 
 1:	test	al, 2
@@ -99,10 +102,12 @@ breakpoint_set_memwrite_dword:
 	or	ebx, 0b00000000000011010000000000000001 # len 4, data wr only
 
 	mov	dr7, ebx
+	pop_	ebx eax
 	ret
 
 
 breakpoint_set_memwrite_word:
+call bp_disabled
 	mov	ebx, dr7
 	test	al, 1
 	jz	1f
@@ -125,11 +130,18 @@ breakpoint_set_memwrite_word:
 	ret
 
 breakpoint_set_memwrite_byte:
+call bp_disabled
 	mov	ebx, dr7
 	mov	dr0, eax
 	and	ebx, 0b11111111111100001111111111111100 # clear bits to change
 	or	ebx, 0b00000000000000010000000000000011 # len 1, data wr only
 	mov	dr7, ebx
+	ret
+
+bp_disabled:
+ret
+	DEBUG "breakpoints disabled"
+	int 3
 	ret
 
 # in: eax = address
@@ -254,5 +266,17 @@ DEBUG "DEBUGGER INTERRUPT!", 0x4f
 	DEBUG_DWORD [edx]
 	call	newline
 
-1:	clc
+	clc
 9:	ret
+
+1: 	DEBUG "no match"
+	mov	edx, dr7; DEBUG_DWORD edx, "dr7"
+	mov	edx, dr6; DEBUG_DWORD edx, "dr6"
+	mov	edx, dr3; DEBUG_DWORD edx, "dr3"
+	mov	edx, dr2; DEBUG_DWORD edx, "dr2"
+	mov	edx, dr1; DEBUG_DWORD edx, "dr1"
+	mov	edx, dr0; DEBUG_DWORD edx, "dr0"
+	call	newline
+
+	clc
+	ret
