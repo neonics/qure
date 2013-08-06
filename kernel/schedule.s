@@ -1527,7 +1527,6 @@ schedule_task:
 	or	eax, TASK_FLAG_SUSPENDED
 	mov	[ebx + task_flags], eax
 
-
 	lodsd	# task tabel
 	mov	[ebx + task_label], eax
 	mov	eax, [ebp + task_reg_eip]	# method return, conveniently
@@ -2583,7 +2582,7 @@ mov edx, [eax + ebx + task_stack0_top]
 	call	nprint
 	call	newline
 	popcolor
-	jmp	3f
+	jmp	9f
 1:	# no exact match, also print offset
 	push_	eax ebx
 	call	debug_get_preceeding_symbol
@@ -2606,10 +2605,9 @@ mov edx, [eax + ebx + task_stack0_top]
 1:	call	newline
 	pop_	ebx eax
 
-3:
-
 9:	popad
 	ret
+
 3:	call	printhex4	# meaningful relative offsets are usually < 64k
 	jmp	2b
 
