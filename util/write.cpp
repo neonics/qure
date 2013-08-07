@@ -87,7 +87,7 @@ void fill_sector()
 
 				lseek( h_in, 0, SEEK_SET );
 				printf( " - %lld bytes in %ld sectors\n",
-					flen, (flen >> 9) + (flen & 0x1ff > 0)
+					flen, (flen + 0x1ff ) >> 9
 				);
 
 				if ( dirindex_sector >=0 )
@@ -139,12 +139,15 @@ void fill_sector()
 	if ( h_in >= 0 )
 	{
 		int rd = read(h_in, boot_buf, 512);
-		//printf( "Read %d bytes from %s\n", rd, boot_name );
+		//printf( "%d: Read %d bytes from %s\n", sector, rd, boot_name );
 		if ( rd < 512 )
 		{
 			close( h_in );
 			h_in = -1;
 			rimgidx ++;
+
+			if ( rd == 0 )
+				fill_sector();
 		}
 	}
 
