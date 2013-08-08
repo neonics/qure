@@ -64,6 +64,9 @@ build/boot.img: build/boot.bin kernel build/write.exe
 		-b build/kernel.stabs \
 	&& chmod 644 $@
 
+.PHONY: bootloader
+bootloader: build/boot.bin
+
 build/boot.bin:
 	$(call MAKE,bootloader)
 
@@ -74,7 +77,7 @@ build/kernel.bin: fonts
 	$(call MAKE,kernel) && mv kernel/kernel.bin $@
 
 build/kernel.reloc: build/kernel.bin
-	util/reloc.pl kernel/kernel.o build/kernel.reloc
+	util/reloc.pl -C kernel/kernel.o build/kernel.reloc
 
 build/kernel.sym: build/kernel.bin
 	util/symtab.pl kernel/kernel.o build/kernel.sym

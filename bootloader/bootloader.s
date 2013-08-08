@@ -391,15 +391,12 @@ loadsectors$:
 	mov	dh, [si + 1] # [chs_start$]
 	mov	cx, [si + 2] # [chs_start$+1]
 	mov	bx, 512	
-	mov	ax, (2 << 8) + 1# ah = 02 read sectors al = # sectors
-	test	byte ptr [si], 1
-	jz	0f
-	mov	al, SECTORS	
+	mov	ax, (2 << 8) + SECTORS # ah = 02 read sectors al = # sectors
 	inc	cl	# skip bootsector itself
 0:
 	call	printregisters
 .endif
-	push	es	# set up es:bs
+	push	es	# set up es:bx
 	push	ds
 	pop	es	
 	int	0x13		# load sector to es:bx

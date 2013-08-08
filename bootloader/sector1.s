@@ -2,10 +2,11 @@
 .intel_syntax noprefix
 
 DEBUG_BOOTLOADER = 0	# 0: no keypress. 1: keypress; 2: print ramdisk/kernel bytes.
+CHS_DEBUG = 0
 
 MULTISECTOR_LOADING = 1	# 0: 1 sector, 1: 128 sectors(64kb) at a time
 KERNEL_ALIGN_PAGE = 1	# load kernel at page boundary
-KERNEL_RELOCATION = 0
+KERNEL_RELOCATION = 1
 
 .text
 .code16
@@ -36,14 +37,13 @@ msg_sector1$: .asciz "Transcended sector limitation!"
 	pop	ds
 	pop	es
 
-	mov	ah, 0xf3
+	mov	ax, 0xf320
 	mov	si, offset msg_sector1$
-	call	println
-
-	mov	dx, 0x1337
-	call	printhex
-
-#	call	printregisters
+	call	print
+	stosw
+	mov	edx, [bootloader_sig]
+	call	printhex8
+	call	newline
 
 	# disable cursor
 
@@ -119,7 +119,6 @@ main:
 	PRINT	"partinfo@"
 	mov	dx, si
 	call	printhex
-
 .endif
 
 	call	get_memory_map
@@ -150,6 +149,7 @@ mov ebx, [ramdisk_buffer]
 	add	si, 16		# ignore entry count and check size
 	cmp	[si + ramdisk_entry_size], dword ptr 0
 	jz	1f
+	mov	ah, 0xf0
 	print "Loading symbol table: "
 	call	load_ramdisk_entry_hi
 	# compact:
@@ -164,7 +164,7 @@ mov ebx, [ramdisk_buffer]
 	add	si, 16		# ignore entry count and check size
 	cmp	[si + ramdisk_entry_size], dword ptr 0
 	jz	1f
-	#jmp	1f
+	mov	ah, 0xf0
 	print "Loading stabs: "
 	call	load_ramdisk_entry_hi
 1:
@@ -491,26 +491,28 @@ load_ramdisk_fat:
 	call	get_boot_drive
 
 	mov	dh, [si+1]	# head
-	call	printhex
 	mov	cx, [si+2]	# [7:6][15:8] cylinder, [0:5] = sector
-	and	cx, 0b111111
-	add	cx, SECTORS + 1	# skip bootloader sectors
-
-	movzx	ebx, cx		# calculate memory offset
+	call	chs_to_lba	# out: eax = LBA = partition start
+	add	eax, SECTORS + 1	# skip bootloader sectors
+	mov	ebx, eax	# calculate memory offset
+	mov	ecx, eax
 	shl	ebx, 9
+	mov	ah, 0xf0
 	.data
 		ramdisk_address: .long 0
+		ramdisk_address_flat: .long 0
 	.text
 	mov	[ramdisk_address], ebx
 	PRINT	"RAMDISK Memory Address: "
 	push	edx
 	mov	edx, ebx
 	call	printhex8
-	push	eax
+	push	ax
 	mov	eax, ds
 	shl	eax, 4
 	add	edx, eax
-	pop	eax
+	mov	[ramdisk_address_flat], edx
+	pop	ax
 	print "flat: "
 	call	printhex8
 
@@ -518,15 +520,12 @@ load_ramdisk_fat:
 	call	newline
 
 	PRINT	"Reading sector..."
+	movzx	eax, cx			# sector
+	mov	ebx, [ramdisk_address_flat]
+	mov	ecx, 1			# count
+	call	load_sector		# does LBA conversion
 
-	push	es
-	mov	ax, ds
-	mov	es, ax
-	mov	ax, 0x0201	# read 1 sector
-	int	0x13	# in: es:bx
-	pop	es
-	jc	fail
-	mov	ah, 0xf5
+	mov	ah, 0xf2
 	PRINT	"Ok "
 	inc	ah
 
@@ -538,6 +537,12 @@ load_ramdisk_fat:
 	print "SIG:"
 	mov	si, [ramdisk_address]
 	mov	cx, 8
+0:	lodsb
+	mov	dl, al
+	call	printhex2
+	loop	0b
+	mov	cx, 8
+	sub	si, 8
 0:	lodsb
 	stosw
 	loop	0b
@@ -555,7 +560,7 @@ load_ramdisk_fat:
 1:	mov	ah, 0xf4
 	PRINT	"Ramdisk signature failure"
 	jmp	fail
-	
+
 0:	mov	ah, 0xf2
 	PRINT	"Ok"
 #######
@@ -756,29 +761,143 @@ relocate_kernel:
 .if 1 # don't reloc 16 bit
 	lea	esi, [esi + ecx*2]
 .else
+	jecxz	1f
 0:	xor	eax, eax
 	mov	ax, fs:[esi]
 	add	esi, 2
 	add	eax, edx
 	add	fs:[eax], dx
 	ADDR32 loop 0b
+1:
 .endif
 
 	# addr32
-	mov	ecx, fs:[esi]
-	add	esi, 4
-0:	mov	eax, fs:[esi]
-	add	esi, 4
-	add	eax, edx
-	add	fs:[eax], edx
-1:	ADDR32 loop 0b
-
+	call	reloc32_setup$
+	and	ecx, ~0xc0000000
+	jz	1f
+	push	ebp
+	xor	ebp, ebp	# delta counter, if compressed
+0:	call	[reloc_di]	# out: eax = offset in image
+	add	fs:[edx + eax], edx	# relocation value
+	ADDR32 loop 0b
+	pop	ebp
+1:
 	pop	esi
 	pop	edx
 	pop	ecx
 	pop	eax
 	call	enter_realmode
 	ret
+
+
+# in: fs:esi = start of 32-bit address relocation table
+# out: ecx = nr of addresses | .. << 30 (i.e., mask high 2 bits!)
+reloc32_setup$:
+	mov	ecx, fs:[esi]
+	add	esi, 4
+
+	push	ecx
+	push	edx
+
+	# handle compression
+	test	ecx, 0x40000000	# compression flag
+	mov	eax, 0		# alphabet size
+	mov	cx, 0		# alpha/delta size 0
+	jz	1f		# no compression
+	# ecx: .word alphabetsize; .byte alphawidth; .byte deltawidth.
+	mov	ecx, fs:[esi]	# cl=alphawidth; ch = deltawidth
+	add	esi, 4
+		mov ah, 0x1f
+		mov edx, ecx
+		call printhex8
+	movzx	eax, cx		# eax = alphabet size/count
+	shr	ecx, 16
+	mov	ebx, esi	# ebx = alphabet table, ecx = size
+#############
+# in: cl = alpha width in bits
+# in: ch = delta width in bits
+
+	# verify 8,16,32 limit of alphawidth
+	cmp	cx, (8<<8)|16	# only alpha 8, delta 16 supported for now.
+	jnz	91f
+
+1:
+	shr	cx, 3		# bits to bytes (i.e. 16->2)
+
+	movzx	edx, cl		# method index
+	mov	dx, [reloc_am + edx * 2 - 2]
+	mov	[reloc_ai], dx
+
+	# 1 byte: -> shl 0
+	# 2 bytes: shl 1
+	# 4 byte: shl 2
+	shr	cl, 1
+	shl	eax, cl		# alphasize << bits >> 3
+
+	lea	esi, [esi + eax]# skip alphabet table
+
+	movzx	edx, ch
+	mov	dx, [reloc_dm + edx * 2]
+	mov	[reloc_di], dx
+#############
+	pop	edx
+	pop	ecx
+	ret
+
+
+91:	mov	ah, 0x4f
+	print	"relocation table format unsupported: "
+	mov	dx, cx
+	call	printhex
+	jmp	halt
+
+
+
+
+.data
+reloc_am: .word reloc32_ab, reloc32_aw, reloc32_ad# methods
+reloc_ai: .word 0					# index method
+reloc_dm: .word reloc32_d, reloc32_db, reloc32_dw, reloc32_dd
+reloc_di: .word 0
+reloc_cnt: .long 0
+.text
+.code16
+# reloc32_aX: in: fs:ebx = alpha table start; ebp=delta counter
+
+reloc32_ab:
+	movzx	eax, byte ptr fs:[ebx + eax]
+	jmp	1f
+
+reloc32_aw:
+	movzx	eax, word ptr fs:[ebx + eax * 2]
+	jmp	1f
+
+reloc32_ad:
+	mov	eax, fs:[ebx + eax * 4]
+1:	add	ebp, eax	# update total delta
+	mov	eax, ebp	# current address
+	ret
+
+
+reloc32_d:
+	mov	eax, fs:[esi]
+	add	esi, 4
+	ret
+
+reloc32_db:
+	movzx	eax, byte ptr fs:[esi]
+	inc	esi
+	jmp	[reloc_ai]
+
+reloc32_dw:
+	movzx	eax, word ptr fs:[esi]
+	add	esi, 2
+	jmp	[reloc_ai]
+
+reloc32_dd:
+	mov	eax,  fs:[esi]
+	add	esi, 4
+	jmp	[reloc_ai]
 
 .endif
 ##################################################
@@ -1193,6 +1312,14 @@ print_ramdisk_entry_info$:
 	pop	eax
 	ret
 
+############################################################################
+
+
+# in: dh = head, dl=drive
+# in: cx = cyl=[7:6][15:8] sect=[0:5]
+chs_to_lba:
+	mov	eax, 0	# TODO
+	ret
 
 # in: dl = drive, eax = absolute sector number (LBA-1)
 # out:  cx = [7:6][15:8] cyl [5:0] sector,  dh=head, dl=drive
@@ -1200,6 +1327,28 @@ lba_to_chs:
 	push	ax
 	push	bx
 	push	dx	# backup drive number
+
+.if CHS_DEBUG
+	push	edx
+	push	ax
+
+	.if 0
+	mov	dl, bl
+	print "Drive: "
+	call	printhex2
+	.endif
+
+	mov	edx, eax
+	mov	ah, 0xf0
+	print "LBA: "
+	call	printhex#8
+	print "Sector: "
+	inc	edx
+	call	printhex#8
+
+	pop	ax
+	pop	edx
+.endif
 
 	push	ax	
 	mov	ah, 8	# load CX, DX with drive parameters
@@ -1228,27 +1377,31 @@ lba_to_chs:
 	# ch = max head
 	# cl = max sector
 	# bx = max cyl/track
-	.if 0
+.if CHS_DEBUG
 	push ax
 	push dx
 	mov ah, 0xf9
 	mov dx, bx
+	print "C "
 	call printhex
-	mov dx, cx
-	call printhex
+	mov dl, ch
+	print "H "
+	call printhex2
+	mov dl, cl
+	print "S "
+	call printhex2
 	pop dx
 	pop ax
-	.endif
+.endif
 
 	# increment them for division
-	#inc	cl	# this should not be incremented...
-	inc	ch	# heads should be incremented (maxhead=1=2 heads)
+	#inc	cl	# S: this should not be incremented...
+	inc	ch	# H: heads should be incremented (maxhead=1=2 heads)
 	#inc	bx
 
 	# dx:ax = lba
-	ror	eax, 16
-	mov	dx, ax
-	ror	eax, 16
+	mov	edx, eax
+	shr	edx, 16
 
 	# calculate sectors
 	push	cx
@@ -1269,113 +1422,7 @@ lba_to_chs:
 	mov	cl, dl	# S
 	mov	bh, ah	# H
 
-	pop	dx	# dl = drive
-	mov	dh, bh	# dh = H
-	pop	bx
-	pop	ax
-	ret
-
-###########
-lba_to_chs_debug:
-	push	dx	# backup drive number
-.if 1
-	push	ax
-	mov	bl, dl
-	mov	edx, eax
-	mov ah, 0xf0
-	print "LBA: "
-	call	printhex#8
-	.if 0
-	mov	dl, bl
-	print "Drive: "
-	call	printhex2
-	.endif
-	pop	ax
-
-	pop	dx
-	push	dx
-.endif
-	push	eax	# load CX, DX with drive parameters
-	mov	ah, 8
-	push	es
-	push	di
-	xor	di, di
-	mov	es, di
-	int	0x13
-	pop	di
-	pop	es
-	jc	fail	# stack not empty!
-	pop	eax
-	# CX = max cyl/sector
-	# DH = max head
-	# dl = number of drives
-
-	push	ax
-##
-	mov	ah, 0xf0
-	PRINT	"Drive Params: DX: "
-	call	printhex
-	xchg	dx, cx
-	PRINT	"CX: "
-	call	printhex
-	xchg	dx, cx
-
-	# shuffle and cleanup
-	# spt = sectors per track = bl[0:5]
-	# hpc = heads per cylinder= bh
-	mov	bx, cx
-	shr	bl, 6	# high 2 bits of cyl
-	ror	bx, 8	# bx now okay
-	and	cl, 0b0011111
-	mov	ch, dh
-
-	# ch = max head
-	# cl = max sector
-	# bx = max cyl/track
-
-	# increment them for division
-	inc	cl
-	inc	ch
-	inc	bx
-
-	print "C/H/S: "
-	inc	ah
-	mov	dx, bx
-	call	printhex
-	sub	di, 2
-	mov	al, '/'
-	stosw
-	mov	dl, ch
-	call	printhex2
-	sub	di, 2
-	stosw
-	mov	dl, cl
-	call	printhex2
-##	
-	pop	ax
-	# dx:ax = lba
-	ror	eax, 16
-	mov	dx, ax
-	ror	eax, 16
-
-	# calculate sectors
-	push	cx
-	xor	ch, ch
-	div	cx
-	pop	cx
-	# dx = LBA % maxsect + 1 = S
-	# ax = LBA / maxsect
-
-	# calculate heads
-	# ax (lba / maxsect)  %  ch (maxheads)
-	div	ch	# ax / ch -> ah = mod, al = div
-	# al = (LBA / maxsect) / maxheads = C
-	# ah = (LBA / maxsect) % maxheads = H
-
-	mov	ch, al	# C
-	mov	cl, dl	# S
-	mov	bh, ah	# H
-.if 1
+.if CHS_DEBUG
 	mov	ah, 0xf3
 	print "S "
 	call	printhex2
@@ -1389,10 +1436,12 @@ lba_to_chs_debug:
 	call	printhex2
 	call	newline
 .endif
+
 	pop	dx	# dl = drive
 	mov	dh, bh	# dh = H
+	pop	bx
+	pop	ax
 	ret
-
 
 ###################################################
 
@@ -1747,3 +1796,6 @@ pm_isr:
 	pop	ebp
 	add	sp, 2
 	iret
+
+.data
+bootloader_sig: .long 0x1337c0de

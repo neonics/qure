@@ -242,3 +242,82 @@ Flat:
 	Kernel relocation table		R
 	Kernel symbol table		S
 	Kernel source table		Z
+
+
+Relocation Table
+================
+  (Associated files: util/reloc.pl, bootloader/sector1.s)
+
+The relocation table consists of a dword indicating the number of 16-bit
+addresses that follow, then another dword doing the same for 32-bit addresses.
+
+	.long addr16_count
+	.rept addr16_count
+		.word address
+	.endr
+
+	.long addr32_count
+	.rept addr32_count
+	 	.long address
+	.endr
+
+
+Kernel Relocation Table Compression
+-----------------------------------
+
+The compression ratio at current is about 3.72 or 26% of the original size.
+
+It makes use the sequential order of the address table to compute a delta-table.
+The delta table is converted into an alphabet by listing all unique delta's,
+ordered by size.
+
+Compression is indicated by setting bit 0x40000000 (1Gb) in the addr32 count
+field. This is the first bit in the length field that does not make sense in
+terms of length, for having that many addresses means that the entire 4Gb
+address space is relocated, unless there is overlap in the addresses, which
+makes it an obfuscation algorithm, for which it is not intended.
+
+If this bit is set, that means that the next word will be the size of
+the alphabet, followed by a byte indicating the width in bits of the
+alphabet characters, followed by another byte indicating the width in
+bits of the deltas.
+
+The current kernel is such that there are no delta's more than 16 bits wide,
+and thus the latter byte has value 2 (2 bytes per alpha/letter). Also,
+there are about 218 different delta's, which means that the alphabet width
+is only 8 bits.
+
+After these four bytes follows the alphabet: at current, 218 words.
+After that, the delta table follows, which has the same number of elements
+as specified in the addr32 count field.
+
+Note that only 32 bit relocation compression is implemented as yet.
+
+Here is the format:
+
+	.long addr32_count | 0x4000000
+	.word alphabet_size			# i.e. 218
+	.byte alphabet_width_in_bits		# i.e. 16
+	.byte delta_width_in_bits		# i.e. 8
+alpha:	.rept alphabet_size
+		.<alphawidth> delta_value
+	.endr
+delta:	.rept addr32_count			# i.e. 5933 
+	 	.<deltawidth> alpha_idx	# i.e. .byte alpha_idx
+	.endr
+
+
+	LEGEND:
+		<alphawidth>: .byte, .word or .dword
+		<deltawidth>: .byte, .word or .dword
+
+
+Limitations
+
+The compression algorithm rounds the number of bits for alpha and delta
+to 1, 2, or 4 bytes, at current, for ease of programming.
+Run-length encoding is not implemented.
+
+The bootloader applies the relocation table to the kernel image, without
+unpacking it. It leaves the table available (at 1Mb at current), in case
+the kernel wants to do other relocations on itself. 
