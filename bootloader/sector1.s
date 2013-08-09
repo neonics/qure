@@ -3,6 +3,7 @@
 
 DEBUG_BOOTLOADER = 0	# 0: no keypress. 1: keypress; 2: print ramdisk/kernel bytes.
 CHS_DEBUG = 0
+RELOC_DEBUG = 1;
 
 MULTISECTOR_LOADING = 1	# 0: 1 sector, 1: 128 sectors(64kb) at a time
 KERNEL_ALIGN_PAGE = 1	# load kernel at page boundary
@@ -780,6 +781,13 @@ relocate_kernel:
 0:	call	[reloc_di]	# out: eax = offset in image
 	add	fs:[edx + eax], edx	# relocation value
 	ADDR32 loop 0b
+	.if RELOC_DEBUG
+		mov edx, eax
+		mov ah, 0x4f
+		print "LAST ADDR: "; call printhex8
+		mov edx, ebp
+		call printhex8
+	.endif
 	pop	ebp
 1:
 	pop	esi
@@ -787,6 +795,9 @@ relocate_kernel:
 	pop	ecx
 	pop	eax
 	call	enter_realmode
+	.if RELOC_DEBUG > 1
+		call	waitkey
+	.endif
 	ret
 
 
@@ -818,9 +829,15 @@ reloc32_setup$:
 # in: ch = delta width in bits
 
 	# verify 8,16,32 limit of alphawidth
+	mov	dx, cx
+	and	cx, 0x7f7f;
 	cmp	cx, (8<<8)|16	# only alpha 8, delta 16 supported for now.
 	jnz	91f
 
+	# handle RLE
+	test	dh, 0x80
+	jz	1f	# SECONDARY USE OF 1f!! main use: see above.
+	call	reloc32_setup_rle$
 1:
 	shr	cx, 3		# bits to bytes (i.e. 16->2)
 
@@ -828,28 +845,147 @@ reloc32_setup$:
 	mov	dx, [reloc_am + edx * 2 - 2]
 	mov	[reloc_ai], dx
 
+	.if RELOC_DEBUG
+		push ax; mov ah, 0xf; print "reloc_ai"; call printhex; pop ax;
+	.endif
 	# 1 byte: -> shl 0
 	# 2 bytes: shl 1
 	# 4 byte: shl 2
 	shr	cl, 1
 	shl	eax, cl		# alphasize << bits >> 3
 
-	lea	esi, [esi + eax]# skip alphabet table
+	lea	esi, [esi + eax]# skip alphabet table: esi = rle or delta table
+
+	##### RLE final fixup:
+	mov	edx, [reloc_rle_table_size]
+	or	edx, edx
+	jz	1f
+	# we have rle table:
+	mov	[reloc_rle_table], esi
+	add	esi, edx
+	#####
+
+1:
 
 	movzx	edx, ch
 	mov	dx, [reloc_dm + edx * 2]
 	mov	[reloc_di], dx
+
+	.if RELOC_DEBUG
+		push ax; mov ah, 0xf; print "reloc_di"; call printhex; pop ax;
+	.endif
 #############
 	pop	edx
 	pop	ecx
 	ret
-
 
 91:	mov	ah, 0x4f
 	print	"relocation table format unsupported: "
 	mov	dx, cx
 	call	printhex
 	jmp	halt
+
+
+##########################################
+# RLE
+.data
+reloc_rle_table_size:	.long 0
+reloc_rle_table:	.long 0
+reloc_rle_token:	.long -1
+.text
+
+# parses the RLE block header:
+#  .word repeat_table_element_count
+#  .byte repeat_table_element_width_in_bits
+#  .byte repeat_index_value_width_in_bits
+# The last byte specifies the size of repeat-index values in the delta table,
+# which may differ from delta-index values.
+reloc32_setup_rle$:
+	push	ax
+	# there is RLE compression. Read the info:
+	mov	ax, fs:[esi]	# al=RLE tab width; ah=RLE-idx width
+	.if RELOC_DEBUG
+		push ax; mov dx, ax; mov ah, 0xe; call printhex; pop ax
+	.endif
+	# verify RLE table entry width
+	cmp	al, 0; jz 1f	# 0 is allowed: no lookup table
+	cmp	al, 8; jz 1f;
+	cmp	al, 16; jz 1f;
+	cmp	al, 32; jnz 2f;
+1:	cmp	ah, 8; jz 1f;
+	cmp	ah, 16; jz 1f;
+	cmp	ah, 32; jz 1f;
+
+2:	mov	dx, ax
+	mov	ah, 0x4f
+	print	"relocation table RLE format unsupported: "
+	call	printhex
+	jmp	halt
+
+1:
+	# set up lookup table method
+	movzx	edx, al
+	shr	edx, 3
+	mov	dx, [reloc_rlm + edx * 2]
+	mov	[reloc_rl], dx
+
+	.if RELOC_DEBUG
+		push ax; mov ah, 0xf; print "reloc_rl"; call printhex; pop ax
+	.endif
+
+	# set up count/index read method for reading from delta table
+	movzx	edx, ah	# RLE-idx width/repeat count width
+	shr	edx, 3+1	# 8->0, 16->1, 32->2
+	mov	dx, [reloc_rim + edx * 2]
+	mov	[reloc_ri], dx
+	.if RELOC_DEBUG
+		push ax; mov ah, 0xf; print "reloc_ri"; call printhex; pop ax;
+	.endif
+
+	# calculate rle table size in bytes
+	push	cx
+	mov	cl, al	# RLE table entry width in bits
+	shr	cl, 4	# 0, 1, 2 bytes
+	movzx	edx, word ptr fs:[esi+2]	# read RLE table count
+	.if RELOC_DEBUG
+		push ax; mov ah, 0xf; print "RLE tab"; call printhex; pop ax;
+	.endif
+	shl	edx, cl
+	mov	[reloc_rle_table_size], edx
+
+	# calculate the RLE token
+	mov	edx, 1
+	mov	cl, ch	# delta width in bits
+	shl	edx, cl
+	dec	edx
+	mov	[reloc_rle_token], edx		# 8 bits: 255, etc..
+	.if RELOC_DEBUG
+		push ax; mov ah, 0x5f; print "RLE"; call printhex8; pop ax;
+	.endif
+	pop	cx
+
+	# there is a word following, indicating how many of the delta table
+	# entries are repeat instructions. A repeat instructions is constituted
+	# by the RLE prefix opcode and the repeat count or index.
+	# Thus,
+	#	d1, d2, ff, 300, d3
+	# means [d1] [d2] [300x] [d3]. This relocation table will
+	# have size 4: 3 delta's and one repeat instruction.
+	# Addr32count will be 0x40000000 | 4, and
+	# the rle_occurrence will be 1.
+	# The table size follows by:
+	#
+	# delta_width * addr32count + rle_occurrence * (delta_width + rle_idx_w).
+	#
+	# pure (non-repeated) deltas: (addr32_count - rle_occ) * delta_width
+	# rle size: rle_occ * (2 * delta_width + rle_idx_width).
+	# (one delta for the RLE opcode, one for the value).
+
+
+	add	esi, 6 # esi now points to alpha table.
+	add	ebx, 6 # update ebx, delta table offset, aswell
+	pop	ax
+	ret
 
 
 
@@ -859,7 +995,11 @@ reloc_am: .word reloc32_ab, reloc32_aw, reloc32_ad# methods
 reloc_ai: .word 0					# index method
 reloc_dm: .word reloc32_d, reloc32_db, reloc32_dw, reloc32_dd
 reloc_di: .word 0
-reloc_cnt: .long 0
+reloc_rim:.word reloc32_rib, reloc32_riw, reloc32_rid # RLE index method
+reloc_ri: .word 0	# RLE read index
+reloc_rlm:.word reloc32_rl, reloc32_rlb, reloc32_rlw, reloc32_rld # RLE lookup method
+reloc_rl: .word 0	# RLE read lookup
+reloc_rle_rep: .long 0
 .text
 .code16
 # reloc32_aX: in: fs:ebx = alpha table start; ebp=delta counter
@@ -879,25 +1019,105 @@ reloc32_ad:
 	ret
 
 
+# default delta method when no delta compression
 reloc32_d:
 	mov	eax, fs:[esi]
 	add	esi, 4
 	ret
 
 reloc32_db:
-	movzx	eax, byte ptr fs:[esi]
-	inc	esi
-	jmp	[reloc_ai]
+4:	movzx	eax, byte ptr fs:[esi]
+		cmp	dword ptr [reloc_rle_rep], 0
+		jz	1f
+		dec	dword ptr [reloc_rle_rep]
+		jnz	2f
+1:	inc	esi
+		call	reloc32_rle
+		jc	reloc32_db
+2:	jmp	[reloc_ai]
 
 reloc32_dw:
 	movzx	eax, word ptr fs:[esi]
-	add	esi, 2
-	jmp	[reloc_ai]
+		cmp	dword ptr [reloc_rle_rep], 0
+		jz	1f
+		dec	dword ptr [reloc_rle_rep]
+		jnz	2f
+1:	add	esi, 2
+		call	reloc32_rle
+		jc	reloc32_dw
+2:	jmp	[reloc_ai]
 
 reloc32_dd:
 	mov	eax,  fs:[esi]
+		cmp	dword ptr [reloc_rle_rep], 0
+		jz	1f
+		dec	dword ptr [reloc_rle_rep]
+		jnz	2f
+1:	add	esi, 4
+		call	reloc32_rle
+		jc	reloc32_dd
+2:	jmp	[reloc_ai]
+
+
+# in: eax = current delta token
+# in: esi = next delta token
+# out: CF = 1: repeat detected
+reloc32_rle:
+	# this check MAY fail under the following condition, causing a delta to
+	# be interpreted as an RLE prefix:
+	#  the delta-index table has 256/65536/.. entries and RLE is unused.
+	mov	dword ptr [reloc_rle_rep], 0
+	cmp	eax, [reloc_rle_token]
+	clc
+	jnz	1f
+	# it is an RLE prefix. read the repeat-index number:
+	call	[reloc_ri]	# out: eax=repeat index.
+	inc	eax
+	mov	[reloc_rle_rep], eax	# repeat prefix configured.
+	stc
+
+1:	ret
+
+
+# repeat-index to repeat-count lookup table access methods
+
+# dummy method: no lookup table.
+reloc32_rl:
+	ret
+
+# [reloc_ri] points to one of these. Reads repeat index.
+# in: eax = repeat index
+reloc32_rlb:
+	add	eax, [reloc_rle_table]
+	movzx	eax, byte ptr fs:[eax]
+	ret
+
+reloc32_rlw:
+	add	eax, eax
+	add	eax, [reloc_rle_table]
+	movzx	eax, word ptr fs:[eax]
+	ret
+
+reloc32_rld:
+	shl	eax, 2
+	add	eax, [reloc_rle_table]
+	mov	eax, fs:[eax]
+	ret
+
+# RLE index reading: reads from delta table, like reloc32_dX,
+# and continues to lookup.
+reloc32_rib:
+	movzx	eax, byte ptr fs:[esi]
+	inc	esi
+	jmp	[reloc_rl]
+reloc32_riw:
+	movzx	eax, word ptr fs:[esi]
+	add	esi, 2
+	jmp	[reloc_rl]
+reloc32_rid:
+	mov	eax, fs:[esi]
 	add	esi, 4
-	jmp	[reloc_ai]
+	jmp	[reloc_rl]
 
 .endif
 ##################################################

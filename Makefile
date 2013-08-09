@@ -76,13 +76,13 @@ kernel: build/kernel.bin build/kernel.reloc build/kernel.sym build/kernel.stabs
 build/kernel.bin: fonts
 	$(call MAKE,kernel) && mv kernel/kernel.bin $@
 
-build/kernel.reloc: build/kernel.bin
-	util/reloc.pl -C kernel/kernel.o build/kernel.reloc
+build/kernel.reloc: kernel/kernel.o util/reloc.pl
+	util/reloc.pl -C -R kernel/kernel.o build/kernel.reloc
 
-build/kernel.sym: build/kernel.bin
+build/kernel.sym: kernel/kernel.o util/symtab.pl
 	util/symtab.pl kernel/kernel.o build/kernel.sym
 
-build/kernel.stabs: build/kernel.bin
+build/kernel.stabs: kernel/kernel.o util/stabs.pl
 	util/stabs.pl kernel/kernel.o build/kernel.stabs
 
 .PHONY: fonts
