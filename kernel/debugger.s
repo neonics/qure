@@ -308,6 +308,126 @@ debug_get_preceeding_symbol:
 #  s1: .asciz "foo";
 #  s2: .asciz "bar";
 
+####################
+# COMPRESSION UPDATE
+#
+# The stabs address table is stored in a 2 level hash.
+# First there is an array (preceeded by a word count) listing the
+# high 16 bits of all addresses uniquely. At current the kernel's
+# highest address is 0x0002...., so the array consists of 0, 1, 2:
+#
+# .word 3
+# .word 0, 1, 2	# addresses 0x0000<<16, 0x0001<<16, 0x0002<<16
+#
+# Next follow 3 arrays in the same format, one per high-16 bit address.
+#
+# .word <65536
+# .word[] # lo 16 bit values for addresses with high 16 bit 0x0000
+# .word <65536
+# .word[] # lo 16 bit values for addresses with high 16 bit 0x0001
+# .word <65536
+# .word[] # lo 16 bit values for addresses with high 16 bit 0x0002
+#
+#
+# in: edx = memory address
+# out: esi = source filename
+# out: eax = source line number
+# out: CF
+.data SECTION_DATA_BSS
+stabs_data: .long 0
+stabs_sfile:.long 0
+.text32
+0:	# init
+	# we calculate the offset to the data array:
+	mov	esi, [kernel_stabs]
+	or	esi, esi
+	jz	9f
+	lodsd
+
+	xor	eax, eax
+	lodsw
+	lea	esi, [esi + eax * 2]
+	push	ecx
+	mov	ecx, eax
+1:	lodsw
+	lea	esi, [esi + eax * 2]
+	loop	1b
+	pop	ecx
+	mov	[stabs_data], esi
+
+	mov	eax, [kernel_stabs]
+	mov	eax, [eax]
+	and	eax, 0x3fffffff
+	lea	esi, [esi + eax * 4]
+	mov	[stabs_sfile], esi
+	jmp	0f
+
+debug_getsource_compressed:
+	cmp	dword ptr [stabs_data], 0
+	jz	0b
+0:
+
+	push_	edi ecx ebx
+	mov	esi, [kernel_stabs]
+	or	esi, esi
+	jz	9f
+
+	mov	eax, edx
+	shr	eax, 16
+	movzx	ecx, word ptr [esi + 4]
+	mov	ebx, ecx
+	lea	edi, [esi+4+2]
+	repnz	scasw
+	jnz	9f
+	neg	cx
+	dec	cx
+	add	cx, bx
+
+	lea	edi, [esi + 4 + 2 + ebx * 2]
+	# edi points to first lo-16 array
+	xor	ebx, ebx
+
+	# ecx is now index.
+	jecxz	1f
+0:	movzx	eax, word ptr [edi]
+	add	ebx, eax			# sline cuml count
+	lea	edi, [edi + 2 + eax * 2]	# next array
+	loop	0b
+1:
+	# edi points to the subarray
+	# ebx contains the skipped source line data elements,
+	# i.e. the offset into the data table for the current
+	# address table.
+
+	movzx	ecx, word ptr [edi]
+	add	edi, 2
+	mov	esi, ecx
+	mov	ax, dx
+	repnz	scasw
+	jnz	9f
+
+	neg	cx
+	dec	cx
+	add	cx, si
+
+	add	ebx, ecx
+	# ebx is now index into the data array.
+
+	mov	eax, [stabs_data]
+	mov	eax, [eax + ebx * 4]
+
+	mov	ebx, eax
+	and	eax, 0xffff
+	mov	esi, [stabs_sfile]
+	shr	ebx, 16
+	add	esi, [esi + ebx * 4]
+
+0:	pop_	ebx ecx edi
+	ret
+
+9:	stc
+	jmp	0b
+
 # in: edx = memory address
 # out: esi = source filename
 # out: eax = source line number
@@ -317,6 +437,8 @@ debug_getsource:
 	or	esi, esi
 	stc
 	jz	9f
+	test	dword ptr [esi], 0x40000000
+	jnz	debug_getsource_compressed
 
 	push	ecx
 	push	edi
