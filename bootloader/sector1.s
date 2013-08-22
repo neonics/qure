@@ -134,6 +134,7 @@ mov ebx, [ramdisk_buffer]
 	add	si, 16		# ignore entry count and check size
 	cmp	[si + ramdisk_entry_size], dword ptr 0
 	jz	1f
+	mov	ah, 0xf3
 	print "Loading relocation table: "
 	call	load_ramdisk_entry_hi
 	# compact:
@@ -150,7 +151,7 @@ mov ebx, [ramdisk_buffer]
 	add	si, 16		# ignore entry count and check size
 	cmp	[si + ramdisk_entry_size], dword ptr 0
 	jz	1f
-	mov	ah, 0xf0
+	mov	ah, 0xf3
 	print "Loading symbol table: "
 	call	load_ramdisk_entry_hi
 	# compact:
@@ -158,6 +159,8 @@ mov ebx, [ramdisk_buffer]
 	neg	eax
 	and	eax, 0x1ff
 	sub	[image_high], eax
+	mov	eax, [si + ramdisk_entry_load_start]
+	mov	[symtab], eax
 1:
 
 	mov	ebx, [si + ramdisk_entry_load_end]
@@ -165,7 +168,7 @@ mov ebx, [ramdisk_buffer]
 	add	si, 16		# ignore entry count and check size
 	cmp	[si + ramdisk_entry_size], dword ptr 0
 	jz	1f
-	mov	ah, 0xf0
+	mov	ah, 0xf3
 	print "Loading stabs: "
 	call	load_ramdisk_entry_hi
 1:
@@ -725,6 +728,13 @@ call enter_pmode
 call enter_realmode
 mov ah, 0xf0
 print "copy done"
+push edx
+mov edx, [si+ramdisk_entry_load_start]
+call printhex8
+mov edx, [si+ramdisk_entry_load_end]
+call printhex8
+pop edx
+call newline
 
 	.if DEBUG_BOOTLOADER
 		mov ah, 0xf0
@@ -739,8 +749,9 @@ print "copy done"
 ##################################################
 .data
 reloctab: .long 0
-.if KERNEL_RELOCATION
+symtab:	  .long 0
 .text
+.if KERNEL_RELOCATION
 relocate_kernel:
 	print "Relocating kernel"
 
@@ -782,13 +793,24 @@ relocate_kernel:
 	add	fs:[edx + eax], edx	# relocation value
 	ADDR32 loop 0b
 	.if RELOC_DEBUG
+		push	edx
 		mov edx, eax
 		mov ah, 0x4f
 		print "LAST ADDR: "; call printhex8
 		mov edx, ebp
 		call printhex8
+		pop	edx
 	.endif
 	pop	ebp
+
+	# relocate the symbol table
+	mov	esi, [symtab]
+	mov	ecx, fs:[esi]
+	add	esi, 4
+0:	add	fs:[esi], edx
+	add	esi, 4
+	loop	0b
+
 1:
 	pop	esi
 	pop	edx
@@ -1361,7 +1383,6 @@ TRACE '*'
 	print	"Success!"
 	mov	edx, ebx	# 0005f400 OK   00038e00 ERR
 	call	printhex8
-	call	newline
 	ret
 
 

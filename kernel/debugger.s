@@ -466,12 +466,13 @@ debug_getsource:
 debug_printsymbol:
 	push_	eax esi edx
 
-	sub	edx, offset .text	# relocation; symtab 0-based.
+	sub	edx, offset .text	# relocation; stabs 0-based.
 	jb	9f			# symbol preceeds kernel
 
 	call	debug_getsource
 	jc	1f
 
+	add	edx, offset .text
 	push	edx
 	mov	edx, eax
 	mov	ah, 11
