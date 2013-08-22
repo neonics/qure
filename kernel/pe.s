@@ -90,11 +90,12 @@ exe_pe:
 	call	coff_sections_map$
 
 	DEBUG "executing"
-	mov	esi, [pe_base]
-	add	esi, 0x400
-	DEBUG_DWORD [esi], "opcodes"
-	call more
-	DEBUG "not executing..."#call	esi
+	mov	esi, [coff_base]
+	mov	eax, [esi + COFF_H_STRUCT_SIZE + coff_oh_pe32_image_base]
+	add	eax, [esi + COFF_H_STRUCT_SIZE + coff_oh_entrypoint]
+	DEBUG_DWORD eax,"entrypoint", 0xa0
+#	DEBUG_DWORD [eax], "opcodes" # task PD not mapped so inaccessible
+	DEBUG "not executing..."
 
 	ret
 91:	printlnc 4, "not MZ"
@@ -318,6 +319,7 @@ inc ecx
 
 	# section table follows the data directory
 	call	coff_calc$
+DEBUG "MORE1"
 call more
 #	mov	eax, [coff_base]
 #	sub	eax, [pe_base]
@@ -337,6 +339,7 @@ call more
 	DEBUG_DWORD ecx,".idata Size" # 0, should not be!
 	DEBUG_DWORD edx, "vaddr"
 	sub	edx, esi
+DEBUG "MORE2"
 	call	more
 	add	esi, [pe_base]
 	call	coff_idata_print$
@@ -529,7 +532,7 @@ KAPI_DECLARE coff_sections_map_
 	DEBUG_DWORD [ebx + COFF_H_STRUCT_SIZE + coff_oh_pe32_image_base], "img base",0xf0
 	add	eax, [ebx + COFF_H_STRUCT_SIZE + coff_oh_entrypoint]
 	DEBUG_DWORD [ebx + COFF_H_STRUCT_SIZE + coff_oh_entrypoint], "entry",0xf0
-	DEBUG_DWORD eax,"entrypoint"
+	DEBUG_DWORD eax,"entrypoint", 0xe0
 
 	push	eax
 	call	schedule_task # out: eax=pid
@@ -669,6 +672,7 @@ sti
 
 0:	pop edi;#mov	esp, ebp
 	pop	ebp
+DEBUG "MORE3"
 	call	more
 	ret
 
@@ -942,6 +946,7 @@ coff_print_symtab$:
 	mov	ecx, [ebx + coff_h_symcount]
 #	add	esi, ebx
 	add esi, [pe_base]	# or coff_base?
+DEBUG "MORE4"
 	call more
 
 	println "value... sect type storcls nx name"
@@ -961,6 +966,7 @@ coff_print_symtab$:
 	call	newline
 	test	cl, 15
 	jnz	1f
+DEBUG "MORE5"
 	call	more
 1:
 #	loop	0b
