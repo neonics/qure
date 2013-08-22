@@ -1176,6 +1176,13 @@ debug_print_stack$:
 	call	printhex8
 	call	newline
 
+	verr	bx
+	jz	1f
+	printlnc 4, "illegal stack selector"
+	ret
+1:
+
+
 	push	fs
 	mov	fs, ebx
 	push	ebp
