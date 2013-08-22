@@ -5,7 +5,6 @@ LIBC_DEBUG = 1
 # NULL-base (flat cs/ds)
 .macro DEFSTUB name
 	_c_\name:
-		call	setregs$
 		printc 0xb0, "\name";
 		int 3
 		pushfd
@@ -13,71 +12,9 @@ LIBC_DEBUG = 1
 		popfd
 		retf
 1:	# in flat cs
-		call	restoreregs$
 		ret
 .endm
 
-SETREGS_STACK_SIZE = 16
-
-# modifies stack: esp:[ret] to [ret][es][ds][base][cs]
-setregs$:
-	sub	esp, 12
-	pushd	[esp+12]	# copy ret
-	push	eax
-	mov	[esp + 8], es
-	mov	[esp +12], ds
-	mov	[esp +20], cs
-	mov	eax, ds
-	add	eax, SEL_ring0CS - SEL_ring0CSf
-	mov	ds, eax
-	mov	es, eax
-	GDT_GET_BASE eax, SEL_compatCS
-	mov	[esp+16], eax
-	sub	[esp+4], eax	# adjust ret offset
-	pop	eax
-	pushd	cs
-	addd	[esp], SEL_ring0CS - SEL_ring0CSf
-	pushd	offset 2f
-#	int 3
-	#DEBUG "retf1"
-	retf
-2:	# in ds-rel cs
-
-
-	.if LIBC_DEBUG > 1
-	push ebp; lea ebp, [esp+4]
-	DEBUG_DWORD [ebp],"ret"
-	DEBUG_DWORD [ebp+4],"es"
-	DEBUG_DWORD [ebp+8],"ds"
-	DEBUG_DWORD [ebp+12],"base"
-	DEBUG_DWORD [ebp+16],"cs"
-	pop ebp
-	.endif
-#	int 3
-
-	ret
-
-restoreregs$:
-	.if LIBC_DEBUG > 1
-		DEBUG "restoreregs"
-		push ebp; lea ebp, [esp+4]
-		DEBUG_DWORD [ebp],"ret"
-		DEBUG_DWORD [ebp+4],"es"
-		DEBUG_DWORD [ebp+8],"ds"
-		DEBUG_DWORD [ebp+12],"base"
-		DEBUG_DWORD [ebp+16],"cs"
-		DEBUG_DWORD [ebp+20],"libret"
-		pop ebp
-		#int 3
-	.endif
-	mov	ds, [esp + 8]
-	mov	es, [esp + 4]
-	push	eax
-	mov	eax, [esp + 4]	# get ret
-	add	[esp + 4 + 12], eax	# update far ret eip
-	pop	eax
-	add	esp, 12
-	retf
 
 
 .data SECTION_DATA_BSS	# WARNING: singleton
@@ -89,7 +26,6 @@ proc_ebp:	.long 0
 # see elf.s, find_symbol: scans _c_ prefixes - for any lib, for now.
 
 _c___main:
-	call	setregs$
 	mov	[proc_esp], esp
 	mov	[proc_ebp], ebp
 
@@ -109,7 +45,6 @@ _c___main:
 		pop edx
 		call	newline
 	.endif
-	call	restoreregs$
 	ret
 
 _c_exit:
@@ -125,9 +60,7 @@ _c_exit:
 	ret
 
 _c_hello:
-	call	setregs$
 	printlnc 0xb0, "HELLO!"
-	call	restoreregs$
 	ret
 
 _c_malloc:
@@ -136,20 +69,19 @@ _c_malloc:
 	ret
 
 _c_puts:
-	#flat, so not needed: push edx; GDT_GET_BASE edx, ds; add [esp+8], edx; pop edx
-	call	setregs$
-	push edx; GDT_GET_BASE edx, ds; sub [esp+8+SETREGS_STACK_SIZE], edx; pop edx
 	printc 0xb0, "puts:"
-	pushd [esp + 4 + SETREGS_STACK_SIZE]
+	push edx;
+	mov edx, [esp+4]; DEBUG_DWORD edx,"ret"
+	mov edx, [esp+8]; DEBUG_DWORD edx,"arg"
+	pop edx
+	pushd [esp + 4]# + SETREGS_STACK_SIZE]
 	call	_s_println
-	call	restoreregs$
 #	pushfd;ord [esp], 1<<8;popfd
 	ret
 
 _c_printf:
-	call	setregs$
 	# realign the format string:
-	push edx; GDT_GET_BASE edx, ds; sub [esp+8+SETREGS_STACK_SIZE], edx; pop edx
+#	push edx; GDT_GET_BASE edx, ds; sub [esp+8+SETREGS_STACK_SIZE], edx; pop edx
 	# the other strings are not realigned!
 	.if LIBC_DEBUG
 		printlnc 0xb0, "printf"
@@ -167,15 +99,11 @@ _c_printf:
 		pop esi
 	.endif
 	.endif
-	call	printf
-	call	restoreregs$
-	ret
+	jmp	printf
 
 
 _c_asnprintf:
-	call	setregs$
 	printlnc 0xb0, "asnprintf"
-	call	restoreregs$
 	ret
 
 _c_lseek:
