@@ -10,6 +10,8 @@ ISO_ARGS += -boot-load-size $(SECTORS)
 #ISO_ARGS += -no-emul-boot
 #ISO_ARGS += -hard-disk-boot
 
+KERNEL_OBJ = kernel/kernel.obj
+
 
 MSGPFX="    "
 define MAKE
@@ -76,14 +78,15 @@ kernel: build/kernel.bin build/kernel.reloc build/kernel.sym build/kernel.stabs
 build/kernel.bin: fonts
 	$(call MAKE,kernel) && mv kernel/kernel.bin $@
 
-build/kernel.reloc: kernel/kernel.o util/reloc.pl Makefile
-	util/reloc.pl -C -R kernel/kernel.o build/kernel.reloc
+build/kernel.reloc: $(KERNEL_OBJ) util/reloc.pl Makefile
+	# -C -R # 32 bit alpha unsupported.
+	util/reloc.pl $(KERNEL_OBJ).r build/kernel.reloc
 
-build/kernel.sym: kernel/kernel.o util/symtab.pl Makefile
-	util/symtab.pl kernel/kernel.o build/kernel.sym
+build/kernel.sym: $(KERNEL_OBJ) util/symtab.pl Makefile
+	util/symtab.pl $(KERNEL_OBJ) build/kernel.sym
 
-build/kernel.stabs: kernel/kernel.o util/stabs.pl Makefile
-	util/stabs.pl -C kernel/kernel.o build/kernel.stabs
+build/kernel.stabs: $(KERNEL_OBJ) util/stabs.pl Makefile
+	util/stabs.pl -C $(KERNEL_OBJ) build/kernel.stabs
 
 .PHONY: fonts
 fonts:

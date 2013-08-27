@@ -3,7 +3,7 @@
 
 DEBUG_BOOTLOADER = 0	# 0: no keypress. 1: keypress; 2: print ramdisk/kernel bytes.
 CHS_DEBUG = 0
-RELOC_DEBUG = 1;
+RELOC_DEBUG = 0
 
 MULTISECTOR_LOADING = 1	# 0: 1 sector, 1: 128 sectors(64kb) at a time
 KERNEL_ALIGN_PAGE = 1	# load kernel at page boundary
@@ -67,12 +67,6 @@ main:
 	pop	es
 
 	mov	ah, 0xf1
-
-#	call	waitkey
-#	call	test_unreal
-#	mov	ax, 0x0f00
-#	call	cls
-
 
 	# Find boot partition
 
@@ -261,7 +255,7 @@ mov ebx, [ramdisk_buffer]
 	push	cs
 	push	word ptr offset bootloader_ret
 
-	.if DEBUG_BOOTLOADER
+	.if 1#DEBUG_BOOTLOADER
 		push	dx
 		PRINT	"ss:sp: "
 		mov	dx, ss
@@ -286,6 +280,7 @@ mov ebx, [ramdisk_buffer]
 .if 1
 	push	word ptr [chain_addr_seg]
 	push	word ptr [chain_addr_offs]
+
 .else
 	mov	eax, [chain_addr_flat]
 	ror	eax, 4
@@ -293,12 +288,32 @@ mov ebx, [ramdisk_buffer]
 	rol	eax, 4
 	and	ax, 0xf
 	push	ax
+
 .endif
 
 	.if DEBUG_BOOTLOADER
-	call	waitkey
-	.endif
 
+		push fs
+		push bp
+		mov ah, 0x1f
+		mov bp, sp
+		add bp, 4
+		mov dx, [bp+2]
+		mov fs, dx
+		call printhex
+		mov dx, [bp+0]
+		call printhex
+		push bx
+		mov bx, dx
+		mov edx, fs:[bx]
+		call printhex8
+		mov edx, fs:[bx+4]
+		call printhex8
+		pop bx
+		pop fs
+
+		call	waitkey
+	.endif
 	retf
 
 
@@ -853,9 +868,13 @@ reloc32_setup$:
 	# verify 8,16,32 limit of alphawidth
 	mov	dx, cx
 	and	cx, 0x7f7f;
-	cmp	cx, (8<<8)|16	# only alpha 8, delta 16 supported for now.
+	cmp	ch, 8
+	jnz	91f		# check alpha = byte
+	cmp	cl, 8		# experimental
+	jz	2f
+	cmp	cl, 16
 	jnz	91f
-
+2:
 	# handle RLE
 	test	dh, 0x80
 	jz	1f	# SECONDARY USE OF 1f!! main use: see above.
@@ -1491,7 +1510,7 @@ print_ramdisk_entry_info$:
 	mov	edx, eax
 	mov	ah, 0xf1
 
-	print	"Entry: Sectors: "
+	print	"Sectors: "
 	call	printhex8
 	mov	al, '+'
 	mov	es:[di-2], ax

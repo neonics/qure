@@ -73,7 +73,9 @@ SHELL_COMMAND_STRUCT_SIZE = .
 		.word 8b - 9b
 	.text32
 .endm
+.endif		# end declarations
 ############################################################################
+.if DEFINE	# begin definitions (code, data)
 MAX_CMDLINE_LEN = 1024
 MAX_CMDLINE_ARGS = 256
 
@@ -104,10 +106,8 @@ cmdline_tokens:	.space MAX_CMDLINE_LEN * 8 / 2	 # assume 2-char min token avg
 DECLARE_CLASS_METHOD cmdline_api_print_prompt, shell_print_prompt$, OVERRIDE
 DECLARE_CLASS_METHOD cmdline_api_execute, shell_execute$, OVERRIDE
 DECLARE_CLASS_END shell
-.endif		# end declarations
 ############################################################################
 
-.if DEFINE	# begin definitions (code, data)
 ############################################################################
 ### Shell Command list
 .data SECTION_DATA_SHELL_CMDS
@@ -616,6 +616,9 @@ shell_print_prompt$:
 	mov	eax, edx
 	push_	ebx ecx
 	call	task_get_by_pid
+		jnc 1f
+		printc 0xf4, "TASK_GET_BY_PID FAIL"
+	1:
 	jc	1f
 	mov	esi, [ebx + ecx + task_label]
 	1:
@@ -1737,7 +1740,7 @@ cmd_print_idt:
 	call	printhex2
 	print " Address: "
 	DT_GET_SEL edx, eax, IDT
-	call	printhex8
+	call	printhex4
 	print ":"
 	DT_GET_OFFSET edx, eax, IDT
 	call	printhex8
@@ -1926,8 +1929,11 @@ cmd_breakpoint:
 	ret
 
 cmd_pic:
+	mov	ax, cs
+	test	al, 3
+	jz	1f
 	call	SEL_kernelCall, 0
-	call	pic_get_mask32
+1:	call	pic_get_mask32
 	mov	dx, ax
 	call	printbin16
 	call	newline

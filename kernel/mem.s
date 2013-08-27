@@ -1867,7 +1867,10 @@ cmd_mem$:
 
 	printc 15, "Kernel: "
 	xor	edx, edx
-	mov	eax, kernel_end - kernel_code_start # realmode_kernel_entry
+	# reloc: DISP32 .data
+	#mov	eax, kernel_end - kernel_code_start # realmode_kernel_entry
+	mov	eax, KERNEL_SIZE
+	#(kernel_code_end - kernel_code_start)+(kernel_data_end-kernel_data_start)
 	call	print_size
 
 	mov	edx, offset realmode_kernel_entry
@@ -1881,10 +1884,10 @@ cmd_mem$:
 	xor	edx, edx
 	call	print_size
 	printc 15, " (realmode: "
-	mov	eax, kernel_rm_code_end - kernel_rm_code_start
+	mov	eax, offset KERNEL_CODE16_SIZE #kernel_rm_code_end - kernel_rm_code_start
 	call	print_size
 	printc 15, " pmode: "
-	mov	eax, kernel_pm_code_end - kernel_pm_code_start
+	mov	eax, offset KERNEL_CODE32_SIZE #kernel_pm_code_end - kernel_pm_code_start
 	call	print_size
 	printc 15, ")"
 
@@ -1896,20 +1899,20 @@ cmd_mem$:
 
 	printc 15, " Data: "
 	xor	edx, edx
-	mov	eax, kernel_end - data_0_start
+	mov	eax, offset KERNEL_DATA_SIZE
 	call	print_size
 	printc 15, " (rm: "
 	mov	eax, data16_end - data16_start
 	call	print_size
 
 	mov	ecx, cs
-	mov	edx, offset data16_start
-	mov	eax, offset data16_end
+	mov	edx, KERNEL_DATA16_START
+	mov	eax, KERNEL_DATA16_END
 	call	cmd_mem_print_addr_range$
 	xor	edx, edx
 
 	printc 15, " 0: "
-	mov	eax, data_0_end - data_0_start
+	mov	eax, data_0_end - kernel_data_start
 	call	print_size
 	printc 15, " str: "
 	mov	eax, data_str_end - data_str_start
@@ -1917,15 +1920,17 @@ cmd_mem$:
 	printc 15, " bss: "
 	mov	eax, data_bss_end - data_bss_start
 	call	print_size
+.if 0
 	mov	eax, kernel_end - data_bss_end
 	or	eax, eax
 	jz	2f
 	printc 12, " 99: "
 	call	print_size
 2:	printc 15, ")"
+.endif
 
 	mov	ecx, cs
-	mov	edx, offset data_0_start
+	mov	edx, offset kernel_data_start
 	mov	eax, offset data_bss_end
 	call	cmd_mem_print_addr_range$
 	call	newline
@@ -2007,7 +2012,7 @@ cmd_mem$:
 	# out: (side-effect) ebx = start
 	# out: (side-effect) edi = end (same as ecx)
 	# destroys: eax, edx. (eax=range size, edx=0)
-	.macro PRINT_MEMRANGE label, st=0, nd=0, sz=0, indent="", fl=0
+	.macro PRINT_MEMRANGE label, st=0, nd=0, sz=0, indent="", fl=0, uc=0
 		.data
 		99: .ascii "\indent\label: "
 		88: .space 22-(88b-99b), ' '
@@ -2023,13 +2028,21 @@ cmd_mem$:
 		.ifnc 0,\st
 			mov	edx, \st
 		.else
+			.if \uc
+			mov	edx, offset \label\()_START
+			.else
 			mov	edx, offset \label\()_start
+			.endif
 		.endif
 
 		.ifnc 0,\nd
 			mov	eax, \nd
 		.else
+			.if \uc
+			mov	eax, offset \label\()_END
+			.else
 			mov	eax, offset \label\()_end
+			.endif
 		.endif
 
 		.if \sz
@@ -2044,9 +2057,9 @@ cmd_mem$:
 	.endm
 
 	mov	ecx, offset .text	# relocation; end addr of prev entry
-	PRINT_MEMRANGE kernel_rm_code
+	PRINT_MEMRANGE KERNEL_CODE16 uc=1#kernel_rm_code
 	PRINT_MEMRANGE data16
-	PRINT_MEMRANGE kernel_pm_code
+	PRINT_MEMRANGE KERNEL_CODE32 uc=1#kernel_pm_code
 
 	test	dword ptr [ebp], CMD_MEM_OPT_CODESIZES
 	jz	2f
@@ -2072,7 +2085,7 @@ cmd_mem$:
 	PRINT_MEMRANGE data_bss
 	.else
 	PRINT_MEMRANGE data_bss
-	PRINT_MEMRANGE data_signature
+	PRINT_MEMRANGE "signature", kernel_signature, 4
 	.endif
 	mov	edi, [kernel_load_end_flat]
 	PRINT_MEMRANGE "<slack>", ecx, edi

@@ -20,7 +20,8 @@
 
 IRQ_PROXIES = 1	# needed for scheduling
 
-IRQ_SHARING = 1	# 0: the last device to hook_isr will be the one to use the IRQ
+# defined in "defines.s" for including
+#IRQ_SHARING = 1	# 0: the last device to hook_isr will be the one to use the IRQ
 
 ##############################################################################
 .equ IDT_ACC_GATE_TASK32, 0b0101 # TASK Gate. selector:offset = TSS:0.
@@ -52,7 +53,8 @@ rm_idtr:.word 256 * 4
 IDT:
 _I=0
 .rept 256
-DEFIDT (isr_jump_table-.text+_I), SEL_compatCS, ACC_PR|ACC_RING0|ACC_SYS|IDT_ACC_GATE_INT32
+# not relocatable - set manually
+DEFIDT 0x00000000, SEL_compatCS, ACC_PR|ACC_RING0|ACC_SYS|IDT_ACC_GATE_INT32
 _I=_I+8
 .endr
 .text32
@@ -311,7 +313,7 @@ irq_isr:
 	jmp	80b
 
 91:	printlnc 4, "irq_isr not called from irq_proxies!"
-	int 1
+	int 3
 	jmp	0b
 92:	printc 4, "irq_proxy offset & data mismatch"
 	DEBUG_DWORD edx
@@ -439,7 +441,7 @@ jmp_table_target:
 
 
 	# enter textmode if needed
-	cmp	byte ptr [gfx_mode$], 0
+	cmp	byte ptr [gfx_mode], 0
 	jz	1f
 	pushad
 	call	cmd_gfx
@@ -1398,6 +1400,15 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	pushf
 	cli
 
+	# set the static offsets in the IDT
+	mov	ecx, 256
+	xor	eax, eax
+	mov	edx, offset isr_jump_table
+0:	DT_SET_OFFSET eax, edx, IDT
+	add	eax, 8
+	add	edx, JMP_ENTRY_LEN
+	loop	0b
+
 	# update int 3: make CPL3 accessible
 	mov	[IDT + 3*8 + 5], byte ptr (ACC_PR|IDT_ACC_GATE_INT32|ACC_RING3)
 
@@ -1433,20 +1444,6 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	pop_	edx ebx edi esi
 
 
-#KERNEL_RELOCATION
-	mov	ecx, offset .text
-	jecxz	1f
-	# relocate the static offsets in the IDT
-	mov	ecx, 256
-	xor	eax, eax
-0:	DT_GET_OFFSET edx, eax, IDT
-	add	edx, offset .text
-	DT_SET_OFFSET eax, edx, IDT
-	add	eax, 8
-	loop	0b
-1:
-
-
 .if IRQ_SHARING
 	# register the IRQ core handlers
 	mov	al, IRQ_BASE
@@ -1462,16 +1459,11 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	pop	ebx
 .endif
 
-	# relocation:	realsegflat = 0;	reloc = krnl base (rm cs*16)
-	# without:	realsegflat = krnl base;reloc = realsegflat
-	mov	eax, offset .text	# relocation
-	or	eax, eax
-	mov	eax, [reloc$]
-	jz	1f
-	mov	eax, [realsegflat]
-1:
-	add	eax, offset IDT		# relocation
+	mov	eax, offset IDT		# relocation
+	add	eax, [database]
 	mov	[pm_idtr + 2], eax
+
+	# works whether relocated or not, since in pmode.
 	lidt	[pm_idtr]
 
 	popf	# leave IF (cli/sti) as it was

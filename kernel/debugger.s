@@ -11,7 +11,6 @@ kernel_stabs_size:	.long 0
 
 .text32
 debug_load_symboltable:	# bootloader/ramdisk preloaded
-call cmd_ramdisk # show contents
 DEBUG_RAMDISK_DIY=0
 	.if DEBUG_RAMDISK_DIY
 	movzx	eax, word ptr [bootloader_ds]
@@ -466,13 +465,13 @@ debug_getsource:
 debug_printsymbol:
 	push_	eax esi edx
 
-	sub	edx, offset .text	# relocation; stabs 0-based.
+	sub	edx, [reloc$] 		# relocation; stabs 0-based.
 	jb	9f			# symbol preceeds kernel
 
 	call	debug_getsource
 	jc	1f
 
-	add	edx, offset .text
+	add	edx, [reloc$]
 	push	edx
 	mov	edx, eax
 	mov	ah, 11
@@ -987,88 +986,200 @@ debugger_handle_cmdline$:
 	mov	ebp, esp	# shell expects [ebp] = ebx
 
 	jmp	start$		# cmd_quit takes care of popping.
+9:	printc 4, "debugger cmdline init error"
+	ret
 
-#######################################
 
-# in: [esp+0] index
-# in: [esp+4] arrayref
-# in: [esp+8] elsize
-# in: [esp+12] arrayref name
-debug_assert_array_index:
-	push	ebp
-	lea	ebp, [esp + 8]
-	pushf
-	push	eax
-	push	edx
-	push	ebx
-	push	ecx
-	mov	ebx, [ebp + 4]	# arrayref
-	mov	edx, [ebp + 0]	# index
 
-	# check range
-	cmp	edx, [ebx + array_index]
-	jb	1f
-	printc 4, "array index out of bounds: "
+
+################################################################
+# Simple Single Step Trace Debugger
+#
+#  NOTE: cannot handle CPL!=0
+#
+# Usage:
+#	call	init_trace_isr	# call once
+#
+#    set trap flag: pushfd; ord [esp], 1<<8; popfd;
+#
+#    or issue int 1.
+#
+# Keys:
+#
+#  t	toggle single step tracing
+#  r	run until next return at current call depth.
+#  \n	step/continue (depending on EFLAGS.TF).
+#
+# Variables:
+#
+
+init_trace_isr:
+	mov	eax, offset trace_isr	# relocatable
+	DT_SET_OFFSET 1*8, eax, IDT
+	ret
+
+
+.data
+.global trace_isr_flags
+trace_isr_flags: .byte 0
+	TRACE_ISR_RET = 1
+trace_call_depth: .long 0	# is reset when 'r' is pressed.
+
+.text32
+trace_isr:
+	pushad
+	lea	ebp, [esp]
+	push	ds
+	push	es
+	mov	eax, SEL_compatDS
+	mov	ds, eax
+
+	# write to screen directly: top banner
+	mov	eax, SEL_vid_txt
+	mov	es, eax
+	xor	edi, edi
+
+.if 0	# use this to detect memory writes - software 'drX'.
+
+	# TRAP_ADDR = 0x45dd
+	# TRAP_VAL = 0x6601e1c1
+
+	mov	edx, [TRAP_ADDR]
+	cmp	edx, TRAP_VAL
+	jz	1f
+	LOAD_TXT "code modified: "
+	mov	ax, 0x4f20
+	call	__print
+	call	__printhex8
+	stosw
+	jmp	0f
+1:
+.endif
+
+	#######################
+	# continue-until-return
+
+	test	byte ptr [trace_isr_flags], TRACE_ISR_RET
+	jz	2f
+
+	mov	edx, [ebp + 32]	# get eip
+	mov	edx, [edx]	# get opcode
+
+	cmp	dl, 0xe8	# call
+	jnz	1f
+	inc	dword ptr [trace_call_depth]
 	jmp	9f
+1:
 
-	# check alignment
-1:	xor	eax, eax
-	xchg	edx, eax
-	mov	ecx, [ebp + 8]	# elsize
-	div	ecx
-	or	edx, edx
-	jz	0f
-	printc 4, "array index alignment error: off by: "
-	call	printhex8
-	printc 4, " relative to "
-	mov	edx, eax
-	call	printhex8
-	jmp	9f
+	cmp	dl, 0xc3	# ret
+	jnz	9f
+	dec	dword ptr [trace_call_depth]
+	jns	9f
+	and	byte ptr [trace_isr_flags], ~TRACE_ISR_RET
+1:
 
-0:	pop	ecx
-	pop	ebx
-	pop	edx
-	pop	eax
-	popf
-	pop	ebp
-	ret	16
+	#######################
+	# print information
 
-9:	printc 4, " array: "
-	push	[ebp + 12]	# name
-	call	_s_print
-	call	printspace
-	push	ebx
-	call	_s_printhex8
+0:	LOAD_TXT "TRACE"
+	mov	ah, 0x4f
+	call	__print
+	mov	ax, 0x4720
+	stosw
+	mov	edx, [ebp + 32 + 4]	# cs
+	call	__printhex4
+	stosw
+	mov	edx, [ebp + 32 + 0]	# eip
+	sub	edx, [reloc$]		# undo relocation to match disassembly
+	call	__printhex8
+	stosw
+	mov	edx, [ebp + 32 + 8]	# eflags
+	call	__printhex8
+	stosw
+	lea	edx, [ebp+32]	# esp
+	call	__printhex8
+	stosw
+	mov	ah, 0x4e
+	mov	edx, [ebp + 32] #[edx]
+	mov	edx, [edx]
+	call	__printhex8	# opcode
 
-	printc 4, " index="
-	push	dword ptr [ebp + 0]	# index
-	call	_s_printhex8
+	mov	edi, 160	# newline
+	mov	esi, ebp
 
-	printc 4, " max="
-	push	dword ptr [ebx + array_index]
-	call	_s_printhex8
+	# print GPR (general purpose registers) ordered and labelled
 
-	call	newline
+	.struct 0
+	stack_reg_edi:	.long 0
+	stack_reg_esi:	.long 0
+	stack_reg_ebp:	.long 0
+	stack_reg_esp:	.long 0
+	stack_reg_ebx:	.long 0
+	stack_reg_edx:	.long 0
+	stack_reg_ecx:	.long 0
+	stack_reg_eax:	.long 0
+	stack_reg_eip:	.long 0
+	.text32
+	.macro PSR reg
+		mov	ah, 0x4b
+		LOAD_TXT "\reg:"
+		call	__print
+		mov	ah, 0x47
+		mov	edx, [ebp + stack_reg_\reg]
+		call	__printhex8
+		stosw
+	.endm
+	PSR eax
+	PSR ebx
+	PSR ecx
+	PSR edx
+	PSR esi
+	PSR edi
+	mov	edi, 160*2
+	PSR ebp
+	PSR esp
+	.purgem PSR
 
-	printc 4, "caller: "
-	mov	edx, [ebp - 4]
-	call	printhex8
-	call	printspace
-	call	debug_printsymbol
-	call	newline
-	int	3
-	jmp	0b
+	# done printing
 
-.macro ASSERT_ARRAY_IDX index, arrayref, elsize, mutex=0
-	.ifnc 0,\mutex
-	MUTEX_SPINLOCK_ \mutex
-	.endif
-	push_txt "\arrayref"
-	push	\elsize
-	push	\arrayref
-	push	\index
-	call	debug_assert_array_index
-	.ifnc 0,\mutex
-	MUTEX_UNLOCK_ \mutex
-	.endif
-.endm
+	mov	eax, ds
+	mov	es, eax
+
+	########################
+	# await decision
+
+	PIC_SAVE_MASK
+	PIC_DISABLE_IRQ IRQ_TIMER
+
+	sti
+
+0:	xor	eax,eax
+	call	keyboard
+	cmp	al, 't'
+	jz	2f
+	cmp	al, 'r'
+	jz	3f
+	cmp	ax, offset K_ENTER
+	jnz	0b
+
+	PIC_RESTORE_MASK
+
+	###########
+	# return
+
+9:	pop	es
+	pop	ds
+	popad
+	iret
+
+	####################
+	# decision handlers
+
+2:	andd	[ebp + 32 + 8], ~(1<<8)	# toggle trace flag
+	jmp	9b
+
+3:	xorb	[trace_isr_flags], TRACE_ISR_RET
+	mov	dword ptr [trace_call_depth], 0
+	jmp	9b
+
+

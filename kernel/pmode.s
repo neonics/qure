@@ -17,12 +17,14 @@ DEBUG_PM = 0
 
 realsegflat:.long 0
 reloc$: .long 0
-codeoffset: .long 0
+codeoffset: .long 0	# realmode ip offset (if not loaded at 16-byte cs alignment)
+kernelbase: .long 0	# abs load addr
+codebase: .long 0
 database: .long 0
-kernel_location: .long 0
 kernel_tss0_stack_top: .long 0
 kernel_sysenter_stack: .long 0
 kernel_stack_top: .long 0
+kernel_stack_bottom: .long 0	# either kernel_load_end or ramdisk_load_end
 bkp_reg_cs: .word 0
 bkp_reg_ds: .word 0
 bkp_reg_es: .word 0
@@ -98,7 +100,6 @@ protected_mode:
 	mov	[bkp_reg_fs], fs
 	mov	[bkp_reg_gs], gs
 	mov	[bkp_pm_mode], ax
-	mov	[kernel_location], edi
 
 	.if DEBUG_PM > 1
 		mov	dx, cs
@@ -124,10 +125,6 @@ protected_mode:
 		jnz	0b
 		pop	bp
 		call	newline_16
-	.if DEBUG_PM > 3
-	#	xor	ax,ax
-	#	int	0x16
-	.endif
 	.endif
 
 	.if DEBUG_PM
@@ -135,22 +132,6 @@ protected_mode:
 	.endif
 
 	call	init_gdt_16
-
-	# realsegflat is realmode cs<<4, used for relocation in other parts
-	# of the kernel in case cs base is not aligned with the compiled
-	# code addresses (which starts at offset 0).
-#if !KERNEL_RELOCATION
-	mov	eax, offset .text
-	or	eax, eax
-	jnz	1f		# init_gdt_16 has set up realsegflat/reloc$.
-	mov	eax, [realsegflat]
-	mov	[reloc$], eax
-1:
-#endif
-	cmp	[bkp_pm_mode], word ptr 0
-	jz	0f
-	mov	[realsegflat], dword ptr 0
-0:
 
 	.if DEBUG_PM
 		rmOK
@@ -194,6 +175,10 @@ protected_mode:
 		push	edx
 		mov	edx, eax
 		call	printhex8_16
+		add	edx, [codebase]
+		GETFLAT
+		PH8_16	edx, "opcodes: "
+		call	printhex8_16
 		pop	edx
 	.endif
 
@@ -223,16 +208,27 @@ protected_mode:
 		call	printhex_16
 		mov	edx, eax
 		call	printhex8_16
+		mov	bx, cx
+		GDT_PRINT_ENTRY_16 bx
+		call	newline_16
 
-		rmI2 " flat segment offset: "
+		rmI2 " kernelbase: "
+		COLOR_16 0x0a
+		mov	edx, [kernelbase]
+		call	printhex8_16
+
+		rmI2 " realsegflat: "
 		COLOR_16 0x0a
 		mov	edx, [realsegflat]
 		call	printhex8_16
+
 		rmI2 " reloc: "
 		COLOR_16 0x0a
 		mov	edx, [reloc$]
 		call	printhex8_16
-		call	newline_16
+
+		mov edx, esp
+		PH8_16 edx, "esp: "
 	.endif
 
 	.if DEBUG_PM
@@ -292,6 +288,11 @@ pmode_entry$:
 	# this offset is based on the realmode segment we were called with.
 	# If we return in flat CS mode, we'll need to adjust it:
 	# setup
+
+	xor	ax, ax
+	mov	fs, ax
+	mov	gs, ax
+
 	cmp	[bkp_pm_mode], word ptr 0
 	jz	0f
 
@@ -306,10 +307,6 @@ pmode_entry$:
 	mov	ss, ax
 	mov	esp, [kernel_stack_top]
 	.endif
-	mov	ax, SEL_realmodeFS
-	mov	fs, ax
-	mov	ax, SEL_realmodeGS
-	mov	gs, ax
 	jmp	1f
 0:
 
@@ -321,23 +318,23 @@ pmode_entry$:
 	mov	ax, SEL_flatDS
 	mov	ss, ax
 	mov	es, ax
-	mov	fs, ax
-	mov	gs, ax
 	mov	ax, SEL_compatDS
 	mov	ds, ax
 1:
 
 	push	edx
 
+#xor edi,edi
 	mov	[screen_pos], edi
 	mov	[screen_sel], word ptr SEL_vid_txt
 	mov	[screen_color], byte ptr 7
+	call	screen_buf_init
+	call newline
 
 	.if DEBUG_PM
 		OK
 		I "Loading IDT"
 	.endif
-
 	call	init_idt
 
 	.if DEBUG_PM
@@ -345,11 +342,8 @@ pmode_entry$:
 	.endif
 
 	PIC_SET_MASK 0xffff & ~(1<<IRQ_CASCADE)
-
 	call	keyboard_hook_isr
 	call	pit_hook_isr
-
-	INTERRUPTS_ON
 
 	# load Task Register
 
@@ -362,6 +356,15 @@ pmode_entry$:
 
 	.if DEBUG_PM > 2
 		OK
+	.endif
+
+	jmp	888f
+	########################
+	888:
+	########################
+	INTERRUPTS_ON
+
+	.if DEBUG_PM > 2
 		COLOR 8
 		PRINT	"  Return address: "
 		mov	edx, [esp]
@@ -387,43 +390,32 @@ pmode_entry$:
 	.endif
 
 	call	update_memory_map$
+
 	ret	# at this point interrupts are on, standard handlers installed.
 
 
 
 ###################
 update_memory_map$:
-	# update the memory map with stack as set up by gdt.s:
-
 	push_	edi edx ebx
-	mov	edx, [ramdisk_load_end]
-	mov	ebx, [kernel_stack_top]
-	sub	ebx, edx
 
-	# bootloader: KERNEL_RELOCATION = 0:
-	#	reloc		= 13000
-	#	realsegflat	= 0	# maybe should be 13000?
-	#	database	= 13000
-
-	# bootloader: KERNEL_RELOCATION = 1:
-	#	reloc		= 13000
-	#	realsegflat	= 0
-	#	database	= 0
-
-	add	edx, [database]	# make flat
-
-	mov	edi, MEMORY_MAP_TYPE_STACK
-	call	memory_map_update_region
-
-	# also register the kernel
+	# register the kernel
 	mov	edx, [kernel_load_start_flat]
 	mov	ebx, [kernel_load_end_flat]
 	sub	ebx, edx
 	mov	edi, MEMORY_MAP_TYPE_KERNEL
 	call	memory_map_update_region
+
+	# register the memory region after the kernel as setup by realmode.s.
+	# stack_top - kernel_end + database:
+	mov	edx, [kernel_load_end_flat]
+	mov	ebx, [kernel_stack_top]
+	sub	ebx, edx
+	mov	edi, MEMORY_MAP_TYPE_STACK
+	call	memory_map_update_region
+
 	pop_	ebx edx edi
 	ret
-
 
 
 
@@ -438,11 +430,12 @@ return_realmode:
 	INTERRUPTS_OFF
 
 	ljmp	SEL_realmodeCS, offset 0f
-.code16
+.text16
+#.code16
 0:	# pmode 16 bit realmode-compatible code selector
 
 	# prepare return address
-	push	[bkp_reg_cs]
+	pushw	[bkp_reg_cs]
 	mov	ax, [codeoffset]
 	add	ax, offset rm_ret_entry$
 	push	ax
@@ -693,13 +686,15 @@ real_mode_pm_unr:
 # address, possibly the address from which protected_mode was called.
 # UPDATE: it will restore the realmode stack (as the pmode stack is different with ax=1),
 # and use the realmode return address from the old realmode stack. The pmode stack is discarded.
-.code32
+#.code32
+.text32
 real_mode_rm:
 
 	INTERRUPTS_OFF
 
 	ljmp	SEL_realmodeCS, offset 0f
-.code16
+#.code16
+.text16
 0:	# pmode 16 bit realmode-compatible code selector
 
 	.if DEBUG_PM > 2
@@ -711,7 +706,7 @@ real_mode_rm:
 	.endif
 
 	# prepare return address
-	push	[bkp_reg_cs]
+	pushw	[bkp_reg_cs]
 	mov	ax, [codeoffset]
 	add	ax, offset rm_entry
 	push	ax
@@ -943,11 +938,15 @@ pmode_entry2$:
 
 	# adjust return address
 	pop	edx	# unrelocated pmode return address
+	xor	ax, ax
+	mov	fs, ax
+	mov	gs, ax
 
 	cmp	[bkp_pm_mode], word ptr 0
 	jz	0f
 	mov	ax, SEL_compatDS # realmodeDS
 	mov	ds, ax
+	mov	es, ax
 	.if 0
 	mov	ax, SEL_compatSS # realmodeSS
 	mov	ss, ax
@@ -955,12 +954,6 @@ pmode_entry2$:
 	mov	ss, [bkp_pm_ss]
 	mov	esp, [bkp_pm_esp]
 	.endif
-	mov	ax, SEL_realmodeES
-	mov	es, ax
-	mov	ax, SEL_realmodeFS
-	mov	fs, ax
-	mov	ax, SEL_realmodeGS
-	mov	gs, ax
 	jmp	1f
 0:
 	# XXX
@@ -971,17 +964,14 @@ pmode_entry2$:
 	add	esp, eax
 	mov	ax, SEL_flatDS
 	mov	ss, ax
-	mov	es, ax
-	mov	fs, ax
-	mov	gs, ax
 	mov	ax, SEL_compatDS 
 	mov	ds, ax
-
+	mov	es, ax
 1:
 
 	push	edx
 
-	mov [screen_pos], edi
+	mov	[screen_pos], edi
 
 	.if DEBUG_PM > 1
 		OK
@@ -1051,4 +1041,3 @@ pmode_entry2$:
 	.endif
 
 	ret	# at this point interrupts are on, standard handlers installed.
-

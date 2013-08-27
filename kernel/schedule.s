@@ -94,6 +94,8 @@
 # are treated like tasks and receive a 1k stack.
 .intel_syntax noprefix
 
+.if DEFINE
+
 SCHEDULE_DEBUG		= 0
 SCHEDULE_DEBUG_MUTEX	= 0	# 1=print at cursor, 2=print at topleft
 SCHEDULE_DEBUG_TOP	= 0	# 0..3; default value of env variable "sched.debug"
@@ -135,6 +137,7 @@ task_label:	.long 0	# name of task (for debugging)
 task_registrar:	.long 0	# debugging: address from which schedule_task was called
 task_flags:	.long 0
 	# task configuration flags:
+.endif
 	TASK_FLAG_TASK		= 0x0001
 	TASK_FLAG_RESCHEDULE	= 0x0010	# upon completion, sched again
 	# task wait flags:
@@ -157,6 +160,7 @@ task_flags:	.long 0
 	TASK_FLAG_RING_SHIFT	= 16
 
 	TASK_FLAG_RING_SERVICE = TASK_FLAG_RING2
+.if DEFINE
 	# using ring1 or ring2: paging distinguishes between CPL[012] and CPL3
 	# using the "U" bit.
 	# syscall would only work with ring0 and ring3.
@@ -736,7 +740,6 @@ task_print_stack$:
 # out: CF = 1 = no tasks can be run at this time: run idle task.
 scheduler_get_task$:
 	# update the current task's status
-
 	mov	eax, [task_queue]
 	mov	edx, [scheduler_current_task_idx]
 	mov	[scheduler_prev_task_idx], edx		# for debugging
@@ -885,7 +888,7 @@ call task_update_time_suspend$
 	ret
 
 	# we have no tasks that can be scheduled.
-1:	printlnc 4, "Task queue empty"
+1:	printlnc 4, "No schedulable tasks"
 1:	call	cmd_ps$
 	int 3
 	jmp 	halt
@@ -2231,7 +2234,8 @@ task_wait_io:
 	pop_	ebp ecx eax
 	SEM_UNLOCK [task_queue_sem]
 
-	YIELD
+	#YIELD # does another kapi call
+	call	schedule_near
 	ret	4
 
 
@@ -2350,6 +2354,7 @@ cmd_ps$:
 	ret	4
 
 cmd_tasks:
+	SEM_SPINLOCK [task_queue_sem]
 	push	ebp
 	mov	ebp, [esi]
 
@@ -2415,6 +2420,7 @@ cmd_tasks:
 	ARRAY_ENDL
 9:	popcolor
 	pop	ebp
+	SEM_UNLOCK [task_queue_sem]
 	ret
 
 
@@ -2705,3 +2711,4 @@ cmd_get_task$:
 	printlnc 12, " [-i <idx> | -p <hex pid>]"
 	stc
 	ret
+.endif

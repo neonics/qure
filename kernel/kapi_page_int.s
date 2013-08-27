@@ -35,7 +35,7 @@ kapi_pf_isr:
 	jnz	1f
 
 	and	ebx, 0xfff
-	cmp	ebx, KAPI_NUM_METHODS
+	cmp	ebx, offset KAPI_NUM_METHODS
 	jae	9f
 
 	mov	edx, [kapi_ptr + ebx * 4]
@@ -145,7 +145,6 @@ kapi_pf_isr:
 		.endif
 		pop	ebp
 	.endif
-
 	iret
 
 kapi_catch:

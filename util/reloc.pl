@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 getopt(@ARGV) or
-	die "usage: reloc.pl [[-C] <kernel.o>] <kernel.reloc>\n\t-C: compress\n";
+	die "usage: reloc.pl [[-C [-R]] <kernel.o>] <kernel.reloc>\n\t-C: compress\n";
 
 $VERBOSE = 1;
 $ADDR16 = 0;	# set to 0 to clobber 16-bit relocation entries.
@@ -154,45 +154,130 @@ $RLE_NO_TABLE = $opt{rle_no_table};	# set to 1 to have no RLE repeat count looku
 	exit;
 };
 
-@c = `objdump -r $ARGV[0]` or die "can't read object file $ARGV[0]"; chomp @c;
 
-$count=0;
-$secname;
+my %syms = &getsyminfo( $ARGV[0] );
 
-map {
-	$count++;
-	($sn) = /RELOCATION RECORDS FOR \[([^\]]+)\]:/ and do {
-		#print "Relocation records for section '$sn'\n";
-		$secname = $sn;
-	}
-	or
-	/OFFSET\s+TYPE\s+VALUE/
-	or
-	/([0-9a-f]+)\s+(16|dir32)\s+(\S+)/ and do {
-		# .strtab section: compact pointer array; relocation
-		# is straighforward, so don't store all the addresses.
-		# (.strtab should be in .data somewhere!)
-		# .stab: source table.
-		# .text: as -R (fold data in text) results in .data
-		# relocations being mentioned in .text.
-		# So we (for now) only need to worry about the .text.
-		$secname eq '.text' and
-		do {
-		#print "$secname [$1] [$2] [$3]\n";
+#printf "SYM .data: %s, %s\n", $syms{'.data'}{type}, $syms{'.data'}{addr};
+#map { if (/^\./) { print "$_: $syms{$_}{type}\n"}} keys %syms;
+#print "\n";
+#die;
 
-		$2 eq '16'
-			? push @addr16, hex $1
-			: push @addr32, hex $1;
-		};
-		1
-	}
-	or /^\s*$/
-	or /^\S+:\s+file format/
-	or die "invalid line (count=$count): '$_'\n";
-
-} @c;
+&parse_reloc( $ARGV[0] );
 
 &write_table( $ARGV[1], $opt{compressed} );
+
+########### end
+
+
+sub parse_reloc
+{
+	my ($filename) = @_;
+
+	my $tmpfile = "$filename.coff-reloc";
+	unlink $tmpfile if -f $tmpfile;
+
+	my @c = `objdump -h $filename`;
+	if ( grep { /\.reloc/ } @c )
+	{
+		@c = `objcopy -j .reloc $filename $tmpfile`;
+	}
+
+	if ( -f $tmpfile )
+	{
+		print "parsing PE/COFF relocation table\n";
+		@addr32 = &parse_pecoff_reloc( $tmpfile );
+	}
+	else
+	{
+		my @c = `objdump -r -j .text $filename`
+		or die "can't read object file $filename: $!";
+		chomp @c;
+		&parse_objdump_reloc( @c );
+	}
+}
+
+
+sub parse_objdump_reloc
+{
+	my @c = @_;
+	$count=0;
+	$secname;
+
+	map {
+		$count++;
+		($sn) = /RELOCATION RECORDS FOR \[([^\]]+)\]:/ and do {
+			#print "Relocation records for section '$sn'\n";
+			$secname = $sn;
+		}
+		or
+		/OFFSET\s+TYPE\s+VALUE/
+		or
+		/([0-9a-f]+)\s+(16|DISP32)\s+(\S+)/
+		or
+		/([0-9a-f]+)\s+(DISP16)\s+(\S+)/ and do {
+			die "16bit symbol displacement: $_\n"
+			. "reference 32bit symbol from 16 bit text segment?";
+		}
+		or
+		/([0-9a-f]+)\s+(dir32)\s+(\S+)/ and do
+		{
+			# .strtab section: compact pointer array: data decl, code ref
+			# .stab: source table.
+			# .stabstr: source string table
+			# .text: as -R (fold data in text) results in .data
+			#   relocations being mentioned in .text.
+			# So we (for now) only need to worry about the .text.
+			$secname eq '.text' and
+			do
+			{
+
+				my $a = hex $1;
+				my $t = $2;
+				my $v = $3;
+
+				# sanitize
+				my ($l, $op, $o) = $v=~/^([^-]+)(\+|-)([^-]+)$/; #split /-/, $v;
+
+#				print "$secname [",sprintf("%08x",$a),"] [$t] [$v] [$l:$o]";
+
+				if ( defined $l )
+				{
+					$o=hex $o;
+
+
+					if ($syms{$l}{type} eq 'A')
+					{
+#					print "$secname [",sprintf("%08x",$a),"] [$t] [$v] [$l:$o]";
+#					printf "($l:%s, %08x, d %08x)",
+#						$syms{$l}{type}, $syms{$l}{addr},
+#						$o-$syms{$l}{addr};
+#						print " A";
+#						print "\n";
+					}
+					else
+					{
+					$t ne '16' and
+						push @addr32, $a;
+#						print " +";
+					}
+				}
+				else
+				{
+					$t eq '16'
+						? push @addr16, $a
+						: push @addr32, $a;
+				}
+
+#				print "\n";
+			};
+			1
+		}
+		or /^\s*$/
+		or /^\S+:\s+file format/
+		or die "invalid line (count=$count): '$_'\n",
+
+	} @_;
+}
 
 
 sub log2 { use POSIX qw/ceil/; ceil( log( $_[0] ) / log(2) ); }
@@ -229,7 +314,7 @@ sub write_table
 		map {
 			$d=$_ - $l; $l=$_; 			# delta
 			$m=$m<$d?$d:$m unless $_==0xffffffff;	# max
-			$count{$d}++; $bitfreq{log2($d)}++;	# delta freq
+			$count{$d}++; $bitfreq{log2($d|1)}++;	# delta freq
 
 			if ( $RLE )
 			{
@@ -288,7 +373,7 @@ sub write_table
 
 		# print alphabet table size (entries) and entry width in bits.
 		print BIN pack "S<", $alphabet=scalar keys %count;
-		print BIN pack "C", $kw=words(log2($m));
+		print BIN pack "C", $kw=words(log2($m|1));
 		# alphabet increased: one token used for repetition (max)
 		print BIN pack "C", ($RLE?0x80:0)|($dw=words(log2($alphabet+($RLE?1:0)))); $ds=wordp($dw);# delta width
 		if ( $RLE ) {
@@ -397,6 +482,104 @@ sub getopt
 	$ARGV[0];
 }
 
+
+sub parse_pecoff_reloc
+{
+	my ($filename) = @_;
+#	system "objcopy -j .reloc kernel.obj kernel.reloc";# or die $!;
+
+	open BIN, "<:raw", $filename or die;
+	$s = (stat BIN)[7];
+
+	$PAGE_RVA_ADJUST = undef;
+
+	# array of blocks, eack refers to 4k page. must start at 32 bit
+	# boundary
+	read BIN, $data, 0x1000;	# unknown data;; at 0xf4 is '.reloc',
+					# lots of 0 until 0x1000: word[].
+	$pos = 0x1000;
+
+	my @addr;
+
+	do
+	{
+		read BIN, $data, 8;
+		$pos += 8;
+		my ($page_rva, $block_size) = unpack "L<L<", $data;
+
+		# we'll assume that the first entry/page refers to
+		# the first page. The page_rva starts at 0xffc23000 for
+		# some reason, so we subtract that.
+		$PAGE_RVA_ADJUST = $page_rva unless defined $PAGE_RVA_ADJUST;
+
+		printf "%08x - Base Relocation Block: page rva %08x block size %08x\n",
+			$pos-8,
+			$page_rva - $PAGE_RVA_ADJUST, $block_size;
+
+		#die if ($block_size -8 < 0);
+		if ( $block_size )
+		{
+			read BIN, $data, $block_size-8;
+			$pos += $block_size-8;
+
+			my @relocs = unpack "S<*", $data;
+
+			if ( $relocs[ scalar(@relocs)-1] == 0 )
+			{
+				pop @relocs;
+			}
+
+			map
+			{
+				my ($t, $v) = ($_>>12, $_&((1<<12)-1));
+				printf "  %08x $t (%s)\n", $v + $page_rva - $PAGE_RVA_ADJUST,
+					qw/ABS HI LO HILO HIADJ MIPS ARM ARM MIPS DIR64/[$t];
+
+				push @addr, $_ + $page_rva - $PAGE_RVA_ADJUST;
+			}
+			@relocs;
+		}
+
+		while ($pos & 3) { read BIN, $data, 1; $pos++}
+	} while ($pos < $s);
+
+	close BIN;
+
+	@addr;
+}
+
+
+
+sub getsyminfo
+{
+	my ($filename) = @_;
+
+	my @c = `nm $filename` or die "$!";
+	chomp @c;
+
+	my %syms;
+
+	map
+	{
+		my ($a, $t, $n)=/^([0-9a-f]{8}| {8}) (.) (\S+)$/ or die "invalid nm output: $_";
+
+		if ( $a eq '        ' )
+		{
+			$syms{$s} = {type=>$t};
+#			printf "%s [%s] %s\n", $a, $t, $n;
+		}
+		else
+		{
+			$a = hex $a;
+			$syms{$n} = {addr=>$a, type=>$t};
+#			printf "%08x [%s] %s\n", $a, $t, $n;
+		}
+
+	}
+	@c;
+
+	return (%syms);
+}
 
 =pod
 
@@ -536,4 +719,5 @@ width. This is then potentially looked up in the repeat-index table.
 The next value in the delta-index table will be the delta-index to repeat.
 
 =cut
+
 

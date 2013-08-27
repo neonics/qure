@@ -659,6 +659,51 @@ consoles:	# 10 CONSOLE_STRUCTs: the first being the screen_ (default)
 default_screen_update:	# 16 and 32 bit
 	ret
 
+
+
+# copy the screen to the screenbuffer.
+# called when pmode is entered, when printing system changes.
+screen_buf_init:
+#	call	newline
+	.if SCREEN_BUFFER
+	push_	ecx esi edi
+
+		push_ eax edx
+		mov	eax, [screen_pos]
+		xor	edx, edx
+		mov	ecx, 160
+		div	ecx
+		inc	eax
+		mul	ecx
+		mov	[screen_pos], eax
+		pop_ edx eax
+
+
+	mov	edi, [screen_buf]
+	#mov	ecx, [screen_pos] # 160 * 25
+	mov	ecx, 80*25
+	mov	esi, offset SEL_vid_txt
+	push	ds
+	mov	ds, esi
+	xor	esi, esi
+	add	edi, SCREEN_BUF_SIZE - 160*25
+	rep	movsw
+	pop	ds
+	sub	edi, [screen_buf]
+	mov	[screen_buf_pos], edi#dword ptr SCREEN_BUF_SIZE -80*25#edi
+#	mov	[screen_buf_pos], dword ptr 0
+	mov	[screen_pos], dword ptr 80*25
+	pop_	edi esi ecx
+	xor	eax, eax
+	.if VIRTUAL_CONSOLES
+	call	console_set
+	call	tls_get
+	mov	[eax + tls_console_kb_cur_ptr], dword ptr offset consoles_kb
+	.endif
+	.endif
+	ret
+
+
 # Methods starting with __ are to be called only when es:edi and ah are
 # set up - between PRINT_START and PRINT_END.
 

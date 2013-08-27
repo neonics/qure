@@ -107,8 +107,7 @@ print_tss:
 
 
 	GDT_GET_BASE eax, edx
-	GDT_GET_BASE edx, ds
-	sub	eax, edx
+	sub	eax, [database]
 	DEBUG_DWORD [eax + tss_ESP], "esp"
 	DEBUG_DWORD [eax + tss_ESP0], "esp0"
 	DEBUG_DWORD [eax + tss_CS], "cs"

@@ -1,23 +1,73 @@
+.ifndef __MACROS_INCLUDED
+__MACROS_INCLUDED=1
 ############################################################################
 # Sections (.text, .data etc).
 
-.macro .text16
-	TEXTSUBSECTION = 0
-	.text SECTION_CODE_TEXT16	# 0
-	.code16
-.endm
 
-.macro .data16
-	.text SECTION_CODE_DATA16	# 1
-.endm
+# realmode section separation:
+#   0 = put realmode code, data at beginning of .text
+#   1 = create .text16/.data16 section
+REALMODE_SEP = 1
 
-.macro .text16end
-	.text SECTION_CODE_TEXT16_END	# 2
-	.code16
-.endm
+
+.if REALMODE_SEP
+
+	TEXT16 = .text16
+
+	.macro .text16
+		.section .text16, "rwx"	###
+		.code16
+	.endm
+
+	TEXT16 = .text #.text16
+
+	.macro .data16 sub=0
+		.section .data16, "rwd"	###
+		.ifnc \sub,0
+		.section .data16, \sub
+		.endif
+		.code16
+	.endm
+
+	.macro .text16end
+		.section .text16, 99		###
+		.code16
+	.endm
+
+	.macro .data16end
+		.section .data16, 99		###
+		.code16
+	.endm
+
+.else
+
+	TEXT16 = .text
+
+	.macro .text16
+		.text SECTION_CODE_TEXT16	# 0
+		.code16
+	.endm
+
+
+	.macro .data16
+		.text SECTION_CODE_DATA16	# 1
+		.code16
+	.endm
+
+	.macro .text16end
+		.text SECTION_CODE_TEXT16_END	# 2
+		.code16
+	.endm
+
+	.macro .text16end
+		.text SECTION_DATA16_end
+		.code16
+	.endm
+
+.endif
+
 
 .macro .text32
-	TEXTSUBSECTION = 3
 	.text SECTION_CODE_TEXT32	# 3
 	.code32
 .endm
@@ -293,4 +343,5 @@ cmovpo=cmovnp
 
 ## end of generated code #####
 ##############################
+.endif
 .endif

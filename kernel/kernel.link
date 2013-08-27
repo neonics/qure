@@ -1,0 +1,120 @@
+/* Script for ld -r: link without relocation */
+
+/* http://sourceware.org/binutils/docs/ld/Builtin-Functions.html#Builtin-Functions */
+
+OUTPUT_FORMAT(pe-i386)
+SEARCH_DIR("/usr/i686-cygwin/lib"); SEARCH_DIR("/usr/lib"); SEARCH_DIR("/usr/lib/w32api");
+SECTIONS
+{
+
+/*  --image-base 0x...
+
+	__ImageBase = 0;
+	__image_base__ = 0;
+*/
+
+  .text : 
+  {
+  	kernel_start = .;
+	KERNEL_START = . ;
+
+_KAPI_COUNTER = 0;
+
+  	KERNEL_CODE16_START = . ;
+	*(.text16)
+	KERNEL_CODE16_END = . ;
+	KERNEL_CODE16_SIZE = ABSOLUTE( KERNEL_CODE16_END - KERNEL_CODE16_START );
+
+	KERNEL_DATA16_START = . ;
+	*(.data16)
+	KERNEL_DATA16_END = .;
+
+	REALMODE_KERNEL_END = .;
+
+  	KERNEL_CODE32_START = . ;
+	/*ring2.o(.text)*/
+	*(.text)
+	KERNEL_CODE32_END = . ;
+	KERNEL_CODE32_SIZE = ABSOLUTE( KERNEL_CODE32_END - KERNEL_CODE32_START );
+
+	KERNEL_DATA_START = . ;
+	*(.data)
+		data_kapi_start = .;
+	*(.kapi$idx)
+		_KAPI_IDX_SIZE = ABSOLUTE( . - data_kapi_start);
+		KAPI_NUM_METHODS = _KAPI_IDX_SIZE / 4;
+	*(.kapi$ptr)
+	*(.kapi$str)
+	*(.kapi$arg)
+		data_kapi_end = .;
+
+	KERNEL_DATA_END = . ;
+	KERNEL_DATA_SIZE = ABSOLUTE(KERNEL_DATA_END - KERNEL_DATA_START);
+
+	kernel_signature = . ; LONG(0x1337c0de);
+	kernel_end = .;
+	KERNEL_SIZE = ABSOLUTE( kernel_end - kernel_start );
+
+	KERNEL_END = .;
+  }
+
+  /*
+  .data  :
+  {
+    *(.data)
+    *(.data2)
+    *(.jcr)
+  }
+  */
+
+
+  .rdata  :
+  {
+    *(.rdata)
+    *(.rdata_runtime_pseudo_reloc)
+  }
+  .eh_frame  :
+  {
+    *(.eh_frame*)
+  }
+  .pdata  :
+  {
+    *(.pdata)
+  }
+  .edata  :
+  {
+    *(.edata)
+  }
+  /*
+  /DISCARD/ :
+  {
+    *(.debug$S)
+    *(.debug$T)
+    *(.debug$F)
+    *(.drectve)
+    	*(.strtab)
+  }
+  */
+  .idata  :
+  {
+  }
+  .tls  :
+  {
+  }
+  .rsrc  :
+  {
+    *(.rsrc)
+  }
+  .reloc  :
+  {
+    *(.reloc)
+  }
+  .stab   :
+  {
+    *(.stab)
+  }
+  .stabstr   :
+  {
+    *(.stabstr)
+  }
+}

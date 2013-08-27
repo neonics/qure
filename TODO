@@ -704,3 +704,41 @@ TODO: rework mem.s to use paging.
 			...
 
 
+TODO: kernel ring ordering
+
+	Order the code and data according to ring.
+
+	ring0: kernel core
+	ring1: scheduler, kernel api
+	ring2: IO drivers
+	ring3: unprivileged applications
+
+	This change requires far calls.
+
+	For full protection, each ring will be code+data, and page
+	aligned.
+
+TODO: file system writing
+
+TODO: file system logging
+
+TODO: IO printing
+
+	This allows to replace the 'stdout' so that printing can be done
+	to pipes, files, etc.
+
+TODO: installer
+
+	partition a disk;
+	initialize filesystems
+	make bootable
+
+TODO: upgrader [depends installer]
+
+	downloading new kernel image, updating boot area.
+
+TODO: dynamic load balanced name/uptime service
+
+	1) local discovery: LAN broadcasts to detect other instances
+	2) public legacy DNS lookup, register with/as NS, xfer
+

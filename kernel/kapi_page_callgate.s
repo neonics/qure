@@ -17,7 +17,7 @@ kapi_init_page_callgate:
 
 	.if 0	# running this ensures #NP
 	mov	esi, offset kapi_ldt
-	mov	ecx, KAPI_NUM_METHODS
+	mov	ecx, offset KAPI_NUM_METHODS
 0:	and	[esi + 5], byte ptr ~ACC_PR
 	add	esi, 8
 	loop	0b
@@ -32,7 +32,7 @@ kapi_init_page_callgate:
 
 	#GDT_SET_LIMIT	SEL_ldt, (8 * KAPI_NUM)
 	#(offset data_kapi_ldt_end - offset kapi_ldt)
-	mov	eax, 8*KAPI_NUM_METHODS-1#(offset data_kapi_ldt_end - kapi_ldt)-1
+	mov	eax, 8*(offset KAPI_NUM_METHODS)-1#(offset data_kapi_ldt_end - kapi_ldt)-1
 	GDT_SET_LIMIT SEL_ldt, eax
 	mov	eax, SEL_ldt
 	DEBUG "loading SEL_ldt"
@@ -132,7 +132,7 @@ kapi_pf_isr:
 	jnz	1f
 
 	and	ebx, 0xfff
-	cmp	ebx, KAPI_NUM_METHODS
+	cmp	ebx, offset KAPI_NUM_METHODS
 	jae	9f
 
 	mov	edx, [kapi_ptr + ebx * 4]

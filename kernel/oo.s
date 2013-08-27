@@ -42,6 +42,8 @@ CLASS_METHOD_STRUCT_SIZE = 12
 # TODO: find a way to store the methods in the class struct itself
 # TODO: multiple inheritance/interfaces
 
+.if DEFINE
+
 .data SECTION_DATA_CLASSES
 class_definitions:	# idem to data_classdef_start
 .data
@@ -704,6 +706,10 @@ _print_methods$:
 1:	pop	ecx
 	ret
 
+.endif	# DEFINE==1
+
+.ifndef __OO_DECLARED
+__OO_DECLARED=1
 ##############################
 # Usage:
 #
@@ -834,3 +840,4 @@ _print_methods$:
 		.long 0					# class_match_instance 
 	.text32
 .endm
+.endif	#  __OO_DECLARED

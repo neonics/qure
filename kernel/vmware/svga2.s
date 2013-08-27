@@ -895,7 +895,7 @@ svga_fifo_commit$:
 
 #############################################################################
 .data
-gfx_mode$: .byte 0	# = 0 txt mode, 1 = gfx mode
+gfx_mode: .byte 0	# = 0 txt mode, 1 = gfx mode
 screen_update_old: .long 0
 .text32
 
@@ -916,7 +916,7 @@ cmd_gfx:
 	mov	eax, [page_directory_phys]
 	mov	cr3, eax
 
-	xor	byte ptr [gfx_mode$], 1
+	xor	byte ptr [gfx_mode], 1
 	jz	init_textmode$
 
 	# enter gfx mode:

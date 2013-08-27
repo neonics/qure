@@ -29,7 +29,7 @@ kapi_int80_isr:
 	DEBUG_DWORD [ebp]
 	push	edx
 	mov	edx, [ebp]
-	cmp	edx, KAPI_NUM_METHODS
+	cmp	edx, offset KAPI_NUM_METHODS
 	jae	9f
 	pushd	[kapi_idx + edx * 4]
 	call	_s_print
@@ -54,7 +54,7 @@ kapi_int80_isr:
 
 	push	edx
 	mov	edx, [ebp + 12]
-	cmp	edx, KAPI_NUM_METHODS
+	cmp	edx, offset KAPI_NUM_METHODS
 	jae	9f
 	pushd	[kapi_idx + edx * 4]
 	call	_s_print

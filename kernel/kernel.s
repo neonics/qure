@@ -2,6 +2,14 @@
 
 KERNEL_MIN_STACK_SIZE	= 0x1000	# needs to be power of 2!
 
+KERNEL_SPLIT_RINGS = __KERNEL_SPLIT_RINGS # compiler argument --defsym __K...=1
+
+.if KERNEL_SPLIT_RINGS
+.print "Kernel: multiple object files"
+.else
+.print "Kernel: single object file"
+.endif
+
 .include "defines.s"
 .include "macros.s"
 
@@ -22,6 +30,7 @@ kernel_rm_code_start:
 .data16
 data16_start:
 .data
+kernel_data_start:
 data_0_start:
 .data SECTION_DATA_SEMAPHORES
 data_sem_start:
@@ -36,16 +45,17 @@ data_shell_cmds_start:
 .data SECTION_DATA_CLASSES
 data_classes_start:
 data_classdef_start:	# used in oo.s
+.if KERNEL_SPLIT_RINGS
+.else
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_start:
 # .word vendorId, deviceId
 # .long driver_constructor
 # .long name
 # .long 0	# alignment - total size: 16 bytes
+.endif
 .data SECTION_DATA_FONTS
 data_fonts_start:
-.data SECTION_DATA_KAPI_IDX
-data_kapi_start:
 .data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
 data_signature_start:
 .data SECTION_DATA_BSS
@@ -56,28 +66,15 @@ data_bss_start:
 
 .text32
 #.org REALMODE_KERNEL_SIZE
-kernel_pm_code_start:
-kernel_start:
 ###################################
 DEFINE = 1
-
-.macro INCLUDE file, name=0
-.ifnc 0,\name
-.text32
-code_\name\()_start:
-.endif
-.include "\file"
-.ifnc 0,\name
-.text32
-code_\name\()_end:
-.endif
-.endm
 
 DEFINE=0
 .include "debug.s"
 .include "mutex.s"
 .include "print.s"
 DEFINE=1
+.include "mutex.s"
 include "print.s", print
 include "debug.s", debug
 include "pmode.s", pmode
@@ -99,56 +96,289 @@ include "oo.s", oo
 DEFINE = 0
 include "fs.s"
 include "shell.s"
+include "ata.s"
 DEFINE = 1
 
 
-include "dev.s", dev
-include "pci.s", pci
+#include "dev.s", dev
+#include "pci.s", pci
 include "bios.s", bios
 include "cmos.s", cmos
 include "dma.s", dma
-include "ata.s", ata
-
-include "debugger.s", debugger
-
+#include "ata.s", ata
+#include "debugger.s", debugger
+#include "partition.s", partition
 include "fs.s", fs
-include "partition.s", partition
 include "fat.s", fat
 include "sfs.s", sfs
 include "iso9660.s", iso9660
 
-code_nic_start:
-include "nic.s"
-include "rtl8139.s"
-include "i8254.s"
-include "am79c971.s"
-code_nic_end:
-include "net/net.s", net
 
-code_vid_start:
-include "vmware/svga2.s"
-include "vbox/vbva.s"
-code_vid_end:
+.if KERNEL_SPLIT_RINGS
+	.print "<< SPLIT RINGS >>"
+	.global newline
+	.global _s_print
+	.global printhex1
 
-code_usb_start:
-include "usb.s"
-include "usb_ohci.s"
-code_usb_end:
+	.global pci_get_device_subclass_info
 
-code_southbridge_start:
-include "i440.s"	# Intel i440 PCI Host Bridge
-include "ipiix4.s"	# Intel PIIX4 ISA/IDE/USB/AGP Bridge
-code_southbridge_end:
+
+	# idt
+	.global add_irq_handler
+	.global IRQ_BASE
+	# pic
+	.global IRQ_PRIM_ATA
+	.global IRQ_SEC_ATA
+	.global IRQ_RTC
+	.global IRQ_KEYBOARD
+	.global hook_isr
+
+	# print
+	.global nprint
+	.global nprintln
+	.global nprintln_
+	.global print
+	.global print_
+	.global print_flags16
+	.global print_size
+	.global sprint_size
+	.global printc
+	.global printchar
+	.global printcharc
+	.global printdec32
+	.global sprintdec32
+	.global printhex
+	.global printhex1
+	.global printhex2
+	.global printhex4
+	.global printhex8
+	.global sprinthex8
+	.global println
+	.global println_
+	.global printspace
+	.global _s_print
+	.global _s_printc
+	.global _s_printlnc
+	.global _s_setcolor
+	.global _s_pushcolor
+	.global printbin8
+	.global printbin16
+	.global newline; 
+
+	.global screen_update
+
+	.global __print
+	.global __scroll
+
+	# string
+	.global strlen
+	.global strlen_
+	.global atoi
+	.global atoi_
+	.global htoi
+	.global strncmp
+	.global strcmp
+
+	# hash
+	.global ptr_array_new
+	.global ptr_array_newentry
+	.global array_new
+	.global array_newentry
+	.global array_free
+		# struct fields:
+	.global array_index
+	.global array_capacity
+	.global buf_index
+
+	# buffer
+	.global buffer_put_byte
+	.global buffer_put_word
+	.global buffer_put_dword
+	.global buffer_write
+
+	.global buffer_new
+	.global buffer_free
+	.global buffer_index
+	.global buffer_start
+
+
+	.global realsegflat
+
+	# keyboard
+	.global keyboard
+	.global KB_GETCHAR
+
+	# oo
+	.global class_instances
+	.global class_instanceof
+	.global class_newinstance
+
+	# pit
+	.global sleep
+	.global udelay
+	.global pit_timer_frequency
+	.global pit_timer_period
+	.global clock_ms
+	.global get_time_ms
+
+	# scheduler
+	.global task_wait_io
+
+	# pic
+	.global pic_enable_irq_line32
+
+	# paging
+	.global page_directory_phys
+	.global page_directory_phys
+	.global paging_idmap_memrange
+
+	# gfx / vmware/svga2
+	.global vidw; .extern vidw
+	.global vidh; .extern vidh
+	.global vidb; .extern vidb
+	.global vidbpp; .extern vidbpp
+	.global vidfbuf; .extern vidfbuf
+	.global curfont
+	.global fonts4k
+	.global fontwidth
+	.global fontheight
+	.global gfx_printchar_ptr
+	.global gfx_printchar_8x16
+
+	.global gfx_txt_screen_update
+	.global default_screen_update	# from print.s
+
+	# gdt
+	.global GDT
+
+	# mutex
+	.global mutex
+	.global mutex_owner
+
+	# mem
+	.global malloc
+	.global malloc_aligned
+	.global mallocz
+	.global mallocz_aligned
+	.global mfree
+	.global mdup
+	.global mem_heap_size
+	.global mem_get_used
+	.global mem_get_reserved
+	.global mem_get_free
+
+	# dev/pci
+	.global class_nulldev
+	# pci
+
+	.global pci_list_devices
+#	.global pci_device_class_names
+	.global pci_read_config
+	.global pci_write_config
+	.global pci_busmaster_enable
+	.global pci_get_bar
+	.global pci_get_bar_addr
+	.global DEV_PCI_CLASS_NIC_ETH
+	.global DEV_PCI_CLASS_VID_VGA
+	.global DEV_PCI_CLASS_SERIAL_USB
+	.global DEV_PCI_CLASS_SERIAL_USB_EHCI
+	.global DEV_PCI_CLASS_SERIAL_USB_OHCI
+	.global DEV_PCI_CLASS_BRIDGE
+	.global DEV_PCI_CLASS_BRIDGE_ISA
+	.global DEV_PCI_CLASS_BRIDGE_PCI2PCI
+	.global DEV_PCI_CLASS_BRIDGE_PCI2PCI_STS
+	.global DEV_PCI_CLASS_STORAGE_IDE
+
+	# ata
+	.global ata_print_capacity
+	#disks
+	.global cmd_disks_print$
+
+
+	# shell
+	.global cmdline_print_args$
+	.global getopt
+	.global cmdline_execute$
+	.global cmdline_init
+	.global cmdline_print_prompt$
+	.global shell_print_prompt$
+	.global shell_execute$
+	.global shell_variable_get
+
+	# debug
+	.global more
+	.global debug_printvalue
+	.global debug_assert_array_index
+
+	# debugger
+	.global debug_printsymbol
+
+	# KAPI
+	.global KAPI_yield
+	.global KAPI_schedule_task
+	.global KAPI_fs_stat
+	.global KAPI_fs_open
+	.global KAPI_fs_read
+	.global KAPI_fs_close
+
+	# fs
+	.global fs_update_path
+	.global FS_DIRENT_ATTR_DIR
+	.global fs_fat_partinfo
+
+
+	## ../lib ##
+	# sha1
+	.global sha1
+	.global sha1_init
+	.global sha1_next
+	.global sha1_finish
+
+
+	# kernel labels
+	.global data_0_start
+	.global kernel_end
+
+	# console / print
+	.global console_get
+	.global console_screen_pos
+	.global console_screen_color
+	.global console_screen_buf
+	.global console_screen_buf_pos
+	.global screen_buf_flush	# print.s
+
+	# realmode/pmode stuff
+	.global boot_drive
+
+	#partition.s
+	.global disk_print_label
+
+	# dma
+	.global dma_buffersize
+	.global dma_transfer
+	.global dma_getpos
+	.global dma_stop
+	.global dma_buffer_abs
+
+
+	##########
+.else
+	.print "<< ring2 included >>"
+	RING2_INCLUDED=1
+	.include "ring2.s"
+.endif
 
 include "gfx.s", gfx
 include "hwdebug.s", hwdebug
 include "vmware/vmware.s", vmware
-include "vbox/vbga.s", vbox
-code_sound_start:
-include "es1371.s", es1371
-include "sb.s", sb
-code_sound_end:
+#include "vbox/vbga.s", vbox
+#code_sound_start:
+#include "es1371.s", es1371
+#include "sb.s", sb
+#code_sound_end:
 include "shell.s", shell
+
+include "debugger.s", debugger
 ###################################
 
 .text32
@@ -163,32 +393,6 @@ kmain:
 
 	PRINTLNc 11 "Protected mode initialized."
 	COLOR 7
-
-	.if SCREEN_BUFFER
-	# copy the screen to the screenbuffer
-	push	ecx
-	push	esi
-	push	edi
-	mov	edi, [screen_buf]
-	mov	ecx, [screen_pos] # 160 * 25
-	add	ecx, 160 * 10	# FIXME: find out why 10 lines mismatch!
-	mov	esi, SEL_vid_txt
-	mov	ds, esi
-	xor	esi, esi
-	add	edi, SCREEN_BUF_SIZE
-	sub	edi, ecx
-	rep	movsb
-	pop	edi
-	pop	esi
-	pop	ecx
-	mov	ds, ax
-	xor	eax, eax
-	.if VIRTUAL_CONSOLES
-	call	console_set
-	call	tls_get
-	mov	[eax + tls_console_kb_cur_ptr], dword ptr offset consoles_kb
-	.endif
-	.endif
 
 	call	debug_load_symboltable	# a simple reference check and pointer calculation.
 
@@ -282,7 +486,6 @@ SCHEDULE_EARLY = 0
 	###################################################################
 
 	I "BDA:"
-
 	call	bios_list_bda
 
 .if SHOWOFF
@@ -309,7 +512,6 @@ SCHEDULE_EARLY = 0
 	MORE
 .endif
 
-
 	I "ATA:"
 	call	ata_list_drives
 
@@ -329,21 +531,10 @@ SCHEDULE_EARLY = 0
 	call	hash_test
 .endif
 
-
-	I "Relocation: "
-	call	0f
-0:	pop	edx
-	sub	edx, offset 0b
-	COLOR 8
-	call	printhex8
-	I2 " Kernel Load Address: "
-	GDT_GET_BASE edx, cs
-	call	printhex8
-	I2 " Boot Drive: "
+	I "Boot Drive: "
 	mov	ax, [boot_drive]
 	call	disk_print_label
 	call	newline
-	COLOR 7
 
 	###################################################################
 	# when this is placed right after mem_init, NIC doesn't work
@@ -396,6 +587,7 @@ SCHEDULE_EARLY = 0
 	call	cmd_smtpd
 	call	cmd_sshd
 	call	cmd_sipd
+	YIELD	# give scheduler a chance to run daemons
 
 OPEN_SHELL_DEFAULT = 1	# see .if 1 below - kcons also prints the message
 
@@ -427,7 +619,7 @@ OPEN_SHELL_DEFAULT = 1	# see .if 1 below - kcons also prints the message
 	I "Shell"
 	call	newline
 
-.if 1
+.if 0	# 0 = CPL0 shell
 	PUSH_TXT "kcons"
 	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING_SERVICE
 	push	cs
@@ -439,7 +631,6 @@ OPEN_SHELL_DEFAULT = 1	# see .if 1 below - kcons also prints the message
 	call	schedule_task
 	mov	ebx, [console_cur_ptr]
 	mov	[ebx + console_pid], eax
-
 	println "Kernel idle loop"
 	xor	eax, eax
 	call	task_suspend
@@ -570,23 +761,12 @@ data_shell_cmds_end:
 data_classdef_end:	# used in oo.s
 .data SECTION_DATA_CLASSES_END
 data_classes_end:
+.if !KERNEL_SPLIT_RINGS
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_end:
+.endif
 .data SECTION_DATA_FONTS
 data_fonts_end:
-.data SECTION_DATA_KAPI_IDX
-data_kapi_idx_end:
-.data SECTION_DATA_KAPI_STR
-data_kapi_str_end:
-.data SECTION_DATA_KAPI_PTR
-data_kapi_ptr_end:
-.data SECTION_DATA_KAPI_LDT
-data_kapi_ldt_end:
-data_kapi_end:
 .data SECTION_DATA_BSS
 data_bss_end:
-.data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
-kernel_signature:.long 0x1337c0de
-data_signature_end:
 .data 99
-kernel_end:

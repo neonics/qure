@@ -702,11 +702,18 @@ expr_h_call:
 .data
 www_expr:
 .long (99f - .)/10
+.if 1
+STRINGPTR "kernel.size";	.byte 3,1;.long expr_krnl_get_size
+STRINGPTR "kernel.code.size";	.byte 3,1;.long expr_krnl_get_code_size
+STRINGPTR "kernel.data.size";	.byte 3,1;.long expr_krnl_get_data_size
+STRINGPTR "mem.heap.size";	.byte 2,1;.long mem_heap_size
+.else
 STRINGPTR "kernel.size";	.byte 1,1;#.long kernel_end - kernel_start
 	.long kernel_code_end - kernel_code_start + kernel_end - data_0_start
 STRINGPTR "kernel.code.size";	.byte 1,1;.long kernel_code_end - kernel_code_start
 STRINGPTR "kernel.data.size";	.byte 1,1;.long kernel_end - data_0_start
 STRINGPTR "mem.heap.size";	.byte 2,1;.long mem_heap_size
+.endif
 STRINGPTR "mem.heap.allocated";	.byte 3,1;.long mem_get_used
 STRINGPTR "mem.heap.reserved";	.byte 3,1;.long mem_get_reserved
 STRINGPTR "mem.heap.free";	.byte 3,1;.long mem_get_free
@@ -718,6 +725,26 @@ www_expr_handlers:
 	.long expr_h_call
 NUM_EXPR_HANDLERS = (.-www_expr_handlers)/4
 .text32
+expr_krnl_get_size:
+	xor	edx, edx
+	mov	eax, offset KERNEL_SIZE
+#	mov	eax, offset kernel_code_end
+#	sub	eax, offset kernel_code_start
+#	add	eax, offset kernel_end
+#	sub	eax, offset data_0_start
+	ret
+expr_krnl_get_code_size:
+	xor	edx, edx
+	mov	eax, offset KERNEL_CODE32_SIZE
+	add	eax, offset KERNEL_CODE16_SIZE
+	ret
+expr_krnl_get_data_size:
+	xor	edx, edx
+	mov	eax, offset KERNEL_DATA_SIZE
+	ret
+
+
+
 # in: eax = tcp conn
 # in: edi = expressoin
 # in: ecx = expression len

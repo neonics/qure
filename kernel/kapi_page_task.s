@@ -106,7 +106,7 @@ kapi_pf_task:
 	jnz	1f
 
 	and	ebx, 0xfff
-	cmp	ebx, KAPI_NUM_METHODS
+	cmp	ebx, offset KAPI_NUM_METHODS
 	jae	9f
 
 

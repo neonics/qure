@@ -7,6 +7,7 @@
 DEBUG_KERNEL_REALMODE = 0	# 1: require keystrokes at certain points
 
 
+RM_PRINT_HIGH_MEMMAP = 0
 # When the protected-mode part of the kernel returns to realmode,
 # it will transfer control back to it's caller, which is tpically
 # the bootloader. Setting this to 1 will cause the transfer to the caller
@@ -14,9 +15,13 @@ DEBUG_KERNEL_REALMODE = 0	# 1: require keystrokes at certain points
 CHAIN_RETURN_RM_KERNEL = 1
 #########################################################
 
+.data16 1
+data16_strings:
 .data16
 screen_pos_16: .long 0
 screen_color_16: .word 0
+___fooo:
+.text16
 
 
 .macro PRINT_START_16 col=-1
@@ -64,18 +69,10 @@ screen_color_16: .word 0
 .endm
 
 .macro LOAD_TXT_16 m, reg16=si
-	# need to declare realmode strings in .text as kernel .text shifts
-	# data beyond 64kb reach.
-.if 0
-	jmp	98f
-	99:.asciz "\m"
-	98:
-.else
-	.data16
-	99: .asciz "\m"
+	.data16 1
+	999: .asciz "\m"
 	.text16
-.endif
-	mov	\reg16, offset 99b
+	mov	\reg16, offset 999b
 .endm
 
 .macro PRINT_16 m
@@ -153,6 +150,21 @@ screen_color_16: .word 0
 	PRINTLNc_16 0x0a, " Ok"
 .endm
 
+# in: edx = flat addr
+# out: edx = dword at flat addr
+.macro GETFLAT
+	push ebx
+	push fs
+	ror edx, 4
+	mov fs, dx
+	rol edx, 4
+	mov bx, dx
+	and bx, 15
+	mov edx, fs:[bx]
+	pop fs
+	pop ebx
+.endm
+
 
 #########################################################
 .text16
@@ -163,19 +175,19 @@ screen_color_16: .word 0
 # in: ds:cx = ramdisk address
 # in: 0:ebx = kernel load end
 realmode_kernel_entry:
+#mov eax, offset .text16
 	int3		# trigger debugger from pmode - when eip=0
 	push	cx
 	mov	ax, 0x0f00
 	xor	di, di
-	mov	cx, 160*25
+	mov	cx, 80*25
 	rep	stosw
 	pop	cx
 	xor	di, di
-	mov	al, '!'
+	mov	ax, 0xf0<<8|'!'
 	stosw
 
 	mov	eax, ds
-
 	push	cs
 	pop	ds
 
@@ -201,6 +213,53 @@ realmode_kernel_entry:
 	mov	[boot_drive], dx
 	mov	[ramdisk], cx
 	mov	[mbr], si
+
+	push	eax
+	.if REALMODE_SEP	# .text16,.data16,.text,.data
+	mov	eax, offset .text16
+	.else			# .text[text16,data16,text32],.data
+	mov	eax, offset .text
+	.endif
+	mov	[reloc$], eax
+
+
+
+	# determine cs:ip since we do not assume to be loaded at any address
+	mov	eax, cs
+	shl	eax, 4
+	mov	[kernelbase], eax
+	sub	eax, [reloc$]
+	mov	[codebase], eax
+	xor	eax, eax
+	mov	[realsegflat], eax	# always 0 due to reloc
+
+	mov	eax, ds
+	shl	eax, 4
+	sub	eax, [reloc$]
+	mov	[database], eax
+
+# reloc$	00013000	00000000	# memory reference relocation
+# realsegflat	00000000	00000000	
+# kernelbase	00013000	00013000	# abs load addr
+# codebase	00000000	00013000
+# database	00000000	00013000
+
+call newline_16
+push edx
+mov edx, [reloc$];	PH8_16 edx, "reloc$:      ";	call newline_16
+mov edx, [realsegflat]; PH8_16 edx, "realsegflat: ";	call newline_16
+mov edx, [kernelbase];	PH8_16 edx, "kernelbase:  ";	call newline_16
+mov edx, [codebase];	PH8_16 edx, "codebase:    ";	call newline_16
+mov edx, [database];	PH8_16 edx, "database:    ";	call newline_16
+pop edx
+
+	.if DEBUG > 2
+		printc_16 0x5f, "*"
+		xor ax,ax; int 0x16
+	.endif
+
+	pop	eax
+
 
 	.if DEBUG
 		PRINTc_16 8, " boot drive: "
@@ -228,6 +287,9 @@ realmode_kernel_entry:
 		call	printhex8_16
 		printc_16 8, "end: "
 		mov	edx, ebx
+		call	printhex8_16
+		printc_16 8, "relocation: "
+		mov	edx, [reloc$]
 		call	printhex8_16
 		call	newline_16
 	.endif
@@ -262,25 +324,27 @@ realmode_kernel_entry:
 		call	newline_16
 	.endif
 
-	rmI	"Kernel"
+	rmI	"Kernel "
+
+	.if DEBUG
+	mov eax, offset KERNEL_START
+	PH8_16 eax,"KERNEL_START "
+	mov eax, offset kernel_end
+	PH8_16 eax,"KERNEL_END "
+	mov eax, offset KERNEL_SIZE
+	PH8_16 eax,"KERNEL_SIZE "
+	.endif
 
 	rmI2	" size: "
-	mov	edx, offset kernel_end - .text # prevent relocation
+	mov	eax, offset KERNEL_SIZE	# linker
 	call	printhex8_16
 
 	rmI2	"Signature: "
 	mov	edx, cs
 	shl	edx, 4
-	add	edx, offset kernel_signature - .text # prevent relocation
-
-	movzx	bx, dl
-	and	bl, 0xf
-	shr	edx, 4
-	push	ds
-	mov	ds, dx
-	mov	edx, [bx]
-	pop	ds
-
+	add	edx, offset kernel_signature	# relocation
+	sub	edx, [reloc$]
+	GETFLAT
 	COLOR_16 0x0b
 	call	printhex8_16
 
@@ -315,7 +379,10 @@ realmode_kernel_entry:
 2:	printc_16 10, "Ok"
 	mov	eax, cs	# calculate minimum load end
 	shl	eax, 4
-	add	eax, offset kernel_end - .text # prevent relocation
+	# text.16
+	#add	eax, offset kernel_end - TEXT16 # prevent relocation
+	add	eax, offset kernel_end  # prevent relocation
+	#sub	eax, TEXT16
 
 	mov	ecx, fs:[bx + 8]	# num entries
 	or	ecx, ecx
@@ -335,28 +402,28 @@ realmode_kernel_entry:
 	jnz	3f
 	mov	[kernel_load_start_flat], edx
 	mov	[kernel_load_end_flat], esi
-	LOAD_TXT_16 "Kernel "
+	LOAD_TXT_16 " Kernel   "
 	jmp	4f
 3:	cmp	di, 1
 	jnz	3f
 	mov	[reloc_load_start_flat], edx
 	mov	[reloc_load_end_flat], esi
-	LOAD_TXT_16 "Relocation "
+	LOAD_TXT_16 " Reloctab "
 	jmp	4f
 3:	cmp	di, 2
 	jnz	3f
 	mov	[symtab_load_start_flat], edx
 	mov	[symtab_load_end_flat], esi
-	LOAD_TXT_16 "Symtab "
+	LOAD_TXT_16 " Symtab   "
 	jmp	4f
 3:	cmp	di, 3
 	jnz	3f
 	mov	[stabs_load_start_flat], edx
 	mov	[stabs_load_end_flat], esi
-	LOAD_TXT_16 "Stabs "
+	LOAD_TXT_16 " Stabs    "
 	jmp	4f
-3:	LOAD_TXT_16 "? "
-4:	rmI2	si
+3:	LOAD_TXT_16 " ? "
+4:	call newline_16; rmI2	si
 	pop	si
 ##
 	# print load start/end
@@ -377,27 +444,65 @@ realmode_kernel_entry:
 	rmI2	"End: "
 	mov	edx, eax
 	call	printhex8_16
-
-	# calculate kernel load end (stack bottom)
-
-	mov	eax, cs
-	shl	eax, 4
-	sub	edx, eax
-	js	3f	# shouldn't happen...
-	color_16 8
+	# need to use offset for ABSOLUTE linker constant,
+	# otherwise the assembler takes it as a memory reference
+	# instead of a constant.
+	print_16 "KERNEL_SIZE:"
+	mov	edx, offset KERNEL_SIZE #- .text16
 	call	printhex8_16
-	color_16 15
+	call	newline_16
 
-	cmp	edx, offset kernel_end - .text # prevent relocation
-	jae	1f
+	##############################################
+	# calculate stack
+DEBUG=3
+	# calculate kernel load end
+	mov	edx, [kernel_load_start_flat]
+	add	edx, offset KERNEL_SIZE
+	sub	edx, [codebase]
+	mov	[kernel_load_end], edx
 
-	PRINTc_16 12, "WARNING: kernel end before ramdisk end"
-3:	mov	edx, offset kernel_end - .text # prevent relocation
+	# use kernel load end as stack bottom
+	#
+	# NOTE! this assumes that memory space is available
+	# after the kernel. This will NOT be the case if
+	# the kernel is loaded high. This case is
+	# currently unimplemented since the kernel has a realmode
+	# part which requires to be run at low memory
+	# (unless the first 4kb of the 1mb region is realmode
+	# addressable).
+	mov	[kernel_stack_bottom], edx
+	# TODO: .bss
 
-1:	add	edx, offset .text	# relocation
-	mov	[ramdisk_load_end], edx
-2:	call	newline_16
+	# align the stack top with 4kb physical page:
+	add	edx, [database]
+	add	edx, 4095
+	and	edx, ~4095
+	sub	edx, [database]
+	# edx = first page boundary after kernel_stack_bottom.
 
+	# reserve stack for TSS
+	add	edx, 8*KERNEL_MIN_STACK_SIZE
+	mov	[kernel_tss0_stack_top], edx
+
+	# reserve stack for kernel
+	add	edx, KERNEL_MIN_STACK_SIZE
+	mov	[kernel_stack_top], edx
+
+	.if DEBUG
+		print_16 "Kernel Stack: "
+		PH8_16 [kernel_stack_bottom]
+		print_16 "-"
+		PH8_16 [kernel_stack_top]
+	.endif
+
+	##############################################
+
+	.if DEBUG > 2
+		printc_16 0x4f, "*"
+		xor	ax,ax
+		int	0x16
+	.endif
+DEBUG=0
 	##############################################
 	# some last-minute realmode data gathering
 
@@ -428,13 +533,15 @@ realmode_kernel_entry:
 		call	newline_16
 	.endif
 
-	printc_16 15, "High memory Map:"
-	call	newline_16
+	.if RM_PRINT_HIGH_MEMMAP
+		printc_16 15, "High memory Map:"
+		call	newline_16
 
-	COLOR_16 7
-	print_16 "Base:              | Length:             | Region Type| Attributes"
+		COLOR_16 7
+		print_16 "Base:              | Length:             | Region Type| Attributes"
+		COLOR_16 8
+	.endif
 	call	newline_16
-	COLOR_16 8
 
 	mov	di, offset memory_map
 	xor	ebx, ebx
@@ -455,22 +562,34 @@ realmode_kernel_entry:
 2:
 	# qword base
 	mov	edx, es:[di + 4]
-	call	printhex8_16
+	.if RM_PRINT_HIGH_MEMMAP
+		call	printhex8_16
+	.endif
 	mov	edx, es:[di]
-	call	printhex8_16
+	.if RM_PRINT_HIGH_MEMMAP
+		call	printhex8_16
+	.endif
 	add	di, 8
-	COLOR_16 1
-	print_16 " |  "
-	COLOR_16 8
+	.if RM_PRINT_HIGH_MEMMAP
+		COLOR_16 1
+		print_16 " |  "
+		COLOR_16 8
+	.endif
 	# qword length
 	mov	edx, es:[di+4]
-	call	printhex8_16
+	.if RM_PRINT_HIGH_MEMMAP
+		call	printhex8_16
+	.endif
 	mov	edx, es:[di]
-	call	printhex8_16
+	.if RM_PRINT_HIGH_MEMMAP
+		call	printhex8_16
+	.endif
 	add	di, 8
-	COLOR_16 1
-	print_16 " |  "
-	COLOR_16 8
+	.if RM_PRINT_HIGH_MEMMAP
+		COLOR_16 1
+		print_16 " |  "
+		COLOR_16 8
+	.endif
 	# dword region type
 	# 1 = usable ram
 	# 2 = reserved
@@ -479,28 +598,29 @@ realmode_kernel_entry:
 	# 5 = bad memory
 	mov	edx, es:[di]
 	add	di, 4
-	call	printhex8_16
-	COLOR_16 1
-	print_16 " |  "
-	COLOR_16 8
+	.if RM_PRINT_HIGH_MEMMAP
+		call	printhex8_16
+		COLOR_16 1
+		print_16 " |  "
+		COLOR_16 8
+	.endif
 	# dword ACPI 3.0 attributes
 	mov	edx, es:[di]
 	add	di, 4
-	call	printhex2_16
-	call	newline_16
+	.if RM_PRINT_HIGH_MEMMAP
+		call	printhex2_16
+		call	newline_16
+	.endif
 
 	jmp	0b
 #	jmp	1f
 
 0:	COLOR_16 12
 	print_16 "int 0x15 error: eax="
-	mov	edx, eax
 	COLOR_16 4
-	call	printhex8_16
+	PH8_16 eax
 1:	COLOR_16 7
 
-
-	.if 1
 	rmI "Terminating CDROM disk emulation: "
 	mov	ax, 0x4b00
 	mov	dl, [boot_drive] # 0x7f	# terminate all
@@ -525,7 +645,6 @@ realmode_kernel_entry:
 	jmp	2f
 1:	printlnc_16 4, "Error (no emulation?)"
 2:
-	.endif
 
 	###############################
 .if 0
@@ -548,7 +667,11 @@ realmode_kernel_entry:
 	printc_16 11, "Entering protected mode"
 	call	newline_16
 
-
+	.if DEBUG > 3
+		printc_16 0x4f, "*"
+		xor	ax,ax
+		int	0x16
+	.endif
 
 .if CHAIN_RETURN_RM_KERNEL
 	push	cs
@@ -626,6 +749,7 @@ ramdisk_load_end_flat:	.long 0	# flat address of last ramdisk entry
 ramdisk_load_end:	.long 0	# realmode-cs-adjusted address
 kernel_load_start_flat:	.long 0	# ramdisk info
 kernel_load_end_flat:	.long 0
+kernel_load_end:	.long 0
 reloc_load_start_flat:	.long 0
 reloc_load_end_flat:	.long 0
 symtab_load_start_flat:	.long 0
@@ -780,8 +904,3 @@ __scroll_16:
 	pop	cx
 	pop	ds
 	ret
-
-
-.text16end
-realmode_kernel_end:
-REALMODE_KERNEL_SIZE = realmode_kernel_end - realmode_kernel_entry

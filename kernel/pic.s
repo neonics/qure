@@ -4,19 +4,22 @@
 # See DOC/Interrupt.txt
 .intel_syntax noprefix
 
+.if DEFINE
+
 DEBUG_PIC=0
 #
 # PIC1: ports 0x20, 0x21 : command, data
 # PIC1: ports 0xA0, 0xA1 : command, data
-
+.endif
 IO_PIC1 = 0x20
 IO_PIC2 = 0xA0
 
+.if DEFINE
 PIC1_COMMAND = IO_PIC1
 PIC1_DATA = PIC1_COMMAND + 1
 PIC2_COMMAND = IO_PIC2
 PIC2_DATA = PIC2_COMMAND + 1
-
+.endif
 
 # PIC 1
 IRQ_TIMER	= 0
@@ -37,6 +40,7 @@ IRQ_FPU		= 13
 IRQ_PRIM_ATA	= 14
 IRQ_SEC_ATA	= 15
 
+.if DEFINE
 
 # A0: bit indicating which port. This is the command port/data port.
 # read/write port IO_PICx = A0 = 0; Port IO_PICx+1 = A1
@@ -129,8 +133,11 @@ PIC_DATA_CMD_CLEAR_SMM	= PIC_OCW3_SMM
 #
 #
 #
+.endif
 
 PIC_CMD_EOI		= 0x20	# End Of Interrupt
+
+.if DEFINE
 
 .data16 	# realmode access, keep within 64k
 pic_ivt_offset: .word 0
@@ -212,6 +219,11 @@ pic_mask: .word 0
 	pop	bx
 .endm
 
+.endif
+
+
+.ifndef __PIC_DECLARED
+__PIC_DECLARED=1
 # in: al = IRQ
 # if ( al >= 8 ) outb( IO_PIC2, PIC_COMMAND_EOI );
 # outb( IO_PIC1, PIC_COMMAND_EOI );
@@ -364,14 +376,19 @@ pic_mask: .word 0
 
 # in: ax = bitmask (al = master, ah = slave)
 .macro PIC_SET_MASK mask=ax
-	push	ax
 	.ifnc ax,\mask
+	push	ax
 	mov	ax, \mask
-	.endif
 	out	IO_PIC1+1, al
 	shr	ax, 8
 	out	IO_PIC2+1, al
 	pop	ax
+	.else
+	out	IO_PIC1+1, al
+	ror	ax, 8
+	out	IO_PIC2+1, al
+	ror	ax, 8
+	.endif
 .endm
 
 
@@ -386,20 +403,35 @@ pic_mask: .word 0
 	PIC_SET_MASK 0xffff
 .endm
 
-.macro PIC_SAVE_MASK
+.macro PIC_SAVE_MASK_static
 	push	ax
 	PIC_GET_MASK
 	mov	[pic_mask], ax
 	pop	ax
 .endm
 
-.macro PIC_RESTORE_MASK
+.macro PIC_RESTORE_MASK_static
 	push	ax
 	mov	ax, [pic_mask]
 	PIC_SET_MASK 
 	pop	ax
 .endm
-	
+
+.macro PIC_SAVE_MASK
+	push	ax
+	PIC_GET_MASK
+	xchg	ax, [esp]
+.endm
+
+.macro PIC_RESTORE_MASK preserve=0
+	xchg	ax, [esp]
+	PIC_SET_MASK
+	pop	ax
+.endm
+
+.endif
+
+.if DEFINE
 ##############################################################################
 # 16 bit CODE
 
@@ -509,3 +541,4 @@ pic_restore_mask32:
 #    else
 #      sendEOI( IO_PIC1 );
 #  }
+.endif

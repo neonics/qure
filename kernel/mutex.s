@@ -6,12 +6,15 @@
 MUTEX_DEBUG = 1	# registers lock owners
 
 _MUTEX_LOCAL = 0	# experimental feature
+
+.if DEFINE
 ################################################################
 # Mutex - mutual exclusion
 #
 .data SECTION_DATA_SEMAPHORES
 .align 4
 mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
+.endif
 	MUTEX_SCHEDULER	= 0
 #	MUTEX_SCREEN	= 1
 	MUTEX_MEM	= 2
@@ -20,9 +23,10 @@ mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 	MUTEX_NET	= 5
 	MUTEX_TCP_CONN	= 6
 	MUTEX_SOCK	= 7
+	MUTEX_TIME	= 8
 
-	NUM_MUTEXES	= 8
-
+	NUM_MUTEXES	= 9
+.if DEFINE
 mutex_owner:	.space 4 * NUM_MUTEXES
 
 mutex_names:
@@ -34,11 +38,18 @@ mutex_name_FS:		.asciz "FS"
 mutex_name_NET:		.asciz "NET"
 mutex_name_TCP_CONN:	.asciz "TCP_CONN"
 mutex_name_SOCK:	.asciz "SOCK"
+mutex_name_TIME:	.asciz "TIME"
 
 .tdata
 tls_mutex: .long 0
 .tdata_end
+
 .text32
+
+.endif
+
+.ifndef __MUTEX_DECLARE
+__MUTEX_DECLARE = 1
 
 .macro YIELD
 	KAPI_CALL yield
@@ -396,3 +407,5 @@ tls_mutex: .long 0
 	push	\sem
 	call	task_wait_io
 .endm
+
+.endif

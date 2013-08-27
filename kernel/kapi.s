@@ -1,20 +1,36 @@
 ###############################################################################
 # Kernel API 
 .intel_syntax noprefix
-.data SECTION_DATA_KAPI_IDX
+
+.if DEFINE
+
+
+	# multiple object files:
+	# 1) _KAPI_COUNTER gets reset
+	# 2) data sections are not merged.
+
+.section .kapi$idx
 kapi_idx:
-.data SECTION_DATA_KAPI_PTR
+.section .kapi$ptr
 kapi_ptr:
-.data SECTION_DATA_KAPI_STR
+.section .kapi$str
 kapi_str:
-.data SECTION_DATA_KAPI_ARG
+.section .kapi$arg
 kapi_arg:
 .text32
 
-KAPI_NUM_METHODS = ( offset data_kapi_idx_end - offset kapi_idx ) / 4
+# defined in kernel.link
+#KAPI_NUM_METHODS = ( offset data_kapi_idx_end - offset kapi_idx ) / 4
 
 KAPI_PAGE	= (0xffc00000>>12) + 1023
 KAPI_BASE	= 4096 * KAPI_PAGE
+.endif
+
+.ifndef _KAPI_COUNTER
+_KAPI_COUNTER = 0
+.endif
+
+.ifndef __KAPI_DECLARED
 
 KAPI_MODE_PAGE_TASK	= 1
 KAPI_MODE_PAGE_INT	= 2
@@ -29,24 +45,24 @@ KAPI_MODE = KAPI_MODE_PAGE_INT		# ok
 #KAPI_MODE = KAPI_MODE_SYSENTER	# sysexit still needs work
 #KAPI_MODE = KAPI_MODE_INT80_STACK
 
-_KAPI_COUNTER = 0
 
 .macro KAPI_DECLARE name, stackargs=0
 	_PTR = .# (. - .text)	# get .text offset
-	.data SECTION_DATA_KAPI_STR
+	.section .kapi$str
 	999: .asciz "\name"
-	.data SECTION_DATA_KAPI_IDX
+	.section .kapi$idx
 	.long 999b
-	.data SECTION_DATA_KAPI_PTR
+	.section .kapi$ptr
 	.long	_PTR
-	.data SECTION_DATA_KAPI_ARG
+	.section .kapi$arg
 	.long	\stackargs
   .if KAPI_MODE == KAPI_MODE_PAGE_CALLGATE
-	.data SECTION_DATA_KAPI_LDT
+	.section .kapi$ldt
 	DEFCALLGATE SEL_compatCS, _PTR, 3, \stackargs
   .endif
 
 	KAPI_\name = _KAPI_COUNTER
+	.global KAPI_\name
 	.print "Declare Kernel API: \name"
 	_KAPI_COUNTER = _KAPI_COUNTER + 1
 	.text32
@@ -68,7 +84,9 @@ _KAPI_COUNTER = 0
 	.endif
 .endm
 
+.endif
 
+.if DEFINE
 
 KAPI_PF_DEBUG = 0
 .if	KAPI_MODE == KAPI_MODE_PAGE_TASK
@@ -143,7 +161,7 @@ kapi_map_base:
 ##############################################################################
 
 cmd_kapi:
-	mov	ecx, KAPI_NUM_METHODS
+	mov	ecx, offset KAPI_NUM_METHODS
 	mov	edx, ecx
 	print "Kernel Api Methods: "
 	call	printdec32
@@ -156,7 +174,7 @@ cmd_kapi:
 	call	printhex8
 	call	printspace
 
-	mov	edx, [esi + 4 * KAPI_NUM_METHODS]	# read kapi_ptr
+	mov	edx, [esi + _KAPI_IDX_SIZE]	# read kapi_ptr
 	call	printhex8
 	call	printspace
 
@@ -183,3 +201,4 @@ cmd_kapi_test:
 	pop	fs
 	.endif
 	ret
+.endif

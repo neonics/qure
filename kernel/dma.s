@@ -10,6 +10,8 @@
 .intel_syntax noprefix
 .text32
 
+.if DEFINE
+
 DMA_DEBUG = 0
 
 ########################################################################
@@ -21,6 +23,7 @@ dma_buffer:	.long 0
 dma_mode:	.byte 0x58
 dma_channel:	.byte 0
 
+.endif
 
 # Command bits for the command port
 DMA_CMD_Mem2Mem         = 1   #enable mem to mem (chan 0+1)
@@ -81,6 +84,7 @@ DMA_CMD_DACK_Sense_Hi   = 128 #1=Dack sensing=active high# 0=lo
 					#        10=block
 					#        11=cascade
 
+.if DEFINE
   DMA_ClearFlipFlop:	.byte 0x0C, 0xD8    #W Clear byte ptr flip-flop  (Write
 					# means clear ff: first OUT16=low byte)
   DMA_MasterReset:	.byte 0x0D, 0xDA    #W Master Clear (reset)
@@ -305,3 +309,4 @@ dma_transfer:	# Proc Far
 
 	pop_	di dx ebx cx eax
 	ret
+.endif

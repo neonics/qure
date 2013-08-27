@@ -10,6 +10,10 @@ DEV_ATA_PRINT_BUS = 0
 .intel_syntax noprefix
 .text32
 
+.if DEFINE
+.ifndef __DEV_DEFINED
+__DEV_DEFINED=1
+
 ###############################
 DECLARE_CLASS_BEGIN dev
 #.struct OBJ_STRUCT_SIZE	# variable length objects
@@ -338,3 +342,6 @@ cmd_dev_list:
 
 2:	printlnc 12, "dev_list: device system not initialized"
 	ret
+
+.endif	# __DEF_DEFINED
+.endif	# DEFINE

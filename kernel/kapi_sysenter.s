@@ -111,7 +111,7 @@ DEBUG_DWORD esp
 	DEBUG_DWORD edx, "user eip"
 	DEBUG_DWORD [ecx], "kapi"
 	# perform the call
-	cmp	[ecx], dword ptr KAPI_NUM_METHODS
+	cmp	[ecx], dword ptr offset KAPI_NUM_METHODS
 	jae	9f
 
 DEBUG "copy stackargs"

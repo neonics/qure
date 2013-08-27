@@ -3,6 +3,8 @@
 ##############################################################################
 .intel_syntax noprefix
 
+.if DEFINE
+
 PCI_DEBUG = 0
 
 .text32
@@ -366,6 +368,10 @@ pci_device_class_names:
 .long dc10$, sc10$
 .long dc11$, sc11$
 
+.endif
+
+.ifndef __PCI_DECLARED
+__PCI_DECLARED=1
 # PCI Driver stuff:
 .struct 0
 pci_driver_pci_class:	.byte 0
@@ -397,6 +403,9 @@ _PCI_DECLARATION_NR=0
 	.text32
 .endm
 
+.endif
+
+.if DEFINE
 
 .text32
 
@@ -544,6 +553,7 @@ pci_clear_obj_counters:
 	pop	eax
 	ret
 
+# prerequisite: pci_clear_obj_counters (array_new)
 # in: eax = const device class name pointer
 # out: al = object counter
 pci_get_obj_counter:
@@ -554,6 +564,7 @@ pci_get_obj_counter:
 	mov	esi, eax
 	call	strlen
 	mov	ecx, eax
+	mov	eax, [dev_pci_obj_counters]
 	mov	eax, [dev_pci_obj_counters]
 	ARRAY_ITER_START eax, edx
 	mov	edi, [eax + edx]
@@ -1848,3 +1859,4 @@ dev_pci_qemu_vid_driver:
 #Bus 02 Slot 02 Vendor 1274 1371  Revision 02 Class 04.01.00 Audio Device Multimedia Controller Single function General device  SubSystem Vendor ID 1274 ID 1371
 #Bus 02 Slot 03 Vendor 15ad 0770 Command 0002 Status 0000 Single function General device  SubSystem Vendor ID 15ad ID 0770 > EHCI Driver USB 2.14
 
+.endif

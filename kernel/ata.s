@@ -3,10 +3,15 @@
 .intel_syntax noprefix
 .code32
 
+.if DEFINE
+.print " <<<< DEFINE ata >>>> "
+
 ATA_DEBUG = 0		# 0..4
 ATAPI_DEBUG = 0		# 0..3
 
+.endif
 ATA_MAX_DRIVES = 8	# 4 buses with 2 drives each supported
+.if DEFINE
 
 # PCI: class 1.1 (mass storage . ide)
 # BAR0: IO_ATA_PRIMARY			0x1F0
@@ -260,9 +265,10 @@ ata_bus_dcr_rel:	# the DCR ports, in relative offset to the bus port
 
 .data SECTION_DATA_BSS
 ata_drive_types: .space 8
+.endif
 	TYPE_ATA = 1
 	TYPE_ATAPI = 2
-
+.if DEFINE
 .struct 0
 ata_driveinfo_sectorsize:	.long 0
 ata_driveinfo_max_lba:		.long 0, 0
@@ -519,16 +525,20 @@ ata_list_drives:
 
 ###################################################
 .if 1
+.extern IRQ_BASE
+.extern IRQ_PRIM_ATA
+.extern IRQ_SEC_ATA
 	mov	cx, cs
 	mov	ebx, offset ata_isr1
-	add	ebx, [realsegflat]
-	mov	ax, IRQ_BASE + IRQ_PRIM_ATA
+#	add	ebx, [codebase]
+	mov	ax, offset IRQ_BASE + IRQ_PRIM_ATA
 	call	hook_isr
 
 	mov	cx, cs
 	mov	ebx, offset ata_isr2
 	add	ebx, [realsegflat]
-	mov	ax, IRQ_BASE + IRQ_SEC_ATA
+#	mov	ax, offset IRQ_BASE + offset IRQ_SEC_ATA
+	mov	ax, offset IRQ_BASE + IRQ_SEC_ATA
 	call	hook_isr
 
 
@@ -931,7 +941,8 @@ read$:	call	print
 	.endif
 	mov	[edi + ata_driveinfo_sectorsize], dword ptr 2048
 	jmp	2f
-0:	.if ATA_DEBUG
+0:
+	.if ATA_DEBUG
 		PRINT	" Reserved "
 	.endif
 2:	# TODO: check if these values match the previously detected ones.
@@ -951,7 +962,7 @@ read$:	call	print
 	test	dl, 1<<7
 	jnz	0f
 	PRINT	" Removable "
-0:	
+0:
 
 	# 6:5 CMD DRQ type:
 	#    00=microprocessor DRQ (DRQ within 3 ms of 0xA0 packet cmd)
@@ -992,7 +1003,7 @@ read$:	call	print
 		test	dx, 1<<10
 		jz	0f
 		PRINTc	7, " LBA48 "
-	0:	
+	0:
 
 		mov	dx, [parameters_buffer$ + ATA_ID_UDMA]
 		PRINTc	7, " UDMA: "
@@ -1194,6 +1205,7 @@ ata_wait_status$:
 	add	dx, ATA_PORT_STATUS
 
 	.if ATA_DEBUG > 1
+		DEBUG_DWORD edx
 		PRINTc	5 "[Wait"
 		pushcolor 0x0c
 		or	bh, bh
@@ -1238,7 +1250,7 @@ ata_wait_status$:
 		PRINTC 0xfb, "WAIT TIMEOUT"
 	.endif
 
-1:	
+1:
 	.if ATA_DEBUG
 		call	ata_print_status$
 	.endif
@@ -1329,7 +1341,8 @@ ata_select_drive$:
 	jnz	1f
 	stc
 
-1:	.if ATA_DEBUG > 1
+1:
+	.if ATA_DEBUG > 1
 		pushf
 		jnc	0f
 		printc 4, "err"
@@ -1961,7 +1974,8 @@ ata_wait_irq:
 	stc
 	pop	ecx
 	ret
-1:	.if ATA_DEBUG > 2
+1:
+	.if ATA_DEBUG > 2
 		DEBUG "ata_wait_irq: Got IRQ"
 		neg	ecx
 		add	ecx, ATA_WAIT_IRQ_TIMEOUT
@@ -2185,3 +2199,7 @@ cmd_disks_print$:
 
 9:	printlnc 12, "usage: disks [-v]"
 	ret
+
+.else # DEFINE
+.print " <<<< declare ata >>>> "
+.endif # DEFINE

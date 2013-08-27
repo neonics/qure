@@ -15,6 +15,7 @@
 ############################# 32 bit macros 
 .if !DEFINE
 
+.ifndef __DEBUG_DECLARED
 .macro OK
 	PRINTLNc 0x0a, " Ok"
 .endm
@@ -200,6 +201,22 @@ DEBUG_DWORD \r
 .endm
 
 
+.macro ASSERT_ARRAY_IDX index, arrayref, elsize, mutex=0
+	.ifnc 0,\mutex
+	MUTEX_SPINLOCK_ \mutex
+	.endif
+	push_txt "\arrayref"
+	push	\elsize
+	push	\arrayref
+	push	\index
+	call	debug_assert_array_index
+	.ifnc 0,\mutex
+	MUTEX_UNLOCK_ \mutex
+	.endif
+.endm
+
+__DEBUG_DECLARED=1
+.endif
 
 .else	# DEFINE = 1
 
@@ -309,4 +326,74 @@ debug_printvalue:
 	pop	ebp
 	popfd
 	ret	12
+
+# in: [esp+0] index
+# in: [esp+4] arrayref
+# in: [esp+8] elsize
+# in: [esp+12] arrayref name
+debug_assert_array_index:
+	push	ebp
+	lea	ebp, [esp + 8]
+	pushf
+	push	eax
+	push	edx
+	push	ebx
+	push	ecx
+	mov	ebx, [ebp + 4]	# arrayref
+	mov	edx, [ebp + 0]	# index
+
+	# check range
+	cmp	edx, [ebx + array_index]
+	jb	1f
+	printc 4, "array index out of bounds: "
+	jmp	9f
+
+	# check alignment
+1:	xor	eax, eax
+	xchg	edx, eax
+	mov	ecx, [ebp + 8]	# elsize
+	div	ecx
+	or	edx, edx
+	jz	0f
+	printc 4, "array index alignment error: off by: "
+	call	printhex8
+	printc 4, " relative to "
+	mov	edx, eax
+	call	printhex8
+	jmp	9f
+
+0:	pop	ecx
+	pop	ebx
+	pop	edx
+	pop	eax
+	popf
+	pop	ebp
+	ret	16
+
+9:	printc 4, " array: "
+	push	[ebp + 12]	# name
+	call	_s_print
+	call	printspace
+	push	ebx
+	call	_s_printhex8
+
+	printc 4, " index="
+	push	dword ptr [ebp + 0]	# index
+	call	_s_printhex8
+
+	printc 4, " max="
+	push	dword ptr [ebx + array_index]
+	call	_s_printhex8
+
+	call	newline
+
+	printc 4, "caller: "
+	mov	edx, [ebp - 4]
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+	call	newline
+	int	3
+	jmp	0b
 .endif
+

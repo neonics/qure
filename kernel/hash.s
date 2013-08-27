@@ -17,6 +17,8 @@ ll_v_value: .long 0	# value is tested for nonzero. If 0, it's a reference.
 ll_v_prev: .long 0
 ll_v_next: .long 0
 LL_2D_STRUCT_SIZE = 6*4
+
+.if DEFINE
 .text32
 ###########################################################################
 
@@ -98,21 +100,30 @@ buf_new_:
 		mov edx, eax
 		call printdec32
 		printc 5, "): "
+		pop edx
 	.endif
 
 	add	eax, 8
 	call	mallocz_
+	jc	9f
 	pop	[eax]
 	mov	[eax + 4], dword ptr 0
 	add	eax, 8
 
 	.if BUF_DEBUG
+		pushf
+		push edx
 		mov edx, eax
 		call printhex8
 		call newline
 		pop edx
+		popf
 	.endif
 	ret
+
+9:	pop	eax
+	ret
+
 
 buf_free:
 	sub	eax, 8
@@ -174,11 +185,13 @@ pop ecx
 pop edi
 
 	.if BUF_DEBUG
+		pushf
 		push edx
 		mov edx, eax
 		call printhex8
 		call newline
 		pop edx
+		popf
 	.endif
 	ret
 
@@ -237,7 +250,9 @@ array_newentry:
 	# REMEMBER: eax might be updated, so always store it after a call!
 	pop	ebp
 	ret
+.endif
 
+.ifndef __HASH_DECLARED
 .macro ARRAY_ITER_START base, index
 	xor	\index, \index
 	jmp	91f
@@ -249,7 +264,9 @@ array_newentry:
 91:	cmp	\index, [\base + array_index]
 	jb	90b
 .endm
+.endif
 
+.if DEFINE
 ##################################################
 # Pointer Array
 
@@ -276,8 +293,9 @@ ptr_array_newentry:
 0:	add	[eax + array_index], dword ptr 4
 	pop	ebp
 	ret
+.endif
 
-
+.ifndef __HASH_DECLARED
 .macro PTR_ARRAY_ITER_START base, index, ref
 	xor	\index, \index
 	jmp	91f
@@ -289,6 +307,7 @@ ptr_array_newentry:
 91:	cmp	\index, [\base + array_index]
 	jb	90b
 .endm
+.endif
 
 
 ##################################################
@@ -300,11 +319,16 @@ obj_size:	.long 0
 OBJ_STRUCT_SIZE = .
 .text32
 
+.if DEFINE
+
 obj_array_newentry:
 	call	array_newentry
 	mov	[eax + edx + obj_size], ecx
 	ret
 
+.endif
+
+.ifndef __HASH_DECLARED
 .macro OBJ_ARRAY_ITER_START base, index, ref
 	xor	\index, \index
 	jmp	91f
@@ -316,9 +340,12 @@ obj_array_newentry:
 91:	cmp	\index, [\base + array_index]
 	jb	90b
 .endm
+.endif
 
 
 ##################################################
+
+.if DEFINE
 
 # in: eax = base ptr
 # in: ecx = entry size / size of memory to remove
@@ -338,7 +365,10 @@ array_remove:
 0:	sub	[eax + buf_index], ecx
 	ret
 
+.endif
 
+.ifndef __HASH_DECLARED
+__HASH_DECLARED=1
 	.macro ARRAY_LOOP arrayref, entsize, base=eax, index=edx, errlabel=9f
 		L_entsize = \entsize
 		L_base = \base
@@ -381,3 +411,4 @@ array_remove:
 		jc	\errlabel
 		mov	\arrayref, eax
 	.endm
+.endif
