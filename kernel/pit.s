@@ -469,7 +469,7 @@ get_time_ms_40_24:
 	mov	ah, al
 	in	al, PIT_PORT_COUNTER_0
 	xchg	al, ah
-	popf
+	#popf
 
 	# edx = counter (counts down!)
 	# (pit_timer_interval - counter) / pit_timer_interval = fraction
@@ -527,6 +527,7 @@ get_time_ms_40_24:
 	sbb	ecx, edi
 	jns	2f
 
+.if 1
 	printc 4, "ERROR: last time diff"
 	DEBUG_DWORD edx
 	DEBUG_DWORD eax
@@ -537,6 +538,7 @@ get_time_ms_40_24:
 	DEBUG_DWORD [clock_ms+4]
 	DEBUG_DWORD [last_clock_ms]
 	DEBUG_DWORD [last_clock_ms+4]
+.endif
 
 2:	mov	[last_time], edx
 	mov	[last_time+4], eax
@@ -544,6 +546,9 @@ get_time_ms_40_24:
 	mov	[last_clock_ms], ecx
 	mov	ebx, [clock_ms+4]
 	mov	[last_clock_ms+4], ebx
+
+	popf	# 'sti'
+
 	pop_	esi edi ecx ebx
 	ret
 
