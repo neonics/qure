@@ -734,7 +734,7 @@ arp_request:
 	mov	byte ptr [edi + edx + arp_entry_status], ARP_STATUS_REQ
 
 	NET_BUFFER_GET
-	jc	6f
+	jc	9f
 	push	edi
 
 	# in: ebx = nic object

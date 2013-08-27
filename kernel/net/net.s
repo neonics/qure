@@ -1002,6 +1002,11 @@ net_rx_queue_handler:
 .if NET_QUEUE_DEBUG2
 	printcharc 0xa0,'0'
 .endif
+
+
+	call	net_tcp_cleanup
+
+
 	# if we don't ever exit, do schedule here, then jump back:
 	# call schedule_near
 	# jmp net_rx_queue_handler
@@ -1173,4 +1178,3 @@ cmd_netstat:
 	call	net_rx_queue_print
 	.endif
 	ret
-

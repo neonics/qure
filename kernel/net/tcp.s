@@ -120,6 +120,7 @@ net_ipv4_tcp_print:
 # TCP Connection management
 #
 TCP_CONN_REUSE_TIMEOUT	= 30 * 1000	# 30 seconds
+TCP_CONN_CLEAN_TIMEOUT	= 5 * 60 * 1000	# 5 minutes
 TCP_CONN_BUFFER_SIZE	= 2 * 1500 # 2048
 .struct 0
 # Buffers: not circular, as NIC's need contiguous region.
@@ -328,8 +329,12 @@ net_tcp_conn_newentry:
 	MUTEX_SPINLOCK_ TCP_CONN
 	push_	ecx edi edx eax
 
-	mov	edi, [clock_ms]
+	call	get_time_ms
+	mov	edi, eax
 	sub	edi, TCP_CONN_REUSE_TIMEOUT
+	jns	1f
+	xor	edi, edi
+1:
 
 	# find free entry (use status flag)
 	ARRAY_LOOP	[tcp_connections], TCP_CONN_STRUCT_SIZE, eax, edx, 9f
@@ -431,7 +436,9 @@ net_tcp_conn_update:
 
 	add	eax, [tcp_connections]
 
-	mov	ebx, [clock_ms]
+	mov	ebx, eax
+	call	get_time_ms
+	xchg	eax, ebx
 	mov	[eax + tcp_conn_timestamp], ebx
 
 	mov	ebx, [esi + tcp_seq]
@@ -464,7 +471,16 @@ net_tcp_conn_list:
 	ARRAY_LOOP	[tcp_connections], TCP_CONN_STRUCT_SIZE, esi, ebx, 9f
 	printc	11, "tcp/ip "
 
+	call	net_tcp_conn_print$
 
+	ARRAY_ENDL
+9:	MUTEX_UNLOCK TCP_CONN
+	ret
+
+
+# in: esi+ebx
+net_tcp_conn_print$:
+	push_	edx eax
 	.macro TCP_PRINT_ADDR element
 		mov	eax, [esi + ebx + \element\()_addr]
 		call	net_print_ip
@@ -505,7 +521,8 @@ net_tcp_conn_list:
 	pop	esi
 
 	print	" last comm: "
-	mov	edx, [clock_ms]
+	call	get_time_ms
+	mov	edx, eax
 	sub	edx, [esi + ebx + tcp_conn_timestamp]
 	call	printdec32
 	print	" ms ago"
@@ -571,8 +588,7 @@ net_tcp_conn_list:
 
 	call	newline
 
-	ARRAY_ENDL
-9:	MUTEX_UNLOCK TCP_CONN
+	pop_	eax edx
 	ret
 
 # out: ax
@@ -2045,3 +2061,38 @@ net_tcp_checksum:
 	pop	esi
 	ret
 
+net_tcp_cleanup:
+	push_	eax esi ebx edi
+
+	call	get_time_ms
+	mov	edi, eax
+	sub	edi, TCP_CONN_CLEAN_TIMEOUT
+	js	10f
+
+	MUTEX_SPINLOCK_ TCP_CONN
+	ARRAY_LOOP	[tcp_connections], TCP_CONN_STRUCT_SIZE, esi, ebx, 9f
+
+	cmp	byte ptr [esi + ebx + tcp_conn_state], -1
+	jz	1f
+
+	cmp	[esi + ebx + tcp_conn_timestamp], edi
+	ja	1f
+
+	xor	eax, eax
+	xchg	eax, [esi + ebx + tcp_conn_recv_buf]
+	or	eax, eax
+	jz	2f
+	call	mfree
+
+2:	xor	eax, eax
+	xchg	eax, [esi + ebx + tcp_conn_send_buf]
+	or	eax, eax
+	jz	2f
+	call	mfree
+
+2:	mov	byte ptr [esi + ebx + tcp_conn_state], -1
+
+1:	ARRAY_ENDL
+9:	MUTEX_UNLOCK TCP_CONN
+10:	pop_	edi ebx esi eax
+	ret
