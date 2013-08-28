@@ -3,6 +3,7 @@
 #
 .intel_syntax noprefix
 
+
 OO_DEBUG = 0
 
 # 'Class' class
@@ -44,8 +45,9 @@ CLASS_METHOD_STRUCT_SIZE = 12
 
 .if DEFINE
 
-.data SECTION_DATA_CLASSES
+.section .classdef
 class_definitions:	# idem to data_classdef_start
+
 .data
 class_instances:	.long 0	# aka objects
 #class_dyn_definitions:	.long 0 # ptr_array of dynamically registered class defs
@@ -54,6 +56,8 @@ class_instances:	.long 0	# aka objects
 # in: eax = class_ definition pointer
 # out: eax = instance
 class_newinstance:
+#DEBUG "class_newinstance"; DEBUG_DWORD [class_instances]
+#DEBUGS [eax+class_name]
 	push	ebp
 	lea	ebp, [esp + 4]	# for mallocz_
 #pushad
@@ -599,7 +603,19 @@ cmd_objects:
 	mov	ebx, [eax + obj_class]
 	mov	esi, [ebx + class_name]
 	call	print
-	call	newline
+
+######## print hierarchy
+	pushcolor 8
+0:	call	printspace
+	mov	ebx, [ebx + class_super]
+	or	ebx, ebx
+	jz	2f
+	mov	esi, [ebx + class_name]
+	call	print
+	jmp	0b
+2:	call	newline
+	popcolor
+########
 1:	PTR_ARRAY_ITER_NEXT edi, ecx, eax
 0:	ret
 9:	printc 4, "Unknown class: "
@@ -720,9 +736,19 @@ __OO_DECLARED=1
 
 
 .macro DECLARE_CLASS_BEGIN name, super=OBJ
-	.data SECTION_DATA_CLASS_M_DECLARATIONS;_DECL_CLASS_DECL_MPTR = .
-	.data SECTION_DATA_CLASS_M_OVERRIDES;	_DECL_CLASS_OVERRIDE_MPTR = .
-	.data SECTION_DATA_CLASS_M_STATIC;	_DECL_CLASS_STATIC_MPTR = .
+	.section .classdef$md; _DECL_CLASS_DECL_MPTR = .
+	.section .classdef$mo; _DECL_CLASS_OVERRIDE_MPTR = .
+	.section .classdef$ms; _DECL_CLASS_STATIC_MPTR = .
+
+#SECTION_DATA_CLASSES	= 7
+#SECTION_DATA_CLASS_M_DECLARATIONS= 8
+#SECTION_DATA_CLASS_M_OVERRIDES= 9
+#SECTION_DATA_CLASS_M_STATIC= 10
+#SECTION_DATA_CLASSES_END = 10
+
+#	.data SECTION_DATA_CLASS_M_DECLARATIONS;_DECL_CLASS_DECL_MPTR = .
+#	.data SECTION_DATA_CLASS_M_OVERRIDES;	_DECL_CLASS_OVERRIDE_MPTR = .
+#	.data SECTION_DATA_CLASS_M_STATIC;	_DECL_CLASS_STATIC_MPTR = .
 
 	.struct \super\()_STRUCT_SIZE
 	
@@ -750,7 +776,8 @@ __OO_DECLARED=1
 	_STRUCT_OFFS = .
 
 	.ifc \flag,OVERRIDE
-		.data SECTION_DATA_CLASS_M_OVERRIDES
+		#.data SECTION_DATA_CLASS_M_OVERRIDES
+		.section .classdef$mo
 			mptr_\name\()_\offs\()_flags:	.word CLASS_METHOD_FLAG_OVERRIDE
 			mptr_\name\()_\offs\()_idx:	.word 0 # TODO: find idx
 			mptr_\name\()_\offs\()_target:	.long \name
@@ -759,7 +786,8 @@ __OO_DECLARED=1
 		_DECL_CLASS_OVERRIDE_MCOUNT = _DECL_CLASS_OVERRIDE_MCOUNT + 1
 	.else
 	.ifc \flag,STATIC
-		.data SECTION_DATA_CLASS_M_STATIC
+		#.data SECTION_DATA_CLASS_M_STATIC
+		.section .classdef$ms
 			static_m_\name\()_\offs\():	.word CLASS_METHOD_FLAG_STATIC
 			mptr_\name\()_\offs\()_idx:	.word 0 # idx
 							.long \name	# target in obj
@@ -770,7 +798,8 @@ __OO_DECLARED=1
 	.else
 		.data SECTION_DATA_STRINGS
 		999:	.asciz "\name"
-		.data SECTION_DATA_CLASS_M_DECLARATIONS
+		#.data SECTION_DATA_CLASS_M_DECLARATIONS
+		.section .classdef$md
 			mptr_\name\()_flags:	.word CLASS_METHOD_FLAG_DECLARE
 			mptr_\name\()_idx:	.word _DECL_CLASS_DECL_MCOUNT
 			mptr_\name\()_target:	.long 999b
@@ -804,7 +833,8 @@ __OO_DECLARED=1
 
 	#################################################
 	# check if method declarations are contiguous
-	.data SECTION_DATA_CLASS_M_DECLARATIONS
+	#.data SECTION_DATA_CLASS_M_DECLARATIONS
+	.section .classdef$md
 	_DECL_CLASS_NUM_METHODS = ( . - _DECL_CLASS_DECL_MPTR )/4/3
 
 	.if (_DECL_CLASS_VPTR_SIZE )!= _DECL_CLASS_NUM_METHODS
@@ -824,7 +854,8 @@ __OO_DECLARED=1
 	#################################################
 	.data SECTION_DATA_STRINGS
 	999:	.asciz "\name"
-	.data SECTION_DATA_CLASSES
+	#.data SECTION_DATA_CLASSES
+	.section .classdef
 	class_\name\():
 		.long CLASS_STRUCT_SIZE			# class_def_size
 		.long _DECL_CLASS_SUPER			# class_super

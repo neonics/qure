@@ -236,14 +236,12 @@ sub parse_objdump_reloc
 				my $v = $3;
 
 				# sanitize
-				my ($l, $op, $o) = $v=~/^([^-]+)(\+|-)([^-]+)$/; #split /-/, $v;
 
+				if ( my ($l, undef, $op, $o) = $v=~/^([^-+]+)((\+|-)(.*?))?$/ )
+				{
 #				print "$secname [",sprintf("%08x",$a),"] [$t] [$v] [$l:$o]";
 
-				if ( defined $l )
-				{
 					$o=hex $o;
-
 
 					if ($syms{$l}{type} eq 'A')
 					{
@@ -256,16 +254,13 @@ sub parse_objdump_reloc
 					}
 					else
 					{
-					$t ne '16' and
 						push @addr32, $a;
 #						print " +";
 					}
 				}
 				else
 				{
-					$t eq '16'
-						? push @addr16, $a
-						: push @addr32, $a;
+					push @addr32, $a;
 				}
 
 #				print "\n";

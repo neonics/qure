@@ -2075,7 +2075,7 @@ cmd_mem$:
 	PRINT_MEMRANGE data_concat
 	#PRINT_MEMRANGE data_concat within data0's range
 	PRINT_MEMRANGE data_str
-	PRINT_MEMRANGE data_shell_cmds
+#	PRINT_MEMRANGE data_shell_cmds
 	PRINT_MEMRANGE data_classes
 	PRINT_MEMRANGE data_pci_driverinfo
 	PRINT_MEMRANGE data_fonts

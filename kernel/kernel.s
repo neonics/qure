@@ -40,11 +40,6 @@ data_tls_start:
 data_concat_start:
 .data SECTION_DATA_STRINGS
 data_str_start:
-.data SECTION_DATA_SHELL_CMDS
-data_shell_cmds_start:
-.data SECTION_DATA_CLASSES
-data_classes_start:
-data_classdef_start:	# used in oo.s
 .if KERNEL_SPLIT_RINGS
 .else
 .data SECTION_DATA_PCI_DRIVERINFO
@@ -135,6 +130,7 @@ include "iso9660.s", iso9660
 
 	# print
 	.global nprint
+	.global nprint_
 	.global nprintln
 	.global nprintln_
 	.global print
@@ -531,6 +527,7 @@ SCHEDULE_EARLY = 0
 	call	hash_test
 .endif
 
+	COLOR 7
 	I "Boot Drive: "
 	mov	ax, [boot_drive]
 	call	disk_print_label
@@ -587,6 +584,7 @@ SCHEDULE_EARLY = 0
 	call	cmd_smtpd
 	call	cmd_sshd
 	call	cmd_sipd
+	#call	cmd_cloudnetd  # will be committed shortly
 	YIELD	# give scheduler a chance to run daemons
 
 OPEN_SHELL_DEFAULT = 1	# see .if 1 below - kcons also prints the message
@@ -755,12 +753,6 @@ data_tls_end:
 data_concat_end:
 .data SECTION_DATA_STRINGS
 data_str_end:
-.data SECTION_DATA_SHELL_CMDS
-data_shell_cmds_end:
-.data SECTION_DATA_CLASSES
-data_classdef_end:	# used in oo.s
-.data SECTION_DATA_CLASSES_END
-data_classes_end:
 .if !KERNEL_SPLIT_RINGS
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_end:

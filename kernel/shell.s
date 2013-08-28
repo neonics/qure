@@ -56,7 +56,6 @@ SHELL_COMMAND_STRUCT_SIZE = .
 	.data SECTION_DATA_STRINGS
 		9: .asciz "\string"
 		8:
-	.data SECTION_DATA_SHELL_CMDS
 	.section .shellcmd
 		.long \addr
 		.long 9b
@@ -65,19 +64,9 @@ SHELL_COMMAND_STRUCT_SIZE = .
 .endm
 
 .macro SHELL_COMMAND_CATEGORY string
-.if 1
 	SHELL_COMMAND "\string",-1
-.else
-	.data SECTION_DATA_STRINGS
-		9: .asciz "\string"
-		8:
-	.data SECTION_DATA_SHELL_CMDS
-		.long -1
-		.long 9b
-		.word 8b - 9b
-	.text32
-.endif
 .endm
+
 .endif		# end declarations
 ############################################################################
 .if DEFINE	# begin definitions (code, data)
@@ -115,9 +104,7 @@ DECLARE_CLASS_END shell
 
 ############################################################################
 ### Shell Command list
-.data SECTION_DATA_SHELL_CMDS
 .section .shellcmd
-.align 4
 SHELL_COMMANDS:
 SHELL_COMMAND_CATEGORY "console"
 SHELL_COMMAND "cls",		cls
@@ -233,8 +220,7 @@ SHELL_COMMAND "play"		cmd_play
 SHELL_COMMAND "kapi"		cmd_kapi
 SHELL_COMMAND "kapi_test"	cmd_kapi_test
 SHELL_COMMAND "uptime"		cmd_uptime
-.data SECTION_DATA_SHELL_CMDS
-.space SHELL_COMMAND_STRUCT_SIZE
+# NOTE: linker must terminate list with LONG(0);
 ### End of Shell Command list
 ############################################################################
 

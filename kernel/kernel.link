@@ -45,6 +45,7 @@ SECTIONS
 
 	KERNEL_DATA_START = . ;
 	*(.data)
+
 	/* -- KAPI */
 
 	_KAPI_COUNTER = 0;
@@ -58,10 +59,18 @@ SECTIONS
 	*(.kapi$arg)
 		data_kapi_end = .;
 
-
 	*(.shellcmd)
 	LONG(0);	/* shell_command_code: end of list */
 
+	data_classes_start = .;
+	data_classdef_start = .;
+	*(.classdef)
+	data_classdef_end = .;
+/*	*(SORT(.classdef$*))*/
+	*(.classdef$md)
+	*(.classdef$mo)
+	*(.classdef$ms)
+	data_classes_end = .;
 
 	KERNEL_DATA_END = . ;
 	KERNEL_DATA_SIZE = ABSOLUTE(KERNEL_DATA_END - KERNEL_DATA_START);
