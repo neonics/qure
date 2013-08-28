@@ -454,7 +454,7 @@ pop edx
 
 	##############################################
 	# calculate stack
-DEBUG=3
+
 	# calculate kernel load end
 	mov	edx, [kernel_load_start_flat]
 	add	edx, offset KERNEL_SIZE
@@ -502,7 +502,7 @@ DEBUG=3
 		xor	ax,ax
 		int	0x16
 	.endif
-DEBUG=0
+
 	##############################################
 	# some last-minute realmode data gathering
 

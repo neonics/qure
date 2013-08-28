@@ -60,8 +60,8 @@ KAPI_MODE = KAPI_MODE_PAGE_INT		# ok
 	.section .kapi$ldt
 	DEFCALLGATE SEL_compatCS, _PTR, 3, \stackargs
   .endif
-
-	KAPI_\name = _KAPI_COUNTER
+	.offset _KAPI_COUNTER	# absolute section (aka .struct _KAPI_COUNTER)
+	KAPI_\name: #= _KAPI_COUNTER
 	.global KAPI_\name
 	.print "Declare Kernel API: \name"
 	_KAPI_COUNTER = _KAPI_COUNTER + 1

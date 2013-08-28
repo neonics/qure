@@ -42,7 +42,7 @@ _KAPI_COUNTER = 0;
 		data_kapi_start = .;
 	*(.kapi$idx)
 		_KAPI_IDX_SIZE = ABSOLUTE( . - data_kapi_start);
-		KAPI_NUM_METHODS = _KAPI_IDX_SIZE / 4;
+		KAPI_NUM_METHODS = ABSOLUTE(_KAPI_IDX_SIZE / 4);
 	*(.kapi$ptr)
 	*(.kapi$str)
 	*(.kapi$arg)
