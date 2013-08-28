@@ -6,19 +6,17 @@ OUTPUT_FORMAT(pe-i386)
 SEARCH_DIR("/usr/i686-cygwin/lib"); SEARCH_DIR("/usr/lib"); SEARCH_DIR("/usr/lib/w32api");
 SECTIONS
 {
-
 /*  --image-base 0x...
-
 	__ImageBase = 0;
 	__image_base__ = 0;
 */
 
   .text : 
   {
-  	kernel_start = .;
+	kernel_start = . ;
 	KERNEL_START = . ;
 
-_KAPI_COUNTER = 0;
+	/* Realmode Kernel */
 
   	KERNEL_CODE16_START = . ;
 	*(.text16)
@@ -31,15 +29,27 @@ _KAPI_COUNTER = 0;
 
 	REALMODE_KERNEL_END = .;
 
+
+	/* 32 bit kernel */
+
+
+	/* - code */
+
   	KERNEL_CODE32_START = . ;
-	/*ring2.o(.text)*/
 	*(.text)
 	KERNEL_CODE32_END = . ;
 	KERNEL_CODE32_SIZE = ABSOLUTE( KERNEL_CODE32_END - KERNEL_CODE32_START );
 
+
+	/* - data */
+
 	KERNEL_DATA_START = . ;
 	*(.data)
-		data_kapi_start = .;
+	/* -- KAPI */
+
+	_KAPI_COUNTER = 0;
+	data_kapi_start = .;
+
 	*(.kapi$idx)
 		_KAPI_IDX_SIZE = ABSOLUTE( . - data_kapi_start);
 		KAPI_NUM_METHODS = ABSOLUTE(_KAPI_IDX_SIZE / 4);
@@ -48,8 +58,16 @@ _KAPI_COUNTER = 0;
 	*(.kapi$arg)
 		data_kapi_end = .;
 
+
+	*(.shellcmd)
+	LONG(0);	/* shell_command_code: end of list */
+
+
 	KERNEL_DATA_END = . ;
 	KERNEL_DATA_SIZE = ABSOLUTE(KERNEL_DATA_END - KERNEL_DATA_START);
+
+
+	/* Signature */
 
 	kernel_signature = . ; LONG(0x1337c0de);
 	kernel_end = .;

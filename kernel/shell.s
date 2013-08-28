@@ -57,6 +57,7 @@ SHELL_COMMAND_STRUCT_SIZE = .
 		9: .asciz "\string"
 		8:
 	.data SECTION_DATA_SHELL_CMDS
+	.section .shellcmd
 		.long \addr
 		.long 9b
 		.word 8b - 9b
@@ -64,6 +65,9 @@ SHELL_COMMAND_STRUCT_SIZE = .
 .endm
 
 .macro SHELL_COMMAND_CATEGORY string
+.if 1
+	SHELL_COMMAND "\string",-1
+.else
 	.data SECTION_DATA_STRINGS
 		9: .asciz "\string"
 		8:
@@ -72,6 +76,7 @@ SHELL_COMMAND_STRUCT_SIZE = .
 		.long 9b
 		.word 8b - 9b
 	.text32
+.endif
 .endm
 .endif		# end declarations
 ############################################################################
@@ -111,6 +116,7 @@ DECLARE_CLASS_END shell
 ############################################################################
 ### Shell Command list
 .data SECTION_DATA_SHELL_CMDS
+.section .shellcmd
 .align 4
 SHELL_COMMANDS:
 SHELL_COMMAND_CATEGORY "console"
@@ -813,9 +819,9 @@ shell_execute$:
 	jz	2f
 
 	mov	edx, offset SHELL_COMMANDS
-0:	cmp	[edx + shell_command_code], dword ptr 0
+0:	cmp	[edx + shell_command_code], dword ptr 0 # EOL
 	jz	2f
-	cmp	[edx + shell_command_code], dword ptr -1
+	cmp	[edx + shell_command_code], dword ptr -1 # category
 	jz	3f
 
 	mov	esi, [edx + shell_command_string]
@@ -1036,10 +1042,11 @@ cmd_help_intro$:
 cmd_help$:
 	# calculate shell command category name maxlen
 	mov	ebx, offset SHELL_COMMANDS
+
 	xor	edx, edx
-0:	cmp	[ebx + shell_command_string], dword ptr 0
+0:	cmp	[ebx + shell_command_code], dword ptr 0	# EOL
 	jz	0f
-	cmp	[ebx + shell_command_code], dword ptr -1
+	cmp	[ebx + shell_command_code], dword ptr -1 # cat label
 	jnz	1f
 	mov	ax, [ebx + shell_command_length]
 	cmp	ax, dx
@@ -1055,13 +1062,13 @@ cmd_help$:
 
 	#
 	mov	ebx, offset SHELL_COMMANDS
-0:	mov	esi, [ebx + shell_command_string]
+0:	cmp	[ebx + shell_command_code], dword ptr 0 # EOL
+	jz	0f
+	mov	esi, [ebx + shell_command_string]
 	or	esi, esi
 	jz	0f
-	cmp	[ebx + shell_command_code], dword ptr 0
-	jz	0f
-	cmp	[ebx + shell_command_code], dword ptr -1
-	jnz	1f
+	cmp	[ebx + shell_command_code], dword ptr -1 # cat label
+	jnz	1f	# not cat
 	call	newline	# prints newline for first cat too - after help intro.
 	mov	ah, 15
 	call	printc
