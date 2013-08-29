@@ -214,6 +214,7 @@ include "iso9660.s", iso9660
 	.global udelay
 	.global pit_timer_frequency
 	.global pit_timer_period
+	.global clock
 	.global clock_ms
 	.global get_time_ms
 
@@ -584,7 +585,7 @@ SCHEDULE_EARLY = 0
 	call	cmd_smtpd
 	call	cmd_sshd
 	call	cmd_sipd
-	#call	cmd_cloudnetd  # will be committed shortly
+	call	cmd_cloudnetd
 	YIELD	# give scheduler a chance to run daemons
 
 OPEN_SHELL_DEFAULT = 1	# see .if 1 below - kcons also prints the message

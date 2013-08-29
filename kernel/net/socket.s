@@ -411,9 +411,11 @@ socket_write:
 
 	stc
 	jmp	9f
+
 #socket_write_udp$:
 #	mov	eax, [eax + sock_cust]
 #	call	net_udp_sendbuf
+#	jmp	9f
 
 
 socket_write_tcp$:
@@ -634,7 +636,7 @@ net_socket_deliver_udp:
 # precondition: [socket_array] locked
 # in: eax = socket index
 # in: ebx = ipv4 frame
-# in: dx = [port]
+# in: edx = [dest port] [peer port]
 # in: esi = payload
 # in: ecx = payload len
 net_socket_in_append$:
@@ -659,7 +661,7 @@ net_socket_in_append$:
 
 	test	edi, SOCK_READPEER
 	jz	1f
-	add	edx, 6
+	add	edx, 12
 1:	bt	edi, SOCK_READTTL_SHIFT
 	adc	edx, 0
 	call	buffer_put_word
@@ -670,6 +672,10 @@ net_socket_in_append$:
 	mov	edx, [ebx + ipv4_src]
 	call	buffer_put_dword
 	mov	dx, [esp]	# port
+	call	buffer_put_word
+	mov	edx, [ebx + ipv4_dst]
+	call	buffer_put_dword
+	mov	edx, [esp+2]
 	call	buffer_put_word
 
 	# write ttl

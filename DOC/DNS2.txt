@@ -1,0 +1,292 @@
+Free Name Service
+
+[intro: EnclosedSource.txt]
+
+The emphasis should not be on a central tracking agency of the kind that knows more than it reveals. The source shows what is sent, aswell as how to retrieve what anyone sent.
+Thus, each instance can mirror the central database, making it so, that any listing in it is able to be contacted for data retrieval. In this way, a phonebook is passed along.
+
+
+This constitutes a truly free telephone book. All contacts are shared.
+
+The phonebook is able to have many structures applied to it.
+A common structure is built in, and that is the propagation or hierarchy of modification.
+The first instance will receive the contacts of all it's children, and shares the contacts with all of them, making them equal in providing all known shared contacts.
+Any instance serves like a name server. On notification, a name server request is made, and it lists all contacts. The server stores the address of the client to the list of contacts, and attempts to connect to the name service of the client (UDP DNS). The client will send BUSY if it is still processing the list. This will take a number of clocks, and interrupts can occur, such as the request. It will keep attempting to connect, and mark this in it's phonebook.
+Once connected, it makes the same request it received (NS lookup), and compares the list. The list should match certain criteria, so that certain actions can be taken. If it lists the client itself, then it advertises itself as a name service, which it proves to do correctly by providing it's own IP. It should further include all addresses received from the server.
+
+The instance can further specify addresses it knows, that it did not receive from the server.
+This includes LAN addresses of other local instances. Since one is accessible, it takes care of distributing communication to the local network.
+
+It can also specify public IP addresses, which would only occur when groups have not met yet. This can occur under very specific circumstances.
+
+Along the list of NS records, it also contains PTR records that indicate the parent. It also is able to show the lineage for an address in a name form. 
+
+To this point, such a DNS functions entirely different than the commercial name services, which require manual configuration. To this point, there is no human intervention, as no names are given to the addresses.
+
+The DNS further advertises for which domains it is authoritative. This authority includes a network name: a list of it's contacts who agreed that the domain was free, and claimed by the name service.
+This list of contacts can be queried, and will report for which domain names they are authoritative.
+Such contacts, if their agreement is true, would report themselves as authoritative for the domain.
+
+Such a network name is established automatically, by a group of contacts who are in communication, using a protocol for joint decision. 
+Scenario:
+	one instance claims a name. It has a list of up-to-date contacts, where the entire name database is shared completely. (even if each has a private view, a consensus can be established).
+	It reports itself as authoritative for the domain name to all it's contacts, thereby requesting them to become a name server for that domain aswell.
+	The domain name is the name of the group agreement.
+	All the contacts respond by asking for the name servers of this domain. They do not immediately receive an answer, as the instance is gathering answers, thus knowing which ones are online (ping) and willing (which they are by default).
+	Once some time has passed, a response is sent to all who asked for the list. In this response is the entire list. (alt scenario: the instance, and the contact).
+	Next, the instance queries all the contacts for the name servers of the domain. It should receive the same list it sent, ordered by a sort parameter. It now has a verified list of name servers for the domain. 
+	
+		sort parameter: 
+			1) ordered uniquely using both IP's as a seed for a random order in a
+			shared algorithm, guaranteed to produce the same order with the same seed.
+2) ordered according to the reception/processing of the responses of the first instance. 
+
+
+
+Trust
+	The other name servers, those who were asked to participate, also have a complete list,
+	and they will attempt to verify mutual willingness.
+
+	A single order (sequence) is shared. This sequence is circular. Further, the positions relative to other instances can have two meanings, measured to the edges.
+	The first order is the order as provided by the initial instance. In this instance, it put itself first.
+	The verification can be done most efficiently by clustering the group in two. All even entries connect to their next odd entry. This was already done by the domain registrar (the one initiating the domain registration), in the case of 0 connect to 1..N. Thus, each name service will now know whether to initiate contact, or expect contact from the one previous in the list.
+	They then proceed in some optimum order, whereby each contacts all others, and where it is possible that inconsistencies can be detected, and the latest 'alive' status can be propagated.
+
+Mistrust
+
+It is possible to claim a name that is taken. It will then take a number of instances to build an authority. Instances that are unaware of the domain name may agree unwittingly, and then later becoming aware of the conflicting authority. The default behaviour might be to merge the lists.
+To go counter to this, means to override the merge feature, and deny the pre-existing nameservers as authoritative for the name. Such modifications may occur, where a movement creates a circle of trust under a free name, and become a distinct authority, offering a different view on the network name authority picture.
+
+It is possible to hide such a name from any name service who is authoritative for the name, by reflecting it's view. This way it will be kept up to date with all the instances who have different authority over the name.
+
+When this is not hidden, and every client is loyal to it's own authority and circle of trust, it will know when it encounters a different list for a name that is not the one shared among it's contacts and notifies them, and thus, now both authorities know about each other.
+
+Assuming there is an original circle of trust, which makes public all the knowledge it gathered, it will then be possible to be notified of name disputes. When a disputed name is queried (by a non-authoritative instance) the address of a temporary page can be given, which shows the various versions of the name, and the number of authorities, aswell as statistics on queries.
+The statistics do not include the queries from the other authority, but, the number of NS lookups can be compared with the number of A lookups done by the same IP.
+
+
+Reliability
+
+There will be a builtin name, a shared list, containing the entire population, aswell as their cooperation or allegiance. This list is beyond names. It is the main registry of all name servers.
+Even though sabotage is thinkable from within the system, the system itself must have a foundation that is shared even by instances modified to exempt themselves from the imposed view.
+There must be a way for contact, and this is made possible by maintaining a list of all instances as name servers for the nameless root domain.
+
+Since the basis of the name service is nameless, there is no claim to it. It is the invisible foundation for all name registration and labeling of the network. 
+Should it be so that an authority is established that dictates which name servers are authoritative without they themselves being subject to change, there is then not total freedom.
+These root nameservers are rooted. There is a single list, that is authoritative for the entire name system. This is not a Dynamic Name Service.
+
+It is not that all instances must be an authoritative name server for all domains.
+Those that are not, however, can either dispute the name, or simply not carry it and rely on the authoritative servers. They themselves must have a list of the authoritative servers, and so can perform query redirects at the minimum.
+
+In the 'cloud' name service, the list of name services are dynamic. The load is balanced.
+When an instance comes online, it uses it's database to connect and report itself as available.
+It will have two classes of name information: persistent, and dynamic. The dynamic part is where the load is balanced. This is where temporary authoritative begins.
+
+Temporary Authoritative
+
+Upon notifying the nameless name, the change is propagated to all.
+The protocol for DNS is extended to include a notification area. In this notification area are listed the instances that have come online, and the instances that have become unresponsive, aswell as potentially other information. This allows for propagation of information in an on-demand fashion.
+
+The first ring or layer, maintains the highest frequency of information, containing a list of all instances. Any online notification is shared here first. This first ring then propagates this information to the next ring, which are referral services. These know the addresses of those who keep track faster, who have newer information. The third layer are non-name services. These will do requests to the referral services.
+
+Detection
+
+The nameless service itself is a way in which any instance can be queried to be an authoritative nameserver for the empty name. It will report itself as such in the root name servers list.
+If it answers name queries, it is a potential instance.
+
+One such name can be the uptime name, which is the circle of the most up to date list of online instances. 
+Such a name domain is ripe for load balancing. 
+
+Load Balancing
+
+As said, there are many views of the list possible. One such view includes network topology.
+This can be important considering the direction that mobile computing is taking, where each computer is a network node. A block of houses can serve as a wireless wire using cell-phones as hops.
+
+In network topology, not the physical view is mapped directly, but the nearness view according to ping times. Over time, the entire list is categorized by each instance using responsiveness statistics.
+The responsiveness is both an indication of network latency aswell as instance load. In the first case, it is wiser to connect to a nearer location due to faster communication. This is because the system aggregates, since local clusters share all information with each other faster than they do with the rest. They can suffer the penalty of more messages more easily due to higher bandwidth. A node is selected to communicate aggregate requests over the high latency connection. This system works relatively, and should work in a LAN to WAN scenario, aswell as on large networks. Not only is latency (response time) measured, also are hops.
+In the latter case, instance load, other systems are contacted preferrably. This adds no new communication to a loaded system, except to notify it of the aggregrate decision when the high intensity communication is settled. Or, you could say, all nodes (locally) are contacted, sorted by load. 
+
+Authority
+
+There are two levels of authority: authoritative name servers, and the authority over the names.
+Any client can be contacted to ask for the authoritative name servers of a domain. If it knows, it responds. Requests then proceed to the authoritative name servers. They report themselves as authoritative name servers, and thus indicate to serve the names.
+If it doesn't know, the next ring is contacted, as this information is not cached in the local cluster.
+The next ring may know or not, in which case it refers to the next ring.
+
+Note that only the first ring is single. All other rings are by necessity viewable as both a single, but less complete, ring, or as multiple rings. Any ring connectnig to a higher ring will do so using the nearest gateway, thus rooting a local ring onto a higher ring. This local ring shares this gateway.
+
+Local Load Balancing
+
+The shared dynamic database initially grows, as all new discovered information is cached.
+At a certain decision point, new information only serves for local caching, and is non authoritative. Requests from the non-cache group are redirected.
+
+At some point, authoritative data must be dismissed. This data is sorted according to usage statistics. It serves no point to keep data in memory when it is never requested. It starts with the least requested data, and enquires with the uptime service of the domain. It reports itself as no longer authoritative for the domain. 
+
+The authoritative domain services communicate this among themselves, and update their status area requesting assistance. Anytime the domain is queried, this information is passed on, along with a ratio. The standard for this ratio may require a parameter which is also sent, so that the ratio can be converted locally to assess priority. A client making a request for such a domain in need of load balancing name servers, considers whether to assist by rejecting it's least requested domain in favour of the new one.
+
+With each request, the priority ratio is increased. You can consider it a count down. Once it reaches zero, it means that throughout the network there is no support for the domain available. Since the authoritative name servers are persistent, they continue to advertise their most loaded domain.
+
+The persistent part of the memory is never discarded, since it is contains authoritative information that cannot be lost. These are the domains which it serves to uphold. Only when it receives confirmation that the domain service is provided by a replacement, can it make it unpersistent.
+The nonpersistent or dynamic part is cached persistently and survives reboots, although it has the lowest priority since changes may have occurred. It contacts the authoritative name servers to get a status update, including a change number, which it compares to see if it needs to update it's data.
+
+Any instance newly starting up, is not yet aware of the current situation, and thus, current demand for service has higher priority than remembered allegiance. It must assume that all it's nonpersistent and persistent data is out of date.
+
+Therefore, it first queries for the highest frequency ring to update it. Next it queries it's persistent names for updates. So far it has not yet loaded it's nonpersistent cache. Any queries done so far can include requests for service (sharing load of a domain), and will be accepted by the service, filling up it's nonpersistent space. Once no more requests of it are made, after completing the initial querying, if it has room left, it will proceed to load it's nonpersistent data. It does this by first querying all name servers for all nonpersistent domains. Any of them can indicate whether they require assistance, and, any one that does, will be accepted without question since it is already in nonpersistent storage (persistent dynamic storage). Even when it's dynamic space is full, it will continue to query the rest of the persistent names, and if it receives more requests for assistance, it will confirm that it would if it could.
+
+This last bit is done so that it can notify back that it has other domains there due to load which occupy the space needed to load balance it. Now the server asking for assistance has more domains to ask assistance for. If any one of them gets answered, the load is more balanced. If The server, call it X, needs support in balancing domain A, and node Y says that it would but can't because it is already balancing B, then X can advertise requests for assistance for A and B. If B is satisfied, it can notify Y of this which then replaces B with A.
+
+TODO: simulation.
+
+Single program, with a list of nodes. They can be traversed randomly to simulate time. Each node is visited at least once in each iteration. Each iteration, a count for the node is decreased, when 0, it ggets skipped until all counts are 0. This allows certain nodes to run at a higher frequency.
+
+Start with 1 bootstrap nodes, add 99 more nodes with the list of the bootstrap nodes. This list contains the 1 bootstrap node and 9 other nodes.
+The simulation starts by booting a bootstrap node.
+The bootstrap node discovers that none of the other bootstrap nodes are online. Thus, the bootstrap list – now the uptime list – needs to be balanced.
+Next, another node is activated. This may be one of the bootstrap nodes, or not, but since there is request for balancing, it makes no difference.
+
+Load Sharing
+
+When a request is answered to help serve a domain name, there can be trade. The second node coming online (each node being authoritative for it's own domain), will accept becoming a bootstrap node. None of the node so far is aware of this, as they have old lists. When more nodes come online, the updated list is propagated and persisted. Since there is shared interest in keeping the bootstrap circle alive, since everyone contacts it to find out the name servers, it doesn't ask anything in return.
+Then it asks the other node to host it's domain aswell. They both agree to host each other's domain.
+New nodes get added, until the low threshold is satisfied, and the load ratio above it – after a certain point, say, 2 or more name servers, only one extra name server per X online instances is needed.
+
+The third node activates, becomes/resumes to be a bootstrap node, and receives the information that the other two are authoritative for some domains. It stores this in it's nonpersistent cache: a name, and two IP addresses. When it needs to access the domains, it knows who to ask, and can refer anyone to the IP's.
+
+
+
+---------------------------------------------------------------------------
+
+
+Culture as organism: if all it's constituents die, and their fate is the same as the whole, then so will this form of culture die.
+
+The constituents of any collective must be of the nature of the collective. If their nature differs, the constituents will give rise to a collective with a different nature, namely that of the constituents.
+Culture is a context for living. 
+
+Money. The only thing I cannot give of myself is money, for I need to receive it before I have it to give.
+
+Analogue between qure/cloudnet and society: each instance notifies one other of it's presence.
+This is then propagated to a fail-safe cluster in which all data is shared completely.
+The analogue is that my presence is known to those I am in contact with, yet their faith in that this is good enough is lacking, and instead their faith is put in a central agency: a database with a user interface (a clerk): the municipal registry. Their inter-communication protocol is called 'GBA'. 
+
+The routers as current act as a simplified distribution network, as they forward messages to the requested destination.
+Assuming the destination to be a cluster (network) behind a designated address range, each hop will be a router nearer the destination.
+A minhop field can be added, where the minhop is the distance from the destination that the message must at least be forwarded. 
+
+The destination will be a single address (a netmask). This netmask restricts the number of IP's, and thus the precision of the distance from the destination. 
+The single destination address represents a virtual access point for a service. This service consists of all protocols and all ports, and is not restricted to a single predefined port. Port numbers indicate communication protocol standards, a field in a message referring to a grammar/protocol description.
+
+Generic protocol dictionary
+------------------
+
+When a packet is received on an unknown port – one for which no protocol is implemented – the dictionary can be contacted on the dictionary port returning a reference to the specification.
+This is an example of service lookup.
+
+Ports function differently on a cloud network. Any host can be contacted on the port. If it has the requested information (including recency parameter fitting) it responds directly. If it does not have it cached, it forwards the request unaltered to it's next closer hop for the requested network.
+
+Load Balanced Network.
+
+The routing scheme of this network is different than that of IPV4.
+At current there is no real IPV6 internet, except as accessible through an IPV4 gateway.
+
+IPV6 offers the basis for such a load balanced network, including routing. The address space is large enough to reserve multitudes of services, each consisting of a netmask covering the entire IPV4 internet many times over.
+If all public IPV4 addresses are reachable thus, and are able to receive IPV6 packets, be they tunneled over IPV4 or not, the IPV6 address range can extend into the local network. This means that any networked device can be addressed.
+
+Routing By Service.
+
+Cache services for webcontent, DNS, email, and IRC are very differently implemented.
+(I call any chat service IRC).
+
+Online Registry Service / Address Book
+
+This is the main registry for loadbalancing. It keeps track of all online instances, and what services they offer.
+It further is responsable for routing.
+One of these services is the registry service itself, which is thus cache distributed.
+
+A cache service, as offered in the message an instance sends to register itself as online,
+is taken into account. Initially, packets are forwarded to a single address (IPV4 range).
+When an instance reports offering the cache service, the registry will then increase it's address range/add the IP to DNS, and add the host to the list of caches, which will give it privilege to request zone transfers.
+
+DNS can be used as a routing system. The round robin in cached DNS responses distributes service requests across a number of IP's. 
+
+Smart DNS.
+
+Cached service zones.
+Instead of returning data round robin, the list is sorted and filtered.
+First, all IP's that are on the far side of the connection are put last. If the client (doing the lookup) connects to such IP's, the traffic would pass through the DNS server/network router. Thus it prefers to refer to nodes that do not result in traffic through the DNS server, depending on network topology.
+
+The client asks 'where to go for service?'.
+The response will be a short list of options, one optimal for each category of network distance and load.
+If the services are unavailable, the client can ask for further options, referring to the last response.
+The server keeps an internal state for the client's request. It keeps track of whether further requests are made in order to mark the earlier sent nodes as unreachable by the client.
+
+The server aggregates the information.
+The server itself has requested where to direct any clients for a particular service – by doing the same lookup, and caching it.
+The cache is tested by pinging it, and recording the hops. The same is done for the client by looking at the maxhop field, which is decremented by each node.
+Thus it knows two distances between a client and a server for which it is an information node.
+
+3 machines:
+server
+cache server
+client
+client requests address for server to cache server.
+Cache server forwards the request to server -changing the sender to itself – receives the response, caches it, changes the destination, and forwards the packet to the client. It now knows it's distance to server, and to client.
+
+Becoming a Cache server
+
+a client requests a service from server. The service is the registry service, and the request is an offer for service.
+The server remembers the request/offer, and puts the client in the 'unallocated' list.
+It maps it's request statistics for domains onto it's understanding of network topology,
+and determines whether the client is closer to a particular network than itself.
+
+Establishing networks.
+The network as established by a truly dynamic registry does not use IPV4 addressing.
+The server keeps track of all IPV4 origins (for which it is a destination).
+It does not order them in ipv4 address space.
+Instead, it maintains an IPV6 address list for the service.
+This address space is a dictionary of IPV4 – a flat list, addressed as a binary tree.
+The binary tree is sorted according to huffman's algorithm.
+The sort value is the frequency of distance. All nodes at the same distance are part of the same address space (network/netmask).
+
+The address space covers stateless services. It is used for internal communication.
+Any request for a service matching such an address book will be forwarded according to the tree.
+The message will be sent using the netmask as the target.
+
+The message will be sent successively to all addresses in the network, until a response is received.
+
+When a cache node comes online that is in the path of such packets,
+it will be closer to the target network,
+and thus have more accurate information regarding availability.
+
+It then can recognize that the message is not really meant for the IPV4 address, but that this address is but one node in the network of the netmask.
+The IPV6 notation with the IPV4 notation suffix can be used. The netmask is the same – an IPV6 address with 128-32=96 bit. The netmask /32 can then be expanded.
+
+For this system, an IPV6 address range with a short prefix needs to be reserved.
+Instead of building down, this network is built up, using the foundation of the IPV4 suffix, and building upon it many networks, one network per service.
+Any IPV4 node then, has multiple IPV6 addresses.
+
+ 1337 : [service]:[routing version]:[routing mask]:[reserved]:[routing] :i.p.v.4.
+
+The [service] will be a service number. [reserved] will be the space reserved for larger service numbers, and for larger routing prefixes.
+
+The first registry service instance allocates to itself the address:
+
+ 1337 : [registry]:1:[routing]:1:IPV4
+
+The 1 is the routing mask, applied from the bottom (instead of the customary top).
+1 bit of address space is allocated for the routing table, indicating there are at most 2 addresses.
+Counting starts at 1, 0 is reserved.
+
+ 1337 : [registry]:[1]:[1]:1:IPV4
+
+Another machine is allocated, receiving address 
+
+ 1337 : [registry]:[2]:[2]:2:IPV4
+ 1337 : [registry]:[3]:[2]:3:IPV4
+ 1337 : [registry]:[4]:[3]:4:IPV4
+ 1337 : [registry]:[4]:[3]:..:IPV4
+ 1337 : [registry]:[4]:[3]:7:IPV4
+
+
+ 1337 : [registry] :: 1 : [distance] : IPV4
+...
+

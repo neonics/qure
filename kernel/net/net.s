@@ -253,6 +253,8 @@ net_buffer_send:
 .include "net/sip.s"
 .include "net/ssh.s"
 
+.include "net/cloudnet.s"
+
 ###########################################################################
 # LLC - Logical Link Control
 #
@@ -336,6 +338,7 @@ protocol_checksum:
 #############################################################################
 
 # in: eax
+net_print_ipv4:
 net_print_ip:
 	push	eax
 	push	edx
@@ -564,7 +567,7 @@ net_handle_packet:
 # in: ecx = packet size
 net_packet_print:
 net_print_protocol:
-	push	edi
+	push_	edi esi ecx
 	PUSHCOLOR COLOR_PROTO_DATA
 
 	mov	ax, [esi + eth_type]
@@ -600,14 +603,12 @@ net_print_protocol:
 
 #	COLOR	0x87
 
-	push	esi
 	call	printspace
 	call	printspace
 	call	edi
-	pop	esi
 
 2:	popcolor
-	pop	edi
+	pop_	ecx esi edi
 	ret
 
 ####################################

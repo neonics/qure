@@ -70,7 +70,6 @@ net_put_eth_ipv4_udp_headers:
 	jc	9f
 
 	# UDP frame
-
 	push	eax
 	mov	eax, [esp + 4]	# edx: ports
 	bswap	eax
@@ -250,11 +249,12 @@ ph_ipv4_udp:
 	mov	eax, [edx + ipv4_dst]
 	cmp	eax, -1	# broadcast
 	jz	2f
-	mov	ebx, eax # multicast
-	rol	ebx, 4
-	and	bl, 0b1111
-	cmp	bl, 0b1110
+	# check multicast
+	rol	eax, 4
+	and	al, 0b1111
+	cmp	al, 0b1110
 	jz	2f	# 244.0.0.0/4 match
+	mov	eax, [edx + ipv4_dst]	# not multicast
 
 	push	eax
 	call	nic_get_by_ipv4	# in: eax = ip; out: ebx = nic (ignored)
@@ -266,6 +266,7 @@ ph_ipv4_udp:
 		# in: eax = ip
 		# in: edx = [proto] [port]
 		# in: esi, ecx: packet
+		push	ebx
 		mov	ebx, edx	# in: ebx = ip frame (for recvfrom)
 		push	edx
 		mov	edx, IP_PROTOCOL_UDP << 16
@@ -276,6 +277,7 @@ ph_ipv4_udp:
 	sub	ecx, UDP_HEADER_SIZE
 		call	net_socket_deliver_udp
 		pop	edx
+		pop	ebx	# nic
 	pop	eax	# udp frame
 
 	# call handler

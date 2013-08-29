@@ -619,6 +619,16 @@ COLOR_STACK_SIZE = 2
 ###############################################################################
 .if DEFINE
 
+###############################################################################
+# Globals
+
+.global printdec8
+.global printdec16
+.global printdec32
+
+###############################################################################
+# structures, data, code
+
 .if VIRTUAL_CONSOLES
 .tdata
 tls_console_cur_ptr:	.long 0
@@ -1450,6 +1460,13 @@ printbin8:
 printdec8:
 	push	edx
 	movzx	edx, dl
+	call	printdec32
+	pop	edx
+	ret
+
+printdec16:
+	push	edx
+	movzx	edx, dx
 	call	printdec32
 	pop	edx
 	ret

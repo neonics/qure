@@ -22,9 +22,9 @@ case "cygwin":
 alias disasm c:/apps/nasm-2.09.10/ndisasm.exe
 #####################################################################
 # VirtualBox aliases
-alias vm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe
-alias vmdisk vm modifyvm \"OS Test\" --boot1 disk --boot2 none --boot3 none
-alias vmcd vm modifyvm \"OS Test\" --boot1 dvd --boot2 none --boot3 none
+alias vbm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe
+alias vbmdisk vm modifyvm \"OS Test\" --boot1 disk --boot2 none --boot3 none
+alias vbmcd vm modifyvm \"OS Test\" --boot1 dvd --boot2 none --boot3 none
 alias stopvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe controlvm \"QuRe\" poweroff
 alias startvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe startvm \"QuRe\"
 alias restartvm c:/Progra~1/Oracle/VirtualBox/VBoxManage.exe controlvm \"QuRe\" reset
@@ -32,16 +32,18 @@ alias testvm "make && startvm && perl -e '<>' && stopvm"
 
 #####################################################################
 # VMWare aliases (pff...)
-set VMRUN_PATH = "c:/Program\ Files\ \(x86\)/VMware/VMware\ VIX/vmrun.exe"
-alias vmwlistvm "$VMRUN_PATH -T player list"
-alias vmwgetvm  "$VMRUN_PATH -T player list | grep QuRe.vmx"
-alias vmwgetvm2 "$VMRUN_PATH -T player list | grep QuRe2.vmx"
-set VMRUN_PATH2 = `cygpath -u "c:/Program Files (x86)/VMware/VMware VIX/vmrun.exe"`
-alias vmwreset  'set VMWVM=`vmwgetvm`  && "$VMRUN_PATH2" -T player reset "$VMWVM"'
-alias vmw2reset 'set VMWVM=`vmwgetvm2` && "$VMRUN_PATH2" -T player reset "$VMWVM"'
-alias vmwpause 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player pause "$VMWVM"'
-alias vmwunpause 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player pause "$VMWVM"'
-alias vmwscreenshot 'set VMWVM=`vmwgetvm` && "$VMRUN_PATH2" -T player captureScreen "$VMWVM" vmware.png'
+#set VMRUN_PATH = "c:/Program\ Files\ \(x86\)/VMware/VMware\ VIX/vmrun.exe"
+set VMRUN = `cygpath -u "c:/Program Files (x86)/VMware/VMware VIX/vmrun.exe"`
+alias vmwlist '"$VMRUN" -T player list'
+alias vmwget  '"$VMRUN" -T player list | grep -i qure.vmx'
+alias vmwget2 '"$VMRUN" -T player list | grep -i qure2.vmx'
+alias vmwget3 '"$VMRUN" -T player list | grep -i qure3'
+alias vmwreset  'set VMWVM=`vmwget`  && "$VMRUN" -T player reset "$VMWVM"'
+alias vmwreset2 'set VMWVM=`vmwget2` && "$VMRUN" -T player reset "$VMWVM"'
+alias vmwreset3 'set VMWVM=`vmwget3` && "$VMRUN" -T player reset "$VMWVM"'
+alias vmwpause 'set VMWVM=`vmwgetvm` && "$VMRUN" -T player pause "$VMWVM"'
+alias vmwresume 'set VMWVM=`vmwgetvm` && "$VMRUN" -T player unpause "$VMWVM"'	# untested
+alias vmwscreenshot 'set VMWVM=`vmwgetvm` && "$VMRUN" -T player captureScreen "$VMWVM" vmware.png'
 
 #####################################################################
 # Qemu aliases

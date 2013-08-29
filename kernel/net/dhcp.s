@@ -2,6 +2,9 @@
 # DHCP
 #
 # rfc 2131 (protocol), rfc 1533 (options)
+#
+# TODO: match response packet mac before reconfiguring network.
+# TODO: allow remote configuration changes using latest XID.
 
 NET_DHCP_DEBUG = 0
 
@@ -80,7 +83,7 @@ DHCP_HEADER_SIZE = .
 dhcp_txn_xid:		.long 0
 dhcp_txn_nic:		.long 0
 dhcp_txn_server_ip:	.long 0	# ip of server offering
-dhcp_txn_server_mac:	.long 0	# ip of server offering
+dhcp_txn_server_mac:	.long 0	# ip of server offering XXX MAC?
 dhcp_txn_yiaddr:	.long 0	# ip server offered (0 for discover)
 dhcp_txn_router:	.long 0
 dhcp_txn_netmask:	.long 0
@@ -89,19 +92,46 @@ DHCP_TXN_STRUCT_SIZE = .
 .data
 mac_broadcast: .space 6, -1
 .data SECTION_DATA_BSS
-dhcp_xid_counter:	.long 0
 dhcp_transactions:	.long 0	# array
+random_state$:	.long 0
 .text32
+
+random:
+	add	eax, [random_state$]
+	add	eax, dword ptr [clock_ms]
+	push	cx
+	add	cl, al
+	add	cl, ah
+	shr	cl, 8-3
+	ror	eax, cl
+	pop	cx
+	xor	[random_state$], eax
+	ret
+
 # in: ebx = nic
 # out: ecx + edx
 dhcp_txn_new:
+.data; random_tested$: .byte 0;.text32;
+cmp byte ptr [random_tested$], 1
+jnz 1f
+push eax
+	orb [random_tested$], 1
+.rept 10
+	mov	eax, [ebx + nic_mac + 2]
+	call random
+	DEBUG_DWORD eax
+.endr
+pop	eax
+1:
+
 	push	eax
 	ARRAY_NEWENTRY [dhcp_transactions], DHCP_TXN_STRUCT_SIZE, 1, 9f
 	mov	ecx, eax
 	mov	[ecx + edx + dhcp_txn_nic], ebx
 	mov	[ecx + edx + dhcp_txn_state], word ptr 0
-	mov	eax, [dhcp_xid_counter]
-	inc	dword ptr [dhcp_xid_counter]
+	# random approximation:
+	mov	eax, [ebx + nic_mac + 2]
+	call	random
 	mov	[ecx + edx + dhcp_txn_xid], eax
 9:	pop	eax
 	ret
@@ -146,6 +176,7 @@ dhcp_txn_list:
 	printc 11, " gw "
 	mov	eax, [ebx + ecx + dhcp_txn_router]
 	call	net_print_ip
+
 
 	call	newline
 	ARRAY_ENDL
@@ -314,8 +345,26 @@ ph_ipv4_udp_dhcp_s2c:
 		pop	edx
 	.endif
 
+
 	cmp	byte ptr [esi + dhcp_op], DHCP_OP_BOOTREPLY
 	jnz	19f
+
+	# verify destination in ipv4 frame
+	mov	eax, [edx + ipv4_dst]
+	cmp	eax, -1
+	jz	1f
+
+	# verify eth mac dest
+	push_	esi edi
+	mov	esi, [edx - ETH_HEADER_SIZE + eth_dst]
+	lea	edi, [ebx + nic_mac]
+	cmpsd
+	jnz	2f
+	cmpsw
+2:	pop_	edi esi
+	jnz	9f	# either broadcast or not our mac
+1:
+
 
 	mov	dl, DHCP_OPT_MSG_TYPE
 	call	net_dhcp_get_option$
@@ -330,6 +379,7 @@ ph_ipv4_udp_dhcp_s2c:
 		call	print
 		pop	esi
 	.endif
+
 
 	mov	eax, [esi + dhcp_xid]
 	# ecx no longer needed
