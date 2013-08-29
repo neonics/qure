@@ -349,22 +349,53 @@ ph_ipv4_udp_dhcp_s2c:
 	cmp	byte ptr [esi + dhcp_op], DHCP_OP_BOOTREPLY
 	jnz	19f
 
+######## verify eth and dhcp dest mac
+	push_	esi edi ecx
+	mov	ecx, esi
+
+	# verify eth mac dest
+	lea	edi, [edx - ETH_HEADER_SIZE + eth_dst]
+
+	# check for broadcast dest mac
+	mov	eax, -1
+	scasd
+	jnz	1f
+	scasw
+	jz	2f
+
+1:	lea	edi, [ebx + nic_mac]
+	lea	esi, [edx - ETH_HEADER_SIZE + eth_dst]
+	cmpsd
+	jnz	2f
+	cmpsw
+	jnz	1f
+2:	# eth mac either bcast or our mac
+	mov	esi, ecx
+
+	# check the MAC field in the DHCP packet
+
+	# check type 1 (ethernet) hw addrsize 6
+	cmp	word ptr [esi + dhcp_hwaddrtype], (6<<8)|1
+	jnz	1f	# addresstype we don't know about
+
+	lea	edi, [esi + dhcp_chaddr]
+	lea	esi, [ebx + nic_mac]
+	cmpsd
+	jnz	1f
+	cmpsw
+
+1:	pop_	ecx edi esi
+	jnz	9f
+########
+
 	# verify destination in ipv4 frame
 	mov	eax, [edx + ipv4_dst]
 	cmp	eax, -1
 	jz	1f
-
-	# verify eth mac dest
-	push_	esi edi
-	mov	esi, [edx - ETH_HEADER_SIZE + eth_dst]
-	lea	edi, [ebx + nic_mac]
-	cmpsd
-	jnz	2f
-	cmpsw
-2:	pop_	edi esi
-	jnz	9f	# either broadcast or not our mac
+	# compare with nic ip
+	cmp	eax, [ebx + nic_ip]
+	jnz	9f
 1:
-
 
 	mov	dl, DHCP_OPT_MSG_TYPE
 	call	net_dhcp_get_option$
