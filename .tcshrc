@@ -1,4 +1,7 @@
 #####################################################################
+#
+setenv PATH util:${PATH}
+#
 # Debugging aliases
 
 alias blsource objdump -Mi8086,intel-mnemonic -d build/bootloader.o

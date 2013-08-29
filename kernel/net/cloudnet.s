@@ -171,6 +171,7 @@ cloud_send_hello:
 
 cloud_packet_send:
 	call	cloud_tx_throttle
+	jc	9f	# skip tx
 
 	.if CLOUD_LOCAL_ECHO
 		printc 9, "[cloud-tx] "
@@ -181,7 +182,7 @@ cloud_packet_send:
 	.endif
 
 	NET_BUFFER_GET		# cached buffers
-	jc	9f
+	jc	91f
 	push	eax		# dest ip
 	mov	eax, edi
 	push	edi
@@ -217,8 +218,8 @@ cloud_packet_send:
 	jnc	1f
 	printc 4, "net_buf_send fail"
 1: 	ret
-9:	printc 4, "net_buf_get fail";
-	ret;
+91:	printc 4, "net_buf_get fail";
+9:	ret
 
 .data
 tx_count$:	.long 0
@@ -394,22 +395,21 @@ cloudnet_packet_print:
 	call	printdec32
 	call	printspace
 #######
-	color 15
+	color 8
 # print binary
 	push	ecx
+	mov	ah, 15
 0:	lodsb
 	mov	edi, esi
-	call	printchar
+	call	printcharc
 	or	al, al
-	jz	0f
+	jz	1f
 	loop	0b
-0:	color 8
 0:	lodsb
 	mov	dl, al
 	call	printhex2
 	call	printspace
-	lodsb
-	loop	0b
+1:	loop	0b
 	mov	esi, edi
 	pop	ecx
 
@@ -456,7 +456,7 @@ cmd_cloud:
 
 	ARRAY_LOOP [cluster_ips], 4, ebx, edx
 	print "  "
-	mov	eax, [ebx + eax]
+	mov	eax, [ebx + edx]
 	call	print_ip$
 	call	newline
 	ARRAY_ENDL

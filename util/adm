@@ -1,0 +1,507 @@
+#!/usr/bin/perl
+
+use FindBin;
+my $BASE = $FindBin::Bin;
+
+#use lib $FindBin::Bin;
+#my $VM = "$BASE/../vm/vmware";
+
+&main( \@ARGV )->();
+
+print "\nARGV: @ARGV\n";
+
+sub main {
+	my $args = shift;
+	my @context;
+
+	sub newctx {
+		my $_ = (@context?(ref $context[0]).'::':'').$_[0];
+		new $_( {_n=>$_[0]} );
+	}
+	push @context, newctx('root');
+
+	while (@{$args})
+	{
+		$_ = shift $args;
+
+		/^-(.*)(=(.*))?/ and
+			$context[0]{_o}{$1} = $2 ? $3 : $1
+		or
+			$context[0]->_ismethod( $_ )
+				? return sub { $context[0]->$_( $args ) }
+				: unshift @context, newctx( $_ );
+	}
+
+	print "default\n";
+
+	return sub { $context[0]->_default( $args) };
+}
+
+
+#my %h = %{ "::" }; print map{"  $_ -> $h{$_}\n"}keys %h; print "\n";
+
+sub filter
+{
+	grep
+	{
+		my $fc = substr($_, 0, 1);
+		my $lc = substr($_, length($_)-1, 1);
+
+		lc $fc eq $fc && $fc ne '_' && $lc ne ':' &&
+		$_ ne 'new'
+	}
+	@_;
+}
+
+sub getmethods
+{
+	#print "(GETMETHODS $_[0])";
+	#print "[", join(', ', @m), "]";
+	filter( keys %{ shift @_ } );
+}
+
+
+sub printtree
+{
+	my $c = shift @_;
+	my $indent = shift @_;
+
+	my $n = '*'.$c;
+
+	my ($r) = $c =~/([^:]+)::$/;
+
+	return if $r eq 'SUPER';
+
+	%h = %{ $n };
+
+	print "$indent $r";
+
+	my @m = getmethods( $n );
+	print ' [', join(' ', @m ), "]" if ( @m );
+	print "\n";
+
+	map {
+		printtree( $c.$_, "$indent  " );
+	}
+	grep { /::$/ } keys %h;
+
+}
+
+
+sub fixpath {
+	$_ = $_[0];
+	$_[1] and do {
+		$_ = `cygpath $_[1] $_[0]`;
+		chomp $_;
+	};
+
+	s/\\/\//g;
+	$ENV{OSTYPE} eq 'cygwin'
+	and s@^/cygdrive/(.):@'/cygdrive/'.lc($1)@e;
+	$_;
+}
+
+
+
+exit;
+
+
+##############################################################################
+package root;
+sub new { print $_[0],"> ";bless defined $_[1]?$_[1]:{_undef=>"und"}, shift @_; }
+sub _default { print "\noptions:\n";::printtree( ref($_[0]).'::' ); }
+sub _ismethod {
+	scalar( grep { $_[1] eq $_ } @{ $_[0]->{_methods} } );
+}
+
+package root::vm;
+use Tie::IxHash;
+use parent -norequire, 'root';
+sub _default { $_[0]->status(@_) }
+sub new {
+	my $self= root::new( $_[0], { %{$_[1]}, status=>{a=>'b'} } );
+	$self->{_methods} = [ ::getmethods( '*'.ref($self).'::' ) ];
+
+	my %cfg=();
+	tie %cfg, 'Tie::IxHash';
+	$self->{_config} = \%cfg;
+
+	$self->{_config} = {};
+	tie %{ $self->{_config} }, 'Tie::IxHash';
+
+	$self->{_config}{VM}		= '$BASE/../vm/vmware';
+	$self->{_config}{TEMPLATE}	= '$VM/qure-template';
+	$self->{_config}{CLUSTER}	= '$VM/cluster';
+
+	$ENV{OSTYPE} eq 'cygwin' and do {
+		my $VM = $self->_config( "VM" );
+
+		$base=::fixpath(`cygpath -w $VM/`);
+	};
+	print "\n";
+	print "* base: $base\n";
+	map
+	{
+		printf "  %10s = %s\n", $_, $self->{_config}{$_};
+	}
+	keys %{ $self->{_config} };
+	print "\n";
+
+	$self;
+}
+
+sub _config
+{
+	my ($self, $k, $v) = @_;
+
+
+	if ( defined $v )
+	{
+		$self->{_config}{$k}=$v;
+	}
+	else
+	{
+		# evaluate IxHash values
+		my %cfg =
+		map
+		{
+			$s = '"'.$self->{_config}{$_}.'"';
+			$$_ = eval $s;
+			#print ">> $_ -> $s = $$_\n";
+
+#			printf "  %10s = %s\n  --> %s  [%s]\n",
+#			$_, $self->{_config}{$_}, $v;
+
+			( $_, $$_ )
+		}
+		keys %{ $self->{_config} };
+
+		return $cfg{$k};#deval '"'.$cfg{$k}.'"';
+	}
+}
+
+# execute vmrun
+sub manage {
+	my $self = shift;
+
+	#$self->{_config}{VMRUN}	=
+	#my $VMRUN = $self->{_config}{VMRUN};
+
+	my $VMRUN =
+	`cygpath -u "c:/Program Files (x86)/VMware/VMware VIX/vmrun.exe"`;
+	chomp $VMRUN;
+	$VMRUN =~ s/([\(\) ])/\\\1/g;
+	$VMRUN .= " -T player ";
+	#"/cygdrive/c/Program Files (x86)/VMware/VMware VIX/vmrun.exe";
+#set VMRUN = `cygpath -u "c:/Program Files (x86)/VMware/VMware VIX/vmrun.exe"`
+#alias vmwscreenshot 'set VMWVM=`vmwgetvm` && "$VMRUN" -T player captureScreen "$VMWVM" vmware.png'
+#####################################################################
+# "$VMRUN" -T player start `cygpath -w $PWD`/vm/vmware/cluster/qure-1/qure.vmx
+
+	my @args =
+		ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_;
+	my $cmd = "$VMRUN @args";
+	print "execute: \$VMRUN @args\n";
+
+	my $l = `$cmd`;
+	$l=~ s/\r//g;
+
+	print $l;# if ref $_[0] eq 'ARRAY';	# cmdline call
+
+	return split /\n/, $l;
+}
+
+sub _vmcmd
+{
+	my $self = shift;
+	my $cmd = shift;
+
+	my $nr = ref $_[0] eq 'ARRAY' ? shift @{$_[0]} : shift;
+	die "need nr" unless defined $nr;
+	int($nr)."" eq $nr or die "nr not integer";
+	$nr = int($nr);
+
+	print "$cmd $nr\n";
+
+	my $CLUSTER = ::fixpath( $self->_config( "CLUSTER" ) );
+	my $vmfile = "$CLUSTER/qure-$nr/qure.vmx";
+
+#	print "CLUSTER = $CLUSTER\n";
+#	print "VMFILE $vmfile\n";
+#	print " EXISTS: ", -f $vmfile;
+
+	-f $vmfile ? $self->manage( $cmd, ::fixpath($vmfile, "-w") )
+	: die "unknown vm: $vmxfile";
+}
+
+sub start
+{
+	my $self = shift;
+	$self->_vmcmd( "start", @_ );
+}
+
+sub reset
+{
+	my $self = shift;
+	$self->_vmcmd( "reset", @_ );
+}
+
+sub _list
+{
+	my $self = shift;
+
+	my @l = $self->manage( "list" );
+
+	my %info;
+
+	map
+	{
+		if ( s/^$base//x ) {
+			my ($cluster, $name, $vmxfile, $error) = split /\//, $_;
+			my ($nr) = $name =~ /qure-(\d+)/;
+			#print "** [$nr][$cluster][$name][$vmxfile][$error]\n",
+
+			defined $error and do { print "UNM $_\n";
+			push @{$info{UNMANAGED}}, {vmxfile=>$_, status=>'running'}
+			}
+			or
+			push @{$info{$cluster}},
+			{ name=>$name, nr=>$nr, vmxfile=>$vmxfile, status=>'running'};
+		}
+		else {
+			push @{ $info{UNMANAGED} }, { vmxfile=>$_, status=>'running' }
+		}
+	}
+	map { ::fixpath( $_ ) }
+#	map { print "  $_\n" }
+#	grep { /$base/ }
+#	grep { /vm\/vmware\/cluster/ }
+	grep { m@[/\\]|\.vmx@ }
+	@l;
+
+	my $CLUSTER = $self->_config( "CLUSTER" );
+	my @managed = `ls $CLUSTER`;
+	chomp @managed;
+
+	map
+	{
+		my ($name, $nr) = ($_, $_ =~ /qure-(\d+)/ );
+
+		if (!grep {$_->{name} eq $name} @{ $info{cluster} })
+		{
+			push @{ $info{cluster} },
+			{name=>$name, nr=>$nr, status=>'stopped'}
+		}
+	}
+	@managed;
+
+	%info;
+}
+
+sub list {
+	my $self = shift;
+
+	my %h = $self->_list( @_ );
+
+	{
+		my $totvms;
+		foreach (values %h)
+		{
+			$totvms += scalar @$_;
+		}
+
+		printf "\nmanaged vm's: %d/%d\n",
+			$totvms - scalar @{ $h{UNMANAGED} },
+			$totvms;
+	}
+
+	map {
+		print "\ncluster: $_\n";
+		map
+		{
+			defined $_->{nr}
+			and printf "  [%s] %d %s\n",
+				$_->{name}, $_->{nr},
+				$_->{status}
+			or printf "  -%s- %s\n",
+			$_->{status},
+			$_->{vmxfile};
+		}
+		@{ $h{$_} };
+	} keys %h;
+}
+
+sub status {
+	$self = shift;
+
+	print "status:\n";
+	map
+	{
+		print  " $_ = $self->{status}{$_}\n";
+	}
+	keys %{ $self->{status} };
+
+	$self->list( @_ );
+
+	$self->SUPER::_default();
+}
+
+sub add {
+	my $self = shift;
+
+
+
+print "\n";
+	map
+	{
+		$$_ = eval '"'.$self->{_config}{$_}.'"',
+#		printf "  %10s = %s\n  --> %s  [%s]\n",
+#		 $_, $self->{_config}{$_},
+#		$$_
+	}
+	keys %{ $self->{_config} };
+
+
+	my @l = `ls $VM/cluster`;
+	my $nr = scalar @l;
+	my $vmdir = "$CLUSTER/qure-$nr";
+
+	print " copy \$VM/qure-template \$VM/cluster/qure-$nr\n";
+	system "cp -a $VM/qure-template $vmdir";
+	$? and die "$!";
+
+	open IN, "<", "$vmdir/qure.vmx";
+	my @vmxcfg = <IN>;
+	close IN;
+	chomp @vmxcfg;
+
+#	print map { "CONFIG: $_\n" } @vmxcfg;
+#	print "\n";
+
+	my @vmxcfgnew = map {
+		/^\s*$/ and "\n" or do
+		{
+		my ($k,$v) = /^([^= ]+)\s*?=\s*?(.*?)\r?$/ or die "malformed vmx config: $_";
+
+		$k eq 'displayName' and $v = "\"qure-$nr\"";
+
+		"$k = $v\n";
+		}
+	} @vmxcfg;
+
+	open OUT, ">", "$vmdir/qure.vmx";
+	print OUT @vmxcfgnew;
+	close OUT;
+}
+
+package root::vm::cluster;
+#push @ISA, "root::vm";
+use parent -norequire, 'root::vm';
+
+
+#			_default => 'status',
+#			new => {},
+#			stop => {},
+#			start => {},
+#			restart => {},
+#			status => {
+#				_ => sub
+#				{
+#					print "status:\n";
+#
+#				}
+#			},
+
+
+
+=pod
+
+=head1	Idea
+
+Use case:
+
+	> mode dev
+	config:
+	  default vm: qure-dev
+	switching branch
+	> mode stage
+	config:
+	  default vm: qure-stage
+
+	> build stage
+	building kernel
+	building boot image
+	building iso
+
+	> test stage
+	deploying to
+
+
+Training
+
+	root> config show
+	auto-create-mode:         off
+	auto-switch-created-mode: on
+	root> create mode dev from default
+	mode dev created
+	switching branch
+	dev> config			# default action: show
+	config:
+	  default vm:
+	dev> list vm
+	qure-stage	[running; load 0.00001]
+
+
+Cluster
+	template> config
+	machines = 2
+	rotation: incremental
+	directory: $VM/
+
+	root> create cluster dev from template
+	vm create cluster/dev/vm1
+	vm create cluster/dev/vm2
+	applying configuration
+	  default context = single
+	  context single vm machines = 1
+	  context cluster vm machines = all
+	linking to version control system
+	root> mode dev
+	dev> config
+	machines = 2
+	rotation: incremental
+
+	dev> make install
+	building
+	deploying in vm1
+	vm restart 1
+
+	dev> make install
+	deploying in vm2
+	vm restart 2
+
+	dev> make install
+	no change
+	dev> vi kernel/...
+	dev> make install
+	building [kernel,bootimage,iso]
+	deploying in vm1
+	vm restart 1
+
+	dev> touch root/hello.txt
+	dev> make install
+	building [iso]
+	deploying in vm2
+	vm restart 2
+
+	dev> vm restart cluster
+	vm restart 2/2
+	dev> make test
+	test ok
+	dev> mode stage		# workflow transition
+	switch cluster stage
+	cluster stage: 1/1 running
+
+	stage> deploy
+
+=cut
