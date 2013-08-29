@@ -377,7 +377,7 @@ cmd_ping:
 	jc	3f
 	mov	ecx, [esi]	# SOCK_READPEER
 	mov	[eax + edx + 1], ecx # update ip in icmp request registration
-	add	esi, 4 + 2 + 1	# ip, port, ttl
+	add	esi, (4+2)*2+1	# src(ip, port), dst(ip,port), ttl
 	movzx	ecx, byte ptr [esi + icmp_type]
 	cmp	cl, 0	# ping response
 	jz	1f

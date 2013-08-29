@@ -206,8 +206,8 @@ net_service_dnsd_main:
 	mov	eax, [esi]		# in: peer address
 	mov	edx, 53 << 24		# in: local port in network byte owrder
 	mov	dx, word ptr [esi + 4]	# in: peer port
-	add	esi, 6	# skip the peer address
-	sub	ecx, 6
+	add	esi, 12	# skip the peer/dest address
+	sub	ecx, 12
 	call	net_dns_service
 	pop	eax
 	jmp	0b
