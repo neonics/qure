@@ -39,23 +39,16 @@ PM1_CNT_LEN:	.byte 0
 #  reserved	db 3 dup(?)	;[3/33]
 #};
 
-
 .struct 0
-RSDP_signature:
-.struct 8
-RSDP_checksum:
-.struct 9
-RSDP_oemid:
-.struct 15
-RSDP_revision:
-.struct 16
-RSDP_rsdt_addr:
-.struct 20
-RSDP_len:
-.struct 24
-RSDP_xsdt_addr:
-.struct 32
-RSDP_ext_checksum:
+RSDP_signature:	.long 0,0
+RSDP_checksum:	.byte 0
+RSDP_oemid:	.space 6
+RSDP_revision:	.byte 0
+RSDP_rsdt_addr:	.long 0
+RSDP_len:	.long 0
+RSDP_xsdt_addr:	.long 0,0
+RSDP_ext_checksum:.byte 0
+		.space 3
 .text32
 
 .macro ACPI_MAKE_SIG a, b, c, d
@@ -68,7 +61,7 @@ RSDP_ext_checksum:
 	mov	ah, 0x1f
 	.rept 4
 	mov	al, bl
-	stosw
+	call	printcharc
 	shr	ebx, 8
 	.endr
 	pop	ax
@@ -83,32 +76,87 @@ acpi_get_rsdp$:
 	push	ecx
 
 
+	# EBDA is located in highest memory just under 640K on PS/2
+	# word at BIOS Data Area 40:0E is segment address of EBDA
+
 	# first 1kb of ebda
 	push	ds
-	xor	esi, esi
+	mov	si, SEL_flatDS
 	mov	ds, si
-	mov	si, [0x40e] # EBDA segment
+	movzx	esi, word ptr [0x40e] # EBDA segment
 	pop	ds
 	shl	esi, 4
 
-	mov	ecx, 1024 >> 2
+	DEBUG_DWORD esi, "EBDA"
+
+.if 1
+
+	push	es
+	mov	ax, SEL_flatDS
+	mov	es, ax
+	mov	al, 'R'
+	mov	ecx, 4096
+	mov	edi, esi
+0:	repnz	scasb
+	jnz	1f
+	printc 11, "R"
+	push ecx
+	lea	esi, [edi -1]
+	mov ecx, 8
+	call nprintln
+	pop ecx
+	or ecx, ecx
+	jnz 0b
+1:	pop	es
+
+.else
+	mov	ecx, 1024 #>> 2
 0:	call	acpi_check_rsdp$
 	mov	eax, esi
 	jz	1f
 	add	esi, 16
 	loop	0b
+.endif
+	DEBUG "no ACPI in EBDA, trying next."
+	call	newline
+
+
 
 	# not found in ebda, try 0xe0000-0x0fffff
 	# just before 1MB
 	mov	esi, 0xe0000
+.if 1
+
+	mov	edi, esi
+
+	push	es
+	mov	ax, SEL_flatDS
+	mov	es, ax
+	mov	al, 'R'
+	mov	ecx, 4096
+
+0:	repnz	scasb
+	jnz	1f
+	printc 11, "R"
+	push ecx
+	mov esi, edi
+	mov ecx, 8
+	call nprintln
+	pop ecx
+	or ecx, ecx
+	jnz	0b
+1:	pop	es
+
+
+.else
 
 0:	call	acpi_check_rsdp$
 	mov	eax, esi
 	jz	1f
-	add	esi, 16
-	cmp	esi, 0x10 << 4
+	add	esi, 8# 16
+	cmp	esi, 1 << 20
 	jl	0b
-
+.endif
 
 2:	PRINTLNc 0xf4 "RSDP not found"
 	xor	eax, eax
@@ -117,21 +165,21 @@ acpi_get_rsdp$:
 	pop	esi
 	ret
 
-1:	mov	ah, 0xf2
-	PRINT	"RSDP found @ "
+1:	PRINT	"RSDP found @ "
 	push	edx
 	mov	edx, esi
 	ror	edx, 16
-	call	printhex
-	sub	di, 2
+	call	printhex4
+	sub	edi, 2
 	ror	edx, 16
 	call	printhex
 
 
-	mov	eax, esi
 	push	fs
+	mov	ax, SEL_flatDS
+	mov	fs, ax
+	mov	eax, esi
 	push	ebx
-	FLAT2SO fs, ebx
 
 	mov	ah, 0xf0
 	PRINT	"OEMID: "
@@ -174,6 +222,46 @@ acpi_get_rsdp$:
 
 #########
 
+# in: esi flat ptr
+# out: edi = RSD PTR + 8
+# out: zf
+acpi_check_rsdp$:
+	push	eax
+	push	ecx
+	push	esi
+	push	es
+
+	mov	ax, SEL_flatDS
+	mov	es, ax
+
+	mov	edi, esi
+#DEBUG_DWORD esi;
+push esi
+mov ecx, 8
+0:lodsb;
+cmp al, '~'
+ja 1f
+cmp al, ' '
+jb 1f
+call printchar
+1:
+loop 0b
+pop esi
+
+	LOAD_TXT "RSD PTR ", esi, ecx
+	repz	cmpsb
+	stc
+	jnz	0f
+	clc
+
+0:	pop	es
+	pop	esi
+	pop	ecx
+	pop	eax
+	ret
+
+
+.if 0
 # char * ax, char * bx, int cx
 # ret: flags
 _memcmp$:
@@ -192,42 +280,6 @@ _memcmp$:
 	pop	si
 	pop	dx
 	pop	ax
-	ret
-
-
-# in: esi flat ptr
-# out: zf
-acpi_check_rsdp$:
-	push	eax
-	push	cx
-	push	si
-	push	di
-	push	es
-
-	# make es:di point to mem to examine
-	mov	eax, esi
-	shr	eax, 4
-	mov	es, ax
-	and	eax, 0xf
-	mov	di, ax
-
-	.data
-	acpi_rsdp_sig$: .ascii "RSD PTR "
-	.text32
-
-	push	di
-	mov	si, offset acpi_rsdp_sig$
-	mov	cx, 8
-	rep	cmpsb
-	pop	di
-	jnz	0f
-
-
-0:	pop	es
-	pop	di
-	pop	si
-	pop	cx
-	pop	eax
 	ret
 
 
@@ -393,8 +445,6 @@ acpi_enable:
 #   if (ptr != NULL && acpiCheckHeader(ptr, "RSDT") == 0)
 #   {
 #
-.data
-msg_no_acpi$: .asciz "No ACPI available"
 .text32
 no_acpi$:	PRINTLNc 0xf2 "No ACPI available"
 		stc
@@ -417,12 +467,15 @@ acpi_init:
 
 	PRINTLNc 0xf0 "Checking RSDT"
 
-	FLAT2SO fs, esi
+	push	fs
+	mov	ax, SEL_flatDS
+	mov	fs, ax
 	mov	eax, fs:[esi + RSDP_rsdt_addr]
 	push	ax
 	mov	edx, eax
 	mov	ah, 0xf2
 	call	printhex8
+	pop	ax
 	pop	ax
 
 	ACPI_MAKE_SIG 'R','S','D','T'
@@ -621,3 +674,13 @@ acpi_poweroff:
 #}
 #
 
+.endif
+
+SHELL_COMMAND "acpi", cmd_acpi
+cmd_acpi:
+	call acpi_get_rsdp$
+	jc	9f
+	println "Found"
+	ret
+	println "Not found"
+	ret
