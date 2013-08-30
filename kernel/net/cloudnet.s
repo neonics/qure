@@ -270,7 +270,7 @@ cloud_rx_start:
 
 
 cloudnet_rx:
-0:	mov	cl, 1	# ecx != 0: blocking read
+0:	mov	ecx, -1	# infinite wait
 	KAPI_CALL socket_read
 	jc	0b
 

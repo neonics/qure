@@ -51,8 +51,12 @@ tls_mutex: .long 0
 .ifndef __MUTEX_DECLARE
 __MUTEX_DECLARE = 1
 
-.macro YIELD
+.macro YIELD timeout=0
+	.ifnc \timeout,0
+	YIELD_SEM 0, \timeout	# no sem ptr
+	.else
 	KAPI_CALL yield
+	.endif
 .endm
 
 
@@ -402,9 +406,11 @@ __MUTEX_DECLARE = 1
 
 # scheduler specific:
 
-.macro YIELD_SEM sem
+# timeout: -1 = infinity, other = ms
+.macro YIELD_SEM sem, timeout=-1
 	# TODO: make system call.
-	push	\sem
+	pushd	\timeout
+	pushd	\sem
 	call	task_wait_io
 .endm
 

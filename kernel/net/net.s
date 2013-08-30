@@ -396,7 +396,7 @@ net_parse_ip:
 	pop	esi
 	ret
 
-1:	printlnc 12, "net_parse_ip: malformed IP address: "
+1:	printc 12, "net_parse_ip: malformed IP address: "
 	print "at '"
 	call	print
 	print "': "

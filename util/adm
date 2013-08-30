@@ -236,24 +236,12 @@ sub _vmcmd
 	: die "unknown vm: $vmxfile";
 }
 
-sub start
-{
-	my $self = shift;
-	$self->_vmcmd( "start", @_ );
-}
-
-sub stop
-{
-	my $self = shift;
-	$self->_vmcmd( "stop", @_ );
-}
-
-
-sub reset
-{
-	my $self = shift;
-	$self->_vmcmd( "reset", @_ );
-}
+sub start   { my $self = shift; $self->_vmcmd( "start", @_ ); }
+sub stop    { my $self = shift; $self->_vmcmd( "stop", @_ ); }
+sub reset   { my $self = shift; $self->_vmcmd( "reset", @_ ); }
+sub suspend { my $self = shift; $self->_vmcmd( "suspend", @_ ); }
+sub pause   { my $self = shift; $self->_vmcmd( "pause", @_ ); }
+sub unpause { my $self = shift; $self->_vmcmd( "unpause", @_ ); }
 
 sub _list
 {

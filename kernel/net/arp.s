@@ -680,7 +680,7 @@ net_arp_resolve_ipv4:
 #	IN_ISR
 #	jc	9b
 
-	mov	ecx, 10
+	mov	ecx, 5
 0:
 	# in: ebx = nic
 	# in: eax = ip
@@ -692,13 +692,15 @@ net_arp_resolve_ipv4:
 	# in: edx = arp table offset
 	call	arp_wait_response
 	jnc	1b
-	call	newline
-	pushad
-	call	arp_table_print
-	popad
-#	call	debugger_print_mutex$
+	#
+	push edx; mov edx, ecx; call printdec32; call printspace; pop edx
+#	pushad
+#	call	arp_table_print
+#	popad
 
 	loop	0b
+	printlnc 4, "arp timeout - giving up"
+	stc
 	jmp	1b
 
 
@@ -797,18 +799,21 @@ IN_ISR
 jnc 1f
 DEBUG "WARNING: IF=0"
 1:
-	mov	ecx, [pit_timer_frequency]
-	shl	ecx, 1	# 2 second delay
-	jnz	0f
-	mov	ecx, 2000/18	# probably
+
+	mov	ecx, [clock_ms]
+	add	ecx, 500	# 500 ms delay
 0:	mov	ebx, [arp_table]
 	cmp	byte ptr [ebx + edx + arp_entry_status], ARP_STATUS_RESOLVED
 	jz	0f
 	.if NET_ARP_DEBUG
 		printcharc 11, '.'
 	.endif
-	YIELD
-	loop	0b
+	push	ecx
+	sub	ecx, [clock_ms]
+	YIELD	ecx
+	pop	ecx
+	cmp	ecx, [clock_ms]
+	ja	0b
 
 	printc 4, "arp timeout for "
 	call	net_print_ip

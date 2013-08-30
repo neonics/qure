@@ -42,7 +42,7 @@ PIT_DEBUG = 1
 # GATE 0 and 1 are not connected.
 # GATE 2 is connected to port 0x61, bit 0 (writable).
 # OUT 0 is connected to IRQ 0.
-# OUT 1 is not connected/unsuable/DRAM refreshing.
+# OUT 1 is not connected/unusable/DRAM refreshing.
 # OUT 2 is connected to the speaker, readable in 0x61 bit 5, writable bit 1.
 # CS, RD, WR are hardwired to the CPU's IN/OUT instructions.
 # A1, A0 are hardwired to the CPU's ports: 4 byte-ports, at PIT_IO.
@@ -151,8 +151,8 @@ clock:			.long 0		# IRQ counter
 pit_timer_frequency:	.long 0, 0	# in Hz: fixedpoint
 pit_timer_interval:	.long 0		# 'reload value'/CLK pulse counter, written to 0x40, max 0x10000
 pit_timer_period:	.long 0, 0	# in milliseconds: fixedpoint
-clock_ms:		.long 0, 0	# accumulated time: [clock] * [pit_timer_period]
 pit_print_timer$:	.byte 0
+clock_ms:		.long 0, 0	# accumulated time: [clock] * [pit_timer_period] (49 days)
 .text32
 
 pit_hook_isr:
@@ -329,8 +329,6 @@ pit_isr:
 	push	ds
 	push	eax
 	push	edx
-	# TODO: interface with PIT port 0x43 (func 0x73 = read channel 0)
-	mov	ah, 0x73
 
 	mov	edx, SEL_compatDS	# required for PRINT_START, PRINT
 	mov	ds, edx
@@ -349,24 +347,18 @@ pit_isr:
 
 	inc	dword ptr [clock]
 
-	.if 1
 	# pit_timer_period stored as 32:32 fixed point
-	# convert to 40:24
 	mov	eax, [pit_timer_period + 4]
 	mov	edx, [pit_timer_period + 0]
-	shrd	eax, edx, 8
-	shr	edx, 8
-	# clock_ms now 40:24 fp
+	# update clock_ms (32:32 fp)
 	add	[clock_ms + 4], eax
 	adc	[clock_ms + 0], edx
 
-	.else
-	# clock_ms 32:32 fp
-	mov	eax, [pit_timer_period + 4]
-	add	[clock_ms + 4], eax
-	mov	eax, [pit_timer_period + 0]
-	adc	[clock_ms + 0], eax
-	.endif
+	# update clock_ms_fp (40:24 fp)
+	shrd	eax, edx, 8	# convert to 40:24
+	shr	edx, 8
+	add	[clock_ms_fp + 4], eax
+	adc	[clock_ms_fp + 0], edx
 
 ########
 	cmp	byte ptr [pit_print_timer$], 0
@@ -445,10 +437,50 @@ sleep:
 0:	pop_	edx ebx
 	ret
 
+pit_test:
+#	call	SEL_kernelCall:0
+	mov	ecx, 0
+0:	
+
+cli
+	mov	al, PIT_CW_RW_CL | PIT_CW_SC_0
+	out	PIT_PORT_CONTROL, al
+	in	al, PIT_PORT_COUNTER_0
+	mov	ah, al
+	in	al, PIT_PORT_COUNTER_0
+	xchg	al, ah
+	mov edx,[clock]
+sti
+	DEBUG_DWORD edx
+	DEBUG_WORD ax
+
+	mov	al, 0b11100010#PIT_CW_SC_RB | (1<<5) | PIT_CW_SC_RB_STATUS | PIT_CW_SC_0
+	out	PIT_PORT_CONTROL, al
+	in	al, PIT_PORT_COUNTER_0
+	DEBUG_BYTE al
+
+call newline
+	loop	0b
+	call	newline
+
+	ret
+
 
 .data
 last_time: .long 0,0
-last_clock_ms: .long 0,0
+
+
+cur_clock:	.long 0
+cur_status:	.byte 0
+latch_val:	.word 0
+frac:		.long 0,0
+clock_ms_fp:	.long 0, 0 # clock_ms >> 8 (34 year; 24 bit fraction)
+
+last_clock:	.long 0
+last_status:	.byte 0
+last_latch_val:	.word 0
+last_frac:	.long 0,0
+last_clock_ms_fp:.long 0,0
 .text32
 # out: edx:eax >> 24 = milliseconds (24 bit fractional part)
 get_time_ms_40_24:
@@ -457,21 +489,48 @@ get_time_ms_40_24:
 	jz	1f
 	call	SEL_kernelCall:0
 1:
+	MUTEX_SPINLOCK TIME
+
 	push_	ebx ecx edi esi
 
 	pushf
 	cli	# lock pit port
-	mov	esi, [clock_ms+4]
-	mov	edi, [clock_ms+0]
+mov eax, [clock]
+mov [cur_clock], eax
+	mov	esi, [clock_ms_fp+4]
+	mov	edi, [clock_ms_fp+0]
+	.if 1
 	mov	eax, PIT_CW_RW_CL | PIT_CW_SC_0
 	out	PIT_PORT_CONTROL, al
 	in	al, PIT_PORT_COUNTER_0
 	mov	ah, al
 	in	al, PIT_PORT_COUNTER_0
 	xchg	al, ah
-	#popf
+	mov	[latch_val], ax
+		.if 0
+		push	eax
+		mov	eax, 0b11100010#PIT_CW_SC_RB | (1<<5) | PIT_CW_SC_RB_STATUS | PIT_CW_SC_0
+		out	PIT_PORT_CONTROL, al
+		in	al, PIT_PORT_COUNTER_0
+		mov	[cur_status], al
+		pop	eax
+		.endif
+	.else
+	mov	eax, (PIT_CW_SC_RB) | (PIT_CW_SC_RB_COUNT) | (PIT_CW_SC_RB_STATUS) | (PIT_CW_SC_0)
+	out	PIT_PORT_CONTROL, al
+	in	al, PIT_PORT_COUNTER_0
+	mov	[cur_status], al
+	in	al, PIT_PORT_COUNTER_0
+	mov	ah, al
+	in	al, PIT_PORT_COUNTER_0
+	xchg	al, ah
+	mov	[latch_val], ax
+	.endif
 
-	# edx = counter (counts down!)
+	popf
+
+
+	# eax = counter (counts down!)
 	# (pit_timer_interval - counter) / pit_timer_interval = fraction
 	# fraction * pit_timer_period = ms
 
@@ -496,9 +555,11 @@ get_time_ms_40_24:
 	# this allows for 34.865 years of uptime (without the >>8 only 49 days)
 	shrd	eax, edx, 16+8
 	shr	edx, 16+8
+mov [frac], edx
+mov [frac+4], eax
 	
-	add	eax, esi#[clock_ms+4]
-	adc	edx, edi#[clock_ms]
+	add	eax, esi#[clock_ms_fp+4]
+	adc	edx, edi#[clock_ms_fp]
 
 	# check for negative time
 	mov	edi, [last_time]
@@ -508,7 +569,7 @@ get_time_ms_40_24:
 	sub	ebx, esi
 	sbb	ecx, edi
 	jns	2f	# allright
-
+#DEBUG "time adj"
 	# we'll adjust, assuming we missed a tick
 	mov	edi, [pit_timer_period]
 	mov	esi, [pit_timer_period+4]
@@ -527,27 +588,53 @@ get_time_ms_40_24:
 	sbb	ecx, edi
 	jns	2f
 
-.if 1
+.if 0
 	printc 4, "ERROR: last time diff"
 	DEBUG_DWORD edx
 	DEBUG_DWORD eax
 	DEBUG_DWORD edi
 	DEBUG_DWORD esi
 	call	newline
-	DEBUG_DWORD [clock_ms]
-	DEBUG_DWORD [clock_ms+4]
-	DEBUG_DWORD [last_clock_ms]
-	DEBUG_DWORD [last_clock_ms+4]
+
+	DEBUG "cur  "
+	DEBUG_DWORD [cur_clock],"clock"
+	DEBUG_DWORD [clock_ms_fp],"ms"
+	DEBUG_DWORD [clock_ms_fp+4]," "
+	DEBUG_BYTE  [cur_status], "ST"
+	DEBUG_WORD  [latch_val], "latch"
+	DEBUG_DWORD [frac], "frac"
+	DEBUG_DWORD [frac+4], " "
+	call	newline
+
+	DEBUG "last "
+	DEBUG_DWORD [last_clock], "clock"
+	DEBUG_DWORD [last_clock_ms_fp], "ms"
+	DEBUG_DWORD [last_clock_ms_fp+4], " "
+	DEBUG_BYTE  [last_status], "ST"
+	DEBUG_WORD  [last_latch_val], "latch"
+	DEBUG_DWORD [last_frac], "frac"
+	DEBUG_DWORD [last_frac+4], " "
+	call	newline
+	DEBUG "timer"
+	DEBUG_DWORD [pit_timer_interval], "interval"
+	DEBUG_DWORD [pit_timer_period],"period"
+	DEBUG_DWORD [pit_timer_period+4]," "
 .endif
 
 2:	mov	[last_time], edx
 	mov	[last_time+4], eax
-	mov	ecx, [clock_ms]
-	mov	[last_clock_ms], ecx
-	mov	ebx, [clock_ms+4]
-	mov	[last_clock_ms+4], ebx
 
-	popf	# 'sti'
+	mov	esi, offset cur_clock
+	mov	edi, offset last_clock
+	movsd	# clock
+	movsb	# status
+	movsw	# latch
+	movsd	# frac
+	movsd	# frac+4
+	movsd	# clock_ms_fp
+	movsd	# clock_ms_fp+4
+
+	MUTEX_UNLOCK TIME
 
 	pop_	esi edi ecx ebx
 	ret

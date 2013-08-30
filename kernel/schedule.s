@@ -178,7 +178,8 @@ task_cr3:		# page directory physical address
 task_page_dir:	.long 0	# for mfree_page_phys
 task_page_tab_lo:.long 0 # for mfree_page_phys
 task_page_tab_hi:.long 0 # for mfree_page_phys
-task_io_sem_ptr:.long 0
+task_io_sem_ptr:.long 0		#
+task_io_sem_timeout:.long 0	# 'abs' clock_ms
 task_time_start:.long 0, 0	# timestamp value on resume
 task_time_stop:	.long 0, 0	# timestamp value on interrupted/suspended
 task_time:	.long 0, 0	# total running time
@@ -738,6 +739,7 @@ task_print_stack$:
 # precondition: [task_queue_sem] locked.
 # out: eax + edx = runnable task
 # out: CF = 1 = no tasks can be run at this time: run idle task.
+# modifies: ecx, ebx, esi, edi
 scheduler_get_task$:
 	# update the current task's status
 	mov	eax, [task_queue]
@@ -808,7 +810,7 @@ call task_update_time_suspend$
 	test	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE #| TASK_FLAG_SUSPENDED
 	jz	1f
 	lea	ebx, [eax + edx]
-	call	task_cleanup$	# in: eax + ecx
+	call	task_cleanup$	# in: ebx
 2:	mov	[eax + edx + task_flags], dword ptr -1
 	jmp	0f
 1:	and	[eax + edx + task_flags], dword ptr ~TASK_FLAG_RUNNING
@@ -837,12 +839,18 @@ call task_update_time_suspend$
 	jnz	0b
 
 	test	dword ptr [eax + edx + task_flags], TASK_FLAG_WAIT_IO
-	jz	1f
-	mov	ebx, [eax + edx + task_io_sem_ptr]
-	or	ebx, ebx
-	jz	92f
-	cmp	dword ptr [ebx], 0
-	jz	0b	# no data
+	jz	1f	# can schedule
+	mov	edi, [eax + edx + task_io_sem_ptr]
+	or	edi, edi
+#	jz	92f	# no sem: error
+	jz	3f	# no sem: simple timeout
+	cmp	dword ptr [edi], 0
+	jnz	2f	# have data
+3:	mov	edi, [eax + edx + task_io_sem_timeout]
+	cmp	[clock_ms], edi
+	jb	0b
+	# sem timeout, proceed.
+2:
 #	lock dec dword ptr [ebx] # leave this to the task
 	and	dword ptr [eax + edx + task_flags], ~TASK_FLAG_WAIT_IO
 1:
@@ -995,7 +1003,7 @@ schedule_isr_TEST:
 	test	[ecx + eax + task_flags], dword ptr TASK_FLAG_DONE
 	jz	1f
 	lea	ebx, [ecx + eax]
-	call	task_cleanup$	# free stacks
+	call	task_cleanup$	# free stacks; in: ebx
 	mov	[ecx + eax + task_flags], dword ptr -1 # mark as available
 	jmp	2f
 1:	and	[ecx + eax + task_flags], dword ptr ~TASK_FLAG_RUNNING
@@ -2215,10 +2223,11 @@ task_map_pde:
 	jmp	0b
 ##############################################################################
 
-# in: [esp] = address of mutex
+# in: [esp+4] = timeout in ms (0=indefinitely)
+# in: [esp+0] = address of mutex
 # Callee frees stack.
 # NOTE: this accesses the task structure, which should become hidden to tasks.
-KAPI_DECLARE task_wait_io, 1
+KAPI_DECLARE task_wait_io, 2
 task_wait_io:
 	push_	eax ecx ebp
 	lea	ebp, [esp + 3*4 + 4]
@@ -2228,6 +2237,18 @@ task_wait_io:
 
 	mov	ecx, [ebp]
 	mov	[eax + task_io_sem_ptr], ecx
+	# timeout
+	mov	ecx, [ebp+4]
+	cmp	ecx, -1
+	jz	1f
+		#
+		cmp	ecx, 0xffff0000
+		jb 2f
+			DEBUG_DWORD ecx, "timeout large", 0xb
+		2:
+		#
+	add	ecx, [clock_ms]
+1:	mov	[eax + task_io_sem_timeout], ecx	# store 'abs' time
 
 	or	[eax + task_flags], dword ptr TASK_FLAG_WAIT_IO #|TASK_FLAG_SUSPENDED
 
@@ -2236,7 +2257,7 @@ task_wait_io:
 
 	#YIELD # does another kapi call
 	call	schedule_near
-	ret	4
+	ret	8
 
 
 ##############################################################################

@@ -364,7 +364,7 @@ cmd_ping:
 	mov	dl, [ebp]
 ########
 	call	net_ipv4_icmp_send_ping	# in: eax, dl; out: ebx=clock, eax+edx=icmp req
-	jc	6f
+	jc	91f
 
 	# Wait for response
 
@@ -399,7 +399,6 @@ cmd_ping:
 	# and dump to ping timeout
 3:
 .else
-
 	# calc clocks:
 	mov	ecx, [pit_timer_frequency]
 	shl	ecx, 1
@@ -438,7 +437,7 @@ cmd_ping:
 	mov	eax, [icmp_requests]
 	dec	byte ptr [eax + edx + 0] # not really needed
 ############################
-6:	pop	eax
+	pop	eax
 	pop	ecx
 	dec	ecx
 	jz	1f
@@ -460,15 +459,20 @@ cmd_ping:
 	.if PING_USE_SOCKET
 	mov	eax, [ebp + 4]
 	or	eax, eax
-	js	1f
+	js	2f
 	KAPI_CALL socket_close
-1:	add	esp, 8
+2:	add	esp, 8
 	.else
 	add	esp, 4	# local var
 	.endif
 	pop	ebp
 	ret
 9:	printlnc 12, "usage: ping [-ttl hops] [-n count] <ip>"
+	jmp	1b
+
+91:	#printc 4, "tx fail" # arp timeout message already printed.
+	pop	eax
+	pop	ecx
 	jmp	1b
 
 

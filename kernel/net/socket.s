@@ -360,9 +360,11 @@ socket_buffer_read:
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	edi
 	push	ebx
-	mov	ebx, [clock_ms]
-	add	ebx, ecx # SO_TIMEOUT: 10 seconds
-##DEBUG_DWORD eax,"socket_buffer_read", 0xf1
+	mov	ebx, ecx	# SO_TIMEOUT in ms
+	cmp	ecx, -1
+	jz	0f		# do not adjust infinite time
+	add	ebx, [clock_ms]
+
 0:	mov	edi, [socket_array]
 	mov	esi, [edi + eax + sock_in_buffer]
 	mov	ecx, [esi + buffer_index]
@@ -371,10 +373,20 @@ socket_buffer_read:
 	sub	ecx, edi
 #	jnbe	1f	# if edx is 0
 	cmp	ecx, edx
-	jnb	1f
+	jnb	1f		# min datasize satisfied
+
+######### timeout handling
+	# packets may arrive that fill the buffer, but may not provide enough
+	# accumulated data to satisfy edx (min data).
+	# Thus, YIELD_SEM may return several times before this method returns.
 	cmp	ebx, [clock_ms]
 	jb	2f
-	YIELD_SEM (offset socket_buffer_sem)
+	mov	edi, ebx
+	cmp	ebx, -1
+	jz	3f		# infinite time (49 days)
+	sub	edi, [clock_ms]	# time left in ms
+3:	YIELD_SEM (offset socket_buffer_sem), edi
+########
 	MUTEX_SPINLOCK_ SOCK
 	jmp	0b
 
@@ -383,10 +395,9 @@ socket_buffer_read:
 	lock dec dword ptr [socket_buffer_sem]
 	clc
 
-2:
-	pop	ebx
-	pop	edi
 	MUTEX_UNLOCK_ SOCK
+2:	pop	ebx
+	pop	edi
 	ret
 
 9:	printlnc 4, "socket_buffer_sem < 0: "; DEBUG_DWORD [socket_buffer_sem]
