@@ -23,8 +23,8 @@ MEM_DEBUG2 = 0
 MEM_PRINT_HANDLES = 2	# 1 or 2: different formats.
 
 
-.include "ll.s"
-.include "mem_handle.s"
+.include "lib/ll.s"
+.include "lib/mem_handle.s"
 
 .data
 mem_heap_start:	.long 0, 0

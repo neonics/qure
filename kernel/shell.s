@@ -2072,9 +2072,9 @@ cmd_exe:
 	jmp	11b
 
 
-.include "elf.s"
-.include "pe.s"
-.include "libc.s"
+.include "exe/elf.s"
+.include "exe/pe.s"
+.include "exe/libc.s"
 
 
 cmd_init:

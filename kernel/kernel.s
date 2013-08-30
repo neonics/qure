@@ -74,19 +74,19 @@ include "print.s", print
 include "debug.s", debug
 include "pmode.s", pmode
 include "paging.s", paging
-include "kapi.s", kapi
+include "kapi/kapi.s", kapi
 include "pit.s", pit
 include "keyboard.s", keyboard
 include "console.s", console
 
-include "hash.s", hash
-include "mem.s", mem
-include "buffer.s", buffer
-include "string.s", string
+include "lib/hash.s", hash
+include "lib/mem.s", mem
+include "lib/buffer.s", buffer
+include "lib/string.s", string
 
 include "schedule.s", scheduler
 
-include "token.s", tokenizer
+include "lib/token.s", tokenizer
 include "oo.s", oo
 DEFINE = 0
 include "fs.s"
@@ -104,9 +104,9 @@ include "dma.s", dma
 #include "debugger.s", debugger
 #include "partition.s", partition
 include "fs.s", fs
-include "fat.s", fat
-include "sfs.s", sfs
-include "iso9660.s", iso9660
+include "fs/fat.s", fat
+include "fs/sfs.s", sfs
+include "fs/iso9660.s", iso9660
 
 
 .if KERNEL_SPLIT_RINGS
@@ -371,8 +371,8 @@ include "hwdebug.s", hwdebug
 include "vmware/vmware.s", vmware
 #include "vbox/vbga.s", vbox
 #code_sound_start:
-#include "es1371.s", es1371
-#include "sb.s", sb
+#include "sound/es1371.s", es1371
+#include "sound/sb.s", sb
 #code_sound_end:
 include "shell.s", shell
 

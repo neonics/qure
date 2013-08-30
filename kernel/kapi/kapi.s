@@ -90,15 +90,15 @@ KAPI_MODE = KAPI_MODE_PAGE_INT		# ok
 
 KAPI_PF_DEBUG = 0
 .if	KAPI_MODE == KAPI_MODE_PAGE_TASK
-.include "kapi_page_task.s"
+.include "kapi/kapi_page_task.s"
 .elseif	KAPI_MODE == KAPI_MODE_PAGE_INT
-.include "kapi_page_int.s"
+.include "kapi/kapi_page_int.s"
 .elseif	KAPI_MODE == KAPI_MODE_PAGE_CALLGATE
-.include "kapi_page_callgate.s"
+.include "kapi/kapi_page_callgate.s"
 .elseif	KAPI_MODE == KAPI_MODE_SYSENTER
-.include "kapi_sysenter.s"
+.include "kapi/kapi_sysenter.s"
 .elseif	KAPI_MODE == KAPI_MODE_INT80_EAX || KAPI_MODE == KAPI_MODE_INT80_STACK
-.include "kapi_int80.s"
+.include "kapi/kapi_int80.s"
 .else
 .error "Unknown KAPI_MODE"
 .endif

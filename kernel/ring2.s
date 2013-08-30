@@ -11,8 +11,8 @@ _KAPI_COUNTER = 13	# XXX FIXME TODO
 DEFINE=0
 .include "print.s"
 .include "oo.s"
-.include "kapi.s"
-.include "hash.s"
+.include "kapi/kapi.s"
+.include "lib/hash.s"
 #.include "pci.s"
 .include "gdt.s"
 .include "debug.s"
@@ -42,9 +42,9 @@ include "partition.s", partition
 
 code_nic_start:
 include "nic.s"
-include "rtl8139.s"
-include "i8254.s"
-include "am79c971.s"
+include "nic/rtl8139.s"
+include "nic/i8254.s"
+include "nic/am79c971.s"
 code_nic_end:
 
 include "net/net.s", net
@@ -55,20 +55,20 @@ include "vbox/vbva.s"
 code_vid_end:
 
 code_usb_start:
-include "usb.s"
-include "usb_ohci.s"
+include "usb/usb.s"
+include "usb/usb_ohci.s"
 code_usb_end:
 
 
 code_southbridge_start:
-include "i440.s"	# Intel i440 PCI Host Bridge
-include "ipiix4.s"	# Intel PIIX4 ISA/IDE/USB/AGP Bridge
+include "pcibridge/i440.s"	# Intel i440 PCI Host Bridge
+include "pcibridge/ipiix4.s"	# Intel PIIX4 ISA/IDE/USB/AGP Bridge
 code_southbridge_end:
 
 include "vbox/vbga.s", vbox
 code_sound_start:
-include "es1371.s", es1371
-include "sb.s", sb
+include "sound/es1371.s", es1371
+include "sound/sb.s", sb
 code_sound_end:
 
 

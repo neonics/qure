@@ -65,32 +65,42 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 		--image-base 0 \
 		-o $@ $(KERNEL_OBJECTS) #$^
 
-KERNEL_SRC = kernel.s defines.s macros.s debug.s oo.s debugger.s kapi*.s \
+KLIB_SRC = lib/mem.s lib/mem_handle.s \
+		lib/ll.s lib/string.s lib/buffer.s lib/token.s
+
+EXE_SRC = exe/libc.s exe/elf.s exe/pe.s
+
+KAPI_SRC = kapi/kapi*.s
+
+KERNEL_SRC = kernel.s defines.s macros.s debug.s oo.s debugger.s \
 	ring2.s \
+	$(EXE_SRC) \
+	$(KLIB_SRC) \
 	realmode.s print.s \
 	pmode.s pic.s gdt.s idt.s tss.s \
-	mem.s mem_handle.s hash.s list.s ll.s string.s schedule.s hwdebug.s \
-	elf.s pe.s libc.s \
-	mutex.s console.s paging.s buffer.s
+	schedule.s hwdebug.s \
+	mutex.s console.s paging.s
 
 HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s dma.s \
-	nic.s dev.s $(USB_SRC) $(NIC_SRC) $(VMWARE_SRC) $(VBOX_SRC) $(INTEL_SRC) \
-	sb.s es1371.s
+	nic.s dev.s $(USB_SRC) $(NIC_SRC) $(VMWARE_SRC) $(VBOX_SRC) \
+	$(BRIDGE_SRC) $(SOUND_SRC)
 
-USB_SRC = usb.s usb_ohci.s
+SOUND_SRC = sound/sb.s sound/es1371.s
+
+USB_SRC = usb/usb.s usb/usb_ohci.s
 
 VMWARE_SRC = vmware/vmware.s vmware/bdoor.s vmware/chan.s vmware/vix.s \
 	vmware/svga2.s
 
 VBOX_SRC = vbox/vbva.s vbox/vbga.s
 
-INTEL_SRC = i440.s ipiix4.s # i8254.s
+BRIDGE_SRC = pcibridge/i440.s pcibridge/ipiix4.s
 
-NIC_SRC = rtl8139.s i8254.s am79c971.s
+NIC_SRC = nic/rtl8139.s nic/i8254.s nic/am79c971.s
 
 NET_SRC = net/*.s
 
-FS_SRC = fs.s iso9660.s partition.s fat.s sfs.s
+FS_SRC = fs.s partition.s fs/iso9660.s fs/fat.s fs/sfs.s
 
 GFX_SRC = gfx.s ../fonts/courier56.s
 
@@ -104,9 +114,19 @@ ring1.o: ring1.s
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
 
-ring2.o: ring2.s defines.s macros.s print.s oo.s kapi.s hash.s pci.s gdt.s \
-		debug.s pic.s mutex.s fs.s shell.s dev.s nic.s $(NIC_SRC) \
-		$(NET_SRC) $(VMWARE_SRC) $(VBOX_SRC) $(USB_SRC) $(INTEL_SRC)
+ring2.o: ring2.s defines.s macros.s debug.s print.s \
+		gdt.s mutex.s oo.s schedule.s \
+		lib/hash.s \
+		$(KAPI_SRC) \
+		dev.s \
+		pci.s pic.s dma.s ata.s \
+		shell.s keycodes.s fs.s partition.s \
+		$(SOUND_SRC) \
+		$(VMWARE_SRC) $(VBOX_SRC) \
+		$(BRIDGE_SRC) \
+		$(USB_SRC) \
+		nic.s $(NIC_SRC) \
+		$(NET_SRC)
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
 
@@ -114,8 +134,9 @@ ring3.o: ring3.s
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
 
-kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s $(FS_SRC) $(NET_SRC) $(GFX_SRC) \
+kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
+		$(FS_SRC) $(NET_SRC) $(GFX_SRC) \
 		$(LIB_SRC) \
-		token.s shell.s Makefile
+		shell.s Makefile
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
