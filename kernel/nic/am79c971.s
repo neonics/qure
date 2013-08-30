@@ -520,7 +520,7 @@ am79c_hook_isr:
 .if IRQ_SHARING
 	call	add_irq_handler
 .else
-	add	ax, IRQ_BASE
+	add	ax, offset IRQ_BASE
 	call	hook_isr
 .endif
 	pop	ebx

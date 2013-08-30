@@ -298,12 +298,16 @@ rtl8139_init:
 	mov	[rtl8139_isr_dev], ebx	# XX direct mem offset
 	push	ebx
 	movzx	ax, byte ptr [ebx + dev_irq]
-	mov	[rtl8139_isr_irq], al
-	add	ax, IRQ_BASE
 	mov	ebx, offset rtl8139_isr
-	add	ebx, [realsegflat]
+	mov	[rtl8139_isr_irq], al
 	mov	cx, cs
+	add	ebx, [realsegflat]
+	.if IRQ_SHARING
+	call	add_irq_handler
+	.else
+	add	ax, offset IRQ_BASE
 	call	hook_isr
+	.endif
 	pop	ebx
 
 	mov	al, [ebx + dev_irq] # NIC_IRQ
