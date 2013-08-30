@@ -358,14 +358,18 @@ COLOR_STACK_SIZE = 2
 .endm
 
 ###### Load String Pointer
-.macro LOAD_TXT txt, reg = esi
+.macro LOAD_TXT txt, reg=esi, lenreg=0
 	_CODE_OFFS = .
 	.data SECTION_DATA_STRINGS
 		199: .asciz "\txt"
-	.section .strtab
+		198:
+	.section .strtab	# record string reference
 		.long 199b, _CODE_OFFS + 1
 	.text32
 	mov	\reg, offset 199b
+	.ifnc \lenreg,0
+	mov	\lenreg, offset 198b-199b
+	.endif
 .endm
 
 .macro PUSH_TXT txt

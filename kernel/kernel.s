@@ -138,6 +138,7 @@ include "iso9660.s", iso9660
 	.global print_flags16
 	.global print_size
 	.global sprint_size
+	.global print_time_ms_40_24
 	.global printc
 	.global printchar
 	.global printcharc

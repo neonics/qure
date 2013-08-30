@@ -145,4 +145,29 @@ Furthermore, some remote IP's are gateways themselves, such as in use
 by universities, which may house many thousands of clients, all appearing
 as the same IP.
 
+---------------------------------------------------------------------
+
+ACPI shutdown detect
+--------------------
+On shutdown detect, a message can be broadcast.
+
+Shared DMZ
+----------
+Each vm can implement multiple virtual devices. It can use 192.168.1.11
+as the shared DMZ along a DHCP address.
+A second MAC must be made - possibly a virtual NIC, for the 2nd IP
+address. (like eth0:0).
+
+Running multiple VM's: keep each other informed of who is handling DMZ.
+Regular peer-to-peer messages to keep aware of DMZ IP assigned to VM.
+On detection of the DMZ vm having gone offline, another takes over.
+
+Host Daemon VM Manager
+----------------------
+A host daemon can participate in the protocol. It can then configure
+all VM's using network messages.
+It can also start new VM's and recycle existing ones that do not respond.
+
+VMs can be started in 'nogui' mode (vmrun -T player start file.vmx [no]gui).
+
 

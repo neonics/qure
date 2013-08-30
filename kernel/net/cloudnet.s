@@ -48,15 +48,16 @@ cloudnet_daemon:
 	call	cloud_rx_start
 	jc	9f
 
-0:	call	cloud_register
-1:	mov	eax, 10000
+	call	cloud_register
+
+0:	mov	eax, 1000 * 60 * 5
 	call	sleep
-
 	testd	[cloud_flags], STOP$
-	jz	0b
+	jnz	0b
 
-#	printlnc 11, " idle"
- 	jmp	1b
+	call	cluster_ping
+
+ 	jmp	0b
 
 9:	ret
 
@@ -175,7 +176,7 @@ cloud_packet_send:
 
 	.if CLOUD_LOCAL_ECHO
 		printc 9, "[cloud-tx] "
-		call	print_addr$
+		call	print_ip$
 		call	printspace
 		call	cloudnet_packet_print
 		call	newline
@@ -288,16 +289,37 @@ cloudnet_rx:
 
 ################################################
 # Cluster Management
+.struct 0
+node_addr:	.long 0
+node_handshake: .long 0
+node_cycles:	.long 0
+node_clock_met:	.long 0
+node_clock:	.long 0
+NODE_SIZE = .
 .data
-cluster_ips:	.long 0	# ptr_array
+cluster_ips:	.long 0	# ptr_array for scasd
+cluster_nodes:	.long 0	# array of node struct
 .text32
 
 # in: eax = ip
 # in: esi, ecx = packet
 # out: ZF = 0: added, ZF = 1: updated
 cluster_add_node:
-	push_	ebx
+	push_	eax ebx ecx edx
 	mov	ebx, eax
+
+	.if 1
+	ARRAY_LOOP [cluster_nodes], NODE_SIZE, eax, edx, 1f
+	cmp	ebx, [eax + edx + node_addr]
+	jz	2f
+	ARRAY_ENDL
+	jmp	1f
+2:	printc 13, " update node"
+	mov	ebx, [clock]
+	mov	[eax + edx + node_clock], ebx
+	jmp	9f
+
+	.else
 	mov	eax, [cluster_ips]
 	or	eax, eax
 	jz	1f
@@ -305,23 +327,68 @@ cluster_add_node:
 	mov	edi, eax
 	mov	ecx, [edi + array_index]
 	shr	ecx, 2
+	mov	edx, ecx
 	mov	eax, ebx
 	repnz	scasd
 	pop_	ecx edi
-	mov	eax, ebx
 	jz	9f
+	.endif
 
 1:	PTR_ARRAY_NEWENTRY [cluster_ips], 1, 9f	# out: eax+edx
 	mov	[eax + edx], ebx
-	printc 13, " add cluster node "
-	mov	eax, ebx
-	call	print_ip$
-	call	newline
-	or	eax, eax	# ZF = 0
+	ARRAY_NEWENTRY [cluster_nodes], NODE_SIZE, 1, 9f
+	mov	[eax + edx + node_addr], ebx
+	lea	ebx, [eax + edx]
+	mov	eax, [clock]
+	mov	[ebx + node_clock_met], eax
+	mov	[ebx + node_clock], eax
+	mov	eax, [packet_hello_nr$]
+	mov	[ebx + node_handshake], eax
 
-9:	
-	pop_	ebx
+	printc 13, " add cluster node "
+	mov	eax, [ebx + node_addr]
+	call	print_ip$
+	mov	edx, [ebx + node_handshake]
+	call	printspace
+	call	printhex8
+	call	newline
+		pushad; xor esi, esi;call cmd_cloud; popad
+	call	newline
+	call	newline
+
+	or	eax, eax	# ZF = 0
+9:	pop_	edx ecx ebx eax
 	ret
+
+
+.data
+packet_ping$:
+.asciz "ping "
+packet_ping_nr$:.long 0
+packet_ping_end$ = .
+
+packet_pong$:
+.asciz "ping"
+packet_pong_nr$:.long 0
+packet_pong_end$ = .
+.text32
+cluster_ping:
+	printlnc 11, "ping cluster"
+	ARRAY_LOOP [cluster_nodes], NODE_SIZE, ebx, edx, 2f
+	mov	eax, [ebx + edx + node_addr]
+	mov	ecx, [ebx + edx + node_handshake]
+	mov	[packet_hello_nr$], ecx	# send initial handshake
+
+	pushad
+	LOAD_PACKET ping
+	call	cloud_packet_send
+	popad
+
+	ARRAY_ENDL
+2:	ret
+
+#############################################################################
+# Cluster Event Handler
 
 # in: esi,ecx = packet
 # in: eax = remote ip, edx = ports
@@ -355,21 +422,42 @@ cloudnet_handle_packet:
 	mov	eax, [esi]	# peer ip
 	call	cluster_add_node
 
-	cmpd	[esi + 6], -1	# destination broadcast?
-	jnz	1f
-	printc 13, " respond "
+	# detect message
+	.macro ISMSG name, label
+		push_	edi esi ecx
+		add	esi, 12
+		LOAD_TXT "\name", edi, ecx
+		repz	cmpsb
+		pop_	ecx esi edi
+		jz	\label
+	.endm
 
-		.data; respond_count$:.long 0;.text32
-		incd	[respond_count$]
-		cmpd	[respond_count$], 100
-		ja	1f
+#	ISMSG "hello", 1f
+#	ISMSG "ping", 2f
+#	ISMSG "pong", 3f
+#	jmp	91f
+	.purgem ISMSG
+
+# hello packet
+1:	cmpd	[esi + 6], -1	# destination broadcast?
+	jnz	9f
 	mov	dx, [esi + 12 + 6]
 	mov	[packet_hello_nr$ + 2], dx 
-	call	cloud_send_hello
+	printc 13, " respond "
+	LOAD_PACKET hello
+	call	cloud_packet_send
+	ret
+# ping
+2:	LOAD_PACKET pong
+
+# pong
+3:
+9:	printlnc 13, " ignore"
+	ret
+91:	printlnc 13, " ignore: unknown message"
 	ret
 
-1:	printlnc 13, " ignore"
-	ret
+
 
 print_ip$:
 	cmp	eax, -1
@@ -394,6 +482,14 @@ cloudnet_packet_print:
 	mov	edx, ecx
 	call	printdec32
 	call	printspace
+
+	cmp	ecx, 1500
+	jb 1f
+	printlnc 4, "packet size error";
+	jmp	9f
+
+1:
+#jmp 9f
 #######
 	color 8
 # print binary
@@ -405,12 +501,13 @@ cloudnet_packet_print:
 	or	al, al
 	jz	1f
 	loop	0b
+	jmp	2f
 0:	lodsb
 	mov	dl, al
 	call	printhex2
 	call	printspace
 1:	loop	0b
-	mov	esi, edi
+2:	mov	esi, edi
 	pop	ecx
 
 	color 15
@@ -424,7 +521,7 @@ cloudnet_packet_print:
 	color 8
 	call	printhex8
 #######
-	popcolor
+9:	popcolor
 	pop	eax
 	pop	edi
 	pop	esi
@@ -435,17 +532,19 @@ cloudnet_packet_print:
 SHELL_COMMAND "cloud", cmd_cloud
 
 cmd_cloud:
+	or	esi, esi
+	jz	2f
 	lodsd
 	lodsd
 
 	or	eax, eax
 	jnz	1f
-	printc 11, "CloudNet status: "
+2:	printc 11, "CloudNet status: "
 	mov	ax, [cloud_flags]
 	PRINTFLAG ax, STOP$, "passive", "active"
 	call	newline
 
-	mov	ebx, [cluster_ips]
+	mov	ebx, [cluster_nodes]
 	or	ebx, ebx
 	jz	2f
 	print "local cluster: "
@@ -454,13 +553,41 @@ cmd_cloud:
 	call	printdec32
 	call	newline
 
-	ARRAY_LOOP [cluster_ips], 4, ebx, edx
+
+	ARRAY_LOOP [cluster_nodes], NODE_SIZE, ebx, ecx
 	print "  "
-	mov	eax, [ebx + edx]
+	mov	eax, [ebx + ecx + node_addr]
 	call	print_ip$
+	call	printspace
+	mov	edx, [ebx + ecx + node_handshake]
+	call	printhex8
+		
+	printc 15, " met: "
+	mov	edx, [clock]
+	sub	edx, [ebx + ecx + node_clock_met]
+	call	_print_time$
+	print " ago"
+
+
+	printc 15, " seen: "
+	mov	edx, [clock]
+	sub	edx, [ebx + ecx + node_clock]
+	call	_print_time$
+	print " ago"
+
 	call	newline
 	ARRAY_ENDL
 2:
+	ret
+
+_print_time$:
+	mov	edi, edx
+	mov	edx, [pit_timer_period]
+	mov	eax, [pit_timer_period+4]
+	shrd	eax, edx, 8
+	shr	edx, 8
+	imul	edi
+	call	print_time_ms_40_24
 	ret
 
 1:	CMD_ISARG "start"

@@ -221,7 +221,9 @@ sub _vmcmd
 	int($nr)."" eq $nr or die "nr not integer";
 	$nr = int($nr);
 
-	print "$cmd $nr\n";
+	my @args = ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_;
+
+	print "$cmd $nr   @args\n";
 
 	my $CLUSTER = ::fixpath( $self->_config( "CLUSTER" ) );
 	my $vmfile = "$CLUSTER/qure-$nr/qure.vmx";
@@ -230,7 +232,7 @@ sub _vmcmd
 #	print "VMFILE $vmfile\n";
 #	print " EXISTS: ", -f $vmfile;
 
-	-f $vmfile ? $self->manage( $cmd, ::fixpath($vmfile, "-w") )
+	-f $vmfile ? $self->manage( $cmd, ::fixpath($vmfile, "-w"), @args )
 	: die "unknown vm: $vmxfile";
 }
 
@@ -239,6 +241,13 @@ sub start
 	my $self = shift;
 	$self->_vmcmd( "start", @_ );
 }
+
+sub stop
+{
+	my $self = shift;
+	$self->_vmcmd( "stop", @_ );
+}
+
 
 sub reset
 {
