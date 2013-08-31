@@ -711,28 +711,29 @@ reallysure:
 	push	ecx
 	push	eax
 
-	printc 0xc1, " Are you sure?"
+	printc 0xc7, " Are you sure?"
 	
 	mov	ecx, 2
 0:	printc 0xc1, " Type 'Yes' if so:"
 	call	printspace
 
-	mov	ah, KB_GETCHAR
+	mov	ah, offset KB_GETCHAR
 	call	keyboard
+	mov ah, 0xf0
 	call	printchar
 	cmp	al, 'Y'
 	jnz	1f
-	mov	ah, KB_GETCHAR
+	mov	ah, offset KB_GETCHAR
 	call	keyboard
 	call	printchar
 	cmp	al, 'e'
 	jnz	1f
-	mov	ah, KB_GETCHAR
+	mov	ah, offset KB_GETCHAR
 	call	keyboard
 	call	printchar
 	cmp	al, 's'
 	jnz	1f
-	mov	ah, KB_GETCHAR
+	mov	ah, offset KB_GETCHAR
 	call	keyboard
 	cmp	ax, K_ENTER
 	jnz	1f

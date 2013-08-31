@@ -212,7 +212,7 @@ sub parse_objdump_reloc
 		or
 		/OFFSET\s+TYPE\s+VALUE/
 		or
-		/([0-9a-f]+)\s+(16|DISP32)\s+(\S+)/
+		/([0-9a-f]+)\s+(8|16|DISP32)\s+(\S+)/
 		or
 		/([0-9a-f]+)\s+(DISP16)\s+(\S+)/ and do {
 			die "16bit symbol displacement: $_\n"
