@@ -31,7 +31,8 @@ AS = as --32 -march=i486 -n --warn --fatal-warnings --gstabs --MD kernel.dep $(A
 # --cref: cross reference (symbol and which obj files declare it)
 # --noinhibit-exec: produce target object file even if errors
 LD_OPTS = -nostartfiles -nodefaultlibs -nostdlib --exclude-libs ALL \
-	--no-leading-underscore --no-undefined --no-demangle --no-define-common
+	--no-leading-underscore --no-undefined --no-demangle --no-define-common \
+	--warn-section-align
 
 ifeq ($(KERNEL_SPLIT_RINGS),1)
 KERNEL_OBJECTS = kernel.o ring2.o
@@ -43,12 +44,42 @@ LD = ld $(LD_OPTS) -r
 endif
 
 
+# a fixup routine that adjusts the size for the section headers of structures.
+# I have not found a way to specify section padding to AS, nor to change it
+# using objcopy or ld. The trouble is that AS has already padded the section
+# to a dword boundary, and thus records more data than the section actually
+# contains.
+define FIXUP
+	@echo "  FIXUP $1"
+	@../build/coff $1 --remove-padding .shellcmd 10
+endef
+
+
 kernel.bin: kernel.obj
 	@echo "   OBJ  $@"
 	objcopy -O binary -j .text $< $@
 
 kernel.obj: $(KERNEL_OBJECTS) kernel.link
 	@echo "   LD $@ <- $^"
+
+		# produce relocatable obj with sections
+		@ld $(LD_OPTS) \
+			--script kernel.link-sections \
+			-Map $@.map \
+			--image-base 0 \
+			-r \
+			$(KERNEL_OBJECTS) \
+			-o $@0.r
+
+		# link the one with sections
+		@ld $(LD_OPTS) \
+			--script kernel.link \
+			-Map $@.obj0.map \
+			--image-base 0 \
+			-o $@0 $@0.r
+
+
+
 	@#first with -r to catch relocation info
 	@ld $(LD_OPTS) \
 		--script kernel.link \
@@ -76,6 +107,7 @@ KERNEL_SRC = kernel.s defines.s macros.s debug.s oo.s debugger.s \
 	ring2.s \
 	$(EXE_SRC) \
 	$(KLIB_SRC) \
+	$(KAPI_SRC) \
 	realmode.s print.s \
 	pmode.s pic.s gdt.s idt.s tss.s \
 	schedule.s hwdebug.s \
@@ -109,10 +141,12 @@ LIB_SRC = ../lib/sha.s ../lib/base64.s ../lib/xml.s ../lib/browser.s
 ring0.o: ring0.s
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
+	@$(call FIXUP,$@)
 
 ring1.o: ring1.s
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
+	@$(call FIXUP,$@)
 
 ring2.o: ring2.s defines.s macros.s debug.s print.s \
 		gdt.s mutex.s oo.s schedule.s \
@@ -129,10 +163,12 @@ ring2.o: ring2.s defines.s macros.s debug.s print.s \
 		$(NET_SRC)
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
+	@$(call FIXUP,$@)
 
 ring3.o: ring3.s
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
+	@$(call FIXUP,$@)
 
 kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
 		$(FS_SRC) $(NET_SRC) $(GFX_SRC) \
@@ -140,3 +176,4 @@ kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
 		shell.s Makefile
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
+	@$(call FIXUP,$@)

@@ -9,6 +9,7 @@ alias da objdump -Mi8086,intel-mnemonic -d bootloader/bootloader.o
 alias dk "objdump -Mintel-mnemonic -d kernel/kernel.obj | less"
 alias dk16 "objdump -Mintel-mnemonic,i8086 -d -j .text16 kernel/kernel.o | less"
 
+alias hk "hexdump -C build/kernel.bin | grep -e '*' -e '|'"
 alias hd "hexdump -C build/boot.bin | grep -e '*' -e '|'"
 alias hdi "hexdump -C build/boot.img | grep -e '*' -e '|' |& less"
 alias da32 objdump -d -Mintel-mnemonic build/bootloader.o

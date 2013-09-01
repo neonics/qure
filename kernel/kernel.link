@@ -43,25 +43,11 @@ SECTIONS
 
 	/* - data */
 
+	. = ALIGN(16);
 	KERNEL_DATA_START = . ;
 	*(.data)
 
-	/* -- KAPI */
-
-	_KAPI_COUNTER = 0;
-	data_kapi_start = .;
-
-	*(.kapi$idx)
-		_KAPI_IDX_SIZE = ABSOLUTE( . - data_kapi_start);
-		KAPI_NUM_METHODS = ABSOLUTE(_KAPI_IDX_SIZE / 4);
-	*(.kapi$ptr)
-	*(.kapi$str)
-	*(.kapi$arg)
-		data_kapi_end = .;
-
-	*(.shellcmd)
-	LONG(0);	/* shell_command_code: end of list */
-
+	/* -- classdef */
 	data_classes_start = .;
 	data_classdef_start = .;
 	*(.classdef)
@@ -71,6 +57,28 @@ SECTIONS
 	*(.classdef$mo)
 	*(.classdef$ms)
 	data_classes_end = .;
+
+	/* -- KAPI */
+
+	_KAPI_COUNTER = 0;
+	data_kapi_start = .;
+
+	*(.kapi)	/* in case kernel.link-sections */
+	*(.kapi$idx)
+		_KAPI_IDX_SIZE = ABSOLUTE( . - data_kapi_start);
+		KAPI_NUM_METHODS = ABSOLUTE(_KAPI_IDX_SIZE / 4);
+	*(.kapi$ptr)
+	*(.kapi$str)
+	*(.kapi$arg)
+		data_kapi_end = .;
+
+
+	/* -- SHELL */
+	*.o(.shellcmd)
+/*	kernel.o(.shellcmd)
+	ring2.o(.shellcmd)*/
+	SHELL_CMD_END = . ;
+	LONG(0);	/* shell_command_code: end of list */
 
 	KERNEL_DATA_END = . ;
 	KERNEL_DATA_SIZE = ABSOLUTE(KERNEL_DATA_END - KERNEL_DATA_START);
@@ -83,6 +91,10 @@ SECTIONS
 	KERNEL_SIZE = ABSOLUTE( kernel_end - kernel_start );
 
 	KERNEL_END = .;
+  }
+
+  /DISCARD/ : {
+  	*(.sig)
   }
 
   /*

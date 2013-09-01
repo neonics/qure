@@ -75,7 +75,7 @@ build/boot.bin:
 .PHONY: kernel
 kernel: build/kernel.bin build/kernel.reloc build/kernel.sym build/kernel.stabs
 
-build/kernel.bin: fonts
+build/kernel.bin: fonts build/coff.exe
 	$(call MAKE,kernel) && mv kernel/kernel.bin $@
 
 build/kernel.reloc: $(KERNEL_OBJ) util/reloc.pl Makefile
@@ -108,6 +108,10 @@ build/malloc.exe: util/malloc.cpp
 build/font.exe: util/font.cpp
 	@echo " C $@"
 	echo $gcc -x c -std=c99 $< -o $@
+
+build/coff.exe: util/coff.cpp
+	@echo " C $@"
+	@g++ -std=c++0x -o $@ $<
 
 ##########################################################################
 

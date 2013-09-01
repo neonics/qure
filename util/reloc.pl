@@ -164,6 +164,8 @@ my %syms = &getsyminfo( $ARGV[0] );
 
 &parse_reloc( $ARGV[0] );
 
+@addr32 = sort {$a<=>$b} @addr32;
+
 &write_table( $ARGV[1], $opt{compressed} );
 
 ########### end
@@ -212,7 +214,7 @@ sub parse_objdump_reloc
 		or
 		/OFFSET\s+TYPE\s+VALUE/
 		or
-		/([0-9a-f]+)\s+(8|16|DISP32)\s+(\S+)/
+		/([0-9a-f]+)\s+(8|16|DISP32)\s+(\S+)/ #and do { print "ignore: $_\n"}
 		or
 		/([0-9a-f]+)\s+(DISP16)\s+(\S+)/ and do {
 			die "16bit symbol displacement: $_\n"
@@ -264,7 +266,9 @@ sub parse_objdump_reloc
 				}
 
 #				print "\n";
-			};
+			}
+			#or print "ignore: $_\n";
+			;
 			1
 		}
 		or /^\s*$/
