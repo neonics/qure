@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <stdlib.h> // exit
 #include <string.h>
+#include <errno.h>
 
 
 struct filehdr {
@@ -54,7 +55,10 @@ long            s_flags;        /* flags */
 
 void error( const char * msg )
 {
-	perror( msg );
+	if (errno)
+		perror( msg );
+	else
+		printf( msg );
 	exit(1);
 }
 
@@ -76,7 +80,8 @@ int main(int argc, char ** argv)
 				"      --remove-padding <sectionname> <elementsize>\n"
 				"        treats <sectionname> as an array containing multiple elements of\n"
 				"        <elementsize> and removes trailing padding by updating the section size.\n"
-				"        This allows to split structured arrays over multiple object files.\n"
+				"        This allows to split structured arrays over multiple object files.\n\n"
+//				"      --section-align <sectionname> <elementsize>\n"
 		);
 		error("no filename");
 	}
@@ -151,6 +156,13 @@ int main(int argc, char ** argv)
 					printf(": new size := 0x%x\n", newsize );
 					lseek( handle, (unsigned char*)&(sec[i].s_size) - buf, SEEK_SET );
 					write( handle, &newsize, 4 );
+					// also update section alignment
+					lseek( handle, (unsigned char*)&(sec[i].s_flags) - buf, SEEK_SET );
+					int newflags = sec[i].s_flags;
+					newflags &=~0x00f00000;	// mask out section align flags
+					newflags |= 0x00100000; // 1 byte alignment (NOPAD=8 is deprecated).
+					write( handle, &newflags, 4);
+					printf("newflags:%08x",newflags);
 				}
 			}
 		}
