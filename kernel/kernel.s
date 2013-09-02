@@ -311,14 +311,6 @@ include "fs/iso9660.s", iso9660
 	# debugger
 	.global debug_printsymbol
 
-	# KAPI
-	.global KAPI_yield
-	.global KAPI_schedule_task
-	.global KAPI_fs_stat
-	.global KAPI_fs_open
-	.global KAPI_fs_read
-	.global KAPI_fs_close
-
 	# fs
 	.global fs_update_path
 	.global FS_DIRENT_ATTR_DIR

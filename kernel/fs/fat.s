@@ -98,6 +98,10 @@ DECLARE_CLASS_METHOD fs_api_open,	fs_fat16_open, OVERRIDE
 DECLARE_CLASS_METHOD fs_api_close,	fs_fat16_close, OVERRIDE
 DECLARE_CLASS_METHOD fs_api_nextentry,	fs_fat_nextentry, OVERRIDE
 DECLARE_CLASS_METHOD fs_api_read,	fs_fat16_read, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_create,	fs_fat16_create, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_write,	fs_fat16_write, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_delete,	fs_fat16_delete, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_move,	fs_fat16_move, OVERRIDE
 DECLARE_CLASS_END fs_fat16
 
 #########################################################
@@ -1211,6 +1215,13 @@ fs_fat16_read:
 	jc	9f
 	ret
 9:	printc 4, "fs_fat16_read: read error"
+	stc
+	ret
+
+fs_fat16_create:
+fs_fat16_write:
+fs_fat16_delete:
+fs_fat16_move:
 	stc
 	ret
 

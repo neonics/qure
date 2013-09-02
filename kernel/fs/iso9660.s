@@ -90,6 +90,10 @@ DECLARE_CLASS_METHOD fs_api_open,	fs_iso9660_open, OVERRIDE
 DECLARE_CLASS_METHOD fs_api_close,	fs_iso9660_close, OVERRIDE
 DECLARE_CLASS_METHOD fs_api_nextentry,	fs_iso9660_nextentry, OVERRIDE
 DECLARE_CLASS_METHOD fs_api_read,	fs_iso9660_read, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_create,	fs_iso9660_create, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_write,	fs_iso9660_write, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_delete,	fs_iso9660_delete, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_move,	fs_iso9660_move, OVERRIDE
 
 DECLARE_CLASS_END fs_iso9660
 
@@ -822,6 +826,13 @@ fs_iso9660_read:
 	pop	eax
 	ret
 
+fs_iso9660_write:
+fs_iso9660_create:
+fs_iso9660_delete:
+fs_iso9660_move:
+	printlnc 4, "create/write/delete/move not supported for iso9660"
+	stc
+	ret
 
 ##############################################################################
 # Utility Methods

@@ -3,7 +3,7 @@
 
 .print "ring2 object"
 
-_KAPI_COUNTER = 13	# XXX FIXME TODO
+_KAPI_COUNTER = 17	# XXX FIXME TODO
 
 .include "defines.s"
 .include "macros.s"

@@ -129,6 +129,8 @@ SHELL_COMMAND "ls",		cmd_ls$
 SHELL_COMMAND "cd",		cmd_cd$
 SHELL_COMMAND "pwd",		cmd_pwd$
 SHELL_COMMAND "cat",		cmd_cat$
+SHELL_COMMAND "touch",		cmd_touch$
+SHELL_COMMAND "mkdir",		cmd_mkdir$
 #
 SHELL_COMMAND "disks",		cmd_disks_print$
 SHELL_COMMAND "listdrives",	ata_list_drives
@@ -1493,6 +1495,56 @@ cmd_cat$:
 
 9:	printlnc 12, "usage: cat <filename>"
 	stc
+	ret
+
+
+.data
+umask:	.long 0755
+.text32
+cmd_mkdir$:
+	mov	edx, POSIX_TYPE_DIR | 0777
+	printc 11, "mkdir "
+	jmp	1f
+cmd_touch$:
+	mov	edx, POSIX_TYPE_FILE | 0777
+	printc 11, "touch "
+1:	mov	eax, [umask]
+	or	eax, ~0777
+	and	edx, eax
+
+	mov	eax, edx
+	call	fs_posix_perm_print
+	call	printspace
+
+	or	esi, esi
+	jz	9f
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	9f
+
+	push	ebp
+	mov	ebp, esp
+	sub	esp, MAX_PATH_LEN
+########
+	mov	edi, esp
+	push	esi
+	lea	esi, [ebx + shell_cwd]
+	mov	ecx, MAX_PATH_LEN
+	rep	movsb
+	pop	esi
+	mov	esi, eax
+	mov	edi, esp
+	call	fs_update_path
+	jc	8f
+
+	mov	eax, esp
+	call	fs_create	# in: eax=name, edx=POSIX flags
+########
+8:	mov	esp, ebp
+	pop	ebp
+	ret
+9:	printlnc 4, "usage: touch <filename>"
 	ret
 
 #####################################

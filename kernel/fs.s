@@ -494,6 +494,10 @@ DECLARE_CLASS_METHOD fs_api_open, 0
 DECLARE_CLASS_METHOD fs_api_close, 0
 DECLARE_CLASS_METHOD fs_api_nextentry, 0
 DECLARE_CLASS_METHOD fs_api_read, 0	# ebx=filehandle, edi=buf, ecx=size
+DECLARE_CLASS_METHOD fs_api_create, 0
+DECLARE_CLASS_METHOD fs_api_write, 0
+DECLARE_CLASS_METHOD fs_api_delete, 0
+DECLARE_CLASS_METHOD fs_api_move, 0
 
 DECLARE_CLASS_END fs
 ###################################################
@@ -724,7 +728,8 @@ fs_root_read$:
 
 # Directory Entry
 .struct 0
-fs_dirent_name: .space 255
+FS_DIRENT_MAX_NAME_LEN = 255
+fs_dirent_name: .space FS_DIRENT_MAX_NAME_LEN
 fs_dirent_attr:	.byte 0		# RHSVDA78
   FS_DIRENT_ATTR_DIR = 1 << 4
 fs_dirent_size:	.long 0, 0
@@ -1041,6 +1046,132 @@ fs_read:
 	jmp	0b
 
 
+# in: eax = filename ptr 
+# in: edx = POSIX flags
+# out: eax = hanle
+KAPI_DECLARE fs_create
+fs_create:
+DEBUG "fs_create"
+	push_	esi edi ecx ebx edx
+
+	mov	esi, eax
+	cmp	byte ptr [esi], '/'
+	jnz	91f
+
+	# open the file to see if it exists.
+	xor	edx, edx
+	call	fs_stat
+	jnc	92f
+
+	# open parent dir
+	call	strlen_
+
+	lea	edi, [esi + ecx]
+	mov	al, '/'
+	std
+	repnz	scasb
+	cld
+	# ZF=1 since string starts with '/'
+	inc	edi
+	cmp	edi, esi
+	jnz	1f
+	DEBUG "create "
+	call	print
+	DEBUG " in root"
+
+1:	# edi points to last '/'
+	xor	bl, bl
+	xchg	bl, [edi]	# zero-terminate path & remember
+
+	mov	eax, esi
+	DEBUG "open"
+	DEBUGS esi
+	push	ecx
+	mov	edx, 0x80000000
+	call	fs_open		# in: eax; out: eax, ecx
+	pop	ecx
+	xchg	bl, [edi]	# restore original string
+	jc	93f
+	# parent dir opened.
+
+	lea	esi, [edi + 1]	# file/dirname pointer
+
+#######	prepare args, call filesystem api
+	LOCK_WRITE [fs_handles_sem]
+
+	mov	ebx, eax	# parent handle
+	mov	ecx, [esp]	# posix perms
+
+	# prepare new filehandle
+	call	fs_new_handle$	# out: eax + edx
+	jc	94f
+	mov	[eax + edx + fs_handle_parent], ebx
+	push	edx		# new file handle index
+
+	lea	edi, [eax + edx + fs_handle_dirent]
+
+	mov	[edi + fs_dirent_posix_perm], ecx #dword ptr 0100644	# 10=file
+	mov	[edi + fs_dirent_posix_uid], dword ptr 0
+	mov	[edi + fs_dirent_posix_gid], dword ptr 0
+
+	add	edi, offset fs_dirent_name
+	call	strcopy
+	DEBUGS edi
+	sub	edi, offset fs_dirent_name # in: edi = new fs_handle_dirent
+
+	# load mtab fs instance from parent
+	mov	ecx, [mtab]
+	add	ecx, [eax + ebx + fs_handle_mtab_idx]
+	mov	ebx, [eax + ebx + fs_handle_dir]	# in: ebx = directory handle 
+	mov	eax, [ecx + mtab_fs_instance]	# in: eax = fs_instance
+
+	DEBUG_DWORD [eax+fs_api_create], "call fs_api_create"
+	call	[eax + fs_api_create]
+	DEBUG "fs_api_create return"
+	pop	eax		# new file handle
+
+	pushf	# just in case.. (inc affects CF?)
+	UNLOCK_WRITE [fs_handles_sem]
+	popf
+	jnc	0f
+	call	fs_close	# close new file handle and parents.
+	stc
+#####
+0:	pop_	edx ebx ecx edi esi
+	ret
+9:	jmp	0b
+
+# need to have 1 '/'
+91:	printc 4, "fs_create: error: relative path: "
+	call	println
+	stc
+	jmp	0b
+92:	printc 4, "fs_create: path exists: "
+	call	println
+	stc
+	jmp	0b
+93:	printc 4, "fs_create: parent path doesn't exist: "
+	call	println
+	stc
+	jmp	0b
+94:	printc 4, "fs_create: can't allocate handle"
+	UNLOCK_WRITE [fs_handles_sem]
+	mov	eax, ebx	# parent handle
+	call	fs_close
+	stc
+	jmp	0b
+
+
+KAPI_DECLARE fs_write
+	ret
+
+KAPI_DECLARE fs_delete
+	ret
+
+KAPI_DECLARE fs_move
+	ret
+
+
 # cmd_lsof
 fs_list_openfiles:
 	LOCK_READ [fs_handles_sem]
@@ -1213,7 +1344,9 @@ fs_stat:
 
 
 # in: eax = pointer to path string
-# in: edx = flags: 0x80000000 = print error
+# in: edx = flags:
+#	0x80000000 = print error
+#	0x40000000 = return deepest existing path handle
 # out: eax = directory handle (pointer to struct), to be freed with fs_close.
 # out: ecx = file size
 KAPI_DECLARE fs_open
@@ -1277,14 +1410,15 @@ fs_open:
 	pop	ecx
 	pop	esi
 	jnc	0b
-
 	# error: CF=1
 	mov	eax, [ebp]
 	cmp	eax, -1	# optional if root is always present
 	jz	2f
+	testd	[ebp + 12], 0x40000000
+	jnz	3f		# return deepest dir handle
 	call	fs_close
 2:	mov	eax, -1	# return value for clarity
-	stc
+3:	stc
 	jmp	9f
 
 1:	# end of path found. done.
