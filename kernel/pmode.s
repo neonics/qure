@@ -378,7 +378,6 @@ pmode_entry$:
 	jnz	0f
 	mov	ax, SEL_flatDS
 	mov	ds, ax
-
 0:
 	.if DEBUG_PM > 2
 		call	cmd_print_gdt
@@ -391,7 +390,35 @@ pmode_entry$:
 
 	call	update_memory_map$
 
+	# NOTE: at current, there is a linker issue, which causes a failure here
+	# when there is a specific number of instructions causing some section
+	# overflow.
+	#
+	# Hence the check:
+	mov	edx, [esp]
+	cmp	edx, offset KERNEL_CODE32_END
+	jae	9f
+	sub	edx, [reloc$]
+	js	9f
+
 	ret	# at this point interrupts are on, standard handlers installed.
+
+9:
+	printc 0xf4, "WARNING: kernel entry point corrupt: "
+	mov	eax, edx
+	mov	edx, [esp]
+	call	printhex8
+	print ", kernel_base + "
+	mov	edx, eax
+	call	printhex8
+	call	newline
+	printc 0xf0, "kernel code32 end: "
+	mov	edx, offset KERNEL_CODE32_END
+	call	printhex8
+	call	newline
+	call	more
+	mov	[esp], dword ptr offset kmain
+	ret
 
 
 
