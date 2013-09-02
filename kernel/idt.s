@@ -866,11 +866,12 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	add	esp, 2	# pop interrupt number
 	iret
 
+	# in: edi = stack offset, ebx = stack sel
 2:	call	debugger
 	jmp	0b
 
 3:	# page fault
-	push	fs
+	push_	fs ebx
 	mov	eax, SEL_flatDS
 	mov	fs, eax
 
@@ -916,7 +917,7 @@ ics$:	PRINTc	11, "Cannot find cause: Illegal code selector: "
 	call	printhex8
 .endif
 
-	pop	fs
+	pop_	ebx fs
 	jmp	2b
 
 
