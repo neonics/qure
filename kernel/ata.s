@@ -1496,8 +1496,13 @@ ata_write:
 	jmp	2b
 
 
+
+
 # destroys: eax ecx
+1:	stc
+	ret
 ata_rw_init$:
+	jecxz	1b
 	call	ata_get_ports$
 	jc	ata_err_unknown_disk$
 	push	ax
