@@ -159,10 +159,10 @@ sfs_load_blk:
 	# ebx = sector
 	push	ebx
 	add	ebx, [esi + sfs_partition_start_lba]
-	.if SFS_DEBUG > 1
+	shr	ecx, 9	# ecx = num sectors
+	.if 1#SFS_DEBUG > 1
 		DEBUG_DWORD ecx, "load sectors"; DEBUG_DWORD ebx, "LBA"
 	.endif
-	shr	ecx, 9	# ecx = num sectors
 	mov	edi, eax
 	mov	ax, [esi + sfs_disk]
 	call	ata_read
@@ -236,7 +236,7 @@ sfs_buffer_find:
 	ret
 
 .if SFS_DEBUG
-91:	DEBUG "Not found", 4
+91:	DEBUG "Not found", 0x94
 	jmp	9b
 .endif
 
@@ -249,8 +249,9 @@ sfs_alloc_dir:
 # in: ecx = size in bytes
 # out: ebx = lba
 sfs_alloc_blk:
+	push_	ebp eax edx esi edi ecx
+	mov	ebp, esp
 	mov	ebx, [eax + sfs_blk0+sfs_vol_blktab_lba]
-	push_	ecx eax edx esi edi
 	mov	ecx, [eax + sfs_blk0+sfs_vol_blktab_size]
 	mov	edx, eax
 	DEBUG_DWORD ecx, "blktab size"
@@ -290,7 +291,6 @@ sfs_alloc_blk:
 	DEBUG_DWORD ebx, "LBA"
 	call	newline
 
-	# TODO: write changed sector
 	# figure out which sector:
 	# mark used
 	push	ebx	# return LBA
@@ -298,9 +298,9 @@ sfs_alloc_blk:
 	not	eax
 	shl	ebx, cl
 	or	eax, ebx
-	DEBUG_DWORD eax
+		DEBUG_DWORD eax
 	shr	edi, 5-2
-	DEBUG_DWORD edi,"dw offs"
+		DEBUG_DWORD edi,"dw offs"
 	mov	[esi + edi], eax
 
 	# write sector containing the bit
@@ -311,12 +311,12 @@ sfs_alloc_blk:
 	mov	ecx, 1
 	mov	eax, edx
 	add	ebx, [eax + sfs_blk0 + sfs_vol_blktab_lba]
-	DEBUG "write blk"
-	DEBUG_DWORD ebx
+		DEBUG "write blk"
+		DEBUG_DWORD ebx
 	call	sfs_write_blk
 	pop	ebx		# pushed as buf, swapped: pop LBA
 
-0:	pop_	edi esi edx eax ecx
+0:	pop_	ecx edi esi edx eax ebp
 	ret
 9:	printlnc 4, "partition full"
 	stc
@@ -326,7 +326,7 @@ sfs_alloc_blk:
 	jmp	9b
 
 
-	
+
 
 # in: eax = sfs instance
 # in: ebx = lba
@@ -358,7 +358,7 @@ sfs_write_vol_dir$:
 	push_	eax ebx ecx esi edi
 	mov	ebx, [eax + sfs_blk0 + sfs_vol_directory_lba]
 	mov	ecx, [eax + sfs_blk0 + sfs_vol_directory_size]
-	call	sfs_load_blk
+	call	sfs_load_blk	# get from cache
 	jc	9f
 	mov	esi, edi
 	call	sfs_write_blk
@@ -439,6 +439,9 @@ sfs_open:
 	call	sfs_find_entry$
 
 0:	pop_	edx edi
+	.if SFS_DEBUG
+		pushf;call newline;popf
+	.endif
 	ret
 
 9:	DEBUG "sfs_load_blk error"
@@ -479,15 +482,20 @@ sfs_create:
 		call	newline
 	.endif
 
-	push_	ebx esi ecx edx
+	push_	ebp eax esi ecx edx edi ebx
+	mov	ebp, esp
+	sub	esp, 8
+	# [ebp] = ebx
+	# [ebp-4] = edi for ebx
+	# [ebp+4] = fs_dirent
+
 	mov	edx, edi	# fs_dirent
 
 ########
-	push	edi
-
 	mov	ecx, 1		# at least 1 byte
 	call	sfs_load_blk	# in: eax=inst, ebx=dir, ecx=nsect; out: edi
 	jc	9f
+	mov	[ebp - 4], edi
 
 	# edi = dir blk
 	lea	ecx, [edi + 512]	# max offs
@@ -557,7 +565,13 @@ sfs_create:
 
 	# update directory sector
 	DEBUG "write dir"
-	call	sfs_write_vol_dir$
+	#call	sfs_write_vol_dir$
+	push	ebx
+	mov	ebx, [ebp]	# parent LBA
+	mov	edi, [ebp -4]	# parent buffer
+	mov	ecx, 512
+	call	sfs_write_blk
+	pop	ebx
 	jc	92f
 
 	mov	ecx, [edi + sfs_dir_file_posix_perm]
@@ -585,18 +599,17 @@ sfs_create:
 	call	sfs_write_vol_dir$
 1:
 	call newline
-
-	pop	edi
 ########
 	# fill fs dir entry
+	mov	edi, [ebp + 4]
 	call	sfs_fill_dir$	# in: esi=sfs_dir, edx=name, edi=fs_dirent
 	clc
-0:	pop_	edx ecx esi ebx
+0:	mov	esp, ebp
+	pop_	ebx edi edx ecx esi eax ebp
 	ret
 
 9:	printlnc 4, "sfs_create: illegal parent blk"
 9:	stc
-	pop	edi
 	jmp	0b
 91:	printlnc 4, "sfs_create: error loading name table"
 	jmp	9b
@@ -637,9 +650,33 @@ sfs_fill_dir$:
 	ret
 
 # in: eax = sfs instance
-# in: esi = sfs_dir_file struct ptr
+# in: edx = sfs_dir_file_name_ptr value
+# out: edx = name
 sfs_resolve_name$:
+	push_	ebx edi
+
+	# for now we'll use the offset in bytes (no 8 byte boundary)
+	mov	ebx, edx
+	shr	ebx, 9	# convert to sector
+	add	ebx, [eax + sfs_blk0 + sfs_vol_names_lba]
+	push	ecx
+	mov	ecx, 512
+	call	sfs_load_blk	# in: eax, ebx; out: edi
+	pop	ecx
+	jc	91f
+	# for now, the buffer will be contiguous and have all sectors:
+	and	edx, 0b111111111
+	lea	edx, [edi + edx]
+
+0:	pop_	edi ebx
 	ret
+
+91:	printc 4, "sfs_resolve_name$: can't find sector "
+	mov	edx, ebx
+	call	printhex8
+	call	newline
+	stc
+	jmp	0b
 
 
 sfs_write:
@@ -660,11 +697,12 @@ sfs_nextentry:
 	mov	ebp, esp
 
 	# find directories
-	mov	ebx, [eax + sfs_blk0 + sfs_vol_directory_lba]
-	push	edi
-	call	sfs_buffer_find	# in: eax, ebx; out: edi
+#	mov	ebx, [eax + sfs_blk0 + sfs_vol_directory_lba]
+	push_	edi ecx
+	mov	ecx, 512
+	call	sfs_load_blk	# in: eax, ebx; out: edi
 	mov	esi, edi
-	pop	edi
+	pop_	ecx edi
 	jc	91f
 
 	# esi = directory
@@ -675,6 +713,7 @@ sfs_nextentry:
 	mov	edx, [esi + sfs_dir_file_posix_perm]
 	or	edx, edx
 	jz	1f
+	DEBUG "entry"
 
 	mov	[edi + fs_dirent_posix_perm], edx # ptr 0x10
 	mov	edx, [esi + sfs_dir_file_size]
@@ -682,19 +721,13 @@ sfs_nextentry:
 	mov	[edi + fs_dirent_size+4], dword ptr 0
 
 	# find name cache
-	mov	ebx, [esi + sfs_dir_file_name_ptr]
-	mov	edx, ebx
-	# for now we'll use the offset in bytes (no 8 byte boundary)
-	shr	ebx, 9	# convert to sector
-	add	ebx, [eax + sfs_blk0 + sfs_vol_names_lba]
-	push	edi
-	call	sfs_buffer_find	# in: eax, ebx; out: edi
-	# for now, the buffer will be contiguous and have all sectors:
-	lea	esi, [edi + edx]
-	pop	edi
-	jc	91f
+	mov	edx, [esi + sfs_dir_file_name_ptr]
+	call	sfs_resolve_name$	# in: eax, edx; out: edx
+	jc	92f
+
 	# copy the name
-	push_ esi edi ecx
+	push_	esi edi ecx
+	mov	esi, edx
 	lea	edi, [edi + fs_dirent_name]
 	call	strlen_
 	cmp	ecx, 254
@@ -702,23 +735,68 @@ sfs_nextentry:
 	mov	ecx, 254
 2:	rep	movsb
 	mov	[edi], cl
-	pop_ ecx edi esi
+	pop_	ecx edi esi
 
 	clc
 
 0:	pop_	eax edx esi edi ebp
 	ret
 
+92:	printlnc 4, "sfs_nextentry: name resolution error"
+	jmp	1f
 91:	printlnc 4, "sfs_nextentry: illegal call (no buffer)"
 1:	mov	ecx, -1
 	stc
 	jmp	0b
 
-
+# in: eax = sfs instance
+# in: ebx = parent dir handle, -1 for root
+# in: esi = asciz dir/file name
+# in: edi = fs dir entry struct (to be filled)
+# out: ebx = dir handle
 sfs_find_entry$:
+	push_	eax ecx esi edx edi
 	DEBUG "sfs_find_entry"
-	stc
+	DEBUG_DWORD ebx
+	DEBUGS esi
+
+	# load directory (should be cached)
+	mov	ecx, 512
+	call	sfs_load_blk	# out: edi
+	jc	8f
+
+	call	strlen_		# esi->ecx
+
+	# iterate through the entries
+	xor	ebx, ebx	# offset
+0:	cmp	dword ptr [edi + ebx + sfs_dir_file_posix_perm], 0
+	jz	8f	# reached end, not found
+
+	mov	edx, [edi + ebx + sfs_dir_file_name_ptr]
+	call	sfs_resolve_name$	# in: eax,edx; out: edx
+	jc	9f		# error resolving name
+	
+	push_	esi edi ecx
+	mov	edi, edx
+	repz	cmpsb
+	pop_	ecx edi esi
+	jz	1f		# match
+
+	add	ebx, SFS_DIR_STRUCT_SIZE
+	cmp	ebx, 512
+	jb	0b
+
+8:	stc
+
+9:	pop_	edi edx esi ecx eax
 	ret
+
+1:	lea	esi, [edi + ebx]
+	mov	ebx, [edi + ebx + sfs_dir_file_lba]
+	mov	edi, [esp]
+	call	sfs_fill_dir$	# in: esi=sfs_dir, edx=name, edi=fs_dirent
+	clc
+	jmp	9b
 
 
 #################################
