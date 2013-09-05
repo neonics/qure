@@ -3,8 +3,8 @@
 .intel_syntax noprefix
 .code32
 
-SFS_VERBOSE = 1
-SFS_DEBUG = 1
+SFS_VERBOSE = 0
+SFS_DEBUG = 0
 SFS_DEBUG_ATA = 0
 
 
@@ -141,7 +141,7 @@ sfs_mount:
 	jc	92f
 
 	cmp	[edi + sfs_blk0 + sfs_vol_magic], dword ptr SFS_MAGIC
-	jnz	93f
+	jnz	93f	# no print
 
 	cmp	[edi + sfs_blk0 + sfs_vol_numtbl], dword ptr 0
 	jz	94f
@@ -227,6 +227,7 @@ sfs_mount:
 9:	pop	edx
 	ret
 
+93:	# signature error - dont print, as fs iterates mount.
 0:	mov	eax, edi
 	call	class_deleteinstance
 	mov	edi, -1
@@ -238,8 +239,6 @@ sfs_mount:
 92:	printlnc 4, " ata error"
 	stc
 	jmp	9b
-93:	printlnc 4, " signature error"
-	jmp	0b
 94:	printlnc 4, " no tables"
 	jmp	0b
 95:	printlnc 4, "table corrupt"

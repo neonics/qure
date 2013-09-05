@@ -87,6 +87,9 @@ MAX_PATH_LEN = 1024
 	#
 
 .if DEFINE
+.global fs_obj_p_size_sectors
+.global fs_obj_api_read
+.global fs_obj_api_write
 
 .text32
 
@@ -224,17 +227,12 @@ cmd_mount$:
 	mov	ecx, esi	# ecx (heads) no longer needed
 	pop	esi
 	jc	4f
-
 	# ax = disk, ecx = partition info pointer, esi = mountpoint
 	# mount the filesystem
-	push	eax
-	push	ecx
-	push	esi
+	push_	eax ecx edx esi
 	mov	esi, ecx
 	call	fs_load$	# out: edi = fs info structure
-	pop	esi
-	pop	ecx
-	pop	eax
+	pop_	esi edx ecx eax
 	jc	4f
 	# double check: edi
 	cmp	edi, -1
@@ -250,6 +248,19 @@ cmd_mount$:
 	mov	[ebx + edx + mtab_flags], word ptr MTAB_FLAG_PARTITION
 	mov	[ebx + edx + mtab_disk], ax
 	mov	[ebx + edx + mtab_fs_instance], edi
+
+	# XXX FIXME
+	# load partition again - the buffer is overwritten?
+	push	esi
+	call	disk_get_partition
+	mov	ecx, esi
+	pop	esi
+	jnc	1f
+	printc 4, "get_partition error"
+	# TODO: free mtab_entry
+	# TODO: free fs instance
+	jmp	4f
+1:
 
 	push	eax
 	mov	eax, [ecx + PT_LBA_START]
@@ -270,8 +281,7 @@ cmd_mount$:
 	# print type and size
 	push	edx
 	push	eax
-	mov	eax, ebx
-	add	eax, edx
+	lea	eax, [ebx + edx]
 
 	printc	14, "type "
 	mov	dl, [eax + mtab_fs]
@@ -487,6 +497,11 @@ fs_obj_p_start_lba:	.long 0, 0
 fs_obj_p_size_sectors:	.long 0, 0
 fs_obj_p_end_lba:	.long 0, 0
 fs_obj_label:		.long 0	# short filesystem name
+
+# protected methods:
+DECLARE_CLASS_METHOD fs_obj_api_read,	fs_obj_read
+DECLARE_CLASS_METHOD fs_obj_api_write,	fs_obj_write
+
 # in: ax: al = disk ah = partition
 # in: esi = partition table pointer
 # out: eax: class instance (object)
@@ -510,6 +525,64 @@ DECLARE_CLASS_METHOD fs_api_move, 0
 DECLARE_CLASS_END fs
 ###################################################
 .text32
+# protected methods:
+
+# in: eax = fs_obj/class_fs instance
+# in: ecx = size
+# in: ebx = sectors
+# out: ecx = error msg on CF
+fs_obj_rw_init$:
+	add	ecx, 511
+	shr	ecx, 9
+	LOAD_TXT "data size 0", edx
+	jz	9f
+	cmp	ebx, [eax + fs_obj_p_size_sectors]
+	LOAD_TXT "sector outside partition", edx
+	jae	9f
+	add	ebx, [eax + fs_obj_p_start_lba]
+	mov	ax, [eax + fs_obj_disk]
+	ret
+9:	stc
+	ret
+
+# in: eax = instance
+# in: ebx = partition-relative LBA
+# in: edi = buffer
+# in: ecx = bytes
+fs_obj_read:
+	push_	eax ebx ecx edx
+	call	fs_obj_rw_init$
+	call	ata_read
+	LOAD_TXT "ata_read error", edx
+	jc	9f
+0:	pop_	edx ecx ebx eax
+	ret
+9:	printc 4, "fs_obj_read: "
+	push	edx
+	call	_s_println
+	stc
+	jmp	0b
+
+# in: eax = sfs instance
+# in: ebx = partition-relative LBA
+# in: esi = buffer
+# in: ecx = bytes	# writes at least 1 sector
+fs_obj_write:
+	push_	edx ecx ebx eax
+	call	fs_obj_rw_init$
+	jc	9f
+	call	ata_write
+	LOAD_TXT "ata_write error", edx
+	jc	9f
+0:	pop_	eax ebx ecx edx
+	ret
+9:	printc 4, "fs_obj_write: "
+	push	edx
+	call	_s_println
+	stc
+	jmp	0b
+
+################################################
 
 fs_init:
 .if 0 # disabled for now - statically defined
@@ -595,7 +668,7 @@ cmd_mkfs:
 	call	disk_print_label
 	printc 11, " type "
 	mov	esi, [edx + class_name]
-	call	println
+	call	print
 
 	push	edx				# class def ptr
 	push	dword ptr offset fs_api_mkfs	# static method ptr

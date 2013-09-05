@@ -106,6 +106,7 @@ include "dma.s", dma
 include "fs.s", fs
 include "fs/fat.s", fat
 include "fs/sfs.s", sfs
+include "fs/fs_oofs.s", oofs
 include "fs/iso9660.s", iso9660
 
 
@@ -258,6 +259,8 @@ include "fs/iso9660.s", iso9660
 	.global malloc_aligned
 	.global mallocz
 	.global mallocz_aligned
+	.global mrealloc
+	.global mreallocz
 	.global mfree
 	.global mdup
 	.global mem_heap_size

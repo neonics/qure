@@ -35,10 +35,10 @@ LD_OPTS = -nostartfiles -nodefaultlibs -nostdlib --exclude-libs ALL \
 	--warn-section-align
 
 ifeq ($(KERNEL_SPLIT_RINGS),1)
-KERNEL_OBJECTS = kernel.o ring2.o
+KERNEL_OBJECTS = kernel.o ring2.o fs/oofs/oofs.o
 LD = ld $(LD_OPTS) -r
 else
-KERNEL_OBJECTS = kernel.o
+KERNEL_OBJECTS = kernel.o fs/oofs/oofs.o
 LD = cp $< $@
 LD = ld $(LD_OPTS) -r
 endif
@@ -177,3 +177,8 @@ kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
+
+
+fs/oofs/oofs.o: fs/oofs/*.s fs/oofs/Makefile
+	@echo " M $@"
+	@make -C fs/oofs
