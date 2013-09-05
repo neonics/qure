@@ -280,7 +280,7 @@ cmd_mount$:
 	pushcolor 9
 	mov	esi, [eax + mtab_fs_instance]
 	mov	esi, [esi + obj_class]
-	mov	esi, [esi + class_name]#fs_api_label]
+	mov	esi, [esi + class_name]
 	call	print
 	popcolor
 	call	printspace
@@ -490,6 +490,7 @@ fs_obj_label:		.long 0	# short filesystem name
 # in: ax: al = disk ah = partition
 # in: esi = partition table pointer
 # out: eax: class instance (object)
+DECLARE_CLASS_METHOD fs_api_mkfs, 0	# in: ax = part/disk | esi = part info
 DECLARE_CLASS_METHOD fs_api_mount, 0	# in: ax = part/disk, esi = part info
 DECLARE_CLASS_METHOD fs_api_umount, 0	# destructor
 # in: eax = fs_instance
@@ -559,6 +560,79 @@ fs_mount:
 	ret
 
 fs_unmount:
+	ret
+
+cmd_mkfs:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	9f
+
+	mov	edx, offset class_fs_oofs #default
+
+	cmp	byte ptr [eax], '-'
+	jnz	1f
+	CMD_ISARG "-t"
+	jnz	9f
+	lodsd
+	call	fs_get_by_name$
+	jc	91f
+
+	lodsd
+	or	eax, eax
+	jz	9f
+
+1:	call	disk_parse_partition_label
+	jc	9f
+
+	push	eax
+	lodsd
+	or	eax, eax
+	pop	eax
+	jnz	92f
+
+	printc 11, "formatting "
+	call	disk_print_label
+	printc 11, " type "
+	mov	esi, [edx + class_name]
+	call	println
+
+	push	edx				# class def ptr
+	push	dword ptr offset fs_api_mkfs	# static method ptr
+	call	class_invoke_static	# out: CF = 0: mount ok
+	ret
+
+91:	printlnc 4, "unknown file system type. Available: "
+	call	fs_list_filesystems
+	ret
+92:	printlnc 4, "trailing arguments."
+9:	printlnc 4, "usage: mkfs [-t <fstype>] <hdXY>"
+	ret
+
+
+fs_get_by_name$:
+	push_	eax esi edi ecx ebp
+	mov	ebp, esp
+
+	mov	esi, eax
+	call	strlen_
+	add	ecx, 4
+	sub	esp, ecx
+
+	mov	edi, esp
+	LOAD_TXT "fs_", esi, ecx
+	rep	movsb
+	dec	edi
+	mov	esi, eax
+	call	strcopy
+
+	mov	eax, esp
+	DEBUGS eax
+	call	class_get_by_name
+	mov	edx, eax
+
+	mov	esp, ebp
+	pop_	ebp ecx edi esi eax
 	ret
 
 #############################################################################

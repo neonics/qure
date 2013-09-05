@@ -136,7 +136,7 @@ SHELL_COMMAND "disks",		cmd_disks_print$
 SHELL_COMMAND "listdrives",	ata_list_drives
 SHELL_COMMAND "fdisk",		cmd_fdisk
 SHELL_COMMAND "partinfo",	cmd_partinfo$
-SHELL_COMMAND "mkfs",		cmd_sfs_format
+SHELL_COMMAND "mkfs",		cmd_mkfs
 #
 SHELL_COMMAND "mount",		cmd_mount$
 SHELL_COMMAND "umount",		cmd_umount$

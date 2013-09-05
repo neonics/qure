@@ -443,6 +443,8 @@ class_extends:
 	ret
 
 
+# in: [esp+4] = class def ptr
+# in: [esp+0] = static method offset
 class_invoke_static:
 	push	ebp
 	lea	ebp, [esp + 8]

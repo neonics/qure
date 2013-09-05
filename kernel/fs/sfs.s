@@ -26,8 +26,11 @@ sfs_partition_size_lba:	.long 0, 0
 sfs_blk0:		.space 512
 sfs_buffer_lba:		.long 0
 sfs_buffer_ptr:		.long 0
+# static
+DECLARE_CLASS_METHOD fs_api_mkfs,	sfs_format, OVERRIDE
 DECLARE_CLASS_METHOD fs_api_mount,	sfs_mount, OVERRIDE
 DECLARE_CLASS_METHOD fs_api_umount,	sfs_umount, OVERRIDE
+# instance
 DECLARE_CLASS_METHOD fs_api_open,	sfs_open, OVERRIDE
 DECLARE_CLASS_METHOD fs_api_close,	sfs_close, OVERRIDE
 DECLARE_CLASS_METHOD fs_api_nextentry,	sfs_nextentry, OVERRIDE
