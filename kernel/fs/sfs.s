@@ -3,14 +3,18 @@
 .intel_syntax noprefix
 .code32
 
+SFS_VERBOSE = 1
 SFS_DEBUG = 1
+SFS_DEBUG_ATA = 0
+
 
 SFS_PARTITION_TYPE = 0x99	# or 69 or 96
 
 SFS_MAGIC = ( 'S' | 'F' << 8 | 'S' << 16 | '0' << 24)
 
-SFS_DIR_RESERVE	= 1024*1024 / 512	# 1 Mb
-SFS_NAMES_RESERVE = 1024*512 / 512	# .5 Mb
+# in bytes
+SFS_DIR_RESERVE		= 4096
+SFS_NAMES_RESERVE	= 4096
 
 #############################################################################
 DECLARE_CLASS_BEGIN fs_sfs, fs
@@ -34,6 +38,17 @@ DECLARE_CLASS_METHOD fs_api_delete,	sfs_delete, OVERRIDE
 DECLARE_CLASS_METHOD fs_api_move,	sfs_move, OVERRIDE
 DECLARE_CLASS_END fs_sfs
 
+
+
+
+.struct 0	# table structure
+tbl_lba:	.long 0,0
+tbl_size:	.long 0,0	# bytes
+tbl_reserve:	.long 0,0	# bytes
+tbl_mem:	.long 0		# runtime: memptr; disk: reserved.
+tbl_RESERVED:	.long 0
+TBL_STRUCT_SIZE = .	# 32
+
 ###############################
 # LBA: 32 bit * 512 bytes = 2 terabyte.
 # LBA: 40 bit * 512 bytes = 512 terabyte
@@ -49,14 +64,16 @@ DECLARE_CLASS_END fs_sfs
 sfs_vol_magic:		.long 0	# "SFS0"
 sfs_vol_blocksize_bits:	.byte 0	# 9 - hardcoded 512 bytes
 			.byte 0, 0, 0	# align
-sfs_vol_size:		.long 0, 0
-sfs_vol_blktab_lba:	.long 0, 0
-sfs_vol_blktab_size:	.long 0, 0
-sfs_vol_directory_lba:	.long 0, 0	# LBA
-sfs_vol_directory_size:	.long 0, 0	# sectors
-sfs_vol_names_lba:	.long 0, 0
-sfs_vol_names_size:	.long 0, 0
+sfs_vol_size:		.long 0, 0	# entire size
 sfs_vol_data_lba:	.long 0, 0	# freely allocatable start LBA
+
+sfs_vol_tables_lba:	.long 0, 0
+sfs_vol_numtbl:		.long 0
+sfs_vol_tbl:
+# NOTE: the following sequence is hardcoded in sfs_format.
+sfs_vol_tbl_blktab:	.space TBL_STRUCT_SIZE
+sfs_vol_tbl_names:	.space TBL_STRUCT_SIZE
+sfs_vol_tbl_dir:	.space TBL_STRUCT_SIZE
 SFS_VOL_STRUCT_SIZE = 512
 
 .struct 0
@@ -67,6 +84,13 @@ sfs_dir_file_lba:	.long 0, 0	# sectors
 sfs_dir_file_size:	.long 0, 0	# bytes
 sfs_dir_file_name_ptr:	.long 0
 SFS_DIR_STRUCT_SIZE = 32
+
+.struct 0
+sfs_table_name:		.space 12
+sfs_table_type:		.long 0
+sfs_table_start_lba:	.long 0, 0
+sfs_table_end_lba:	.long 0, 0
+SFS_TABLE_STRUCT_SIZE = .	# 32
 
 .text32
 # in: ax = disk/partition
@@ -89,37 +113,134 @@ sfs_mount:
 	call	class_newinstance
 	mov	edi, eax
 	pop	eax
-	jc	9f
+	jc	91f
 
 	mov	ebx, [esi + PT_SECTORS]
 	mov	[edi + sfs_partition_size_lba], ebx
 	mov	ebx, [esi + PT_LBA_START]
 	mov	[edi + sfs_partition_start_lba], ebx
 
-	.if SFS_DEBUG
+	.if SFS_VERBOSE
+		push	edx
+		printc 11, "sfs LBA "
+		mov	edx, ebx
+		call	printhex8
+		pop	edx
+	.elseif SFS_DEBUG
 		DEBUG_DWORD ebx,"LBA START"
 	.endif
+
 	push	edi
 	mov	ecx, 1	# 1 sector
 	add	edi, offset sfs_blk0
 	call	ata_read
 	pop	edi
-	jc	9f
+	jc	92f
 
 	cmp	[edi + sfs_blk0 + sfs_vol_magic], dword ptr SFS_MAGIC
-	stc
-	jnz	9f
+	jnz	93f
 
-9:	pop	edx
-	.if SFS_DEBUG
-		DEBUG_DWORD edi, "instance"
-		DEBUG_DWORD [edi + sfs_blk0 + sfs_vol_directory_lba], "DIR LBA"
-		DEBUG_DWORD [edi + sfs_blk0 + sfs_vol_directory_size], "DIR size"
-		DEBUG_DWORD [edi + sfs_blk0 + sfs_vol_names_lba], "NAMES LBA"
-		DEBUG_DWORD [edi + sfs_blk0 + sfs_vol_names_size], "NAMES size"
+	cmp	[edi + sfs_blk0 + sfs_vol_numtbl], dword ptr 0
+	jz	94f
+
+	.if SFS_VERBOSE
+
+		mov	edx, [edi + sfs_blk0 + sfs_vol_size]
+		print	" size: "
+		call	printhex8
+		print	" sectors. "
 	.endif
 
+	# print tables
+
+	push_	ecx esi edi eax
+	mov	ecx, [edi + sfs_blk0 + sfs_vol_numtbl]
+
+	.if SFS_VERBOSE
+		mov	edx, ecx
+		call	printdec32
+		println " tables:"
+	.endif
+
+	lea	esi, [edi + sfs_blk0 + sfs_vol_tbl]
+0:
+	.if SFS_VERBOSE
+		mov	edx, [edi + sfs_blk0 + sfs_vol_numtbl]
+		sub	edx, ecx
+		call	printdec32
+		print ": LBA: "
+		mov	edx, [esi + tbl_lba]
+		call	printhex8
+		print " size: "
+		mov	edx, [esi + tbl_size]
+		call	printhex8
+		printchar '/'
+		mov	edx, [esi + tbl_reserve]
+		call	printhex8
+	.endif
+
+	mov	eax, edi
+
+	push_	edi ecx
+	mov	ebx, [esi + tbl_lba]
+	mov	ecx, [esi + tbl_size]
+	mov	[esi + tbl_mem], dword ptr 0
+	jecxz	1f
+	call	sfs_load_blk	# in: eax, ebx, ecx; out: edi
+	mov	[esi + tbl_mem], edi
+1:	pop_	ecx edi
+	jc	2f
+
+	printc 10, "Ok"
+
+	.if SFS_VERBOSE
+		call	newline
+	.endif
+
+	add	esi, TBL_STRUCT_SIZE
+	loop	0b
+
+2:	pop_	eax edi esi ecx
+	jc	95f
+
+	.if SFS_DEBUG
+		.irp n,blktab,names,dir
+		DEBUG "\n"
+		DEBUG_DWORD [edi + sfs_blk0 + sfs_vol_tbl_\n\() + tbl_lba],"LBA"
+		DEBUG_DWORD [edi + sfs_blk0 + sfs_vol_tbl_\n\() + tbl_size],"size"
+		call newline
+		.endr
+	.endif
+
+	.if SFS_DEBUG > 1
+		DEBUG_DWORD edi, "instance"
+		DEBUG_DWORD [edi + sfs_blk0 + sfs_vol_tbl_dir+tbl_lba], "DIR LBA"
+		DEBUG_DWORD [edi + sfs_blk0 + sfs_vol_tbl_dir+tbl_size], "DIR size"
+		DEBUG_DWORD [edi + sfs_blk0 + sfs_vol_tbl_names+tbl_lba], "NAMES LBA"
+		DEBUG_DWORD [edi + sfs_blk0 + sfs_vol_tbl_names+tbl_size], "NAMES size"
+	.endif
+
+	clc
+9:	pop	edx
 	ret
+
+0:	mov	eax, edi
+	call	class_deleteinstance
+	mov	edi, -1
+	stc
+	jmp	9b
+91:	printlnc 4, " cannot instantiate object"
+	stc
+	jmp	9b
+92:	printlnc 4, " ata error"
+	stc
+	jmp	9b
+93:	printlnc 4, " signature error"
+	jmp	0b
+94:	printlnc 4, " no tables"
+	jmp	0b
+95:	printlnc 4, "table corrupt"
+	jmp	0b
 
 # in: edi
 sfs_umount:
@@ -134,6 +255,14 @@ sfs_umount:
 # in: ecx = bytes to load (rounded up to sectors)
 # out: edi = blk buffer (loaded/filled)
 sfs_load_blk:
+
+.if SFS_DEBUG > 1
+	call	newline
+	DEBUG_DWORD eax
+	DEBUG_DWORD ebx,"load_blk"
+	DEBUG_DWORD ecx
+.endif
+
 	call	sfs_buffer_find
 	jc	1f
 	.if SFS_DEBUG > 1
@@ -143,6 +272,9 @@ sfs_load_blk:
 
 1:	push_	esi edx eax ecx
 	mov	esi, eax
+
+	cmp	ebx, [esi + sfs_partition_size_lba]
+	jae	93f
 
 	PTR_ARRAY_NEWENTRY [esi + sfs_buffer_lba], 16, 91f
 	mov	[eax + edx], ebx
@@ -157,12 +289,15 @@ sfs_load_blk:
 	jc	91f
 	mov	[edx], eax
 	# ebx = sector
+
 	push	ebx
-	add	ebx, [esi + sfs_partition_start_lba]
 	shr	ecx, 9	# ecx = num sectors
 	.if 1#SFS_DEBUG > 1
-		DEBUG_DWORD ecx, "load sectors"; DEBUG_DWORD ebx, "LBA"
+		DEBUG_DWORD ecx, "load sectors"; DEBUG_DWORD ebx, "pLBA"
 	.endif
+
+
+	add	ebx, [esi + sfs_partition_start_lba]
 	mov	edi, eax
 	mov	ax, [esi + sfs_disk]
 	call	ata_read
@@ -178,11 +313,18 @@ sfs_load_blk:
 0:	pop_	ecx eax edx esi
 	ret
 
-91:	printlnc 4, "sfs_load_blk malloc error"
+91:	printlnc 4, "sfs_load_blk: malloc error"
 	stc
 	jmp	0b
 
-92:	printlnc 4, "ata_read error"
+92:	printlnc 4, "sfs_load_blk: ata_read error"
+	stc
+	jmp	0b
+
+93:	printc 4, "sfs_load_blk: sector not in partition: "
+	mov	edx, ebx
+	call	printhex8
+	call	newline
 	stc
 	jmp	0b
 
@@ -241,18 +383,18 @@ sfs_buffer_find:
 .endif
 
 
-sfs_alloc_dir:
+sfs_alloc_dir_OLD:
 	mov	ecx, 512
 # KEEP-WITH-NEXT: sfs_alloc_blk
-
 # in: eax = sfs instance
 # in: ecx = size in bytes
 # out: ebx = lba
-sfs_alloc_blk:
+sfs_alloc_blk_OLD:
+	DEBUG "sfs_alloc_blk"
 	push_	ebp eax edx esi edi ecx
 	mov	ebp, esp
-	mov	ebx, [eax + sfs_blk0+sfs_vol_blktab_lba]
-	mov	ecx, [eax + sfs_blk0+sfs_vol_blktab_size]
+	mov	ebx, [eax + sfs_blk0+sfs_vol_tbl_blktab + tbl_lba]#blktab_lba]
+	mov	ecx, [eax + sfs_blk0+sfs_vol_tbl_blktab + tbl_size]#blktab_size]
 	mov	edx, eax
 	DEBUG_DWORD ecx, "blktab size"
 	call	sfs_load_blk
@@ -310,26 +452,28 @@ sfs_alloc_blk:
 	add	esi, edi
 	mov	ecx, 1
 	mov	eax, edx
-	add	ebx, [eax + sfs_blk0 + sfs_vol_blktab_lba]
-		DEBUG "write blk"
-		DEBUG_DWORD ebx
+	add	ebx, [eax + sfs_blk0 + sfs_vol_tbl_blktab + tbl_lba]#blktab_lba]
 	call	sfs_write_blk
 	pop	ebx		# pushed as buf, swapped: pop LBA
 
 0:	pop_	ecx edi esi edx eax ebp
 	ret
-9:	printlnc 4, "partition full"
+9:	call	0f
+	printlnc 4, "partition full"
 	stc
 	jmp	0b
-91:	printlnc 4, "load_blk error"
+91:	call	0f
+	printlnc 4, "load_blk error"
 	stc
-	jmp	9b
+	jmp	0b
+0:	printc 4, "sfs_alloc_blk: "
+	ret
 
 
 
 
 # in: eax = sfs instance
-# in: ebx = lba
+# in: ebx = lba (relative to partition start)
 # in: esi = buffer
 # in: ecx = bytes
 sfs_write_blk:
@@ -338,6 +482,17 @@ sfs_write_blk:
 	add	ebx, [eax + sfs_partition_start_lba]
 	shr	ecx, 9
 	mov	ax, [eax + sfs_disk]
+.if SFS_DEBUG_ATA
+	DEBUG "write_blk"
+	DEBUG_WORD ax
+	DEBUG_DWORD ebx
+	DEBUG_DWORD esi
+	DEBUG_DWORD ecx
+	push edx
+	mov edx, [esp + 12]
+	call debug_printsymbol
+	pop edx
+.endif
 	call	ata_write
 	pop_	eax ebx
 	ret
@@ -348,6 +503,7 @@ sfs_write_blk0$:
 	lea	esi, [eax + sfs_blk0]
 	mov	ecx, 512
 	xor	ebx, ebx
+	.if SFS_DEBUG; DEBUG "write blk0"; .endif
 	call	sfs_write_blk
 	pop_	esi ecx ebx eax
 	ret
@@ -356,8 +512,9 @@ sfs_write_blk0$:
 # in: eax = sfs instance
 sfs_write_vol_dir$:
 	push_	eax ebx ecx esi edi
-	mov	ebx, [eax + sfs_blk0 + sfs_vol_directory_lba]
-	mov	ecx, [eax + sfs_blk0 + sfs_vol_directory_size]
+	mov	ebx, [eax + sfs_blk0 + sfs_vol_tbl_dir + tbl_lba]
+	mov	ecx, [eax + sfs_blk0 + sfs_vol_tbl_dir + tbl_size]
+	.if SFS_DEBUG; DEBUG "write dir"; .endif
 	call	sfs_load_blk	# get from cache
 	jc	9f
 	mov	esi, edi
@@ -369,10 +526,18 @@ sfs_write_vol_dir$:
 # in: eax = sfs instance
 sfs_write_vol_names$:
 	push_	eax ebx ecx esi edi
-	mov	ebx, [eax + sfs_blk0 + sfs_vol_names_lba]
-	mov	ecx, [eax + sfs_blk0 + sfs_vol_names_size]
+	mov	ebx, [eax + sfs_blk0 + sfs_vol_tbl_names + tbl_lba]
+	mov	ecx, [eax + sfs_blk0 + sfs_vol_tbl_names + tbl_size]
+	.if SFS_DEBUG
+		DEBUG "write names"
+		DEBUG_DWORD ebx
+		DEBUG_DWORD ecx
+	.endif
 	call	sfs_load_blk
 	jc	9f
+	.if SFS_DEBUG
+		DEBUG_DWORD edi
+	.endif
 	mov	esi, edi
 	call	sfs_write_blk
 9:	pop_	edi esi ecx ebx eax
@@ -386,6 +551,11 @@ sfs_write_vol_names$:
 # in: edi = fs dir entry struct (to be filled)
 # out: ebx = dir handle
 sfs_open:
+	.if 1	# check for special commands
+		cmp	byte ptr [esi], '?'
+		jz	sfs_backdoor
+	.endif
+
 	push_	edi edx
 	mov	edx, eax
 
@@ -394,6 +564,7 @@ sfs_open:
 		DEBUG_DWORD ebx
 		DEBUGS esi
 	.endif
+
 	cmp	ebx, -1
 	jnz	1f
 
@@ -413,8 +584,8 @@ sfs_open:
 		DEBUG "load dir"
 	.endif
 	push_	esi eax edx
-	mov	ebx, [eax + sfs_blk0 + sfs_vol_directory_lba]
-	mov	ecx, [eax + sfs_blk0 + sfs_vol_directory_size]
+	mov	ebx, [eax + sfs_blk0 + sfs_vol_tbl_dir + tbl_lba]
+	mov	ecx, [eax + sfs_blk0 + sfs_vol_tbl_dir + tbl_size]
 	DEBUG_DWORD ebx,"dir lba"
 	call	sfs_load_blk	# in: eax, ebx, ecx; out: edi
 	pop_	edx eax esi
@@ -425,8 +596,8 @@ sfs_open:
 		DEBUG "load names"
 	.endif
 	push_	ebx esi
-	mov	ebx, [eax + sfs_blk0 + sfs_vol_names_lba]
-	mov	ecx, [eax + sfs_blk0 + sfs_vol_names_size]
+	mov	ebx, [eax + sfs_blk0 + sfs_vol_tbl_names + tbl_lba]
+	mov	ecx, [eax + sfs_blk0 + sfs_vol_tbl_names + tbl_size]
 	call	sfs_load_blk	# in: eax, ebx, ecx; out: edi
 	pop_	esi ebx
 	jc	9f
@@ -451,6 +622,11 @@ sfs_open:
 sfs_close:
 	.if SFS_DEBUG
 		DEBUG "sfs_close"
+		push	esi
+		lea	esi, [edi + fs_dirent_name]
+		DEBUGS esi
+		pop	esi
+		call	newline
 	.endif
 	ret
 
@@ -492,22 +668,12 @@ sfs_create:
 	mov	edx, edi	# fs_dirent
 
 ########
-	mov	ecx, 1		# at least 1 byte
-	call	sfs_load_blk	# in: eax=inst, ebx=dir, ecx=nsect; out: edi
-	jc	9f
+	call	sfs_tbl_dir_insert	# in: eax; out: ebx=id, edi=entry in parent
 	mov	[ebp - 4], edi
 
-	# edi = dir blk
-	lea	ecx, [edi + 512]	# max offs
-0:	cmpd	[edi + sfs_dir_file_posix_perm], 0
-	jz	1f	# found
-	add	edi, SFS_DIR_STRUCT_SIZE
-	cmp	edi, ecx
-	jb	0b
-	printc 4, "dir sector exhausted"
-	int 3
+	mov	[edi + sfs_dir_file_lba], ebx
+	mov	[edi + sfs_dir_file_size], dword ptr 0
 
-1:	# found empty entry
 	# copy info from fs_dirent
 	mov	ecx, [edx + fs_dirent_posix_perm]
 	mov	[edi + sfs_dir_file_posix_perm], ecx #dword ptr 0100644	#10: file
@@ -518,60 +684,29 @@ sfs_create:
 
 	mov	[edi + sfs_dir_file_lba], dword ptr -1
 	mov	[edi + sfs_dir_file_size], dword ptr 0
-	mov	[edi + sfs_dir_file_name_ptr], dword ptr 0	# first name
-
-		push_	edi ebx
-		# load names
-		mov	ebx, [eax + sfs_blk0 + sfs_vol_names_lba]
-		mov	ecx, [eax + sfs_blk0 + sfs_vol_names_size]
-		DEBUG_DWORD ecx,"nametab size"
-		call	sfs_load_blk	# in: eax, ebx, ecx; out: edi
-		jc	1f
-		# append name
-		mov	edx, ecx
-		call	strlen_	# esi->ecx
-		inc	ecx
-		lea	ebx, [edx + ecx]
-		DEBUG_DWORD ebx,"nametab size"
-		cmp	ebx, 512	# sector limit
-		jb	2f
-		printc 4, "sfs: name table exhausted"
-		DEBUG_DWORD ebx
-		DEBUG_DWORD edx
-		DEBUG_DWORD ecx
-		int 3
-
-	2:	add	edi, edx	# name ptr
-		push	ecx
-		rep	movsb
-		pop	ecx
-		clc
-	1:	pop_	ebx edi
-		jc	91f
+	call	sfs_tbl_names_append	# in: eax, esi, ecx; out: edx
+	mov	[edi + sfs_dir_file_name_ptr], esi
+	jc	91f
 
 	mov	esi, edi
-	mov	[edi + sfs_dir_file_name_ptr], edx
 
 	# update blk0
-	DEBUG "write blk0"
-	add	[eax + sfs_blk0 + sfs_vol_names_size], ecx
+	add	[eax + sfs_blk0 + sfs_vol_tbl_names + tbl_size], ecx
 	call	sfs_write_blk0$
 	jc	92f
 
 	# update nametable
-	DEBUG "write names"
 	call	sfs_write_vol_names$
 	jc	92f
 
 	# update directory sector
-	DEBUG "write dir"
 	#call	sfs_write_vol_dir$
-	push	ebx
+	push_	ebx esi
 	mov	ebx, [ebp]	# parent LBA
-	mov	edi, [ebp -4]	# parent buffer
+	mov	esi, [ebp -4]	# parent buffer
 	mov	ecx, 512
 	call	sfs_write_blk
-	pop	ebx
+	pop_	esi ebx
 	jc	92f
 
 	mov	ecx, [edi + sfs_dir_file_posix_perm]
@@ -579,6 +714,8 @@ sfs_create:
 	cmp	ecx, POSIX_TYPE_DIR 
 	jnz	1f
 	# is a dir, so allocate LBA
+
+	DEBUG "clearing DIR", 0xe0
 
 	sub	esp, 512
 	push	edi
@@ -588,10 +725,7 @@ sfs_create:
 	xor	eax, eax
 	rep	stosd
 	pop	eax
-	call	sfs_alloc_dir	# in: eax; out: ebx=lba
 	pop	edi
-	mov	[edi + sfs_dir_file_lba], ebx
-	mov	[edi + sfs_dir_file_size], ebx
 	mov	esi, esp
 	call	sfs_write_blk
 	add	esp, 512
@@ -658,7 +792,7 @@ sfs_resolve_name$:
 	# for now we'll use the offset in bytes (no 8 byte boundary)
 	mov	ebx, edx
 	shr	ebx, 9	# convert to sector
-	add	ebx, [eax + sfs_blk0 + sfs_vol_names_lba]
+	add	ebx, [eax + sfs_blk0 + sfs_vol_tbl_names + tbl_lba]
 	push	ecx
 	mov	ecx, 512
 	call	sfs_load_blk	# in: eax, ebx; out: edi
@@ -697,7 +831,7 @@ sfs_nextentry:
 	mov	ebp, esp
 
 	# find directories
-#	mov	ebx, [eax + sfs_blk0 + sfs_vol_directory_lba]
+#	mov	ebx, [eax + sfs_blk0 + sfs_vol_tbl_dir + tbl_lba]
 	push_	edi ecx
 	mov	ecx, 512
 	call	sfs_load_blk	# in: eax, ebx; out: edi
@@ -775,7 +909,7 @@ sfs_find_entry$:
 	mov	edx, [edi + ebx + sfs_dir_file_name_ptr]
 	call	sfs_resolve_name$	# in: eax,edx; out: edx
 	jc	9f		# error resolving name
-	
+
 	push_	esi edi ecx
 	mov	edi, edx
 	repz	cmpsb
@@ -818,6 +952,7 @@ cmd_sfs_format:
 
 # in: al = disk, ah = partition
 sfs_format:
+	push	eax
 	push	ebp
 	mov	ebp, esp
 	# allocate a zero stackbuffer
@@ -831,173 +966,46 @@ sfs_format:
 
 	call	disk_get_partition
 	jc	91f
-
 	cmp	[esi + PT_TYPE], byte ptr SFS_PARTITION_TYPE
 	jnz	92f
 
-	# allocate blk0: volume descriptor
-	mov	edi, eax
-	mov	eax, 512
-	call	mallocz
-	xchg	edi, eax
+	mov	ebx, eax
+	mov	eax, offset class_fs_sfs
+	call	class_newinstance
 	jc	93f
 
-	mov	edx, [esi + PT_SECTORS]
-		print "Formatting "
-		call	printdec32
-		println " sectors"
-	DEBUG_DWORD edi
-	mov	[edi + sfs_vol_magic], dword ptr SFS_MAGIC
-	mov	[edi + sfs_vol_blocksize_bits], byte ptr 9 # 512 byte sectors
-	mov	[edi + sfs_vol_size + 0], edx
-	mov	[edi + sfs_vol_size + 4], dword ptr 0
+	call	sfs_format_init$
+	jc	93f
 
-	DEBUG_DWORD edx, "vol_size"
-	mov	[edi + sfs_vol_blktab_lba], dword ptr 1
-	shr	edx, 8	# bits->bytes; 
-	DEBUG_DWORD edx,"blktab_size"
-	mov	[edi + sfs_vol_blktab_size], edx
-	add	edx, 511
-	shr	edx, 9	# bytes->sectors
-	inc	edx	# +blktab_lba
-	DEBUG_DWORD edx, "vol_dir_lba"
-	mov	[edi + sfs_vol_directory_lba], edx
-	mov	[edi + sfs_vol_directory_size], dword ptr 1
-	add	edx, SFS_DIR_RESERVE
-	DEBUG_DWORD edx, "vol_names_lba"
-	mov	[edi + sfs_vol_names_lba], edx
-	mov	[edi + sfs_vol_names_size], dword ptr 1
-	add	edx, SFS_NAMES_RESERVE
-	DEBUG_DWORD edx, "vol_data_lba"
-	mov	[edi + sfs_vol_data_lba], edx
+	# this sequence matches hardcoded structure elements in sfs_vol_blk_*
 
+	call	sfs_format_init_blktab$
+	jc	94f
 
+	call	sfs_format_init_names$
+	jc	94f
+
+	call	sfs_format_init_dir$
+	jc	94f
 	#########################
 	# write volume descriptor
 
-	mov	ebx, [esi + PT_LBA_START]
-
-		print "Partition LBA: "
-		mov	edx, ebx
-		call	printhex8
-		call	newline
-
-	push	esi
-	mov	esi, edi
-	mov	ecx, 1
-	call	ata_write
-	pop	esi
+	printc 11, " * volume descriptor"
+	call	sfs_write_blk0$
 	jc	94f
 
-
-	#########################################
-	# write sfs_vol_blktab: sector allocation
-
-		mov	edx, [edi + sfs_vol_blktab_lba]
-		print " BLKTAB LBA: "
-		call	printhex8
-		call	newline
-
-	DEBUG_DWORD edi
-	# write the empty sectors
-	mov	ebx, [edi + sfs_vol_blktab_lba]
-	add	ebx, [esi + PT_LBA_START]
-	mov	ecx, [edi + sfs_vol_blktab_size]
-	shr	ecx, 9
-	
-0:	push_	ecx esi
-	lea	esi, [esp + 8]
-	mov	ecx, 1
-	call	ata_write
-	pop_	esi ecx
-	jc	94f
-	inc	ebx
-	loop	0b
-
-
-	############################
-	# write directory descriptor
-
-	mov	ebx, [edi + sfs_vol_directory_lba]
-		print " Directory LBA: "
-		mov	edx, ebx
-		call	printhex8
-		call	newline
-	add	ebx, [esi + PT_LBA_START]
-
-	push	edi
-	lea	edi, [esp+4]
-	mov	ecx, 512 / 4
-	push	eax	# remember drive/partition
-	xor	eax, eax
-	rep	stosd
-	pop	eax
-	sub	edi, 512
-	.if 0
-		# add a file...
-		mov	[edi + sfs_dir_file_posix_perm], dword ptr 0140644
-		mov	[edi + sfs_dir_file_posix_uid], dword ptr 0
-		mov	[edi + sfs_dir_file_posix_gid], dword ptr 0
-		mov	[edi + sfs_dir_file_lba], dword ptr 10
-		mov	[edi + sfs_dir_file_size], dword ptr 303
-		mov	[edi + sfs_dir_file_name_ptr], dword ptr 0	# first name
-	.endif
-	push	esi
-	mov	esi, edi
-	inc	ecx	# ecx = 1
-	call	ata_write
-	pop	esi
-	pop	edi
-	jc	94f
-
-	# write name table
-
-	mov	ebx, [edi + sfs_vol_names_lba]
-		add	ebx, SFS_DIR_RESERVE
-		print " Name table LBA: "
-		mov	edx, ebx
-		call	printhex8
-		call	newline
-	add	ebx, [esi + PT_LBA_START]
-
-	push_	edi esi
-	lea	edi, [esp+8]
-	mov	esi, edi
-	mov	ecx, SFS_DIR_STRUCT_SIZE + 1
-	push	eax	# remember drive/partition
-	xor	eax, eax
-	rep	stosd
-	pop	eax
-	mov	edi, esi
-	.if 0
-		# set the filename
-		push_ esi edi
-		LOAD_TXT "First Filename On SFS!"
-		call	strlen_
-		inc	ecx
-		rep	movsb
-		pop_ edi esi
-	.endif
-	inc	ecx	# ecx = 1
-	call	ata_write
-	pop_	esi edi
-	jc	94f
-
-		mov	edx, [edi + sfs_vol_data_lba]
-		print " Free data LBA: "
-		call	printhex8
-		call	newline
+	OK
 
 	printlnc 11, "Partition formatted."
 
 	clc
 
 8:	pushf
-	mov	eax, edi
-	call	mfree
+	call	class_deleteinstance	# free sfs instance
 	popf
 9:	mov	esp, ebp
 	pop	ebp
+	pop	eax
 	ret
 
 91:	call	0f
@@ -1028,3 +1036,351 @@ sfs_format:
 0:	printc 4, "sfs_format: "
 	ret
 
+# in: eax = sfs instance
+# in: bx = partition <<8 | disk
+sfs_format_init$:
+	mov	[eax + sfs_disk], bx
+
+	mov	edx, [esi + PT_LBA_START]
+	mov	[eax + sfs_partition_start_lba], edx
+
+		print "Partition LBA: "
+		call	printhex8
+
+	mov	edx, [esi + PT_SECTORS]
+	mov	[eax + sfs_partition_size_lba], edx
+
+		print ". Formatting "
+		call	printdec32
+		println " sectors"
+
+
+	# init sfs_blk0
+
+	lea	edi, [eax + sfs_blk0]
+	mov	[edi + sfs_vol_magic], dword ptr SFS_MAGIC
+	mov	[edi + sfs_vol_blocksize_bits], byte ptr 9 # 512 byte sectors
+	mov	[edi + sfs_vol_size + 0], edx
+	mov	[edi + sfs_vol_size + 4], dword ptr 0
+
+	mov	[edi + sfs_vol_data_lba], dword ptr 1	# blk0 end
+	clc
+	ret
+
+# in: ebx-512 = start of buf
+# in: 512 = size of buf
+# out: esi = buffer offset
+sfs_format_clear_buf$:
+	push_	edi eax ecx
+	xor	eax, eax
+	lea	edi, [ebp - 512]
+	mov	ecx, 512/4
+	mov	esi, edi
+	rep	stosd
+	pop_	ecx eax edi
+	ret
+
+#########################
+# First Table: allocation
+
+# write sfs_vol_blktab: sector allocation
+# in: eax = sfs instance
+sfs_format_init_blktab$:
+	LOAD_TXT "blktab"
+	#lea	edx, [eax + sfs_blk0 + sfs_vol_tbl_blktab]
+	mov	ecx, [eax + sfs_blk0 + sfs_vol_size]
+	shr	ecx, 8	# bits->bytes; 
+	call	sfs_tbl_alloc
+	ret
+
+#####################
+# Second Table: names
+
+sfs_format_init_names$:
+	LOAD_TXT "names"
+	#lea	edx, [eax + sfs_blk0 + sfs_vol_tbl_names]
+	mov	ecx, SFS_NAMES_RESERVE
+	call	sfs_tbl_alloc # mod: edx, esi
+
+	lea	edi, [ebp - 512]
+	mov	[edx + sfs_blk0 + sfs_vol_tbl_names + tbl_mem], edi
+
+	push	esi
+	LOAD_TXT "blktab", esi, ecx
+	DEBUG_DWORD ecx
+	rep	movsb
+	pop	esi
+	# copy given label ("names")
+	call	strlen_
+	DEBUG_DWORD ecx
+	rep	movsb
+
+	lea	ecx, [ebp - 512]
+	sub	edi, ecx
+	DEBUG_DWORD edi
+
+	mov	[edx + tbl_size], edi
+	ret
+
+########################
+# Third Table: directory
+
+sfs_format_init_dir$:
+	LOAD_TXT "dir"
+	#lea	edx, [eax + sfs_blk0 + sfs_vol_tbl_dir]
+	mov	ecx, SFS_DIR_RESERVE
+	call	sfs_tbl_alloc
+	mov	[edx + tbl_size], dword ptr 512	# empty root directory
+
+	call	strlen_
+#	call	sfs_tbl_names_append
+clc
+	ret
+
+# in: eax = sfs instance
+# in: ecx = reserve size
+# out: edx = table def ptr (sfs_blk0 + SFS_STRUCT_SIZE*[sfs_vol_numtbl++])
+sfs_tbl_alloc:
+	printc 11, " * init table "
+	call	print
+	push	ecx
+	call	strlen_
+	neg	ecx
+	add	ecx, 12
+0:	call	printspace
+	loop	0b
+	pop	ecx
+
+	mov	edx, [eax + sfs_blk0 + sfs_vol_numtbl]
+	DEBUG_DWORD edx
+	inc	dword ptr [eax + sfs_blk0 + sfs_vol_numtbl]
+	.if TBL_STRUCT_SIZE == 32
+	shl	edx, 5
+	.else
+	.error "TBL_STRUCT_SIZE 32 not implemented"
+	.endif
+
+	lea	edx, [eax + sfs_blk0 + sfs_vol_tbl + edx]
+
+	push_	esi ebx ecx
+	mov	ebx, [eax + sfs_blk0 + sfs_vol_data_lba]
+	mov	[edx + tbl_lba], ebx
+	mov	[edx + tbl_reserve], ecx
+	mov	[edx + tbl_size], dword ptr 0
+	add	ecx, 511
+	shr	ecx, 9
+	add	[eax + sfs_blk0 + sfs_vol_data_lba], ecx
+
+		push	edx
+		mov	edx, ebx
+		print " LBA: "
+		call	printhex8
+		mov	edx, ecx
+		print " Reserve: "
+		call	printhex8
+		print " sectors. "
+		pop	edx
+
+	mov	ecx, [edx + tbl_reserve]
+	add	ecx, 511
+	shr	ecx, 9
+	call	sfs_format_clear_buf$	# out: esi
+	mov	ebx, [edx + tbl_lba]
+
+0:	push	ecx
+	printchar '.'
+	call	sfs_write_blk
+	inc	ebx
+	pop	ecx
+	loop	0b
+
+	OK
+	clc
+
+	pop_	ecx ebx esi
+	ret
+
+# in: eax = sfs instance
+# in: edx = table def ptr
+# in: esi = buffer
+sfs_tbl_write:
+	push_	edx ecx ebx
+	mov	ebx, [edx + tbl_lba]
+	mov	ecx, [edx + tbl_size]
+	call	sfs_write_blk
+	pop_	ebx ecx edx
+	ret
+
+
+###############################################################################
+# Directory Table
+
+# in: eax
+# in: ebx = parent dir id (-1 for root level)
+# out: ebx = dir id (lba for now - directory entires are sector aligned).
+# out: edi = sfs_dir ptr
+# out: edx = parent pointer
+sfs_tbl_dir_insert:
+
+	push_	esi ecx
+	lea	esi, [eax + sfs_blk0 + sfs_vol_tbl_dir]
+	mov	edi, [esi + tbl_mem]
+	or	edi, edi	# exception
+	jnz	81f
+18:
+
+	cmp	ebx, -1
+	jz	61f
+
+	mov	ebx, [esi + tbl_size]
+	and	ebx, 511
+	jz	82f		# end is sector aligned i.e. not loaded.
+	add	ebx, SFS_DIR_STRUCT_SIZE
+	shr	ebx, 9
+	jnz	82f
+28:	add	edi, [esi + tbl_size]
+16:
+	.if 1	# backward compat LBA addr
+	mov	ebx, [eax + sfs_blk0 + sfs_vol_data_lba]
+	inc	dword ptr [eax + sfs_blk0 + sfs_vol_data_lba]
+	mov	edx, [esi + tbl_size]
+	add	[esi + tbl_size], dword ptr SFS_DIR_STRUCT_SIZE
+	.else
+		mov	ebx, edx	# use offset in table as id
+		.if SFS_DIR_STRUCT_SIZE != 32
+		.error "SFS_DIR_STRUCT_SIZE 32 not implemented in sfs_tbl_dir_insert"
+		.endif
+		shr	ebx, 5
+	.endif
+
+#	mov	[edi + sfs_dir_file_lba], ebx
+
+	clc
+
+0:	pop_	ecx esi
+	ret
+
+61:
+	.if 0 # ebx as entry id:
+		.if SFS_DIR_STRUCT_SIZE != 32
+		.error "SFS_DIR_STRUCT_SIZE 32 not implemented in sfs_tbl_dir_insert"
+		.endif
+		shl	ebx, 5
+		cmp	dword ptr [edi + ebx + sfs_dir_file_perm], 0
+		jz	91f
+		#mov	ebx, [edi + ebx + sfs_dir_file_lba]
+		mov	ecx, [edi + ebx + sfs_dir_file_size]
+	.else
+	mov	ecx, 1	# fixme
+	.endif
+	call	sfs_load_blk	# in: eax=inst, ebx=dir, ecx=nsect; out: edi
+	jc	92f
+	#mov	[ebp - 4], edi
+
+	# edi = dir blk
+	lea	ecx, [edi + 512]	# max offs
+62:	cmpd	[edi + sfs_dir_file_posix_perm], 0
+	jz	16b	# found
+	add	edi, SFS_DIR_STRUCT_SIZE
+	cmp	edi, ecx
+	jb	62b
+	printc 4, "dir sector exhausted"
+	int 3
+	# TODO: mreallocz, like 81 below,
+	# and update the cache (mem_ptr elsewhere!)
+	jmp	16b
+
+
+
+9:	printc 4, "sfs_tbl_dir_insert: "
+	call	_s_println
+	stc
+	jmp	0b
+
+# table not loaded.
+81:	mov	ebx, [esi + tbl_lba]
+	call	sfs_load_blk
+	mov	[esi + tbl_mem], edi
+	jnc	18b
+	PUSH_TXT "table load error"
+	jmp	9b
+
+# adding data crosses section boundary
+82:	push_	eax edx
+	mov	eax, edi
+	mov	edx, [esi + tbl_size]
+	add	edx, 511 + 512*1
+	and	edx, ~511
+	call	mreallocz
+	mov	[esi + tbl_mem], eax
+	pop_	edx eax
+	jnc	28b
+	PUSH_TXT "mrealloc"
+	jmp	9b
+
+# dir handle invalid
+91:	PUSH_TXT "invalid handle:         "
+	push_	edx edi
+	mov	edi, [esp + 4]
+	add	edi, 16
+	mov	edx, ebx
+	call	sprinthex8
+	pop_	edi edx
+	jmp	9b
+
+92:	PUSH_TXT "error loading parent"
+	jmp	9b
+
+# Name Table
+
+# in: esi
+# in: ecx (ignored)
+# out: esi = offset in name table
+sfs_tbl_names_append:
+.if 1
+	push_	edi ecx
+	mov	edx, [eax + sfs_blk0 + sfs_vol_tbl_names + tbl_size]
+	call	strlen_
+	add	[eax + sfs_blk0 + sfs_vol_tbl_names + tbl_size], ecx
+	mov	edi, [eax + sfs_blk0 + sfs_vol_tbl_names + tbl_mem]
+	add	edi, edx
+	rep	movsb
+	pop_	ecx edi
+	ret
+.else
+	push_	edi ebx ecx edx
+	# load names
+	mov	ebx, [eax + sfs_blk0 + sfs_vol_tbl_names + tbl_lba]
+	mov	ecx, [eax + sfs_blk0 + sfs_vol_tbl_names + tbl_size]
+	DEBUG_DWORD ecx,"nametab size"
+	call	sfs_load_blk	# in: eax, ebx, ecx; out: edi
+	jc	1f
+	# append name
+	mov	edx, ecx
+	call	strlen_	# esi->ecx
+	inc	ecx
+	lea	ebx, [edx + ecx]
+	DEBUG_DWORD ebx,"nametab size"
+	cmp	ebx, 512	# sector limit
+	jb	2f
+	printc 4, "sfs: name table exhausted"
+	DEBUG_DWORD ebx
+	DEBUG_DWORD edx
+	DEBUG_DWORD ecx
+	int 3
+
+2:	add	edi, edx	# name ptr
+	push	ecx
+	rep	movsb
+	pop	ecx
+	clc
+1:	pop_	edx ecx ebx edi
+	ret
+.endif
+
+
+# sfs_open redirects here if the name starts with '?'.
+sfs_backdoor:
+	DEBUG "backdoor"
+	stc
+	ret

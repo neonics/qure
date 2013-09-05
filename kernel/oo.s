@@ -517,7 +517,7 @@ class_register:
 # in: STACKARG: method to call for each iteration (popped on behalf of caller)
 # Signature of the method being called:
 #	in: STACKARG: class def ptr (caller pop)
-#	out: CF = 1: abort iteration
+#	out: CF = 0: abort iteration
 #
 # Usage:
 #
@@ -537,12 +537,15 @@ class_iterate_classes:
 	jmp	1f
 0:	push_	eax		# preserve, and pass as argument
 	mov	eax, [esp + 4]	# restore original value of eax
+	# TODO: restore other registers to initial values, and leave
+	# modified on success.
 	call	[ebp]
 	pop_	eax
-	jc	2f
+	jnc	2f
 	add	eax, [eax + class_def_size]
 1:	cmp	eax, offset data_classdef_end
 	jb	0b
+	stc
 2:	pop	eax
 	pop	ebp
 	ret	4

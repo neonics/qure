@@ -742,3 +742,6 @@ TODO: dynamic load balanced name/uptime service
 	1) local discovery: LAN broadcasts to detect other instances
 	2) public legacy DNS lookup, register with/as NS, xfer
 
+
+
+TODO: fs/fs.s: ls / should show mountpoint provided root dir entry.

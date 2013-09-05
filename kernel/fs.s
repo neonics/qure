@@ -236,6 +236,11 @@ cmd_mount$:
 	pop	ecx
 	pop	eax
 	jc	4f
+	# double check: edi
+	cmp	edi, -1
+	jz	4f
+	or	edi, edi
+	jz	4f
 
 	# create a new mtab entry
 
@@ -334,16 +339,19 @@ fs_load$:
 	mov	edx, offset _fs_load_iter$
 	add	edx, [realsegflat]
 	push	edx
+	xor	edi, edi
 	call	class_iterate_classes
-	or	bl, bl
-	jnz	0f
+	jnc	0f
 
-9:	printlnc 4, "unsupported filesystem"
+	printlnc 4, "unsupported filesystem"
 	stc
 
 0:	pop_	edx ebx
 	ret
 
+# in: [esp]: classdef ptr
+# out: CF = 1: abort iteration
+# out: bl = 1 = success (if CF==1)
 _fs_load_iter$:
 	push	ebp
 	lea	ebp, [esp + 8]
@@ -353,21 +361,20 @@ _fs_load_iter$:
 	mov	eax, [ebp]
 	cmp	edx, eax
 	jz	9f	# class_fs is abstract, skip
-	call	class_extends	# out: assume CF = 0
+	call	class_extends
 	pop_	edx eax
+	stc
 	jnz	1f
 
 	push	dword ptr [ebp]	# class def ptr
 	push	dword ptr offset fs_api_mount
 	call	class_invoke_static	# out: CF = 0: mount ok
-	cmc	# CF = 1: mount ok
-	jnc	1f	# CF = 0: keep iterating
-	mov	bl, 1	# CF = 1: abort iteration, bl=mount success
-
+	# CF = 0: mount ok, stop iteration
 1:	pop	ebp
 	ret
 
 9:	pop_	edx eax
+	stc
 	jmp	1b
 
 
@@ -544,7 +551,7 @@ _fs_iter_m$:
 	mov	esi, [eax + class_name]
 	call	println
 	popcolor
-1:	clc	# keep iterating
+1:	stc	# keep iterating
 	ret
 
 
@@ -1084,8 +1091,10 @@ DEBUG "fs_create"
 	xchg	bl, [edi]	# zero-terminate path & remember
 
 	mov	eax, esi
-	DEBUG "open"
-	DEBUGS esi
+	.if FS_DEBUG
+		DEBUG "open"
+		DEBUGS esi
+	.endif
 	push	ecx
 	mov	edx, 0x80000000
 	call	fs_open		# in: eax; out: eax, ecx
@@ -1116,7 +1125,6 @@ DEBUG "fs_create"
 
 	add	edi, offset fs_dirent_name
 	call	strcopy
-	DEBUGS edi
 	sub	edi, offset fs_dirent_name # in: edi = new fs_handle_dirent
 
 	# load mtab fs instance from parent
@@ -1125,9 +1133,7 @@ DEBUG "fs_create"
 	mov	ebx, [eax + ebx + fs_handle_dir]	# in: ebx = directory handle 
 	mov	eax, [ecx + mtab_fs_instance]	# in: eax = fs_instance
 
-	DEBUG_DWORD [eax+fs_api_create], "call fs_api_create"
 	call	[eax + fs_api_create]
-	DEBUG "fs_api_create return"
 	pop	eax		# new file handle
 
 	pushf	# just in case.. (inc affects CF?)

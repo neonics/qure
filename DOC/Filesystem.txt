@@ -1,0 +1,829 @@
+Simple File System
+==================
+
+Sectors are relative to the partition. Sector 0 is the first sector of the filesystem.
+
+Block [blocksize= 512 bytes]
+-----
+type: byte
+start:  48-bit LBA (128 petabyte)
+length: 64-bit size (16 exabyte)
+
+BLOCKSIZE = 128 bit = 16 bytes
+
+
+Block 0
+-------
+type: VOLUME			(1 byte)
+start: 0			(7 bytes)
+length: partition length	(8 bytes)
+
+Block 1
+-------
+identifier "SFS0"
+start = implicit: current sector
+entry size: .long 0 # 16 bytes
+num entries: 
+
+===============================================================================
+
+The files themselves consists of 3 parts:
+
+1) the file content, which is contigous in all cases.
+2) the information on where the files are located: the FAT.
+3) file attributes:
+	a) name (this includes directory name)
+	b) flags, permissions, user/group id's and such
+
+
+1. File Content
+================
+
+To start, all files are assumed to be contiguously stored. This increases ease
+of reading and of registering it's locations.
+
+On creating a file, it's size will be unknown, and thus, will be allocated 
+in an area that reserves a certain amount of space by means of other files
+created after it starting at a certain distance away from it's beginning.
+
+Files may grow beyond their contiguously allocated space. This divides files
+into two classes: CONTIGOUS and SCATTERED.
+
+Software may indicate whether a file will have a fixed size or whether can
+grow to arbitrary length by suppling an APPEND flag. An example is logfiles.
+
+1.1 Journalling
+===============
+A special area of the filesystem will be allocated to contain TRANSACTIONS.
+This area can be anywhere in the free space.
+
+All write operations will be 'cached' in the transaction area.
+On closing a file, it will be determined whether the written data will
+fit in-place, or not.
+
+Two cases present themselves:
+1) initially, appending to a file can be done at the location the file
+resides. Once the reserved space is exhausted, by encountering the beginning
+of another file, the rest of the data will be stored in the journal.
+2) all writes will be done to the journal initially. On closing the file,
+if the data fits it will be copied (inefficient). If it does not fit,
+the original file data will be moved to a new location that will fit the 
+whole file.
+
+1.1.2 ALGORITHMS
+----------------
+It is not intended that the journalling area be a fixed area on disk.
+Rather, it is scattered, one area per file.
+This is done to optimize by reducing the need to copy data.
+
+The first algorithm to allocate file data is as follows:
+
+Initially, the disk will be empty, meaning, one large contiguous area of free
+space is available.
+The first file will be allocated at the beginning. The second file at half
+the size of the free space.
+This will proceed recursively, in order to have the distance between the files
+be constant. 
+
+Let N be the number of divisions. This allows for 2^N files.
+
+For N = 0, the space is contiguous.
+For N = 1, the space is divided into two equal areas, allowing for two files
+at 0% and 50%.
+For N = 2, there are 4 areas, at 0%, 25%, 50%, and 75%.
+
+As an example, when there are 2 files, at 0% and 50%, a third is created.
+Space is marked: 25% and 75% become new starting points for new files.
+The new file will be allocated at 25%, leaving the 75% offset for the fourth
+file.
+
+CASE
+----
+In case the first file is more than 25% of the volume size, that space won't
+be available.
+
+Becomes too complex.
+
+----------------------------------
+
+
+1.2 Data Areas
+
+Data areas indicate what kind of data resides where.
+There are 3 classes of data:
+
+1) file content
+2) file attributes
+3) file name
+
+The file attributes do not include the name, since the name is something
+the user typically defines and can change. When a name is changed,
+it may become too large to fit in the directory entry in a typical system.
+
+The file name is used in a hierarchical way, where it points to a directory
+structure, a location. These locations consist of a hierarchy of names only.
+These names are irrelevant to the system itself, only the hierarchy is.
+
+The filesystem itself does not care for names. Files however may be grouped
+into directories whereby they can inherit their access flags.
+
+The directory entries themselves do not change location on disk.
+
+Care can be taken to reserve a contigous space for directory information.
+Once the directory structure becomes filled, its size is doubled,
+and a new location found. The entire file system directory structure
+is copied - but not the file contents.
+
+---------------------------------------------------
+
+SIMPLE FIRST
+------------
+
+Sector 0: metadata:
+	- start of directory info
+	- start of file name hashtable
+
+
+Sector D: Directory info
+-------------------------
+Each directory entry will be a fixed size.
+
+	PARENT:	points to parent directory entry
+	FILE:	points to first sector of file contents
+	LENGTH:	the size in bytes of the file contents.
+
+Sector N: Names
+---------------
+
+Each name will start at an 8 byte aligned offset.
+The name will be referred to FROM the directory by it's index (shr 3 bits).
+
+NAME CHANGE:
+	Requires to store the new name in the name hash
+	Requres update of the directory entry to point to the new offset.
+
+
+
+----------
+Simple File System
+
+FORMAT:
+(note: sectors are relative to the partition start)
+
+	blk0: (sector 0) volume descriptor:
+		defines reserved sector ranges for:
+		- block/sector allocation table
+		- root directory
+		- name table
+		- data_lba: first freely allocatable sector
+	
+
+	blktab: (sector 1..B) block table
+
+	vol_dir: (sector B..D) root directory
+
+	nametab: (sector D..N) name table
+
+blktab:
+	bitstring: each bit represents a data sector ('user' space),
+	whether or not allocated (0=free).
+
+	Nr of sectors: (partition sectors) >> (8+9)
+
+
+directory:
+	directory entries have a fixed size.
+	The name of the entry (file, dir, any posix type)
+	is not stored in the directory; rather, an index
+	into the name table is stored.
+
+name table:
+	a number of sectors (at current 1), containing
+	a compact array of ASCIIZ strings.
+
+	Renaming a file consists of writing up to 3 sectors.
+
+	first sector: zeroing out the unused name entry, OR updating
+	a free name table sector with the offset.
+
+	second sector: the sector containing the new name.
+
+	third sector: the sector containing the directory entry
+	with the updated name pointer.
+
+
+DYNAMIC BLOCKSIZE
+=================
+
+There is no file allocation table.
+At current, the start of a file or directory is marked by an LBA address,
+which is assumed to be contiguous.
+
+DEREFERENCE
+-----------
+The sector pointed to by the LBA of a directory or file can be used
+as an indirect pointer, where this sector contains fragmentation information.
+
+The main bitstring (blktab) will prevent sectors from being allocated twice.
+A flag in the directory entry for the file/dir can say whether the
+file is contiguous or not.
+The LBA field can then either specify the LBA of the first sector for the
+entry,
+OR the sector containing the fragmentation information - a number of LBA's,
+OR be a pointer/index into a global table.
+
+
+SIMPLE file system
+------------------
+The file system makes sure that there is no fragmentation.
+If a file grows to a size where it would overwrite a preallocated
+sector, the contents of the disk will be reorganized by moving
+the smaller of the two elsewhere.
+
+Region Table
+------------
+Another approach to when this happens is to store the contiguous
+sector numbers (so far) in a table as the first entry,
+find the next free region of minimum size, and continue appending
+there. This second region is added to the first, and the
+directory entry is updated to indicate that a region table is
+being used for the entry.
+
+Each region table entry consists of 3 values:
+	start LBA
+	length,
+	and a next pointer.
+
+
+	[A][A][A][x][x][A][A][A][A][x][A][free]
+	 0  1  2  3  4  5  6  7  8  9  10
+
+Upon writing the fourth sector of file A, it is seen that the next
+sector is occupied ([x] at 3).
+The first region is extracted: LBA 0, len 3.
+
+	Region table:
+
+	file 'x': (preexisting)
+		0:(3, 2, 1)
+		1:(9, 1,-1)
+	
+	file 'a':
+		20:(0, 3, 21)
+		21:(5, 4, 22)
+		22:(10,1, -1)
+
+RLE compressed FAT.
+
+The problem being solved is to create a contiguous list from a
+fragmented list.
+The contiguous list is the allocation table, yet which needs not be
+contigous due to the next pointer.
+Further, a bit indicating whether the next entry follows is 
+not needed because the size field in the dirent shows the total
+number of sections for the entry, calculatable by traversing
+the list.
+
+It is proper to have such a list in memory and thus be contigous
+for a file, so that usually only a single sector (at most 2)
+must be loaded in order to find all sectors for the file.
+
+The advantage is that no space is wasted beyond the sector level,
+even for large disks, where other file systems use blocks of
+many sectors to have a fixed size table for the disk.
+
+
+Last Sector
+-----------
+The last sector is usually not entirely filled.
+Thus it is possible to concatenate several small files (or their last
+sector) into a single sector.
+
+A first attempt can be made by storing files of less than one sector size
+together. 
+A 'last_sector' table keeps track of all the last sectors and
+how much space is occupied.
+
+When a file grows, the space it shared in the last_sector is marked
+free, and a new sector is allocated for it.
+
+When such last sectors are updated, they are compacted (all data shifted
+to the beginning). This means that a number of files must be updated
+to represent the changed offset into the last_sector.
+
+
+-------------------------------------------------------------------------------
+
+DBFS : Database File System
+
+Concept: Tables
+
+Instead of file open/read/write/create (CRUD), there is a table api.
+On top of the table api is built the filesystem interface.
+
+API:
+
+	table_insert
+	table_delete
+	table_update
+	table_find
+	table_list
+	table_sort
+
+and the same for entries (rows) in the tables.
+
+Thus the basis is an array.
+
+The first table is named 'tables'. Tables are identified by their name,
+a constant. As such, this table contains table names. Their order is
+their index. This index can also be stored in the structure - a second row -
+however the fixed size of the entries (or the use of an index table)
+makes it easy to deduce the index.
+
+	create table 'tables'
+	(
+		name: .asciz
+		index: .long
+	)
+
+Some core tables describing the rows can be added, making for a completely
+dynamic database system. However, for an FS, each table will have it's
+own implementation to handle the data, making a runtime description of
+the table format needless.
+
+File names (the File table)
+----------
+Whether or not the file path is an integral part of the filename decides
+whether only a filename is stored with a file, making updating it's name
+easy as it's full name is dynamically calculated from it's path, or
+whether the entire path is stored with the file.
+
+In the latter case, a single table for all files suffices. Moving
+a file then only requires to change the pathname.
+
+Applying a hierarchical system to such names can then be done by referring
+to the file entries, who's position is fixed, and their name merely an
+attribute.
+
+A syntax for filenames can be used, so that there are a number of different
+separator characters. THese names then can be stored in another table,
+using an array of reference values for the path - an integer list of variable
+length, but with constant-sized hierarchical elements (categories).
+
+The directory access can be based on the file's path, to be identical to it.
+This then means, that for optimisation, another view of the file table
+must be maintained, using a different ordering: grouping entries together
+into a single node/space/directory.
+
+
+Files then can have more than a single parent directory.
+
+Symbolic links are file entries with a different parent node than the
+actual file. The symbolic link is a restriction applying exclusion,
+where a single path is considered the 'real' path. Modifying
+the contents of any such file happens in the single file and thus everywhere.
+
+Hard links are symbolic links without this restriction. Their modification
+is the same as for symbolic links. They appear as regular files, and
+their deletion merely removes the link. The file fill be deleted if
+it has no more parent relations.
+
+Another type of file is 'copy-on-modify', or 'versioned-file'.
+The copy-on-modify makes the file local, and it's changes are not
+propagatd to the original. 
+
+
+There then are two types of nodes: content, and structure.
+Content is files, structure is directory (or category)
+
+When opening a file path, it is more efficient if the directories
+are grouped for each path element. Until the filename is encounted,
+the type of entry is already known to be a directory.
+
+The API can be made to have this expectation built-in (fs_open_file/fs_open_dir).
+With no such expectation, a name indexing scheme will result in the
+fastest decision on whether a string exists or not.
+
+A global set of tables can maintain all names in a sorted fashion.
+This then is an add-on view.
+
+1) this set of tables does not make a distinction between directories,
+and thus potentially a larger set of strings need be examined than
+in the case of a directory entry.
+
+2) this set of tables is maintained per directory. 
+
+Option 1 combined with option 2 produces an index table.
+
+The table is a self-referential hash, containing branches
+and leafs - identical to the file system itself.
+
+Each letter/symbol allowable (say UTF-8) will be a sector.
+
+There then are twice 256 entries in a sector, or, 16 bits
+per entry. Either the sector is split, having a different
+meaning for the first and second half: since there are
+only 8 bits per character, there are at most 256 sectors
+at each level. 
+
+The size of the name table - which should use consecutive
+sector numbers (or id's if there is a mapping layer), is
+known in advance, and thus, sectors (ids) can be typed
+by fitting them in a range.
+
+However this would require a large amount of memory.
+
+A compact hash then. This would require a rewrite of the
+hash when items are inserted.
+
+the hash would be bucket-sorted. 
+
+A compact name table, however, would prove ...
+
+the current system appears most efficient in disk access for highly
+populated file systems.
+
+SFS
+---
+
+The nr of sectors used for a directory entry: where to store it?
+
+1) in the parent directory.
+2) in the first sector of the directory, making it a linked list.
+
+Approach 2 is not efficient for files, as reading 512 bytes would
+require to read two sectors. 
+
+Approach 1 makes linking difficult, as an entry is then only identifiable
+by knowing it's parent sector. The reference then becomes of the form
+parent directory sector + entry-number.
+
+
+THus a table for each entry is needed, without regard for hierarchy.
+
+	create table node
+	{
+		start, size
+	}
+
+The node table consists initially of a single entry: the allocatable space.
+
+The entries are ordered and contiguous.
+When a file is created, a new entry is added, adjusting the neighbour entry
+aswell. In short, a system as implemented in kernel/mem/mem_handle.s - an array
+with two sorted linked lists, one for the address, one for the size.
+
+
+MallocFS
+--------
+use mem_handle.s:
+
+	have access to the structure;
+	have event called when structure changes.
+
+It will need to be reworked, so that when an entry
+is updated, the sectors are known.
+Then, the mem_handles structure is written directly to disk.
+There are three components:
+1) The array of addresses and sizes serves as file or directory entries: nodes or handles.
+This array is contiguous - that means that address+size = next.address.
+Further, as long as an entry is allocated, it's index into this array won't change.
+Upon deletion, the region is marked free and merged if possible.
+On merge, the entry is marked available.
+
+2) array of sizes: this serves to allocate the appropriate space if the size of
+the content is known, such as on copy operations. Thus, copying a file would
+defragment it.
+
+3) array of handles: this linked list is sorted such that handles are kept
+together preferentially (grouped in the same sector).
+
+	AVAIL	?	-handle
+	FREE		-alloc
+	RESERVED	-file/dir
+
+
+Journal
+-------
+A reserved area serving as a cache - the largest space - receives continous write
+operations. Upon file closing, the exact size of the file is known, and, if it is
+not contiguous, it is relocated to a free area (which is always contiguous).
+
+
+		#
+		# the directory sector can have tbl_* as header, to maintain
+		# it's own size. This results in redundancy if the parent
+		# also records it. The size is not needed in the parent,
+		# if the record itself contains it.
+		# 
+		# if the parent maintains the size, the entry must have a pointer
+		# to the parent to resolve the LBA id.
+		#
+		# CHOICE: flat directory - basically a table manager.
+		# The tbl_dir will contain all entries.
+		# It will grow, and allocate it's space on sector boundaries
+		# for directories.
+		#
+		# The hierarchical representatoin in a flat system:
+		# - use a parent pointer - not LBA, but ID.
+		# - group children under a parent - use directories as
+		#   separators, the last dir indicating the parent.
+		#
+		# Full join:
+		# A second table indicating hierarchy is added.
+		# THis table consists of a parent id, and child id's.
+		# this allows for a file to be present in many places.
+		# Can be limited at first.
+		# 
+		# The ordering of the join table must be like the grouping.
+		# All files belonging to a directory are consecutive.
+		#
+		# With 512/32=2^(9-5)=16 entries per sector, a sector
+		# boundary is reasonable. (note: the POSIX requirements
+		# plus 32bit filesize alone are 16 bytes. 32 is the next
+		# aligned size - no space is wasted though).
+		# 
+		# All existing directories can then be simply enumerated
+		# by skipping forward a sector. 
+		# the dir before a long dir (mult sect) can have a ptr
+		# to the next -> linked list).
+		# 
+		# the firs tentry could be reserved - and have the POSIX
+		# dir perm, aswell as size.
+		#
+		# Downside: to list a directory, for each subdirectory
+		# the first sector must be read.
+		#
+		# On the other hand, subdirectories are marked in the sector
+		# for their parent.
+		#
+		# The first entry of a subdir then contains a backreference,
+		# and is a dummy.
+		# If it is moved, the reference to it is simply moved.
+		# 
+		# A directory then can be quite small: only pointers to
+		# directory entries.
+		#
+		# IT can be done OO; for files, the ID points to another
+		# table (for now the LBA of the content).
+		#
+
+OOFS:
+
+base class: table_allocator.s
+This file combines the concepts of table and of allocation.
+Given the entire partition, the first sector will be the most important data.
+(MirrorFS: the last sector manages the empty space; first sector the allocations).
+
+The FS bootsector can contain it's own binary, much like the kernel, except this
+binary has an environment (fs.s->(FS)->ata.s).
+
+For now, the code will be included in the kernel. FS bootsectors must have been initialized
+by running software. Thus the initial version will be built-in, until it can be
+updated in the managed partition persistently.
+We can reserve a space to point to the file system driver, for now, providing enough
+information to make alterations. This will be the 'RESERVED' sectors - the size of
+the bootloader. Each iteration of the filesystem will dynamically write the value,
+so that on each mkfs the space will be reserved. On mount, it can be indicated that
+the current reservation is too small and an mkfs is needed to be able to update the
+partition firmware.
+
+The next entry will be the size of the base class's runtime imprint.
+Since static class data is not part of the object's structure, but a class pointer is,
+the sector(s) for the base class are then a compact memory representation
+of runtime data.
+
+THe base or root class is known in advance, by checking the volume descriptor (the partition
+bootsector). 
+It can then be instantiated using the sector's contents, bypassing the constructor and
+calling another method instead. (much like EJB).
+
+The first parameter that such an object would need is the minimum size to load, or the
+maximum size to save, aswell as an offset into the object's structure. In this case,
+the constructor is called, and the object load's itself by calling a base class
+method to inject sector data into it's structure.
+
+A file in memory then, can be represented as such an object, where the tail end
+is the file's content. The head section, (head-tail due to directory->content),
+will be the directory entry. If the object is changed, it is saved to disk.
+A method will be called - or field data examined - to determine which to update:
+head or tail. Typically in such objects, the head is a fixed size structure part
+of an array, whereas the tail is managed separately. Generally the head will be
+smaller than a sector, and thus require different code than the tail, which
+is generally larger than a sector.
+
+The base class' save method then will be the code for the head, which inserts
+itself into an array - a larger context. [can be a 'nop' by managing a 'dirty' bit].
+
+A second base class, will be able to manage the tail or attachment. This will be a
+sector cache service.
+
+
+Allocator Base Class
+
+The first sector then will contain a checksum or signature, which the base class
+verifies to determine the data fits the expectations.
+It will contain a context definition - an array of sectors - used to initialize
+fields in the base class. 
+The base class constructor is now aware of the dimensions of the array, and
+allocates a single one for itself - the one it is initialized with.
+Next it will need to provide a function to reserve a given number of sectors.
+Since this is dynamic(ally sized) data, it crosses the section boundary.
+The first sector has more space for other tables/reservations/ranges.
+Since the base class is initialized by using the first sector as it's data,
+it is aware of the dimensions of the region/array, and knows which fields
+follow it. It's first determination then must be to count the number of
+such regions. 
+
+It is thus given:
+
+	lba:	.long 0
+	size:	.long 0
+
+The LBA will be the LBA of the sector itself. Since this can be passed in
+other ways, it could be left out. However, for optimisation purposes,
+for each succeeding range an LBA will be stored to prevent having to iterate.
+SInce this information is useless as it can be calculated, something else
+can be stored there. However, for now this is easier.
+
+The two parameters are offered in trust - the LBA can be changed to some
+ID that is resolved/verified by a subclass.
+
+The first thing that the base class will need to do, is keep track of how
+many. 
+
+	struct {
+		count: long;
+		blocks: struct {
+			size: long
+			lba: long
+		};
+	}
+
+or
+
+	struct 0:
+		size:
+		lba:
+	struct 0:
+		count: .long
+		size:  .long
+		blocks:
+
+	# access: [eax + blocks + lba/size] for self;
+	# access: [eax + blocks + lba/size + edx * 8] for index
+
+
+Note that only the 'size' is stored for the first sector, it appends
+lba and count.
+If it does not propagate it's count field down, then it can only
+propagate size and lba. SInce lba can be calculated, only an array
+of sizes is needed.
+However this requires management of a separate array of lba addresses.
+
+This then is the first subclass.
+
+It extends the base class by adding an lba field. This is a nonpersistent field.
+
+
+	class base extended by addresscache
+	{
+	  persistent {
+		long size;	# the partition size
+		long uninitialized count;
+	  }
+
+		init:
+		count_init:
+			movd	[eax + count], 1
+			ret
+
+		
+		onload:
+			push	eax
+			xor	ebx, ebx		# arg: index in parent array/lba
+			mov	ecx, [eax + count]
+		  0:	pushd	offset class_addresscache
+		  	call	class_newinstance
+			add	edx, [eax + size]
+		  	add	ebx, 4
+		  	loop	0b
+			pop	eax
+			ret
+	}
+
+	aspect array extends base with parent = ebx
+	{
+	#	array: long
+
+	#	init: 	mov	[eax + array], ebx
+	#		ret
+
+		index:	mov	edx, [eax + array] / ebx
+			sub	edx, eax
+			ret
+
+	}
+
+	aspect lba extends array
+	{
+		lba: long
+
+		init:	mov	[eax + lba], edx
+			ret
+	}
+
+
+It turns out that the next field written, after size, by the base class,
+is the count, to know how many array elements follow.
+
+The simplest class it knows it has extended and thus now it is the simplest.
+Thus it propagates the count field as persistent, making it fit for reuse
+under another label/semantics by subclasses.
+
+
+	class loader
+	{
+		init:
+			mov	ebx, [eax + lba]
+			mov	edx, [eax + size]
+			call	mreallocz
+			mov	edi, eax
+			call	read
+			ret
+	}
+
+The initial init is called from oo.s, and thus will take the value
+returned in EAX as the object address to store in the global array.
+
+
+The second value stored after the size, can be the use, which must
+be smaller than the size.
+
+This indicates the number of sectors to load.
+
+Operation:
+
+	bootsector:
+		partitionsize: N
+
+after init:
+
+	bootsector:
+		partitionsize: N
+		count:	1
+
+
+	class array
+	{
+		append:
+			call	check_grow
+			mov	edx, [eax + count]
+			incd	[eax + count]
+			# newinstance blah
+			ret
+
+
+		check_grow:
+			mov	edx, [eax + count]
+			and	dl, 511
+			jz	grow
+			add	dl, 8
+			cmp	dl, 512
+			jae	grow
+			ret
+	}
+
+disk:
+
+	bootsector:
+		partitionsize: N	# bootstrap / persistent base
+		count: 3		# persistent base
+		size: M			# persistent base / subclass
+		lba: 1			# persistent base / subclass
+		size: O
+		lba: M+1
+
+base doest need a start lba on disk as it is given it on bootstrap (to store the
+sector number in that very sector is redundant).
+
+it does need size: all the size it can use.
+it reserves 4 bytes for itself - count, and all it's operations will be relative
+to partition sector as in volatile memory.
+
+subclasses will need to add their lba number. for safety and convenience:
+
+	subclass {
+		io:
+			cmp	ebx, [eax + size]
+			ja	bounds
+			add	ebx, [eax + lba]
+			...
+			ret
+	}
+
+
+QFS:
+
+git cp sfs.s oofs, dbfs
+
