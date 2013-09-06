@@ -309,40 +309,6 @@ ptr_array_newentry:
 .endm
 .endif
 
-
-##################################################
-# Variable Length Object Array
-
-.struct 0
-obj_class:	.long 0
-obj_size:	.long 0
-OBJ_STRUCT_SIZE = .
-.text32
-
-.if DEFINE
-
-obj_array_newentry:
-	call	array_newentry
-	mov	[eax + edx + obj_size], ecx
-	ret
-
-.endif
-
-.ifndef __HASH_DECLARED
-.macro OBJ_ARRAY_ITER_START base, index, ref
-	xor	\index, \index
-	jmp	91f
-90:	
-.endm
-
-.macro OBJ_ARRAY_ITER_NEXT base, index, ref
-	add	\index, [\base + \index + obj_size]
-91:	cmp	\index, [\base + array_index]
-	jb	90b
-.endm
-.endif
-
-
 ##################################################
 
 .if DEFINE

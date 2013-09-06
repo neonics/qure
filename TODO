@@ -745,3 +745,9 @@ TODO: dynamic load balanced name/uptime service
 
 
 TODO: fs/fs.s: ls / should show mountpoint provided root dir entry.
+
+
+TODO: article - 'reinventing the wheel';
+
+TODO: cat sourcecode | syntax -f asm | cut -page -oprefix=page%d.html,.svg -print | show 3d
+

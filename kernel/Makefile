@@ -5,6 +5,7 @@ clean:
 		kernel.obj.r kernel.obj.reloc.txt kernel.obj.map \
 		kernel.o ring2.o \
 		|| true
+	@make -C fs/oofs $@
 
 # attempt to link multiple object files
 KERNEL_SPLIT_RINGS=1
@@ -34,15 +35,15 @@ LD_OPTS = -nostartfiles -nodefaultlibs -nostdlib --exclude-libs ALL \
 	--no-leading-underscore --no-undefined --no-demangle --no-define-common \
 	--warn-section-align
 
-ifeq ($(KERNEL_SPLIT_RINGS),1)
-KERNEL_OBJECTS = kernel.o ring2.o fs/oofs/oofs.o
-LD = ld $(LD_OPTS) -r
-else
 KERNEL_OBJECTS = kernel.o fs/oofs/oofs.o
-LD = cp $< $@
-LD = ld $(LD_OPTS) -r
-endif
 
+ifeq ($(KERNEL_SPLIT_RINGS),1)
+KERNEL_OBJECTS += ring2.o
+LD = ld $(LD_OPTS) #-r
+else
+#LD = cp $< $@
+LD = ld $(LD_OPTS) #-r
+endif
 
 # a fixup routine that adjusts the size for the section headers of structures.
 # I have not found a way to specify section padding to AS, nor to change it
@@ -77,8 +78,6 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 			-Map $@.obj0.map \
 			--image-base 0 \
 			-o $@0 $@0.r
-
-
 
 	@#first with -r to catch relocation info
 	@ld $(LD_OPTS) \
@@ -132,7 +131,7 @@ NIC_SRC = nic/rtl8139.s nic/i8254.s nic/am79c971.s
 
 NET_SRC = net/*.s
 
-FS_SRC = fs.s partition.s fs/iso9660.s fs/fat.s fs/sfs.s
+FS_SRC = fs.s partition.s fs/iso9660.s fs/fat.s fs/sfs.s fs/fs_oofs.s
 
 GFX_SRC = gfx.s ../fonts/courier56.s
 
@@ -179,6 +178,6 @@ kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
 	@$(call FIXUP,$@)
 
 
-fs/oofs/oofs.o: fs/oofs/*.s fs/oofs/Makefile
+fs/oofs/oofs.o: fs/fs_oofs.s fs/oofs/*.s fs/oofs/Makefile
 	@echo " M $@"
 	@make -C fs/oofs

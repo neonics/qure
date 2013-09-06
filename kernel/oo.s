@@ -45,11 +45,25 @@ CLASS_METHOD_STRUCT_SIZE = 12
 
 .if DEFINE
 
+###################################
+# GLOBALS / export
+# code
+.global class_newinstance
+.global class_instance_resize
+.global class_instanceof
+# data
+.global class_instances
+###################################
+
+
+
 .section .classdef
 class_definitions:	# idem to data_classdef_start
 
-.data
+.data SECTION_DATA_BSS
 class_instances:	.long 0	# aka objects
+class_instances_sem:	.long 0
+
 #class_dyn_definitions:	.long 0 # ptr_array of dynamically registered class defs
 
 .text32
@@ -69,6 +83,7 @@ class_newinstance:
 	mov	eax, [esi + class_object_size]
 	call	mallocz_	# register caller of current method
 	jc	9f
+	# TODO: move offset to make vptr offsets negative
 	mov	[eax + obj_class], esi
 .if OO_DEBUG
 	push dword ptr [esi + class_name]
@@ -80,10 +95,7 @@ class_newinstance:
 	call newline
 .endif
 
-0:	call	class_init_vptr$
-	mov	esi, [esi + class_super]
-	or	esi, esi
-	jnz	0b
+	call	class_init_vptrs
 
 	# register the class in the class_instances ptr_array
 	push	edx
@@ -101,126 +113,133 @@ class_newinstance:
 	stc
 	jmp	0b
 
-# in: esi = class definition
-# in: eax = object/class instance
-class_init_vptr_OLD$:
-	.if OO_DEBUG
-		DEBUG "class_init_vptr$ "
-		push dword ptr [esi + class_name]
-		call _s_print
-		DEBUG_DWORD [esi + class_decl_mcount]
-		DEBUG_DWORD [esi + class_over_mcount]
-	.endif
-
-	# initialize the object method pointers
-	push_	edi ecx eax edx ebx esi
-	mov	ebx, eax	# backup
-
-	mov	edi, [esi + class_vptr]	# offset into obj
-	.if OO_DEBUG
-		DEBUG_DWORD edi,"vptr"
-	.endif
-	or	edi, edi
-	jnz	1f	# obj doesn't declare space for method ptrs
-	mov	edi, [esi + class_object_size]
-	# XXX this will likely overwrite memory!!
-	printc 0xf4, "WARNING: overwriting mem for vptr"
-1:
-	xchg	eax, edi	# without: edi=obj+vptr,eax=obj;
-	add	edi, eax	# with: edi=obj+vptr,eax=vptr
-	.if OO_DEBUG
-		DEBUG_DWORD edi,"first method@obj"
-	.endif
-	neg	eax
-	add	eax, [esi + class_object_size]
-	shr	eax, 2
-	.if OO_DEBUG
-		DEBUG_DWORD eax,"vptr.length"
-		DEBUG_DWORD [esi+class_over_mcount]
-	.endif
-	add	eax, [esi + class_over_mcount]
-
-#	mov	ecx, [esi + class_def_size]
-#	sub	ecx, CLASS_STRUCT_SIZE
-	mov	ecx, [esi + class_decl_mcount]
-	.if OO_DEBUG
-		DEBUG_DWORD ecx,"class_decl_mcount"
-		call	newline
-	.endif
-	DEBUG_DWORD eax;DEBUG_DWORD ecx
-
-	cmp	eax, ecx
-	jnz	91f
-#	shr	ecx, 2
-	or	ecx, ecx
-	jz	1f	# class doesn't list any methods
-	
-	mov	esi, [esi + class_decl_mptr]
-0:	lodsd	# dx=flags, high = idx
-	test	ax, CLASS_METHOD_FLAG_OVERRIDE
-	lodsd	# target
-	mov	edx, eax
-	#or	eax, eax
-	lodsd	# method address
-	jz	2f	# no override/target is 0, so, normal method ptr
-	.if OO_DEBUG
-		DEBUG_DWORD edx,"override offs"
-		push edx;add edx, ebx; DEBUG_DWORD edx,"@";pop edx
-	.endif
-	# edx/target is not 0: override method. it is the offset in the obj
-	# where to store the ptr
-	add	eax, [realsegflat]
-	cmp	[ebx + edx], dword ptr 0
-	jnz	3f	# don't override,already filled in (sub->super iter)
-	mov	[ebx + edx], eax
-	jmp	3f
-
-2:	
-	.if OO_DEBUG
-		DEBUG "normal"
-		DEBUG_DWORD edi,"method_ptr@obj"
-	.endif
-	add	eax, [realsegflat] # obsolete relocation
-	cmp	dword ptr [edi], 0
-	jnz	41f	# 
-	stosd
-3:
-	.if OO_DEBUG
-		mov	edx, eax
-		sub	edx, [realsegflat]
-		call	printhex8
-		call	printspace
-		call	debug_printsymbol
-		call	newline
-	dec	ecx
+class_init_vptrs:
+	# top-down override, implemented as bottom-up (if) zero (then) change
+0:	call	class_init_vptr$
+	mov	esi, [esi + class_super]
+	or	esi, esi
 	jnz	0b
-	.else
-	loop	0b
-	.endif
-
-1:	
-	.if 0	# print the method pointers in the obj struct
-	push_	esi eax
-	mov	eax, ebx	# object
-	mov	esi, [esp]	# class
-	call	_obj_print_methods	# in: ebx = obj, esi = class
-	pop	eax esi
-	.endif
-
-	pop_	esi ebx edx eax ecx edi
 	ret
 
-41:	
-	.if OO_DEBUG
-		DEBUG "skip"
-	.endif
-	add	edi, 4
-	jmp	3b
+# make a temporary class using a given class reference
+# in: eax = instance
+# in: edx = class def ptr
+# out: eax = proxy instance
+# TODO: cache.
+# OUT: CF = 1 : class_cast exception
+class_cast:
+	# verify edx is superclass of eax
+	call	class_instanceof
+	jnz	91f
 
-91:	printlnc 4, "class method declaration does not match object vptr"
-	DEBUG_DWORD eax,"(obj_size-obj_vptr)/4"
-	DEBUG_DWORD ecx,"class_decl_mcount"
-	jmp	1b
+	xchg	eax, edx
+	call	class_newinstance
+	jc	92f
+	# eax = new instance
+	# edx = old instance
+
+	push_	esi edx
+	mov	edx, [edx + obj_class]	# old instance class
+	# skip subclasses of edx
+	mov	esi, [eax + obj_class]
+0:	cmp	edx, esi
+	jz	0f
+	mov	esi, [esi + class_super]
+	or	esi, esi
+	jnz	0b
+		printc 4, "class_cast assertion: superclass missing in hierarchy"
+		call	class_deleteinstance
+		stc
+		jmp	9f
+0:	call	class_init_vptrs
+	# eax is dummy class: copy data
+	push_ 	edi ecx
+	mov	esi, [esp + 8]	# old instance (edx)
+	mov	edi, eax	# new instance
+	mov	edx, [eax + obj_class]
+	mov	edx, [edx + class_vptr]
+	movzx	ecx, dl
+	and	cl, 3
+	rep	movsb
+	mov	ecx, edx
+	shr	ecx, 2
+	rep	movsd
+	pop_	ecx edi
+
+9:	pop_	edx esi
+	ret
+
+91:	printc 4, "class_cast exception: "
+	pushd	[edx + class_name]
+	call	print
+	printc 4, " not instanceof "
+	push	eax
+	mov	eax, [eax + obj_class]
+	mov	eax, [eax + class_name]
+	xchg	eax, [esp]
+	call	_s_println
+	stc
+	ret
+92:	printc 4, "class_cast exception: "
+	pushd	[eax + class_name]
+	printlnc 4, " cannot be instantiated."
+	stc
+	ret
+
+
+# this method will create a copy of the current object, cast as the proxy.
+# The size of the object will be as much as the proxy class needs. Thus,
+# using a superclass whith the proper definitions and handlers is best.
+# Any class desiring to create a proxy must override an event handler method,
+# which is called when the object is recycled. This method then - the
+# default implementation - then simply copies the data back to the original
+# instance.
+# In multithreading environments, a semaphore can be used, to count the
+# number of data modifications on either instance, to determine whether
+# and which data must be copied, and which event handlers must be called
+# instead.
+# Hardware support in terms of page faults: multiple objects can be shared
+# in the same page - at sector boundary, 8. A page fault then reveals
+# by a simple mask and shift which object, and which field, is accessed.
+# For now, this is a todo.
+#
+# in: eax = instance
+# out: edx = proxy
+class_proxy:
+	push_	esi ecx
+	mov	esi, eax
+	mov	ecx, [edx + obj_size]
+	call	mdup
+	mov	edx, esi
+	call	class_init_vptrs
+	pop_	ecx esi
+	ret
+
+class_clone:
+	mov	edx, [eax + obj_class]
+	jmp	class_proxy
+
+# in: eax = instance
+# in: edx = new size
+# out: eax = new instance
+class_instance_resize:
+	push_	edi ecx
+	# find instance
+	mov	edi, [class_instances]
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	repnz	scasd
+	jnz	91f
+
+	call	mreallocz
+	jc	9f	# malloc print errors
+	mov	[edi - 4], eax
+
+9:	pop_	ecx edi
+	ret
+91:	printc 4, "class_instance_resize: unknown instance"
+	stc
+	jmp	9b
 
 
 # in: eax = object
@@ -390,6 +409,7 @@ _obj_print_methods$:
 	ret
 
 # in: eax = object
+# TODO: call destructor
 class_deleteinstance:
 	push_	esi edi ecx
 
@@ -440,6 +460,16 @@ class_extends:
 	jnz	0b
 	inc	eax	# clear ZF
 1:	pop	eax
+	ret
+
+# checks if classdef edx is a superclass of instance eax
+# in: eax = instance
+# in: edx = classdef
+class_is_super:
+	push	eax
+	mov	eax, [eax + obj_class]
+	call	class_extends
+	pop	eax
 	ret
 
 
@@ -731,6 +761,13 @@ _print_methods$:
 
 .ifndef __OO_DECLARED
 __OO_DECLARED=1
+
+.struct 0
+obj_class: .long 0
+obj_size: .long 0
+OBJ_STRUCT_SIZE = 8
+.text32
+
 ##############################
 # Usage:
 #
@@ -740,10 +777,11 @@ __OO_DECLARED=1
 # DECLARE_CLASS_END
 
 
-.macro DECLARE_CLASS_BEGIN name, super=OBJ
-	.section .classdef$md; _DECL_CLASS_DECL_MPTR = .
-	.section .classdef$mo; _DECL_CLASS_OVERRIDE_MPTR = .
-	.section .classdef$ms; _DECL_CLASS_STATIC_MPTR = .
+.macro DECLARE_CLASS_BEGIN name, super=OBJ, offs=0
+	CLASS = \name
+	.section .classdef$md; _DECL_CLASS_DECL_MPTR = .;	mptr_\name\():
+	.section .classdef$mo; _DECL_CLASS_OVERRIDE_MPTR = .;
+	.section .classdef$ms; _DECL_CLASS_STATIC_MPTR = .;
 
 #SECTION_DATA_CLASSES	= 7
 #SECTION_DATA_CLASS_M_DECLARATIONS= 8
@@ -755,7 +793,12 @@ __OO_DECLARED=1
 #	.data SECTION_DATA_CLASS_M_OVERRIDES;	_DECL_CLASS_OVERRIDE_MPTR = .
 #	.data SECTION_DATA_CLASS_M_STATIC;	_DECL_CLASS_STATIC_MPTR = .
 
-	.struct \super\()_STRUCT_SIZE
+	# offset feature: truncate parent struct to that size and append from there.
+	.ifc \offs,0
+	.struct \super\()_STRUCT_SIZE + \offs
+	.else
+	.struct \offs
+	.endif
 	
 	# some variables for the _END macro
 	_DECL_CLASS_VPTR = 0
@@ -764,7 +807,40 @@ __OO_DECLARED=1
 	.else
 	_DECL_CLASS_SUPER = class_\super
 	.endif
+
+	.altmacro
+	CLASS=\name
+	.noaltmacro
+
+#	INVOKE_BEGIN_HANDLERS CLASS
 .endm
+
+
+#########################################################################
+# automatic macro invocation on each class declaration
+# use:
+#  DECLARE_CLASS_BEGIN_HANDLER ASPECT
+#   calls DECLARE_CLASS_ASPECT_BEGIN CLASS automatically on each
+#   DECLARE_CLASS_BEGIN declaration.
+#.altmacro
+#.macro invoke_begin_handlers c=CLASS
+#.endm
+#.macro DECLARE_CLASS_BEGIN_HANDLER name
+#	LOCAL invoke_prev_handler
+#	.macro invoke_prev_handler c=CLASS
+#		_PREV_BEGIN_HANDLER \p \c	# call prev
+#		DECLARE_CLASS_\name()_BEGIN \c	# add new
+#	.endm
+#	.purgem invoke_begin_handlers
+#	.macro invoke_begin_handlers c=CLASS
+#		invoke_begin_handlers_+\n \c
+#	.endm
+#
+#	_PREV_BEGIN_HANDLER=invoke_prev_handler
+#.endm
+#.noaltmacro
+#########################################################################
+
 
 .macro DECLARE_CLASS_METHODS
 	_DECL_CLASS_VPTR = .
@@ -772,6 +848,8 @@ __OO_DECLARED=1
 	_DECL_CLASS_OVERRIDE_MCOUNT = 0
 	_DECL_CLASS_STATIC_MCOUNT = 0
 .endm
+
+MPTR_SIZE = (2+2+4+4)
 
 .macro DECLARE_CLASS_METHOD name, offs, flag=0
 	.if _DECL_CLASS_VPTR == 0
@@ -865,6 +943,7 @@ __OO_DECLARED=1
 		.long CLASS_STRUCT_SIZE			# class_def_size
 		.long _DECL_CLASS_SUPER			# class_super
 		.long _DECL_CLASS_OBJ_SIZE		# class_obj_size
+		# TODO: .long _DECL_CLASS_OBJ_ALLOC_SIZE - variable length
 		.long 999b				# class_name
 		.long _DECL_CLASS_VPTR			# class_vptr
 		.long _DECL_CLASS_DECL_MPTR		# class_decl_mptr

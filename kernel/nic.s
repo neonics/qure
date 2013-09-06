@@ -89,55 +89,6 @@ nic_init:
 	stc
 	jmp	8b
 
-# set up the NIC shortlist
-# out: eax = [nics]
-# out: ebx = [devices]
-# out: CF
-nic_init_OLD:
-.if 1
-ret
-.else
-	push	ecx
-	push	edx
-
-	mov	ebx, [devices]
-	or	ebx, ebx
-	jz	2f
-	mov	eax, [nics]
-	or	eax, eax
-	jnz	0f	# cache
-
-	.if NIC_DEBUG
-		DEBUG "nic_init"
-	.endif
-
-	inc	eax
-	call	ptr_array_new
-	jc	0f
-	mov	[nics], eax
-
-	OBJ_ARRAY_ITER_START ebx, ecx
-
-	cmp	[ebx + ecx + dev_type], byte ptr DEV_TYPE_PCI
-	jnz	3f
-	cmp	[ebx + ecx + dev_pci_class], byte ptr 2	# network devices
-	jnz	3f
-
-	call	ptr_array_newentry
-	mov	[nics], eax
-	mov	[eax + edx], ecx
-
-3:	OBJ_ARRAY_ITER_NEXT ebx, ecx
-
-0:	pop	edx
-	pop	ecx
-	ret
-
-2:	printlnc 4, "nic_init: no devices"
-	stc
-	jmp	0b
-.endif
-
 # in: eax = nic index (not offset!)
 # out: eax + edx = nic pointer
 # out: ebx = nic object

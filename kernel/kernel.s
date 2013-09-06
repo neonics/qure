@@ -112,9 +112,6 @@ include "fs/iso9660.s", iso9660
 
 .if KERNEL_SPLIT_RINGS
 	.print "<< SPLIT RINGS >>"
-	.global newline
-	.global _s_print
-	.global printhex1
 
 	.global pci_get_device_subclass_info
 
@@ -156,12 +153,13 @@ include "fs/iso9660.s", iso9660
 	.global printspace
 	.global _s_print
 	.global _s_printc
+	.global _s_println
 	.global _s_printlnc
 	.global _s_setcolor
 	.global _s_pushcolor
 	.global printbin8
 	.global printbin16
-	.global newline; 
+	.global newline
 
 	.global screen_update
 
@@ -205,11 +203,6 @@ include "fs/iso9660.s", iso9660
 	# keyboard
 	.global keyboard
 	.global KB_GETCHAR
-
-	# oo
-	.global class_instances
-	.global class_instanceof
-	.global class_newinstance
 
 	# pit
 	.global sleep

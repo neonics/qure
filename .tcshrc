@@ -13,7 +13,7 @@ alias hk "hexdump -C build/kernel.bin | grep -e '*' -e '|'"
 alias hd "hexdump -C build/boot.bin | grep -e '*' -e '|'"
 alias hdi "hexdump -C build/boot.img | grep -e '*' -e '|' |& less"
 alias da32 objdump -d -Mintel-mnemonic build/bootloader.o
-alias w "grep \!* kernel/*.s kernel/*/*.s"
+alias w "grep \!* kernel/*.s kernel/*/*.s kernel/*/*/*.s"
 alias bkp 'tar cvfz \!*.tgz `git st | cut -c3-|xargs`'
 
 switch ($OSTYPE)

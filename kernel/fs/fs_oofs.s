@@ -93,23 +93,36 @@ fs_oofs_init$:
 
 fs_oofs_mkfs:
 	push_	eax edx
-	call	fs_oofs_init$
-	jc	9f
+	call	fs_oofs_init$	# out: eax=oofs, edx=fs_oofs
+	jc	91f
+	mov	ecx, [edx + fs_obj_p_size_sectors]
 	call	[eax + oofs_api_init]
+	# allocate a new array in the next sector
+	push_	eax edx
+	mov	ecx, 512
+	mov	edx, offset class_oofs_table #[eax + obj_class]
+	call	[eax + oofs_api_add]
+	pop_	edx eax
+	jc	1f
 	call	[eax + oofs_api_save]
 	jc	1f
 	OK
-1:	call	class_deleteinstance	# free sfs instance
+1:	call	class_deleteinstance
 	mov	eax, edx
 	call	class_deleteinstance
 9:	pop_	edx eax
 	ret
+91:	printlnc 4, "fs_oofs_mkfs: fs_oofs_init error"
+	stc
+	jmp	9b
 
 fs_oofs_mount:
 	DEBUG "oofs_mount"
 	push_	eax edx
 	call	fs_oofs_init$
 	jc	9f
+	mov	ecx, [edx + fs_obj_p_size_sectors]
+	call	[eax + oofs_api_init]
 	call	[eax + oofs_api_load]
 	mov	[edx + oofs_root], eax	# may be mreallocced
 	OK
