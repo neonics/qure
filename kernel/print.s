@@ -864,6 +864,7 @@ cls:	SET_SCREENPOS 0
 
 
 newline:
+	pushf
 	push	ecx
 	push	eax
 	push	edx
@@ -885,6 +886,7 @@ newline:
 	pop	edx
 	pop	eax
 	pop	ecx
+	popf
 	ret
 
 
@@ -1875,11 +1877,11 @@ print_time_ms_40_24:
 
 ############################ PRINT FORMATTED STRING ###########
 PRINTF_DEBUG = 0
+
 # in: stack
 printf:
 	push	ebp
-	mov	ebp, esp
-	add	ebp, 4 + 4
+	lea	ebp, [esp + 8]
 	push	eax
 	push	ecx
 	push	edx

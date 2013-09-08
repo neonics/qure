@@ -1869,7 +1869,7 @@ cmd_mem$:
 	xor	edx, edx
 	# reloc: DISP32 .data
 	#mov	eax, kernel_end - kernel_code_start # realmode_kernel_entry
-	mov	eax, KERNEL_SIZE
+	mov	eax, offset KERNEL_SIZE
 	#(kernel_code_end - kernel_code_start)+(kernel_data_end-kernel_data_start)
 	call	print_size
 
