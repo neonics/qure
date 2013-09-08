@@ -355,7 +355,6 @@ include "fs/iso9660.s", iso9660
 .endif
 
 include "gfx.s", gfx
-include "hwdebug.s", hwdebug
 include "vmware/vmware.s", vmware
 #include "vbox/vbga.s", vbox
 #code_sound_start:
@@ -364,7 +363,8 @@ include "vmware/vmware.s", vmware
 #code_sound_end:
 include "shell.s", shell
 
-include "debugger.s", debugger
+include "debugger/debugger.s", debugger
+include "debugger/hwdebug.s", hwdebug
 ###################################
 
 .text32

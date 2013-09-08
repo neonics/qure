@@ -13,42 +13,22 @@
 
 
 ############################# 32 bit macros 
-.print "debug.s"
 .if !DEFINE
-.print "  !define"
 
 .ifndef __DEBUG_DECLARED
-.print "   declaring"
 
 ##############################################
 _DBG_ENABLED = 1
 _DBG_BP_ENABLED = 1	# whether to compile conditional breakpoints
-_DBG_PRINT_ENABLED = 1
+_DBG_PRINT_ENABLED = 1	# legacy behaviour
 
 .macro DEBUGGER command, argv:vararg
 	DEBUGGER_\command \argv
 .endm
 
-.macro DEBUGGER_INIT level=0
-#	_DBG_ENABLED = \level > 0
-#	_DBG_BP_ENABLED = \level > 1
-#	_DBG_PRINT_ENABLED = \level > 0	# set to 1 for legacy behaviour
-#	.print "(debug level \level)"
+.macro DEBUGGER_NAME name:req
 .endm
 
-.macro DEBUGGER_NAME name=0
-	.print "DEBUGGER_NAME \name"
-#	_ = DEBUG_\name
-#	.ifdef _
-#	DEBUGGER_INIT DEBUG_\name
-#	_DBG_NAME = \name
-#	DEBUGGER_\name\()=1
-#	.else
-#	.warn "DEBUGGER_NAME: DEBUG_\name\() not found"
-#	.endif
-.endm
-
-#DEBUGGER INIT
 ##############################################
 
 
