@@ -1,18 +1,25 @@
-##############################################################################_overrides
+################################################################################
 # Object Orientation
 #
 .intel_syntax noprefix
 
-
 OO_DEBUG = 0
+OO_DEBUG_VPTR = 0	# class_resolve and utility
+DEBUGGER_NAME OO
+
+OBJ_VPTR_COMPACT = 1	# 0: interleaved with data; 1: negative offsets
 
 # 'Class' class
 .struct 0
 class_def_size:		.long 0
+class_flags:		.long 0
+	CLASS_FLAG_RESOLVED = 1
 class_super:		.long 0
 class_object_size:	.long 0	# including the vptr table
 class_name:		.long 0
-class_vptr:		.long 0 # offset in obj for method pointers
+class_object_vptr:	.long 0 # offset in obj for method pointers (if COMPACT)
+class_decl_vptr:	.long 0 # pointer to (static) vptr table for class
+class_decl_vptr_count:	.long 0 #
 class_decl_mptr:	.long 0 # offset in .data SECTION_DATA_CLASS_M_DECLARATIONS
 class_decl_mcount:	.long 0 # nr of methods in mptr
 class_over_mptr:	.long 0
@@ -21,7 +28,6 @@ class_static_mptr:	.long 0
 class_static_mcount:	.long 0
 class_match_instance:	.long 0
 CLASS_STRUCT_SIZE = .
-# NOTE: [class_object_size] - [class_vptr] == [class_decl_mcount]*4
 
 .struct 0
 class_method_flags:	.word 0
@@ -51,8 +57,16 @@ CLASS_METHOD_STRUCT_SIZE = 12
 .global class_newinstance
 .global class_instance_resize
 .global class_instanceof
+# debug
+.global _obj_print_methods$
+.global _obj_print_vptr$
+.global _class_print_vptr$
+.global _class_print$
 # data
 .global class_instances
+# structural
+.global OBJ_decl_vptr
+.global OBJ_decl_vptr_count
 ###################################
 
 
@@ -70,32 +84,37 @@ class_instances_sem:	.long 0
 # in: eax = class_ definition pointer
 # out: eax = instance
 class_newinstance:
-#DEBUG "class_newinstance"; DEBUG_DWORD [class_instances]
-#DEBUGS [eax+class_name]
 	push	ebp
 	lea	ebp, [esp + 4]	# for mallocz_
-#pushad
-#DEBUG "CLASSES:";call newline; call cmd_classes
-#popad
+
+	push	ebx	# internal variable
+	xor	ebx, ebx	# just in case
+	call	class_resolve
+	pop	ebx
+	jc	0f
+
 	# quick hack: don't record the object instance.
 	push	esi
 	mov	esi, eax
 	mov	eax, [esi + class_object_size]
 	call	mallocz_	# register caller of current method
 	jc	9f
-	# TODO: move offset to make vptr offsets negative
-	mov	[eax + obj_class], esi
-.if OO_DEBUG
-	push dword ptr [esi + class_name]
-	DEBUG "class_newinstance ";DEBUG_DWORD eax
-	call _s_print
-	DEBUG_DWORD esi
-	DEBUG_DWORD [esi+class_super]
-	DEBUG_DWORD [eax+obj_class]
-	call newline
+.if OBJ_VPTR_COMPACT
+	sub	eax, [esi + class_object_vptr]	# skip over vptrs
 .endif
+	mov	[eax + obj_class], esi
 
-	call	class_init_vptrs
+	.if OO_DEBUG
+		DEBUG "class_newinstance ", 0xe0
+		DEBUG_DWORD eax, "obj"
+		DEBUGS [esi + class_name]
+		DEBUG_DWORD esi
+		DEBUG_DWORD [esi+class_super]
+		DEBUG_DWORD [eax+obj_class]
+		call newline
+	.endif
+
+	call	obj_init_vptrs
 
 	# register the class in the class_instances ptr_array
 	push	edx
@@ -113,13 +132,260 @@ class_newinstance:
 	stc
 	jmp	0b
 
-class_init_vptrs:
-	# top-down override, implemented as bottom-up (if) zero (then) change
-0:	call	class_init_vptr$
-	mov	esi, [esi + class_super]
+
+
+# in: eax = classdef ptr
+# in: ebx = vptr start index (automatically set - internal)
+class_resolve:
+	testb	[eax + class_flags], CLASS_FLAG_RESOLVED
+	jnz	9f
+
+	# resolve superclass, so that its class_decl_vptr is initialized.
+	push	eax
+	mov	eax, [eax + class_super]
+	or	eax, eax
+	jnz	1f
+	xor	ebx, ebx
+1:	call	class_resolve
+2:	pop	eax
+	jc	91f
+
+	# resolve current class.
+	push_	edi esi ecx edx
+
+	.if OO_DEBUG
+		printc 0xb0, "class_resolve "
+		DEBUGS [eax + class_name]
+		DEBUG_DWORD [eax + class_decl_vptr_count], "vptr.count"
+		DEBUG_DWORD [eax + class_decl_mcount], "mptr.count"
+		call	newline
+	.endif
+
+	# mptr is stored incrementally.
+	# vptr is stored reversed (in compact mode), and grows more negative.
+	#
+	# obj = [vptr]^[data]  ( ^ = object pointer )
+	# [vptr] = [this.mptr][super.vptr]^
+	#
+	# so we first append the mptr reversed at the beginning,
+	# which will have highest negative offset, and then we simply append
+	# the class_decl_vptr data from the super class - which has been
+	# resolved.
+
+	# assert vptr.count = mptr.count + super.vptr.count
+	mov	esi, [eax + class_super]
 	or	esi, esi
-	jnz	0b
+	jz	1f	# no super
+	mov	ecx, [eax + class_decl_mcount]
+	mov	edi, [eax + class_decl_vptr_count]
+	mov	edx, [esi + class_decl_vptr_count]
+	lea	esi, [edx + ecx]
+	cmp	esi, edi
+	jnz	92f
+1:
+
+	# declare class methods at beginning of class_decl_vptr
+	call	class_resolve_mptr$
+	jc	90f
+	call	class_resolve_super_vptr$
+	jc	90f
+	call	class_resolve_overrides$
+	jc	90f
+
+	.if OO_DEBUG_VPTR
+		mov	esi, eax
+		call	_class_print_vptr$
+	.endif
+
+	orb	[eax + class_flags], CLASS_FLAG_RESOLVED
+	clc
+0:	pop_	edx ecx esi edi
+9:	ret
+
+91:	printlnc 4, "error resolving super class"
+	stc
 	ret
+90:	printc 4, "class resolution error"
+	mov	esi, eax
+	call	_class_print_vptr$
+	int 3
+	stc
+	jmp	0b
+
+92:	pushcolor 4
+	pushd	edi
+	pushd	ecx
+	pushd	edx
+	pushstring "class_resolve: super.vptr.count (%d) + this.mptr.count (%d) != this.vptr.count (%d)\n"
+	call	printf
+	add	esp, 16
+	popcolor
+	stc
+	jmp	0b
+
+# in: eax = classdef
+class_resolve_mptr$:
+	# copy this.mptr to this.vptr
+	mov	esi, [eax + class_decl_mptr]
+	mov	ecx, [eax + class_decl_mcount]
+	.if OO_DEBUG_VPTR
+		DEBUG "mptr->vptr"
+		DEBUG_DWORD ecx, "mptr.count"
+		call	newline
+	.endif
+	cmp	ecx, [eax + class_decl_vptr_count]
+	ja	93f	# mcount > vptr_count -> error
+
+	# copy mptr to vptr
+
+	mov	edi, [eax + class_decl_vptr]
+	lea	edi, [edi + ecx * 4]
+
+	clc
+
+	jecxz	1f
+	push	eax
+0:	lodsd	# flags, index
+	.if OO_DEBUG_VPTR
+		print  "  mptr "
+		DEBUG_DWORD eax, "flags|index"
+		# perhaps use index?
+	.endif
+	lodsd	# name (ovr/static: target)
+	.if OO_DEBUG_VPTR
+		DEBUGS eax
+	.endif
+	lodsd	# address
+	.if OO_DEBUG_VPTR
+		DEBUG_DWORD eax, "addr"
+		call	newline
+	.endif
+	sub	edi, 4
+	mov	[edi], eax
+	.if OO_DEBUG_VPTR
+		dec	ecx
+		jnz	0b
+	.else
+	loop	0b
+	.endif
+	pop	eax
+1:	clc
+90:
+	ret
+
+
+# decl_mcount (ecx) > decl_vptr_count
+93:	pushcolor 4
+	pushd	[eax + class_decl_vptr_count]
+	pushd	ecx
+	pushstring "class_decl_mcount (%d) > class_decl_vptr_count (%d)\n"
+	call	printf
+	add	esp, 12
+	popcolor
+
+	int 3
+
+	stc
+	jmp	90b
+
+# in: eax = class
+class_resolve_super_vptr$:
+	mov	ecx, [eax + class_super]
+	jecxz	1f
+	mov	esi, [ecx + class_decl_vptr]
+	mov	ecx, [ecx + class_decl_vptr_count]
+	.if OO_DEBUG_VPTR
+		DEBUG_DWORD ecx, "super.vptr.count"
+	.endif
+	cmp	ecx, [eax + class_decl_vptr_count]
+	ja	92f	# super.vptr.count > this.vptr.count -> error
+
+	# calculate edi = vptr + mcount*4
+	mov	edi, [eax + class_decl_mcount]
+	shl	edi, 2
+	add	edi, [eax + class_decl_vptr]
+
+	# super.vptr already in proper order; simply append.
+	rep	movsd	# this.vptr[] += super.vptr[]
+
+1:
+90:	ret
+
+# super.vptr.count > vptr.count
+# in: eax = this
+# in: ecx = this.vptr count
+# in: edx = super vptr count
+92:	pushcolor 4
+	pushd	edx
+	pushd	ecx
+	pushd	[eax + class_name]
+	pushstring "class_resolve: %s.vptr.count %d < vptr.count %d\n"
+	call	printf
+	add	esp, 16
+	popcolor
+	int 3
+	stc
+	jmp	90b
+
+# in: eax = class
+class_resolve_overrides$:
+	mov	esi, [eax + class_over_mptr]
+	mov	ecx, [eax + class_over_mcount]
+	mov	edi, [eax + class_decl_vptr]
+	.if OO_DEBUG_VPTR
+		DEBUG_DWORD ecx, "over.count"
+		DEBUG_DWORD [eax + class_object_vptr], "vptr"
+		DEBUG_DWORD [eax + class_object_size], "objsize"
+		call	newline
+	.endif
+	clc
+	jecxz	1f
+	push_	eax ebx
+	mov	ebx, [eax + class_decl_vptr_count]
+	shl	ebx, 2	# vptr bound
+	add	edi, ebx	# edi = end of vptr
+0:	lodsd	# flags, index
+	.if OO_DEBUG_VPTR
+		print "  override "
+		DEBUG_DWORD eax, "flags|index"
+	.endif
+	shr	eax, 16	# get vptr offs
+	mov	edx, eax
+	lodsd	# target
+	.if OO_DEBUG_VPTR
+		DEBUG_DWORD eax, "target"
+	.endif
+	lodsd	# address
+	.if OO_DEBUG_VPTR
+		DEBUG_DWORD eax, "addr"
+		call	newline
+	.endif
+	# check if vptr is within range
+	cmp	edx, ebx
+	jae	94f
+
+	neg	edx
+	sub	edx, 4	# same as target
+
+	mov	[edi + edx], eax
+949:
+	loop	0b
+	clc
+	pop_	ebx eax
+1:	ret
+
+# override idx (edx) > vptr.size (ebx)
+94:	pushcolor 4
+	pushd	ebx
+	pushd	edx
+	pushstring "class_resolve_overrides$: idx (%08x) out of vptr bounds (%08x)\n"
+	call	printf
+	add	esp, 12
+	popcolor
+	stc
+	int 3
+	jmp	949b
+
 
 # make a temporary class using a given class reference
 # in: eax = instance
@@ -151,13 +417,13 @@ class_cast:
 		call	class_deleteinstance
 		stc
 		jmp	9f
-0:	call	class_init_vptrs
+0:	call	obj_init_vptrs
 	# eax is dummy class: copy data
 	push_ 	edi ecx
 	mov	esi, [esp + 8]	# old instance (edx)
 	mov	edi, eax	# new instance
 	mov	edx, [eax + obj_class]
-	mov	edx, [edx + class_vptr]
+	mov	edx, [edx + class_object_vptr]
 	movzx	ecx, dl
 	and	cl, 3
 	rep	movsb
@@ -211,7 +477,7 @@ class_proxy:
 	mov	ecx, [edx + obj_size]
 	call	mdup
 	mov	edx, esi
-	call	class_init_vptrs
+	call	obj_init_vptrs
 	pop_	ecx esi
 	ret
 
@@ -242,35 +508,73 @@ class_instance_resize:
 	jmp	9b
 
 
+
+##########################################################################
+# VPTR
+
+.if !OBJ_VPTR_COMPACT
 # in: eax = object
 # in: esi = class def
 class_init_vptr$:
-	.if OO_DEBUG
+	.if OO_DEBUG	# XXX
 		call	newline
-		DEBUG "class_init_vptr$ "
+		DEBUG "class_init_vptr$"
+		DEBUG_DWORD eax,"for"
+		push eax; mov eax, [eax + obj_class]; pushd [eax+class_name]; call _s_print;
+		DEBUG_DWORD [eax + class_object_size],"objsize"
+		DEBUG_DWORD [eax + class_object_vptr],"vptr"
+		pop eax
+		DEBUG "using"
 		push dword ptr [esi + class_name]
 		call _s_print
+		call newline
 		DEBUG_DWORD [esi + class_decl_mcount]
 		DEBUG_DWORD [esi + class_over_mcount]
+		DEBUG_DWORD [esi + class_object_vptr]
+		call	newline
+		push_ ecx esi eax
+		mov	esi, [eax + obj_class]
+		.if OBJ_VPTR_COMPACT
+			mov	ecx, [esi + class_object_vptr]
+			neg	ecx
+			mov	esi, eax
+			add	esi, ecx
+		.else
+			mov	ecx, [esi + class_object_size]
+			sub	ecx, [esi + class_object_vptr]
+			add	esi, [esi + class_object_vptr]
+		.endif
+		shr	ecx, 2
+		jz	1f
+		0: DEBUG_DWORD esi; lodsd; DEBUG_DWORD eax
+		loop	0b
+		1:
+		call	newline
+		pop_ eax esi ecx
 	.endif
 
 	# initialize the object method pointers
 	push_	edi ecx eax edx ebx esi
 	mov	ebx, eax	# backup
 
-		
+
 	# first fill in the declared methods:
 	mov	ecx, [esi + class_decl_mcount]
-	or ecx, ecx
+	or	ecx, ecx
 	jz	1f
-#	jecxz	1f
-	mov	edi, [esi + class_vptr]	# offset into obj
+	mov	edi, [esi + class_object_vptr]	# offset into obj
 	#############
 	or	edi, edi
 	jz	2f
 	mov	eax, [esi + class_object_size]
+	.if OO_DEBUG
+		DEBUGS [esi+class_name]
+		DEBUG_DWORD eax,"objsize"
+		DEBUG_DWORD edi,"objvptr"
+	.endif
 	sub	eax, edi
-	jle	2f
+	jle	21f
+	# cmp vptr space with decl mcount
 	shr	eax, 2
 	cmp	eax, ecx
 	jnz	3f
@@ -286,8 +590,7 @@ class_init_vptr$:
 	#stosd	# store in vptr
 	mov	[edi], eax
 4:	add	edi, 4
-	#loop	0b
-	dec ecx; jnz 0b
+	loop	0b
 	sub	edi, ebx
 	pop	esi
 	jmp	1f
@@ -296,7 +599,9 @@ class_init_vptr$:
 	call	printdec32
 	printlnc 4, " methods declared."
 	jmp	1f
-3:	printc 4, "error: vptr space "
+21:	printlnc 4, "vptr beyond object size"
+	jmp	1f
+3:	printc 4, "error: vptr space ("
 	mov	edx, eax
 	call	printdec32
 	printc 4, ") != declared methods ("
@@ -320,6 +625,9 @@ class_init_vptr$:
 	cmp	edx, [edi + class_object_size]
 	jb	3f
 	printc 4, "warning: method override has illegal target: "
+	DEBUG_DWORD [esi-12],"flags|idx"
+	DEBUG_DWORD [esi-8], "target"
+	DEBUG_DWORD [esi-4], "addr"
 	call	printhex8
 	printc 4, ", object size: "
 	mov	edx, [edi + class_object_size]
@@ -327,7 +635,7 @@ class_init_vptr$:
 	call	newline
 	pushad
 	mov	esi, edi
-	call	_print_class$
+	call	_class_print$
 	popad
 	# TODO: further check to see if the override is within any vptr range
 	# of all (super)classes.
@@ -345,12 +653,117 @@ class_init_vptr$:
 	cmp	[ebx + edx], dword ptr 0
 	jnz	2f	# don't override,already filled in (sub->super iter)
 	mov	[ebx + edx], eax
-2:	loop	0b
+2:	dec ecx;jnz 0b#loop	0b
 	pop	esi
 1:
-	
+
 	pop_	esi ebx edx eax ecx edi
 	ret
+.endif
+
+# in: eax = obj
+# in: esi = class ([eax+obj_class])
+obj_init_vptrs:
+.if OBJ_VPTR_COMPACT		# compact vptr
+	push_	edi esi ecx
+	mov	edi, [esi + class_object_vptr]
+	add	edi, eax
+	mov	ecx, [esi + class_decl_vptr_count]
+	mov	esi, [esi + class_decl_vptr]
+	rep	movsd
+	pop_	ecx esi edi
+.else
+	# top-down override, implemented as bottom-up (if) zero (then) change
+0:	call	class_init_vptr$	# interleaved vptr
+	mov	esi, [esi + class_super]
+	or	esi, esi
+	jnz	0b
+.endif
+	ret
+
+
+# in: esi
+_class_print_vptr$:
+	push_	ebx ecx esi
+
+	mov	ebx, [esi + class_name]	# for printf
+	mov	ecx, [esi + class_decl_vptr_count]
+	mov	esi, [esi + class_decl_vptr]
+
+	pushcolor 10
+	pushd	ecx
+	pushd	esi
+	pushd	ebx
+	pushstring "vptr table for class '%s' addr %08x count %d\n"
+	call	printf
+	add	esp, 16
+	popcolor
+
+	call	_print_vptr$
+	pop_	esi ecx ebx
+	ret
+
+# in: eax = obj
+_obj_print_vptr$:
+	push_	ebx ecx edx esi
+	mov	esi, [eax + obj_class]
+	.if OO_DEBUG_VPTR
+		DEBUG "obj_print_vptr"
+		DEBUG_DWORD eax,"obj"
+		DEBUG_DWORD esi,"class"
+		DEBUGS [esi+class_name]
+	.endif
+
+	mov	ecx, [esi + class_decl_vptr_count]
+	# esi + ecx * 4 == eax (for compact)
+	pushd	[esi+class_object_vptr]
+	pushd	ecx
+	pushstring "vptr table size %d addr %08x\n"
+	call	printf
+	add	esp, 12
+
+	lea	ebx, [ecx * 4]
+	neg	ebx
+	mov	esi, [esi + class_object_vptr]
+	cmp	ebx, esi
+	jnz	91f
+919:	add	esi, eax
+	call	_print_vptr$
+	pop_	esi edx ecx ebx
+	ret
+91:	printc 4, "vptr != -4* vptr_count"
+	DEBUG_DWORD ebx
+	DEBUG_DWORD esi
+	jmp	919b
+
+# in: esi = vptr table start
+# in: ecx = vptr table length
+# in: ebx = vptr rel offset start (0 for class, [eax+class_object_vptr] for obj)
+_print_vptr$:
+	jecxz	9f
+	push	edx
+
+	lea	esi, [esi + ecx * 4]
+	xor	ebx, ebx
+
+0:	pushcolor 8
+	sub	ebx, 4
+	mov	edx, ebx
+	call	printhex8
+	popcolor
+	call	printspace
+
+	sub	esi, 4
+	mov	edx, [esi]
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+	call	newline
+	loop	0b
+	pop	edx
+9:	ret
+
+######################################################################
 
 
 # in: eax = obj
@@ -364,14 +777,22 @@ _obj_print_methods$:
 	call	_s_print
 
 	print ": vptr: "
-	mov	edx, [edi + class_vptr]
+	mov	edx, [edi + class_object_vptr]
 	call	printhex8
 
-	print " declared: "
+	print " vptrcnt: "
+.if OBJ_VPTR_COMPACT
+	mov	ecx, [edi + class_object_vptr]
+	neg	ecx
+.else
 	mov	ecx, [edi + class_object_size]
-	sub	ecx, [edi + class_vptr]
+	sub	ecx, [edi + class_object_vptr]
+.endif
 	shr	ecx, 2
 	mov	edx, ecx
+	call	printdec32
+	print " decl: "
+	mov	edx, [edi + class_decl_mcount]
 	call	printdec32
 
 	print " override: "
@@ -380,9 +801,9 @@ _obj_print_methods$:
 	call	newline
 
 	jecxz	1f
-	mov	esi, [edi + class_vptr]
+	mov	esi, [edi + class_object_vptr]
 	add	esi, ebx
-0:	
+0:
 	print " offs@obj: "
 	mov	edx, esi
 	sub	edx, ebx
@@ -424,13 +845,21 @@ class_deleteinstance:
 	mov	esi, edi
 	sub	edi, 4
 	rep	movsd
+1:
 
-1:	call	mfree
+.if OBJ_VPTR_COMPACT
+	mov	esi, [eax + obj_class]
+	add	eax, [esi + class_object_vptr]
+.endif
+
+	call	mfree
+	mov	eax, -1
 
 	pop_	ecx edi esi
 	ret
 91:	printlnc 4, "warning: deleting unknown object"
 	jmp	0b
+
 
 # in: eax = object ptr
 # in: edx = class ptr
@@ -479,8 +908,29 @@ class_invoke_static:
 	push	ebp
 	lea	ebp, [esp + 8]
 	push_	eax edx
-	mov	eax, [ebp + 4]	# class def 
+	mov	eax, [ebp + 4]	# class def
 
+	call	class_resolve
+	jc	94f
+
+	.if OO_DEBUG
+		DEBUG "class_invoke_static "
+		DEBUGS [eax+class_name]
+		DEBUG_DWORD [ebp]
+	.endif
+
+.if OBJ_VPTR_COMPACT
+	cmp	dword ptr [ebp], 0
+	jns	92f
+
+	mov	edx, [eax + class_decl_vptr_count]
+	shl	edx, 2
+	add	edx, [eax + class_decl_vptr]
+	add	edx, [ebp]
+	cmp	edx, [eax + class_decl_vptr]
+	jb	92f	# before start
+	mov	edx, [edx]	# get method ptr
+.else
 	#####################
 	# little hack
 	# quick hack: don't record the object instance.
@@ -490,10 +940,7 @@ class_invoke_static:
 	call	mallocz
 	jc	91f
 	mov	[eax + obj_class], esi
-0:	call	class_init_vptr$
-	mov	esi, [esi + class_super]
-	or	esi, esi
-	jnz	0b
+	call	obj_init_vptrs
 	pop	esi
 	##############
 #pushad; mov esi, [eax+obj_class];call _obj_print_methods$; popad
@@ -505,28 +952,46 @@ class_invoke_static:
 	# the methods are filled in, so now we can call.
 	mov	edx, [ebp] 	# method ptr
 	mov	edx, [eax + edx]
-	.if OO_DEBUG
-		DEBUG_DWORD edx,"method offs"
-	.endif
-	mov	[ebp], edx	# replace
 	call	mfree
 	jc	9f
+	# end of hack: we got the vptr
+	########################
+.endif
 
+	.if OO_DEBUG
+		DEBUG_DWORD edx, "static method"
+		call debug_printsymbol
+	.endif
+	mov	[ebp], edx	# replace
 	or	edx, edx
 
 	pop_	edx eax
-	jnz	1f
-	printlnc 4, "error: can't call virtual method (ptr=0)"
-	jmp	0f
+	jz	93f
 1:
 	# all registers restored. [ebp] contains the method:
 	call	[ebp]
 0:	pop	ebp
 	ret	8	# pop class, method
+
 91:	pop	esi
-9:	printlnc 4, "class_invoke_static: newinstance fail"
-	pop_	edx eax
+	printlnc 4, "class_invoke_static: newinstance fail"
+9:	pop_	edx eax
+	stc
 	jmp	0b
+
+# compact; [ebp] >=0
+92:	printc 4, "class_invoke_static: invalid method index: "
+	mov	edx, [ebp]
+	call	printhex8
+	call	newline
+	int 3
+	jmp	9b
+93:	# addr 0
+	printlnc 4, "class_invoke_static: can't call virtual method (ptr=0)"
+	int 3
+	jmp	9b
+94:	printlnc 4, "class_invoke_static: class resolution failed"
+	jmp	9b
 
 .if 0 # Disabled for now - tested to work
 # Dynamically registers a class, as opposed to built-in classes defined
@@ -587,8 +1052,13 @@ cmd_classes:
 	mov	esi, offset data_classdef_start
 	jmp	1f
 
-0:	call	_print_class$
-	
+0:	call	_class_print$
+
+	testb	[esi + class_flags], CLASS_FLAG_RESOLVED
+	jz	2f
+	call	_class_print_vptr$
+2:
+
 	add	esi, [esi + class_def_size]
 1:	cmp	esi, offset data_classdef_end
 	jb	0b
@@ -658,12 +1128,14 @@ cmd_objects:
 	call	println
 	ret
 
-_print_class$:
+_class_print$:
 	DEBUG_DWORD esi
 	DEBUG_DWORD [esi+class_object_size],"objsize"
 	DEBUG_DWORD [esi+class_super],"super"
-	DEBUG_DWORD [esi+class_decl_mcount],"#methods"
-	DEBUG_DWORD [esi+class_vptr],"vptr"
+	DEBUG_DWORD [esi+class_object_vptr],"vptr"
+	DEBUG_DWORD [esi+class_decl_vptr_count],"vptr.size"
+	DEBUG_DWORD [esi+class_decl_mptr],"mptr"
+	DEBUG_DWORD [esi+class_decl_mcount],"mcount"
 	call	newline
 	cmp	dword ptr [esi + class_name], 0
 	jz	2f
@@ -677,7 +1149,7 @@ _print_class$:
 	or	esi, esi
 	jz	1f
 	print " extends "
-#	call	_print_class$
+#	call	_class_print$
 	push	dword ptr [esi + class_name]
 	call	_s_print
 	jmp	0b
@@ -702,7 +1174,8 @@ _print_class$:
 	call	newline
 	ret
 
-# in: esi = ptr to class_XXX_mptr in class definition
+# in: ebx = class def ptr
+# in: esi = ptr to class_XXX_mptr in class definition (somewhere in ebx)
 _print_methods$:
 	push	ecx
 	mov	ecx, [esi + 4] # class_decl_mcount]
@@ -711,10 +1184,16 @@ _print_methods$:
 	jz	1f
 	call	newline
 	push	edi
-	call	_s_print;call newline
+	call	_s_print
+	print ": "
+	push	edx
+	mov	edx, ecx
+	call	printdec32
+	pop	edx
+	call newline
 	push_	eax esi edx
 	mov	esi, [esi] # + class_decl_mptr]
-8:	
+8:
 	########################
 	print "flags: "
 	lodsd
@@ -728,13 +1207,18 @@ _print_methods$:
 	print " target: "
 	test	edx, CLASS_METHOD_FLAG_OVERRIDE<<16 # due to ror
 	jz	2f
+.if OBJ_VPTR_COMPACT
+	printcharc 0xf0,'-'
+	mov	edx, [ebx + class_object_vptr]
+	add	edx, eax
+.endif
 	mov	edx, eax
 	call	printhex8	# target
 	call	printspace
 	jmp	3f
 2:	movzx	edx, dx
 	shl	edx, 2
-	add	edx, [ebx + class_vptr]
+	add	edx, [ebx + class_object_vptr]
 	call	printhex8
 	print " name: "
 	push	eax
@@ -762,6 +1246,9 @@ _print_methods$:
 .ifndef __OO_DECLARED
 __OO_DECLARED=1
 
+.section .classdef$vptr
+OBJ_decl_vptr=.
+OBJ_decl_vptr_count=0
 .struct 0
 obj_class: .long 0
 obj_size: .long 0
@@ -779,19 +1266,17 @@ OBJ_STRUCT_SIZE = 8
 
 .macro DECLARE_CLASS_BEGIN name, super=OBJ, offs=0
 	CLASS = \name
-	.section .classdef$md; _DECL_CLASS_DECL_MPTR = .;	mptr_\name\():
+	.section .classdef$md; _DECL_CLASS_DECL_MPTR = .;
+		mptr_\name\():
 	.section .classdef$mo; _DECL_CLASS_OVERRIDE_MPTR = .;
 	.section .classdef$ms; _DECL_CLASS_STATIC_MPTR = .;
 
-#SECTION_DATA_CLASSES	= 7
-#SECTION_DATA_CLASS_M_DECLARATIONS= 8
-#SECTION_DATA_CLASS_M_OVERRIDES= 9
-#SECTION_DATA_CLASS_M_STATIC= 10
-#SECTION_DATA_CLASSES_END = 10
-
-#	.data SECTION_DATA_CLASS_M_DECLARATIONS;_DECL_CLASS_DECL_MPTR = .
-#	.data SECTION_DATA_CLASS_M_OVERRIDES;	_DECL_CLASS_OVERRIDE_MPTR = .
-#	.data SECTION_DATA_CLASS_M_STATIC;	_DECL_CLASS_STATIC_MPTR = .
+	.section .classdef$vptr;
+		_class_decl_vptr = .
+		\name\()_decl_vptr = .
+		.if \super\()_decl_vptr_count > 0
+		.space \super\()_decl_vptr_count * 4
+		.endif
 
 	# offset feature: truncate parent struct to that size and append from there.
 	.ifc \offs,0
@@ -799,18 +1284,22 @@ OBJ_STRUCT_SIZE = 8
 	.else
 	.struct \offs
 	.endif
-	
+
 	# some variables for the _END macro
-	_DECL_CLASS_VPTR = 0
+	_DECL_CLASS_VPTR = -1
 	.ifc OBJ,\super
-	_DECL_CLASS_SUPER = 0
+		_DECL_CLASS_SUPER = 0
+		_class_vptr_offs = 0
 	.else
-	_DECL_CLASS_SUPER = class_\super
+		_DECL_CLASS_SUPER = class_\super
+		_class_vptr_offs = \super\()_vptr	# super.vptr missing!!!
 	.endif
 
-	.altmacro
+	# some new variables.
+	_class_data_offs = .
+	_class_mdecl_count = 0
+
 	CLASS=\name
-	.noaltmacro
 
 #	INVOKE_BEGIN_HANDLERS CLASS
 .endm
@@ -842,56 +1331,87 @@ OBJ_STRUCT_SIZE = 8
 #########################################################################
 
 
+# is called automatically
 .macro DECLARE_CLASS_METHODS
-	_DECL_CLASS_VPTR = .
 	_DECL_CLASS_DECL_MCOUNT = 0
 	_DECL_CLASS_OVERRIDE_MCOUNT = 0
 	_DECL_CLASS_STATIC_MCOUNT = 0
+
+	.if OBJ_VPTR_COMPACT
+		_DECL_CLASS_VPTR = 0
+	.else
+		_DECL_CLASS_VPTR = .
+	.endif
 .endm
 
-MPTR_SIZE = (2+2+4+4)
 
-.macro DECLARE_CLASS_METHOD name, offs, flag=0
-	.if _DECL_CLASS_VPTR == 0
+.macro DECLARE_CLASS_METHOD name, offs, flags:vararg
+	.if _DECL_CLASS_VPTR < 0
 		DECLARE_CLASS_METHODS
 	.endif
 
 	_STRUCT_OFFS = .
 
-	.ifc \flag,OVERRIDE
-		#.data SECTION_DATA_CLASS_M_OVERRIDES
+	_FLAGS = 0
+	.irp f,\flags
+		.ifnc \f,
+		_FLAGS = _FLAGS | CLASS_METHOD_FLAG_\f
+		.endif
+	.endr
+
+# disabled for now - static treated as virtual.
+#	.if _FLAGS & CLASS_METHOD_FLAG_STATIC
+#		.print ">>>>> static \name"
+#
+#		.if  _FLAGS & CLASS_METHOD_FLAG_OVERRIDE
+#			# don't declare new....
+#		.else
+#
+#		#.data SECTION_DATA_CLASS_M_STATIC
+#		.section .classdef$ms
+#			static_m_\name\()_\offs\():	.word CLASS_METHOD_FLAG_STATIC
+#			mptr_\name\()_\offs\()_idx:	.word 0 # idx
+#							.long \name	# target in obj
+#			\name:				.long \offs	# offs
+#		.struct _STRUCT_OFFS
+#		_DECL_CLASS_STATIC_MCOUNT = _DECL_CLASS_STATIC_MCOUNT + 1
+#		.endif
+#
+#	.else
+	.if _FLAGS & CLASS_METHOD_FLAG_OVERRIDE
 		.section .classdef$mo
 			mptr_\name\()_\offs\()_flags:	.word CLASS_METHOD_FLAG_OVERRIDE
-			mptr_\name\()_\offs\()_idx:	.word 0 # TODO: find idx
+			mptr_\name\()_\offs\()_idx:	.word _vptr_\name
 			mptr_\name\()_\offs\()_target:	.long \name
 			mptr_\name\()_\offs:		.long \offs
 		.struct _STRUCT_OFFS
 		_DECL_CLASS_OVERRIDE_MCOUNT = _DECL_CLASS_OVERRIDE_MCOUNT + 1
-	.else
-	.ifc \flag,STATIC
-		#.data SECTION_DATA_CLASS_M_STATIC
-		.section .classdef$ms
-			static_m_\name\()_\offs\():	.word CLASS_METHOD_FLAG_STATIC
-			mptr_\name\()_\offs\()_idx:	.word 0 # idx
-							.long \name	# target in obj
-			\name:				.long \offs	# offs
-		.struct _STRUCT_OFFS
-		_DECL_CLASS_STATIC_MCOUNT = _DECL_CLASS_STATIC_MCOUNT + 1
-
+		# do not add new mptr
 	.else
 		.data SECTION_DATA_STRINGS
 		999:	.asciz "\name"
-		#.data SECTION_DATA_CLASS_M_DECLARATIONS
 		.section .classdef$md
 			mptr_\name\()_flags:	.word CLASS_METHOD_FLAG_DECLARE
 			mptr_\name\()_idx:	.word _DECL_CLASS_DECL_MCOUNT
 			mptr_\name\()_target:	.long 999b
 			mptr_\name:		.long \offs
+
+		.section .classdef$vptr
+			_vptr_\name = . - _class_decl_vptr	# create increment label
+			.long 0	# add space for declared method
+
+		.if OBJ_VPTR_COMPACT
+			_class_vptr_offs = _class_vptr_offs - 4
+			.struct _class_vptr_offs
+				\name: .long 0
+			.struct _STRUCT_OFFS
+		.else
 		.struct _STRUCT_OFFS	# method vptr declaration
 			\name: .long 0
+		.endif
 		_DECL_CLASS_DECL_MCOUNT = _DECL_CLASS_DECL_MCOUNT + 1
 	.endif
-	.endif
+#	.endif
 .endm
 
 .macro _PRINT_NUM n
@@ -904,35 +1424,51 @@ MPTR_SIZE = (2+2+4+4)
 .endm
 
 .macro DECLARE_CLASS_END name
+	.ifc \name,
+	.error "DECLARE_CLASS_END requires classname parameter"
+	.endif
+
 	\name\()_STRUCT_SIZE = .	# for compile-time subclass, see _BEGIN
 
-	.if _DECL_CLASS_VPTR == 0
+	.if _DECL_CLASS_VPTR < 0
 		DECLARE_CLASS_METHODS
 	.endif
 
-	_DECL_CLASS_OBJ_SIZE = .
-	_DECL_CLASS_VPTR_SIZE = (. - _DECL_CLASS_VPTR)/4
+	\name\()_vptr = _class_vptr_offs
 
+	_DECL_CLASS_OBJ_SIZE = .
+
+	.if OBJ_VPTR_COMPACT
+		_DECL_CLASS_VPTR = _class_vptr_offs
+		_DECL_CLASS_VPTR_SIZE = (_class_vptr_offs)/4#- _DECL_CLASS_VPTR/4
+		_DECL_CLASS_OBJ_SIZE = _DECL_CLASS_OBJ_SIZE - _class_vptr_offs
+	.else
+		_DECL_CLASS_VPTR_SIZE = (. - _DECL_CLASS_VPTR)/4
+	.endif
+
+	\name\()_VPTR_SIZE = _DECL_CLASS_VPTR_SIZE
+
+
+	################### done with .struct (data) section
+	.section .classdef$vptr
+	\name\()_decl_vptr_count = (. - \name\()_decl_vptr)/4
 
 	#################################################
 	# check if method declarations are contiguous
-	#.data SECTION_DATA_CLASS_M_DECLARATIONS
-	.section .classdef$md
-	_DECL_CLASS_NUM_METHODS = ( . - _DECL_CLASS_DECL_MPTR )/4/3
+	.if !OBJ_VPTR_COMPACT
+		.section .classdef$md
+		.if (_DECL_CLASS_VPTR_SIZE )!= ( . - _DECL_CLASS_DECL_MPTR )/4/3
+			.error "\name: vptr.len != class_num_methods; cannot declare fields after DECLARE_CLASS_METHOD(S)"
+			.print "VPTR_SIZE:"
+			_PRINT_NUM _DECL_CLASS_VPTR_SIZE
+			.print "NUM_METHODS:"
+			_PRINT_NUM _DECL_CLASS_DECL_MCOUNT
+			.print "NUM_OVERRIDES:"
+			_PRINT_NUM _DECL_CLASS_OVERRIDE_MCOUNT
 
-	.if (_DECL_CLASS_VPTR_SIZE )!= _DECL_CLASS_NUM_METHODS
-		.error "vptr.len != class_num_methods; you cannot declare fields after DECLARE_CLASS_METHOD(S)"
-	#	.print "VPTR_SIZE:"
-	#	_PRINT_NUM _DECL_CLASS_VPTR_SIZE
-	#	.print "NUM_METHODS:"
-	#	_PRINT_NUM _DECL_CLASS_NUM_METHODS
-	#	.print "NUM_DECL:"
-	#	_PRINT_NUM _DECL_CLASS_DECL_MCOUNT
-	#	.print "NUM_OVERRIDES:"
-	#	_PRINT_NUM _DECL_CLASS_OVERRIDE_MCOUNT
-
-	#	.print "VPTR_SIZE + NUM_OVERRIDES"
-	#	_PRINT_NUM (_DECL_CLASS_VPTR_SIZE + _DECL_CLASS_OVERRIDE_MCOUNT)
+		#	.print "VPTR_SIZE + NUM_OVERRIDES"
+		#	_PRINT_NUM (_DECL_CLASS_VPTR_SIZE + _DECL_CLASS_OVERRIDE_MCOUNT)
+		.endif
 	.endif
 	#################################################
 	.data SECTION_DATA_STRINGS
@@ -941,18 +1477,21 @@ MPTR_SIZE = (2+2+4+4)
 	.section .classdef
 	class_\name\():
 		.long CLASS_STRUCT_SIZE			# class_def_size
+		.long 0					# class_flags
 		.long _DECL_CLASS_SUPER			# class_super
-		.long _DECL_CLASS_OBJ_SIZE		# class_obj_size
+		.long _DECL_CLASS_OBJ_SIZE		# class_object_size
 		# TODO: .long _DECL_CLASS_OBJ_ALLOC_SIZE - variable length
 		.long 999b				# class_name
-		.long _DECL_CLASS_VPTR			# class_vptr
+		.long _DECL_CLASS_VPTR			# class_object_vptr
+		.long \name\()_decl_vptr		# class_decl_vptr
+		.long \name\()_decl_vptr_count		# class_decl_vptr_count
 		.long _DECL_CLASS_DECL_MPTR		# class_decl_mptr
 		.long _DECL_CLASS_DECL_MCOUNT		# class_decl_mcount
 		.long _DECL_CLASS_OVERRIDE_MPTR		# class_over_mptr
 		.long _DECL_CLASS_OVERRIDE_MCOUNT	# class_over_mcount
 		.long _DECL_CLASS_STATIC_MPTR		# class_over_mptr
 		.long _DECL_CLASS_STATIC_MCOUNT		# class_over_mcount
-		.long 0					# class_match_instance 
+		.long 0					# class_match_instance
 	.text32
 .endm
 .endif	#  __OO_DECLARED

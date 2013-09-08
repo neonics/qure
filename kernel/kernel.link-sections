@@ -57,6 +57,7 @@ SECTIONS
 		*(.classdef$md)
 		*(.classdef$mo)
 		*(.classdef$ms)
+		*(.classdef$*)
 		data_classes_end = .;
 
 	}
