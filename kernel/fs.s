@@ -129,24 +129,30 @@ mtab_init:
 	ret
 
 0:
-	push	edx
+	push_	eax edx
 	call	mtab_entry_alloc$	# out: ebx + edx
-	jc	2f
+	jc	91f
 ###	# add root entry
-	push	eax
 	mov	eax, 2
 	call	mallocz
-	jc	1f
+	jc	92f
 	mov	[eax], word ptr '/'
 	mov	[ebx + edx + mtab_mountpoint], eax
 	mov	eax, offset class_fs_root
 	call	class_newinstance
+	jc	93f
 	mov	[ebx + edx + mtab_fs_instance], eax#dword ptr offset fs_root_instance
-1:	pop	eax
-###
-2:	pop	edx
+1:	pop_	edx eax
 	ret
-
+91:	printlnc 4, "mtab_entry_alloc fail"
+	stc
+	jmp	1b
+92:	printlnc 4, "mallocz fail"
+	stc
+	jmp	1b
+93:	printlnc 4, "class_newinstance(fs_root) fail"
+	stc
+	jmp	1b
 
 # out: ebx = mtab base ptr (might have changed)
 # out: edx = index guaranteed to hold one mtab entry
@@ -389,6 +395,7 @@ _fs_load_iter$:
 
 
 mtab_print$:
+	push_	eax ebx ecx edx
 	xor	edx, edx
 	pushcolor 7
 	ARRAY_LOOP [mtab], MTAB_ENTRY_SIZE, ebx, ecx, 0f
@@ -431,6 +438,7 @@ mtab_print$:
 1:	call	newline
 	ARRAY_ENDL
 0:	popcolor
+	pop_	edx ecx ebx eax
 	ret
 
 # in: esi = path string
@@ -505,9 +513,9 @@ DECLARE_CLASS_METHOD fs_obj_api_write,	fs_obj_write
 # in: ax: al = disk ah = partition
 # in: esi = partition table pointer
 # out: eax: class instance (object)
-DECLARE_CLASS_METHOD fs_api_mkfs, 0	# in: ax = part/disk | esi = part info
-DECLARE_CLASS_METHOD fs_api_mount, 0	# in: ax = part/disk, esi = part info
-DECLARE_CLASS_METHOD fs_api_umount, 0	# destructor
+DECLARE_CLASS_METHOD fs_api_mkfs, 0, STATIC
+DECLARE_CLASS_METHOD fs_api_mount, 0, STATIC
+DECLARE_CLASS_METHOD fs_api_umount, 0 		# destructor
 # in: eax = fs_instance
 # in: ebx = parent/current directory handle (-1 for root)
 # in: esi = asciz file/dirname pointer
@@ -1537,11 +1545,10 @@ fs_open:
 	push	esi
 	call	handle_pathpart$
 	pop	esi
-	jc	2f
+	jc	9f
 	push	esi
 	call	handle_dup$
 	pop	esi
-2:
 ###############################################
 
 	xor	ecx, ecx

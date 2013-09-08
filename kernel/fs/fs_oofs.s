@@ -17,8 +17,8 @@ DECLARE_CLASS_BEGIN fs_oofs, fs
 oofs_root:	.long 0	# ptr to root object
 
 # static
-DECLARE_CLASS_METHOD fs_api_mkfs,	fs_oofs_mkfs, OVERRIDE
-DECLARE_CLASS_METHOD fs_api_mount,	fs_oofs_mount, OVERRIDE
+DECLARE_CLASS_METHOD fs_api_mkfs,	fs_oofs_mkfs, OVERRIDE,STATIC
+DECLARE_CLASS_METHOD fs_api_mount,	fs_oofs_mount, OVERRIDE,STATIC
 DECLARE_CLASS_METHOD fs_api_umount,	fs_oofs_umount, OVERRIDE
 # instance
 DECLARE_CLASS_METHOD fs_api_open,	fs_oofs_open, OVERRIDE
