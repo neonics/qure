@@ -65,13 +65,13 @@ data_bss_start:
 DEFINE = 1
 
 DEFINE=0
-.include "debug.s"
+.include "debugger/export.s"
 .include "mutex.s"
 .include "print.s"
 DEFINE=1
 .include "mutex.s"
 include "print.s", print
-include "debug.s", debug
+include "debugger/export.s", debug
 include "pmode.s", pmode
 include "paging.s", paging
 include "kapi/kapi.s", kapi
@@ -410,6 +410,20 @@ kmain:
 		call	breakpoint_set_memwrite
 	.endif
 
+	.if 0	# debugger test
+		_DBG_BP_ENABLED=0
+		BREAKPOINT "1 - ERROR"
+		_DBG_BP_ENABLED=1
+		BREAKPOINT "2 - expected"
+
+		DEBUGGER BP DISABLE
+		BREAKPOINT "3 - ERROR"
+		DEBUGGER BP ENABLE
+		BREAKPOINT "4 - expected"
+
+		DEBUGGER BP DISABLE	# so far so good - enabled later.
+	.endif
+
 # debug scroll:
 #	PRINT "This is a filler line to have the next line not start at a line bounary."
 #	PRINT "this text is meant to be longer than a line to see whether or not this gets scrolled properly, or whether a part is missing at the end, or whether the source index gets offset besides a line bounary."
@@ -484,6 +498,8 @@ SCHEDULE_EARLY = 0
 
 	call	cmos_list
 
+	COLOR 7
+
 .if SHOWOFF
 	MORE
 .endif
@@ -501,6 +517,8 @@ SCHEDULE_EARLY = 0
 	I "ATA:"
 	call	ata_list_drives
 
+	COLOR 7
+
 .if SHOWOFF
 	WAITSCREEN
 .endif
@@ -517,7 +535,6 @@ SCHEDULE_EARLY = 0
 	call	hash_test
 .endif
 
-	COLOR 7
 	I "Boot Drive: "
 	mov	ax, [boot_drive]
 	call	disk_print_label

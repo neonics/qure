@@ -102,19 +102,23 @@ EXE_SRC = exe/libc.s exe/elf.s exe/pe.s
 
 KAPI_SRC = kapi/kapi*.s
 
-KERNEL_SRC = kernel.s defines.s macros.s debug.s oo.s debugger.s \
+KERNEL_SRC = kernel.s defines.s macros.s \
+		$(DBG_SRC) \
+		oo.s	\
 	ring2.s \
 	$(EXE_SRC) \
 	$(KLIB_SRC) \
 	$(KAPI_SRC) \
 	realmode.s print.s \
 	pmode.s pic.s gdt.s idt.s tss.s \
-	schedule.s hwdebug.s \
+	schedule.s \
 	mutex.s console.s paging.s
 
 HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s dma.s \
 	nic.s dev.s $(USB_SRC) $(NIC_SRC) $(VMWARE_SRC) $(VBOX_SRC) \
 	$(BRIDGE_SRC) $(SOUND_SRC)
+
+DBG_SRC = debugger/export.s debugger.s hwdebug.s
 
 SOUND_SRC = sound/sb.s sound/es1371.s
 
@@ -147,7 +151,7 @@ ring1.o: ring1.s
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
 
-ring2.o: ring2.s defines.s macros.s debug.s print.s \
+ring2.o: ring2.s defines.s macros.s $(DBG_SRC) print.s \
 		gdt.s mutex.s oo.s schedule.s \
 		lib/hash.s \
 		$(KAPI_SRC) \
@@ -178,6 +182,9 @@ kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
 	@$(call FIXUP,$@)
 
 
-fs/oofs/oofs.o: fs/fs_oofs.s fs/oofs/*.s fs/oofs/Makefile
+fs/oofs/oofs.o: FORCE
 	@echo " M $@"
 	@make -C fs/oofs
+
+.PHONY: FORCE
+FORCE: ;

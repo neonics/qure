@@ -2,7 +2,7 @@ DEFINE = 0
 .include "../../defines.s"
 .include "../../macros.s"
 .include "../../print.s"
-.include "../../debug.s"
+.include "../../debugger/export.s"
 .include "../../lib/hash.s"	# OBJ_STRUCT_SIZE
 .include "../../oo.s"
 .include "../../fs.s"

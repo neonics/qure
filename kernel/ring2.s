@@ -9,13 +9,13 @@ _KAPI_COUNTER = 17	# XXX FIXME TODO
 .include "macros.s"
 
 DEFINE=0
+.include "debugger/export.s"
 .include "print.s"
 .include "oo.s"
 .include "kapi/kapi.s"
 .include "lib/hash.s"
 #.include "pci.s"
 .include "gdt.s"
-.include "debug.s"
 .include "pic.s"
 .include "mutex.s"
 
