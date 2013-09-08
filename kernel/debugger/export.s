@@ -13,9 +13,45 @@
 
 
 ############################# 32 bit macros 
+.print "debug.s"
 .if !DEFINE
+.print "  !define"
 
 .ifndef __DEBUG_DECLARED
+.print "   declaring"
+
+##############################################
+_DBG_ENABLED = 1
+_DBG_BP_ENABLED = 1	# whether to compile conditional breakpoints
+_DBG_PRINT_ENABLED = 1
+
+.macro DEBUGGER command, argv:vararg
+	DEBUGGER_\command \argv
+.endm
+
+.macro DEBUGGER_INIT level=0
+#	_DBG_ENABLED = \level > 0
+#	_DBG_BP_ENABLED = \level > 1
+#	_DBG_PRINT_ENABLED = \level > 0	# set to 1 for legacy behaviour
+#	.print "(debug level \level)"
+.endm
+
+.macro DEBUGGER_NAME name=0
+	.print "DEBUGGER_NAME \name"
+#	_ = DEBUG_\name
+#	.ifdef _
+#	DEBUGGER_INIT DEBUG_\name
+#	_DBG_NAME = \name
+#	DEBUGGER_\name\()=1
+#	.else
+#	.warn "DEBUGGER_NAME: DEBUG_\name\() not found"
+#	.endif
+.endm
+
+#DEBUGGER INIT
+##############################################
+
+
 .macro OK
 	PRINTLNc 0x0a, " Ok"
 .endm
@@ -106,8 +142,8 @@ DEBUG_WORD \r
 DEBUG_DWORD \r
 .endm
 
-
 .macro DEBUG_BYTE r8, label="", color1=DEBUG_COLOR1, color2=DEBUG_COLOR2
+#.if _DBG_PRINT_ENABLED	# inside, so leave calls
 	pushd	(\color2 << 16) | \color1 | (1<<8)
 	.ifc "","\label"
 		PUSHSTRING "\r8="
@@ -123,10 +159,11 @@ DEBUG_DWORD \r
 	.endif
 		xchg	edx, [esp]
 	call	debug_printvalue
-
+#.endif
 .endm
 
 .macro DEBUG_WORD r16, label="", color1=DEBUG_COLOR1, color2=DEBUG_COLOR2
+#.if _DBG_PRINT_ENABLED	# inside, so leave calls
 	pushd	(\color2 << 16) | \color1 | (2<<8)
 	.ifc "","\label"
 		PUSHSTRING "\r16="
@@ -136,9 +173,11 @@ DEBUG_DWORD \r
 	pushw	0	# pad.
 	pushw	\r16
 	call	debug_printvalue
+#.endif
 .endm
 
 .macro DEBUG_DWORD r32, label="", color1=DEBUG_COLOR1, color2=DEBUG_COLOR2
+#.if _DBG_PRINT_ENABLED	# inside, so leave calls
 	pushd	(\color2 << 16) | \color1 | (4<<8)
 	.ifc "","\label"
 		PUSHSTRING "\r32="
@@ -150,6 +189,7 @@ DEBUG_DWORD \r
 		add	[esp], dword ptr 8
 	.endif
 	call	debug_printvalue
+#.endif
 .endm
 
 .macro DEBUG_DIV_PRE r32
@@ -189,17 +229,13 @@ DEBUG_DWORD \r
 	call	debug_regdiff$
 .endm
 
-
 .macro BREAKPOINT label
-	pushf
-	push 	eax
-	PRINTC 0xf0, "\label"
-	xor	eax, eax
-	call	keyboard
-	pop	eax
-	popf
+	.if _DBG_BP_ENABLED
+	pushstring	"\label"
+	call	breakpoint
+	nop	# the function may modify it into int3
+	.endif
 .endm
-
 
 .macro ASSERT_ARRAY_IDX index, arrayref, elsize, mutex=0
 	.ifnc 0,\mutex
@@ -223,8 +259,73 @@ __DEBUG_DECLARED=1
 .data SECTION_DATA_BSS
 debug_registers$:	.space 4 * 32
 
+_DEBUGGER_BP_FLAG_ENABLE=1
+_DEBUGGER_BP_FLAG_DISABLE=0
+_DEBUGGER_STATE_BP_BIT = 0
+.data SECTION_DATA_BSS
+debugger_state: .long 1
+.text32
+.macro DEBUGGER_BP w
+	.if _DEBUGGER_BP_FLAG_\w
+	bts	dword ptr [debugger_state], _DEBUGGER_STATE_BP_BIT	# or 1
+	.else
+	btr	dword ptr [debugger_state], _DEBUGGER_STATE_BP_BIT	# and ~1
+	.endif
+.endm
+
 .text32
 nop # so that disasm doesnt point to code_debug_start
+
+.global breakpoint
+breakpoint:
+	pushf
+	push_	ebx eax
+	push	ebp
+	lea	ebp, [esp + 4 + 8 + 4]
+.if 0
+	PRINTC 0xf0, "breakpoint "
+	push	esi
+	mov	esi, [ebp + 4]
+	DEBUG_DWORD esi
+	call	print
+	pop	esi
+.endif
+
+	mov	ebx, [ebp] # [esp + 12] # get return address
+	mov	al, [ebx] # get opcode
+	# verify integrity
+	cmp	al, 0x90
+	jz	1f
+	cmp	al, 0xcc
+	jnz	91f
+
+	mov	al, 0x90 # nop
+1:	bt	dword ptr [debugger_state], _DEBUGGER_STATE_BP_BIT
+	jnc	9f
+	printc 0xf0, "BREAKPOINT "
+	pushd	[ebp + 4]
+	pushw	 0xf0
+	call	_s_printc
+
+	mov	al, 0xcc # int 3
+9:	mov	[ebx], al # modify opcode
+	pop	ebp
+	pop_	eax ebx
+	popf
+	ret	4
+
+91:	printc 0xf4, "breakpoint: corrupt opcode: "
+	push	edx
+	mov	dl, al
+	call	printhex2
+	printc 0xf4, " @ "
+	mov	edx, [esp + 12 + 4]
+	call	printhex8
+	pop	edx
+	mov	al, 0x90
+	jmp	9b
+
+
 
 
 debug_regstore$:

@@ -89,6 +89,7 @@ call bp_disabled
 	and	ebx, 0b11111111000000001111111111111111 # clear bits to change
 	or	ebx, 0b00000000010101010000000000000101 # len 2 Write, len 2 write
 	mov	dr7, ebx
+	pop_	ebx eax
 	ret
 
 0:
