@@ -25,6 +25,7 @@ oofs_table_persistent:	# local separator, for subclasses to use.
 DECLARE_CLASS_METHOD oofs_api_init, oofs_table_init, OVERRIDE
 DECLARE_CLASS_METHOD oofs_api_load, oofs_table_load, OVERRIDE
 DECLARE_CLASS_METHOD oofs_api_save, oofs_table_save, OVERRIDE
+DECLARE_CLASS_METHOD oofs_api_verify_load, oofs_table_verify_load, OVERRIDE
 #DECLARE_CLASS_METHOD oofs_table_api_save, oofs_table_add
 DECLARE_CLASS_END oofs_table
 #super = oofs_api_init
@@ -57,6 +58,9 @@ oofs_table_save:
 	call	oofs_save	# call explicit superclass method
 	ret
 
+#don't do partition magic checking.
+oofs_table_verify_load:
+	ret
 
 oofs_table_load: # override, or:
 	# onload handler

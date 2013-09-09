@@ -217,7 +217,6 @@ mtab_get_fs:
 	ret
 
 
-.global cmd_mount$ # referenced from cloudnet.s
 cmd_mount$:
 	# check cmd arguments
 	lodsd
@@ -583,8 +582,8 @@ fs_obj_rw_init$:
 fs_obj_read:
 	push_	eax ebx ecx edx
 	call	fs_obj_rw_init$
-	call	ata_read
-	LOAD_TXT "ata_read error", edx
+	call	disk_read
+	LOAD_TXT "disk_read error", edx
 	jc	9f
 0:	pop_	edx ecx ebx eax
 	ret
@@ -594,6 +593,7 @@ fs_obj_read:
 	stc
 	jmp	0b
 
+
 # in: eax = sfs instance
 # in: ebx = partition-relative LBA
 # in: esi = buffer
@@ -602,8 +602,8 @@ fs_obj_write:
 	push_	edx ecx ebx eax
 	call	fs_obj_rw_init$
 	jc	9f
-	call	ata_write
-	LOAD_TXT "ata_write error", edx
+	call	disk_write
+	LOAD_TXT "disk_write error", edx
 	jc	9f
 0:	pop_	eax ebx ecx edx
 	ret
@@ -659,8 +659,9 @@ _fs_iter_m$:
 1:	stc	# keep iterating
 	ret
 
-
+KAPI_DECLARE fs_mount
 fs_mount:
+	call	cmd_mount$
 	ret
 
 fs_unmount:

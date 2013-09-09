@@ -154,7 +154,7 @@ ring1.o: ring1.s
 ring2.o: ring2.s defines.s macros.s $(DBG_SRC) print.s \
 		gdt.s mutex.s oo.s schedule.s \
 		lib/hash.s \
-		$(KAPI_SRC) \
+		kapi/export.h \
 		dev.s \
 		pci.s pic.s dma.s ata.s \
 		shell.s keycodes.s fs.s partition.s \
@@ -186,6 +186,11 @@ fs/fs_oofs.s: fs/oofs/export.h
 fs/oofs/oofs.o: FORCE
 	@echo " M $@"
 	@make -C fs/oofs
+
+
+kapi/export.h: kernel.o
+	@echo ".include \"kapi/kapi.s\"" > $@
+	@echo "_KAPI_COUNTER=`nm $< | grep ' A KAPI_' | wc -l`" >> $@
 
 .PHONY: FORCE
 FORCE: ;

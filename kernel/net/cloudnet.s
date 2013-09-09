@@ -12,6 +12,8 @@ CLOUD_PACKET_DEBUG = 0
 
 CLOUD_LOCAL_ECHO = 1
 
+NET_AUTOMOUNT = 1
+
 # start daemon
 cmd_cloudnetd:
 	I "Starting CloudNet Daemon"
@@ -686,26 +688,31 @@ DECLARE_CLASS_METHOD send, cluster_node_send, OVERRIDE
 DECLARE_CLASS_END cluster_node
 .text32
 cluster_node_init:
-DEBUG "cluster_node_init"
 	push_	esi eax
 	LOAD_TXT "/net"
 	call	mtab_get_fs	# out: edx
+	.if NET_AUTOMOUNT
 	jnc	1f
-	printc 0xc, "cluster_node: auto-mounting /net"
+
 	pushad
+	mov	ebp, esp
+	printc 9, "cluster_node: auto-mounting /net: "
 	pushd	0
 	pushstring "/net"
 	pushstring "hda0"
 	pushstring "mount"
 	mov	esi, esp
-	call	cmd_mount$
-	add	esp, 16
+	KAPI_CALL fs_mount
+	mov	esp, ebp
 	popad
-	call	mtab_get_fs
 	jc	9f
+	printlnc 11, " mounted."
+	call	mtab_get_fs
+	.endif
+	jc	9f
+1:
 
-
-1:	printc 11, "cluster_node: opened "
+	printc 11, "cluster_node: opened "
 	call	print
 	print ", class="
 

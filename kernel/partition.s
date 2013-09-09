@@ -98,6 +98,35 @@ disk_ptables$: .space ATA_MAX_DRIVES * 4
 .text32
 #####################################
 
+# little proxy for ata elevation
+.global disk_read
+disk_read:
+	push	eax
+	mov	eax, cs
+	and	al, 3
+	pop	eax
+	jz	ata_read
+	KAPI_CALL disk_read
+	ret
+
+KAPI_DECLARE disk_read
+	jmp	ata_read
+
+
+.global disk_write
+disk_write:
+	push	eax
+	mov	eax, cs
+	and	al, 3
+	pop	eax
+	jz	ata_write
+	KAPI_CALL disk_write
+	ret
+
+KAPI_DECLARE disk_write
+	jmp	ata_write
+
+
 # in: al = ATA device number
 # out: esi = pointer to the ptables info for the disk: all partition tables
 #  for the disk, concatenated: MBR, and optionally EBR's. esi is an array.
@@ -846,11 +875,11 @@ disk_get_partition:
 	.if PARTITION_DEBUG
 		DEBUG "get partition"
 		DEBUG_BYTE al
-		DEBUG_BYTE dl
+		DEBUG_BYTE ah
 	.endif
 
 	call	ata_is_disk_known
-	jc	9f
+	jc	1f
 
 	cmp	ah, -1
 	jnz	0f
@@ -875,8 +904,7 @@ disk_get_partition:
 	mov	[esi + PT_SECTORS], eax
 9:	pop	edx
 	pop	eax
-	ret
-
+1:	ret
 
 0:	call	disk_read_partition_tables
 	jc	1f

@@ -94,6 +94,15 @@ fs_oofs_init$:
 0:	printc 4, "fs_oofs_init$: "
 	ret
 
+# destructor
+# in: edx = fs_oofs instance
+fs_oofs_free$:
+	mov	eax, [edx + oofs_root]
+	call	class_deleteinstance
+	mov	eax, edx
+	call	class_deleteinstance
+	ret
+
 fs_oofs_mkfs:
 	push_	eax ecx edx
 	call	fs_oofs_init$	# out: eax=oofs, edx=fs_oofs
@@ -120,23 +129,30 @@ fs_oofs_mkfs:
 	jmp	9b
 
 fs_oofs_mount:
-	DEBUG "oofs_mount"
 	push_	eax edx ecx
 	call	fs_oofs_init$
 	jc	9f
 	mov	ecx, [edx + fs_obj_p_size_sectors]
 	call	[eax + oofs_api_init]
-	call	[eax + oofs_api_load]
+	jc	91f
+	call	[eax + oofs_api_load]	# out: eax = instance
+	jc	91f	# eax destroyed
 	mov	[edx + oofs_root], eax	# may be mreallocced
 	mov	edi, edx
 	# tell oofs the class for the first entry
 	mov	edx, offset class_oofs_table
 	mov	ecx, 1	# first entry
 	call	[eax + oofs_api_load_entry]	# out: eax
+	mov	edx, edi
+	jc	91f
 	OK
 	clc
 9:	pop_	ecx edx eax
 	ret
+91:	call	fs_oofs_free$
+	stc
+	jmp	9b
+
 
 fs_oofs_umount:
 fs_oofs_open:

@@ -3,8 +3,6 @@
 
 .print "ring2 object"
 
-_KAPI_COUNTER = 17	# XXX FIXME TODO
-
 .include "defines.s"
 .include "macros.s"
 
@@ -12,7 +10,7 @@ DEFINE=0
 .include "debugger/export.s"
 .include "print.s"
 .include "oo.s"
-.include "kapi/kapi.s"
+.include "kapi/export.h"
 .include "lib/hash.s"
 #.include "pci.s"
 .include "gdt.s"

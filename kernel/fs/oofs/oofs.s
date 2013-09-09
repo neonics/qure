@@ -90,6 +90,7 @@ DECLARE_CLASS_METHOD oofs_api_init, oofs_init
 DECLARE_CLASS_METHOD oofs_api_load, oofs_load
 DECLARE_CLASS_METHOD oofs_api_save, oofs_save
 DECLARE_CLASS_METHOD oofs_api_add, oofs_add
+DECLARE_CLASS_METHOD oofs_api_verify_load, oofs_verify_load	#event handler
 DECLARE_CLASS_METHOD oofs_api_load_entry, oofs_load_entry
 DECLARE_CLASS_METHOD oofs_api_get_obj, oofs_get_obj
 DECLARE_CLASS_METHOD oofs_api_lookup, oofs_lookup
@@ -103,16 +104,21 @@ oofs_init:
 	.if OOFS_DEBUG
 		DEBUG_DWORD eax, "oofs_init", 0xe0
 	.endif
-	push_	edx ebx
+	push_	eax edx ebx
 
 	mov	ebx, eax
 
 	# nonpersistent
 	mov	[eax + oofs_parent], edx
 	mov	[eax + oofs_persistence], edx
+	.if OOFS_DEBUG
 		mov	edx, [eax + obj_class]
+		DEBUGS [edx + class_name]
+	.endif
+	.if OOFS_DEBUG > 1
 		DEBUG_DWORD edx, "obj_class"
 		DEBUG_DWORD [edx + class_object_size]
+	.endif
 
 	mov	eax, 10	# init cap
 	call	ptr_array_new
@@ -134,9 +140,9 @@ oofs_init:
 	mov	[ebx + oofs_array + OOFS_EL_STRUCT_SIZE + oofs_el_size], ecx
 	inc	ecx
 	mov	[ebx + oofs_array + OOFS_EL_STRUCT_SIZE + oofs_el_lba], dword ptr 1
-		mov	eax, ebx
-		call	oofs_entries_print$
-9:	pop_	ebx edx
+	#	mov	eax, ebx
+	#	call	oofs_entries_print$
+9:	pop_	ebx edx eax
 	ret
 
 oofs_save:
@@ -154,6 +160,12 @@ oofs_save:
 	call	[eax + fs_obj_api_write]
 	pop_	esi ecx ebx eax
 	ret
+
+oofs_verify_load:
+	cmp	[eax + oofs_magic], dword ptr OOFS_MAGIC
+	jz	1f
+	stc
+1:	ret
 
 # in: eax = instance
 # out: eax = mreallocced instance if needed
@@ -197,6 +209,9 @@ oofs_load:
 	call	[eax + fs_obj_api_read]
 	pop	eax
 	jc	9f
+
+	call	[eax + oofs_api_verify_load]
+	jc	92f
 	mov	ecx, [edx + oofs_count]
 	OOFS_IDX_TO_EL ecx
 	lea	ecx, [ecx + oofs_persistent]
@@ -242,6 +257,9 @@ oofs_load:
 9:	pop_	esi edx edi ecx ebx
 	ret
 91:	printlnc 4, "oofs_load: mrealloc error"
+	stc
+	jmp	9b
+92:	printlnc 4, "oofs_load: wrong partition magic"
 	stc
 	jmp	9b
 
