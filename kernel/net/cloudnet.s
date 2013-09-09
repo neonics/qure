@@ -548,8 +548,11 @@ cmd_cloud:
 	or	ebx, ebx
 	jz	2f
 	print "local cluster: "
-	mov	edx, [ebx + array_index]
-	shr	edx, 2
+	mov	eax, [ebx + array_index]
+	xor	edx, edx
+	mov	ecx, NODE_SIZE
+	div	ecx
+	mov	edx, eax
 	call	printdec32
 	call	newline
 
