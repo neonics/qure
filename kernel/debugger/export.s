@@ -13,6 +13,13 @@
 
 
 ############################# 32 bit macros 
+.if DEFINE
+
+	.global breakpoint
+	.global debug_regstore
+	.global debug_regdiff
+.endif
+
 .if !DEFINE
 
 .ifndef __DEBUG_DECLARED
@@ -202,11 +209,11 @@ DEBUG_DWORD \r
 
 .macro DEBUG_REGSTORE name=""
 	DEBUG "\name"
-	call	debug_regstore$
+	call	debug_regstore
 .endm
 
 .macro DEBUG_REGDIFF
-	call	debug_regdiff$
+	call	debug_regdiff
 .endm
 
 .macro BREAKPOINT label
@@ -256,7 +263,6 @@ debugger_state: .long 1
 .text32
 nop # so that disasm doesnt point to code_debug_start
 
-.global breakpoint
 breakpoint:
 	pushf
 	push_	ebx eax
@@ -308,7 +314,7 @@ breakpoint:
 
 
 
-debug_regstore$:
+debug_regstore:
 	mov	[debug_registers$ + 4 * 0], eax
 	mov	[debug_registers$ + 4 * 1], ebx
 	mov	[debug_registers$ + 4 * 2], ecx
@@ -359,7 +365,7 @@ debug_regdiff0$:
 	call	debug_regdiff0$
 .endm
 
-debug_regdiff$:
+debug_regdiff:
 	pushf
 	pushcolor 0xf4
 	DEBUG_REGDIFF0 0, eax
