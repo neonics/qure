@@ -90,7 +90,7 @@ MAX_PATH_LEN = 1024
 .global fs_obj_p_size_sectors
 .global fs_obj_api_read
 .global fs_obj_api_write
-
+.global mtab_get_fs
 .text32
 
 
@@ -194,7 +194,30 @@ mtab_entry_free$:
 	stc
 	jmp	0b
 
+# in: esi = mount point
+# out: edx = object	(for easy OO access where eax is 'this')
+mtab_get_fs:
+	push_	ebx ecx edi esi
+	call	strlen_	# just in case
+	push	ecx
+	ARRAY_LOOP [mtab], MTAB_ENTRY_SIZE, ebx, edx, 9f
+	mov	edi, [ebx + edx + mtab_mountpoint]
+	mov	esi, [esp + 4]
+	mov	ecx, [esp]
+	repz	cmpsb
+	jz	1f
+	ARRAY_ENDL
+	stc
+	jmp	0f
+1:	mov	edx, [ebx + edx + mtab_fs_instance]
+	DEBUG_DWORD edx,"mtab_fs_instance"
+	call	class_ref_inc
+	clc
+0:	pop_	ecx esi edi ecx ebx	# yes, ecx
+	ret
 
+
+.global cmd_mount$ # referenced from cloudnet.s
 cmd_mount$:
 	# check cmd arguments
 	lodsd
@@ -2012,3 +2035,4 @@ posix_perm_3_print$:
 
 ###############################################################################
 .endif # DEFINE
+

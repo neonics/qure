@@ -31,14 +31,25 @@ DECLARE_CLASS_END oofs_table
 #################################################
 .text32
 # in: eax = instance
+# in: edx = parent (instace of class_oofs)
+# in: ebx = LBA
+# in: ecx = reserved size
 oofs_table_init:
-	DEBUG "oofs_table_init"
+	.if OOFS_DEBUG
+		DEBUG_DWORD eax, "oofs_table_init", 0xe0
+		DEBUG_DWORD ebx, "LBA"
+		DEBUG_DWORD ecx, "size"
+		call	newline
+	.endif
+	mov	[eax + oofs_parent], edx	# super field ref
+	mov	[eax + oofs_lba], ebx
+	mov	[eax + oofs_size], ecx
 	push	edx
-	mov	edx, [eax + obj_class]
-	DEBUG_DWORD [edx+class_object_size]
+	mov	edx, [edx + oofs_persistence]
+	mov	[eax + oofs_persistence], edx
 	pop	edx
+	mov	[eax + oofs_count], dword ptr 0
 	#call	super	# super() / oofs_init
-	#pop	ebx
 	ret
 
 # aspect extension: pre & post
@@ -49,7 +60,7 @@ oofs_table_save:
 
 oofs_table_load: # override, or:
 	# onload handler
-	call	[eax + oofs_api_load]	# public access
+	call	oofs_load	# explicit call; [eax+oofs_api_load -> recursion
 	# onloaded handler
 	ret
 

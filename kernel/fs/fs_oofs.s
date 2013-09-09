@@ -3,6 +3,7 @@
 .intel_syntax noprefix
 .code32
 
+
 OOFS_VERBOSE = 1
 OOFS_DEBUG = 1
 OOFS_DEBUG_ATA = 0
@@ -13,7 +14,9 @@ OOFS_MAGIC = ( 'O' | 'O' << 8 | 'F' << 16 | 'S' << 24)
 
 ###############################################################################
 .if DEFINE
+
 DECLARE_CLASS_BEGIN fs_oofs, fs
+.global oofs_root
 oofs_root:	.long 0	# ptr to root object
 
 # static
@@ -35,7 +38,7 @@ DECLARE_CLASS_END fs_oofs
 # out: edx = fs_oofs instance
 # out: eax = oofs instance
 fs_oofs_init$:
-	push_	ebx
+	push_	ebx esi
 	call	disk_get_partition
 	jc	91f
 	cmp	[esi + PT_TYPE], byte ptr OOFS_PARTITION_TYPE
@@ -60,7 +63,7 @@ fs_oofs_init$:
 	jc	94f
 	mov	[edx + oofs_root], eax
 	mov	[eax + oofs_parent], edx
-9:	pop_	ebx
+9:	pop_	esi ebx
 	ret
 
 91:	call	0f
@@ -92,7 +95,7 @@ fs_oofs_init$:
 	ret
 
 fs_oofs_mkfs:
-	push_	eax edx
+	push_	eax ecx edx
 	call	fs_oofs_init$	# out: eax=oofs, edx=fs_oofs
 	jc	91f
 	mov	ecx, [edx + fs_obj_p_size_sectors]
@@ -101,7 +104,7 @@ fs_oofs_mkfs:
 	push_	eax edx
 	mov	ecx, 512
 	mov	edx, offset class_oofs_table #[eax + obj_class]
-	call	[eax + oofs_api_add]
+	call	[eax + oofs_api_add]	# out: eax = instance
 	pop_	edx eax
 	jc	1f
 	call	[eax + oofs_api_save]
@@ -110,7 +113,7 @@ fs_oofs_mkfs:
 1:	call	class_deleteinstance
 	mov	eax, edx
 	call	class_deleteinstance
-9:	pop_	edx eax
+9:	pop_	edx ecx eax
 	ret
 91:	printlnc 4, "fs_oofs_mkfs: fs_oofs_init error"
 	stc
@@ -118,17 +121,21 @@ fs_oofs_mkfs:
 
 fs_oofs_mount:
 	DEBUG "oofs_mount"
-	push_	eax edx
+	push_	eax edx ecx
 	call	fs_oofs_init$
 	jc	9f
 	mov	ecx, [edx + fs_obj_p_size_sectors]
 	call	[eax + oofs_api_init]
 	call	[eax + oofs_api_load]
 	mov	[edx + oofs_root], eax	# may be mreallocced
-	OK
 	mov	edi, edx
+	# tell oofs the class for the first entry
+	mov	edx, offset class_oofs_table
+	mov	ecx, 1	# first entry
+	call	[eax + oofs_api_load_entry]	# out: eax
+	OK
 	clc
-9:	pop_	edx eax
+9:	pop_	ecx edx eax
 	ret
 
 fs_oofs_umount:

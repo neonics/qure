@@ -181,6 +181,7 @@ kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
 
+fs/fs_oofs.s: fs/oofs/export.h
 
 fs/oofs/oofs.o: FORCE
 	@echo " M $@"

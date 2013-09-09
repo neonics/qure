@@ -55,8 +55,10 @@ CLASS_METHOD_STRUCT_SIZE = 12
 # GLOBALS / export
 # code
 .global class_newinstance
+.global class_deleteinstance
 .global class_instance_resize
 .global class_instanceof
+.global class_extends
 # debug
 .global _obj_print_methods$
 .global _obj_print_vptr$
@@ -86,11 +88,7 @@ class_instances_sem:	.long 0
 class_newinstance:
 	push	ebp
 	lea	ebp, [esp + 4]	# for mallocz_
-
-	push	ebx	# internal variable
-	xor	ebx, ebx	# just in case
 	call	class_resolve
-	pop	ebx
 	jc	0f
 
 	# quick hack: don't record the object instance.
@@ -135,8 +133,38 @@ class_newinstance:
 
 
 # in: eax = classdef ptr
-# in: ebx = vptr start index (automatically set - internal)
 class_resolve:
+	call	class_is_class
+	jc	9f
+	push	ebx
+	xor	ebx, ebx
+	call	class_resolve_internal$
+	pop	ebx
+9:	ret
+
+# in: eax = classdef ptr to be checked
+class_is_class:
+	push	edx
+	mov	edx, offset data_classdef_start #class_definitions
+0:	cmp	edx, eax
+	jz	1f
+	add	edx, [edx + class_def_size]
+	cmp	edx, offset data_classdef_end
+	jb	0b
+	printc 4, "class_resolve: not classdef ptr: "
+	mov	edx, eax
+	call	printhex8
+	DEBUGS [eax + class_name]
+	call	newline
+	stc
+1:	pop	edx
+	ret
+
+
+
+# in: eax = classdef ptr
+# in: ebx = vptr start index (automatically set - internal)
+class_resolve_internal$:
 	testb	[eax + class_flags], CLASS_FLAG_RESOLVED
 	jnz	9f
 
@@ -146,7 +174,7 @@ class_resolve:
 	or	eax, eax
 	jnz	1f
 	xor	ebx, ebx
-1:	call	class_resolve
+1:	call	class_resolve_internal$
 2:	pop	eax
 	jc	91f
 
@@ -507,6 +535,22 @@ class_instance_resize:
 	stc
 	jmp	9b
 
+# in: eax = object having reference to object edx
+# in: edx = object being referred to
+class_ref_inc:
+	.if 0 # HUGE_MEM
+		mov	%rdi, edx
+		shl	%rdi, 32
+		mov	%rdi, eax
+		incd	[%rdi]
+	.else
+	.endif
+
+	#incd	[edx + obj_refcount]
+	ret
+
+class_ref_dec:
+	ret
 
 
 ##########################################################################
@@ -865,6 +909,8 @@ class_deleteinstance:
 # in: edx = class ptr
 # out: ZF = 1 if eax's class or superclass is the class in edx
 class_instanceof:
+	or	eax, eax
+	jz	9f
 	push	eax
 	mov	eax, [eax + obj_class]
 0:	cmp	eax, edx
@@ -873,7 +919,11 @@ class_instanceof:
 	or	eax, eax
 	jnz	0b
 	inc	eax	# clear ZF
+	stc
 1:	pop	eax
+	ret
+9:	or	esp, esp
+	stc
 	ret
 
 # in: eax = class def ptr to be checked (subclass)
@@ -888,6 +938,7 @@ class_extends:
 	or	eax, eax
 	jnz	0b
 	inc	eax	# clear ZF
+	stc
 1:	pop	eax
 	ret
 
@@ -1049,10 +1100,26 @@ class_iterate_classes:
 
 
 cmd_classes:
+	lodsd
+	xor	edx, edx
+	lodsd
+	or	eax, eax
+	jz	1f
+	call	class_get_by_name
+	jc	91f
+	mov	edx, eax
+1:
+
 	mov	esi, offset data_classdef_start
 	jmp	1f
 
-0:	call	_class_print$
+0:	or	edx, edx
+	jz	3f	# don't filter
+	mov	eax, esi
+	call	class_extends
+	jnz	2f
+
+3:	call	_class_print$
 
 	testb	[esi + class_flags], CLASS_FLAG_RESOLVED
 	jz	2f
@@ -1062,6 +1129,10 @@ cmd_classes:
 	add	esi, [esi + class_def_size]
 1:	cmp	esi, offset data_classdef_end
 	jb	0b
+	ret
+91:	printlnc 4, "unknown class: "
+	push	eax
+	call	_s_println
 	ret
 
 # in: eax = string ptr
@@ -1250,9 +1321,10 @@ __OO_DECLARED=1
 OBJ_decl_vptr=.
 OBJ_decl_vptr_count=0
 .struct 0
+#obj_refcount: .long 0
 obj_class: .long 0
 obj_size: .long 0
-OBJ_STRUCT_SIZE = 8
+OBJ_STRUCT_SIZE = .
 .text32
 
 ##############################
@@ -1273,6 +1345,7 @@ OBJ_STRUCT_SIZE = 8
 
 	.section .classdef$vptr;
 		_class_decl_vptr = .
+		.global \name\()_decl_vptr
 		\name\()_decl_vptr = .
 		.if \super\()_decl_vptr_count > 0
 		.space \super\()_decl_vptr_count * 4
@@ -1346,6 +1419,7 @@ OBJ_STRUCT_SIZE = 8
 
 
 .macro DECLARE_CLASS_METHOD name, offs, flags:vararg
+
 	.if _DECL_CLASS_VPTR < 0
 		DECLARE_CLASS_METHODS
 	.endif
@@ -1428,12 +1502,14 @@ OBJ_STRUCT_SIZE = 8
 	.error "DECLARE_CLASS_END requires classname parameter"
 	.endif
 
+	.global \name\()_STRUCT_SIZE 	# for compile-time subclass, see _BEGIN
 	\name\()_STRUCT_SIZE = .	# for compile-time subclass, see _BEGIN
 
 	.if _DECL_CLASS_VPTR < 0
 		DECLARE_CLASS_METHODS
 	.endif
 
+	.global \name\()_vptr
 	\name\()_vptr = _class_vptr_offs
 
 	_DECL_CLASS_OBJ_SIZE = .
@@ -1451,6 +1527,7 @@ OBJ_STRUCT_SIZE = 8
 
 	################### done with .struct (data) section
 	.section .classdef$vptr
+	.global \name\()_decl_vptr_count
 	\name\()_decl_vptr_count = (. - \name\()_decl_vptr)/4
 
 	#################################################
@@ -1475,6 +1552,7 @@ OBJ_STRUCT_SIZE = 8
 	999:	.asciz "\name"
 	#.data SECTION_DATA_CLASSES
 	.section .classdef
+	.global class_\name\()
 	class_\name\():
 		.long CLASS_STRUCT_SIZE			# class_def_size
 		.long 0					# class_flags

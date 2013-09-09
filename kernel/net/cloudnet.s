@@ -35,6 +35,7 @@ cloud_nic:	.long 0
 cloud_sock:	.long 0
 cloud_flags:	.long 0
 	STOP$	= 1
+cluster_node:	.long 0
 .text32
 
 cloudnet_daemon:
@@ -48,6 +49,17 @@ cloudnet_daemon:
 	call	cloud_rx_start
 	jc	9f
 
+	mov	eax, offset class_cluster_node
+	call	class_newinstance
+	jc	1f
+	mov	[cluster_node], eax
+	call	[eax + init]
+	jc	2f
+	printlnc 11, "cluster node initialized"
+
+	jmp	2f
+1:	printc 4, "cloudnet_daemon: cluster_node error"
+2:
 	call	cloud_register
 
 0:	mov	eax, 1000 * 60 * 5
@@ -151,7 +163,6 @@ cloud_register:
 	call	cloud_send_hello
 	ret
 
-
 .data
 packet_hello$:
 .asciz "hello"
@@ -170,6 +181,7 @@ cloud_send_hello:
 	call	cloud_packet_send
 	ret
 
+cluster_packet_send:
 cloud_packet_send:
 	call	cloud_tx_throttle
 	jc	9f	# skip tx
@@ -603,6 +615,179 @@ _print_time$:
 	ord	[cloud_flags], STOP$
 	ret
 
+1:	CMD_ISARG "init"
+	jnz	1f
+	DEBUG "init"
+	mov	eax, [cluster_node]
+		or	eax, eax
+		jnz	2f
+		mov	eax, offset class_cluster_node
+		call	class_newinstance
+		jc	9f
+		mov	[cluster_node], eax
+2:	call	[eax + init]
+9:	ret
+
 1:	printlnc 4, "usage: cloud <command> [args]"
 	printlnc 4, " commands: start stop"
 	ret
+
+
+###############################################################################
+# NETOBJ & persistence: OOFS extension
+#
+
+.include "fs/oofs/export.h"
+
+.global netobj
+
+.if 0
+###################################
+DECLARE_CLASS_BEGIN persistent
+	persistence:	.long 0 # fs_oofs instance field oofs_root: class oofs
+
+DECLARE_CLASS_METHOD persistence_init, netobj_persistence_init
+DECLARE_CLASS_END persistent
+.text32
+# in: eax = this netobj
+# in: edx = instance of net/fs/oofs
+netobj_persistence_init:
+	mov	[eax + persistence], edx
+	ret
+###################################
+.endif
+
+# base class network object
+DECLARE_CLASS_BEGIN netobj, oofs #, persistent
+netobj_packet:
+	# can't declare class data here: struct!
+	#.ascii "NOBJ"
+DECLARE_CLASS_METHOD init, 0
+DECLARE_CLASS_METHOD send, netobj_send
+DECLARE_CLASS_END netobj
+.text32
+# in: ecx = offset of end of packet, payload size
+netobj_send:
+	lea	esi, [eax + netobj_packet]
+	call	cluster_packet_send
+	ret
+###################################
+DECLARE_CLASS_BEGIN cluster_node, netobj
+
+cluster_node_persistent:
+	cluster_era:	.long 0
+	node_age:	.long 0
+
+cluster_node_volatile:
+	net_fs:		.long 0	# OOFS object (direct access), mounted on /net/
+
+DECLARE_CLASS_METHOD init, cluster_node_init, OVERRIDE
+DECLARE_CLASS_METHOD send, cluster_node_send, OVERRIDE
+DECLARE_CLASS_END cluster_node
+.text32
+cluster_node_init:
+DEBUG "cluster_node_init"
+	push_	esi eax
+	LOAD_TXT "/net"
+	call	mtab_get_fs	# out: edx
+	jnc	1f
+	printc 0xc, "cluster_node: auto-mounting /net"
+	pushad
+	pushd	0
+	pushstring "/net"
+	pushstring "hda0"
+	pushstring "mount"
+	mov	esi, esp
+	call	cmd_mount$
+	add	esp, 16
+	popad
+	call	mtab_get_fs
+	jc	9f
+
+
+1:	printc 11, "cluster_node: opened "
+	call	print
+	print ", class="
+
+	mov	esi, [edx + obj_class]
+	pushd [esi + class_name]
+	call _s_println
+
+	mov	esi, eax	# backup
+	mov	eax, edx
+	mov	edx, offset class_fs_oofs
+	call	class_instanceof
+	jnz	91f
+	mov	[esi + net_fs], eax	# fs_oofs
+	mov	eax, [eax + oofs_root]
+	mov	edx, offset class_oofs
+	call	class_instanceof
+	jnz	91f
+
+	mov	edx, eax	# oofs
+	mov	eax, esi	# this
+#	call	[eax + persistence_init]	# super constructor
+#	mov	[eax + persistence], edx
+
+	mov	eax, edx
+	mov	edx, offset class_oofs_table
+	xor	ebx, ebx	# iteration arg
+	call	[eax + oofs_api_lookup]	# out: eax
+	jnc	1f
+
+	printlnc 4, "cluster_node_init: oofs: no table"
+	stc
+	jmp	0f
+
+1:	println " * got table"
+
+	# find cluster node
+	mov	edx, offset class_cluster_node
+	xor	ebx, ebx
+	call	[eax + oofs_api_lookup]
+	jnc	1f
+
+	printlnc 4, "cluster_node_init: oofs_table: cluster node not found"
+#	stc
+#	jmp	0f
+#	# the class is not present; register it.
+#	# allocate:
+#	mov	ecx, 1024	# rounded to sectors; 1500 octets < 3 sect
+#	mov	eax, edx
+#	call	[eax + oofs_api_add]	# out: eax = instance
+
+
+pushad
+mov	eax, offset class_cluster_node
+mov	esi, eax
+call	_class_print$
+popad
+
+	call	[eax + oofs_api_add]
+	jnc 1f
+	printlnc 4, "cluster_node_init: error adding"
+	stc
+	jmp	0f
+
+
+1:	printlnc 10, " * got cluster node"
+
+
+	clc
+0:	pop_	eax esi
+	ret
+
+9:	printlnc 4, "cluster_node_init: /net/ not mounted"
+	stc
+	jmp	0b
+91:	printlnc 4, "cluster_node_init: /net/ not fs_oofs.oofs"
+	stc
+	jmp	0b
+
+cluster_node_send:
+	push_	esi ecx
+	mov	ecx, offset cluster_node_volatile
+	call	[eax + send]	# or: netobj_send
+	pop_	ecx esi
+	ret
+

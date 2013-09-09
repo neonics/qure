@@ -12,31 +12,41 @@
 .global oofs_api_load
 .global oofs_api_save
 .global oofs_api_add
+.global oofs_api_load_entry
+.global oofs_api_lookup
 
+
+OOFS_DEBUG = 0
 
 .struct 0
 oofs_el_size:	.long 0
-oofs_el_lba:
-oofs_el_obj:	.long 0
-OOFS_EL_SIZE = 8
+oofs_el_lba:	.long 0
+OOFS_EL_STRUCT_SIZE = 8
 
-
-.if OOFS_EL_SIZE != 8
-.error "OOFS_EL_SIZE != 8 unimplemented"
-.endif
+.macro OOFS_IDX_TO_EL reg
+	.if OOFS_EL_STRUCT_SIZE == 8
+	shl	\reg, 3
+#	.elseif OOFS_EL_STRUCT_SIZE == 16
+#	shl	\reg, 4
+	.else
+	.error "OOFS_EL_STRUCT_SIZE != 16, 8"
+	.endif
+.endm
 
 DECLARE_CLASS_BEGIN oofs#, relatable
 oofs_parent:	.long 0	# nonpersistent
+oofs_persistence:.long 0 # nonpersistent: fs_oofs (same as parent for root obj)
 oofs_flags:	.long 0 # nonpersistent
 	OOFS_FLAG_DIRTY = 1
 oofs_lba:	.long 0	# for subclasses
+oofs_children:	.long 0	# ptr array
 
 oofs_persistent:
 oofs_magic:	.long 0
 oofs_count:	.long 0
 oofs_array:	# {oofs_el_obj, oofs_el_size}[]
 # direct access to first entry: special semantics: free space
-oofs_size:	.long 0	
+oofs_size:	.long 0
 
 .org oofs_persistent + 512	# make data struct size at least 1 sector
 
@@ -80,6 +90,9 @@ DECLARE_CLASS_METHOD oofs_api_init, oofs_init
 DECLARE_CLASS_METHOD oofs_api_load, oofs_load
 DECLARE_CLASS_METHOD oofs_api_save, oofs_save
 DECLARE_CLASS_METHOD oofs_api_add, oofs_add
+DECLARE_CLASS_METHOD oofs_api_load_entry, oofs_load_entry
+DECLARE_CLASS_METHOD oofs_api_get_obj, oofs_get_obj
+DECLARE_CLASS_METHOD oofs_api_lookup, oofs_lookup
 DECLARE_CLASS_END oofs
 #################################################
 .text32
@@ -87,38 +100,57 @@ DECLARE_CLASS_END oofs
 # in: edx = parent
 # in: ecx = persistent size (sectors)
 oofs_init:
-	DEBUG "oofs_init"
-	push edx
-	mov	edx, [eax + obj_class]
-	DEBUG_DWORD edx, "obj_class"
-	DEBUG_DWORD [edx + class_object_size]
+	.if OOFS_DEBUG
+		DEBUG_DWORD eax, "oofs_init", 0xe0
+	.endif
+	push_	edx ebx
 
-	pop edx
+	mov	ebx, eax
+
 	# nonpersistent
 	mov	[eax + oofs_parent], edx
-	mov	[eax + oofs_magic], dword ptr OOFS_MAGIC
-	mov	[eax + oofs_lba], dword ptr 0	# first sector
+	mov	[eax + oofs_persistence], edx
+		mov	edx, [eax + obj_class]
+		DEBUG_DWORD edx, "obj_class"
+		DEBUG_DWORD [edx + class_object_size]
 
-	mov	[eax + oofs_count], dword ptr 2
+	mov	eax, 10	# init cap
+	call	ptr_array_new
+	jc	9f
+	mov	[ebx + oofs_children], eax
+
+	mov	[ebx + oofs_magic], dword ptr OOFS_MAGIC
+	mov	[ebx + oofs_lba], dword ptr 0	# first sector
+
+	mov	[ebx + oofs_count], dword ptr 2
 	# first array element: self-referential entry recording the vol sector
-	mov	[eax + oofs_array + 0 + oofs_el_size], dword ptr 1	
-	mov	[eax + oofs_array + 0 + oofs_el_lba], dword ptr 0
+	mov	[ebx + oofs_array + 0 + oofs_el_size], dword ptr 1
+	mov	[ebx + oofs_array + 0 + oofs_el_lba], dword ptr 0
+	call	ptr_array_newentry
+	jc	9f
+	mov	[eax + edx], ebx	# children[0] = this
 	# second entry: free space (always last entry)
 	dec	ecx
-	mov	[eax + oofs_array + 8 + oofs_el_size], ecx	
+	mov	[ebx + oofs_array + OOFS_EL_STRUCT_SIZE + oofs_el_size], ecx
 	inc	ecx
-	mov	[eax + oofs_array + 8 + oofs_el_lba], dword ptr 1
-	call oofs_entries_print$
+	mov	[ebx + oofs_array + OOFS_EL_STRUCT_SIZE + oofs_el_lba], dword ptr 1
+		mov	eax, ebx
+		call	oofs_entries_print$
+9:	pop_	ebx edx
 	ret
 
 oofs_save:
+	.if OOFS_DEBUG
+		DEBUG "oofs_save", 0xe0
+	.endif
 	push_	eax ebx ecx esi
 	mov	ebx, [eax + oofs_lba]
 	mov	ecx, [eax + oofs_count]
-	lea	ecx, [ecx * 8 + oofs_array - oofs_persistent]
+	OOFS_IDX_TO_EL ecx
+	lea	ecx, [ecx + oofs_array - oofs_persistent]
 	lea	esi, [eax + oofs_persistent]
 
-	mov	eax, [eax + oofs_parent]
+	mov	eax, [eax + oofs_persistence]
 	call	[eax + fs_obj_api_write]
 	pop_	esi ecx ebx eax
 	ret
@@ -126,22 +158,48 @@ oofs_save:
 # in: eax = instance
 # out: eax = mreallocced instance if needed
 oofs_load:
+	.if OOFS_DEBUG
+		DEBUG_DWORD eax, "oofs_load", 0xe0
+	.endif
+
+	.if OOFS_DEBUG > 2
+		push_	eax edx
+		mov	edx, [eax + oofs_parent]
+		DEBUG_DWORD edx,"parent"
+		mov edx, [eax + obj_class]
+		DEBUGS [edx +class_name]
+
+		mov	eax, [eax + oofs_persistence]
+		DEBUG_DWORD edx,"persistence"
+		mov edx, [eax + obj_class]
+		DEBUGS [edx+class_name]
+
+		DEBUG "persistence.fs_obj_api_read:"
+		mov edx, [eax+fs_obj_api_read]
+		call debug_printsymbol
+		call newline
+		pop_	edx eax
+	.endif
+
 	push_	ebx ecx edi edx esi
 	lea	edi, [eax + oofs_persistent]
 	mov	ebx, [eax + oofs_lba]	# 0
 	mov	ecx, 512
 	mov	edx, eax
 
-	mov	esi, [eax + oofs_parent]
+	.if OOFS_DEBUG
+		DEBUG_DWORD ebx, "LBA"
+		DEBUG_DWORD ecx, "size"
+	.endif
 
 	push	eax
-	mov	eax, esi
+	mov	eax, [eax + oofs_persistence]
 	call	[eax + fs_obj_api_read]
 	pop	eax
 	jc	9f
-
 	mov	ecx, [edx + oofs_count]
-	lea	ecx, [ecx * 8 + oofs_persistent]
+	OOFS_IDX_TO_EL ecx
+	lea	ecx, [ecx + oofs_persistent]
 	cmp	ecx, 512
 	cmc
 	jae	1f	# it'll fit
@@ -159,13 +217,25 @@ oofs_load:
 	# ecx still ok
 
 	push	eax
-	mov	eax, esi
+	mov	eax, [esi + oofs_persistence]
 	call	[eax + fs_obj_api_read]
 	pop	eax
 	jc	9f
 
 ###########################################
-1:	call	oofs_entries_print$
+1:
+	cmp	[eax + oofs_children], dword ptr 0
+	jnz	1f
+	push	eax
+	mov	eax, [eax + oofs_count]
+	add	eax, 10
+	call	ptr_array_new
+	mov	edx, eax
+	pop	eax
+	mov	[eax + oofs_children], edx
+1:
+###########################################
+	call	oofs_entries_print$
 ###########################################
 	clc
 
@@ -175,11 +245,19 @@ oofs_load:
 	stc
 	jmp	9b
 
-
+# in: eax = this (oofs instance)
 # in: ecx = bytes
 # in: edx = class def ptr
+# out: eax = instance
 oofs_add:
-	call	class_instanceof	# check edx is self/superclass
+	.if OOFS_DEBUG
+		DEBUG_DWORD eax, "oofs_add", 0xe0
+	.endif
+	push_	eax edx
+	mov	eax, edx
+	mov	edx, offset class_oofs
+	call	class_extends
+	pop_	edx eax
 	jc	91f
 	# or:
 	# push eax
@@ -188,18 +266,20 @@ oofs_add:
 	# call class_extends
 	# mov edx, eax
 	# pop eax
-	push_	edx
+	push_	ebx eax edx ebp 
+	lea	ebp, [esp + 4]
 	mov	edx, [eax + oofs_count]
 	and	edx, 511
 	jz	1f
-	add	edx, 8
+	add	edx, OOFS_EL_STRUCT_SIZE
 	cmp	edx, 512
 	jbe	2f
 
 1:	# grow
 	DEBUG "oofs_add: grow"
 	mov	edx, [eax + oofs_count]
-	lea	edx, [edx * 8 + oofs_array - oofs_persistent + 512]
+	OOFS_IDX_TO_EL edx
+	lea	edx, [edx + oofs_array - oofs_persistent + 512]
 	call	class_instance_resize
 	jc	9f
 
@@ -209,23 +289,23 @@ oofs_add:
 	shr	ecx, 9	# convert to sectors
 
 	mov	ebx, [eax + oofs_count]
-	lea	ebx, [eax + oofs_array + ebx * 8]
+	OOFS_IDX_TO_EL ebx
+	lea	ebx, [eax + oofs_array + ebx]
 
 	# tail = free space
 	# append adjusted tail
 	inc	dword ptr [eax + oofs_count]
-	mov	edx, [ebx - 8 + oofs_el_size]	# get free space
+	mov	edx, [ebx - OOFS_EL_STRUCT_SIZE + oofs_el_size] # get free space
 	sub	edx, ecx	# edx = remaining free space
 	jle	92f
 
 	# update prev last entry: set size.
-	mov	[ebx - 8 + oofs_el_size], ecx	# reserve
+	mov	[ebx - OOFS_EL_STRUCT_SIZE + oofs_el_size], ecx	# reserve
 
 	# append entry representing free space:
 	mov	[ebx + oofs_el_size], edx # remaining free space
-	add	ecx, [ebx - 8 + oofs_el_lba]
+	add	ecx, [ebx - OOFS_EL_STRUCT_SIZE + oofs_el_lba]	# lba field now avail
 	mov	[ebx + oofs_el_lba], ecx # new free start
-
 
 	pop_	ecx ebx
 	call	[eax + oofs_api_save]
@@ -233,12 +313,24 @@ oofs_add:
 
 	# instantiate array element
 	mov	edx, eax	# parent ref
-	mov	eax, [esp]
+	mov	eax, [ebp]	# classdef
 	call	class_newinstance
 	jc	9f
 	call	[eax + oofs_api_init]
+	jc	93f
+	DEBUG "init ok"
+	mov	ebx, eax
 
-9:	pop_	edx
+	# record object instance
+	mov	eax, [ebp+4]	# this
+	mov	eax, [eax + oofs_children]
+	DEBUG_DWORD eax, "oofs_children"
+	call	ptr_array_newentry	# out: eax + edx
+	jc	94f
+	mov	[eax + edx], ebx
+
+	mov	[ebp + 4], ebx	# change return value
+9:	pop_	ebp edx eax ebx
 	ret
 
 91:	printc 4, "oofs_add: "
@@ -256,26 +348,214 @@ oofs_add:
 	stc
 	jmp	9b
 
+93:	printlnc 4, "oofs_add: oofs_api_init fail"
+	call	class_deleteinstance
+	# TODO: undo reservation
+	stc
+	jmp	9b
+
+94:	printlnc 4, "oofs_add: out of memory"
+	stc
+	jmp	9b
+
+# in: eax = this
+# in: edx = classdef ptr
+# in: ecx = index
+oofs_load_entry:
+	# instantiate array element
+	push_	edi esi ecx ebx edx eax ebp
+	lea	ebp, [esp + 4]
+
+	.if OOFS_DEBUG
+		DEBUG_DWORD eax, "oofs_load_entry", 0xe0
+	.endif
+	.if OOFS_DEBUG > 2
+		DEBUG_DWORD ecx
+		DEBUG_DWORD edx
+		DEBUGS [edx + class_name]
+	.endif
+
+	cmp	ecx, [eax + oofs_count]
+	jae	9f
+	xchg	eax, edx	# eax=classdef; edx=parent ref(this)
+	call	class_newinstance
+	jc	9f
+	# edx = this, still
+	mov	ebx, [edx + oofs_array + ecx * 4 + oofs_el_lba]
+	mov	ecx, [edx + oofs_array + ecx * 4 + oofs_el_size]
+	call	[eax + oofs_api_init]
+	jc	9f
+	mov	ebx, eax
+
+	# record object instance
+	mov	eax, [ebp]	# this
+	mov	edi, eax	# backup for entries_print
+	mov	eax, [eax + oofs_children]
+	call	ptr_array_newentry	# out: eax + edx
+	jc	91f
+	mov	[eax + edx], ebx
+	mov	[ebp], ebx
+	mov	eax, ebx
+
+	.if OOFS_DEBUG > 2
+		mov ebx, [ebx + obj_class]
+		DEBUGS [ebx + class_name]
+		DEBUG_DWORD [eax+oofs_api_load]
+	.endif
+
+	call	[eax + oofs_api_load]
+	jc	9f
+
+	mov	eax, edi
+	call	oofs_entries_print$
+	clc
+
+0:	pop_	ebp eax edx ebx ecx esi edi
+	ret
+
+91:	mov	eax, ebx
+	call	class_deleteinstance
+9:	printc 4, "oofs_load_entry: fail"
+	stc
+	jmp	0b
+
+
+# iteration method
+# in: eax = this
+# in: edx = class
+# in: ebx = counter - set to 0 for first in list
+# out: CF: counter invalid
+# out: eax = object (if CF=0)
+oofs_get_obj:
+	.if OOFS_DEBUG
+		DEBUG_DWORD eax, "oofs_get_obj", 0xe0
+		DEBUG_DWORD ebx,"idx"
+	.endif
+
+	push_	ebx edx
+
+	# check if we have that many persistent entries 
+	cmp	ebx, [eax + oofs_count]
+	jae	9f
+
+	# check if we have that many loaded
+	mov	edx, [eax + oofs_children]
+	shl	ebx, 2
+	cmp	ebx, [edx + array_index]
+	jae	9f
+
+	mov	eax, [edx + ebx]
+
+	.if OOFS_DEBUG
+		DEBUG_DWORD eax,"obj!"
+	.endif
+	clc
+0:	pop_	edx ebx
+	ret
+9:	stc
+	jmp	0b
+
+# find by class
+# in: eax = this
+# in: edx = class
+# in: ebx = counter (0 for start)
+# out: CF = 0: edx valid; 1: ebx = -1, edx unmodified
+# out: ebx = next counter / -1
+# out: eax = object instance matching class edx
+oofs_lookup:
+	.if OOFS_DEBUG
+		DEBUG "oofs_lookup"
+		DEBUGS [edx + class_name]
+		DEBUG_DWORD ebx
+	.endif
+0:	push	eax
+	call	[eax + oofs_api_get_obj]	# out: eax
+	jc	9f
+	inc	ebx
+	or	eax, eax
+	stc
+	jz	1f
+	# ebx verified
+	call	class_instanceof
+1:	pop	eax
+	jc	0b
+	clc
+	ret
+9:	mov	ebx, -1
+	pop	eax
+	ret
+
 ###########################################################################
 
+# in: eax = this
 oofs_entries_print$:
-	push_	esi edx ecx
+	push_	edi esi edx ecx ebx
+	printc 11, "Object "
+	mov	edx, eax
+	call	printhex8
+	mov	edx, [eax + obj_class]
+	call	printspace
+	mov	esi, [edx + class_name]
+	call	print
+
 	mov	ecx, [eax + oofs_count]
 	mov	edx, ecx
-	printc 11, "Entries: "
+	printc 11, " Entries: "
 	call	printdec32
-	call	newline
+	printc 11, " (instances: "
+	mov	esi, [eax + oofs_children]
+	DEBUG_DWORD esi
+	xor	edx, edx
+	or	esi, esi
+	jz	1f
+	mov	edx, [esi + array_index]
+	shr	edx, 2
+1:	call	printdec32
+	printlnc 11, ")"
+	or	ecx, ecx
+	jz	9f
+
 	lea	esi, [eax + oofs_array]
+	xor	ebx, ebx	# lba sum
+	xor	edi, edi	# index
 0:	print " * pLBA "
 	mov	edx, [esi + oofs_el_lba]
 	call	printhex8
-	print ", "
+	print " ("
+	pushcolor 7
+	cmp	edx, ebx
+	jz	2f
+	color 12
+2:	mov	edx, ebx
+	call	printhex8
+	popcolor
+	print "), "
 	mov	edx, [esi + oofs_el_size]
 	call	printhex8
-	println " sectors"
-	add	esi, 8
-	loop	0b
-	pop_	ecx edx esi
+	print " sectors"
+	add	ebx, edx
+
+	mov	edx, [eax + oofs_children]
+	or	edx, edx
+	jz	1f
+	cmp	edi, [edx + array_index]
+	jae	1f
+	mov	edx, [edx + edi]
+	print " obj: "
+#	call printhex8
+#	call printspace
+	or	edx, edx
+	jz	1f
+	mov	edx, [edx + obj_class]
+#	call printhex8
+#	call printspace
+	pushd	[edx + class_name]
+	call	_s_print
+1:	call	newline
+	add	esi, OOFS_EL_STRUCT_SIZE
+	add	edi, 4
+	dec ecx;jnz 0b#loop	0b
+9:	pop_	ebx ecx edx esi edi
 	ret
 
 

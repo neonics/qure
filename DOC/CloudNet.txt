@@ -129,7 +129,7 @@ other, which would flood the network unnecessarily.
 When all machines receive all requests, monitoring the presence of a response
 from the elected machine then determines whether or not a new machine must
 be elected to handle the response.
-
+D
 When a machine detects a timeout in the response time, it can query the
 elected machine to see if it is still present. If not, this then serves as
 the trigger to elect a new machine to handle requests.
@@ -170,4 +170,172 @@ It can also start new VM's and recycle existing ones that do not respond.
 
 VMs can be started in 'nogui' mode (vmrun -T player start file.vmx [no]gui).
 
+
+Virtual / Shared IP
+-------------------
+The DMZ ip will be configured as a virtual service ip.
+
+Each cluster node will be configured over the network to support
+the DMZ ip.  [at first a single IP, will be made a list later]
+
+
+Bootstrap Node
+---------------
+Only a single node needs to be configured, if the other cluster
+nodes accept their configuration over the network.
+
+
+Multicast
+---------
+All nodes join a group using a GMP (IGMP). This makes use of
+multicasting (not broadcasting). To determine which number
+represents the cluster communication point, a hardcoded/reserved
+number can be used. There can perhaps be a broadcast to request
+which groups there are. Perhaps the group can be resolved
+using multicast DNS.
+
+
+DHCP
+----
+Each node can function as a DHCP server, using a custom service number.
+It can return the required network configuration, and some field
+can be used to indicate that this is information for the cluster.
+In this way, each cluster node can do DHCP requests and receive
+multiple answers. One will be the localnet, the other will be
+the cluster - such as some identifier (the IP need not be used as such),
+and the gateway or server ip fields can indicate which cluster node
+is taken to be the cofniguration node.
+
+
+ZeroConfig Bootstrapping using IP monitoring
+--------------------------------------------
+The DMZ ip, once configured in the router, will give rise
+to public traffic. This traffic will be directed to the DMZ
+ip, which the router will ARP.
+
+If there are repeated ARP requests for a certain ID, a node will
+answer, claiming the IP, and generating a new MAC different
+from it's LAN MAC by which the router knows it. This prevents
+caching a temporary MAC with a fixed IP.
+
+In this scheme, the IP is fixed, as it is a service IP configured
+in the router. The MAC is temporary, since any cluster node
+can take the IP if there is no answer.
+
+A script-expressoin rule for this then might be:
+
+	auto-answer ARP $LANMASK
+
+which would have any node response (sensibly, as it knows the IP
+it takes is a shared virtual IP and thus may be in use).
+
+[Best would be to have the router/gateway provide the service IP
+in DHCP].
+
+
+mDNS
+----
+A fixed addressing scheme - say '.cloud' or '.localcluster' 
+can provide SRV records.
+
+The DNS then can serve as a simplified LDAP system, where information
+is stored in nodes - an object hierarchy.
+
+
+Custom Protocol
+===============
+Requirements:
+
+1) Maintain Cluster Knowledge
+-----------------------------
+a) broadcast on boot [COMPLETE]
+b) multicast PING
+
+	Multicast (notes from cisco)
+	---------
+	free IP range: 239.0.0.0-239.255.255.255 (239/8)
+	(prohibited on internet/ttl=1)
+	dynamic allocation:
+		SDR, Multicast Address Set Claim (MASC), SSM; MADCAP, SSM 
+	
+	static: 'GLOP': 233/8: 233.[16bit ASN].[0-255]
+
+	ASN: autonomous system (ISP, content provider).
+
+	SDR - session directory:
+	SAP: session announcement protocol
+	SDR: well known global mcast say 224.2.127.254.
+		IP multicast addresses
+		time session
+
+c) cluster uptime: session duration.
+
+Shared Objects
+--------------
+The goal of the Cluster is to keep all data alive. The cluster
+uptime then consists of time since the first node booted.
+Taking an OO approach, the cluster maintains objects. 
+The root object itself is the cluster uptime and version.
+Each time a cluster dies, all of the nodes have powered off.
+
+Each cluster keeps persistent track of boot times.
+Cluster nodes might be identifiable by a unique cluster id; their DHCP
+IP will generally change.
+A history then, a graph of the number of online nodes, is attempted
+to be shared and thus kept consistent.
+
+The cluster history consists of events. The events are numbered.
+History is divided in ages - each age represents the lifetime of
+a cluster. An age then indicates when the first node of a cluster
+boots. 
+This information is already available, as the DMZ ip - a shared resource -
+is requested, and claimed. A second node will (ARP) request the same IP,
+but find a response. The first node then knows it was the first,
+the second that it wasn't. Each time a node boots that is the first,
+it increments the cluster age.
+
+Within an age, the appearance of a node constitutes an event.
+
+Each node broadcasting it's presence will be answered by a single
+node. All nodes receive the broad/multi cast. The nodes have chosen
+a function - first responder - and determined which node serves
+the role. 
+
+When a node appears that announces a prior age than is current,
+it receives the history since.
+
+FIRST IMPLEMENTATION
+--------------------
+hello protocol: send last age ('date').
+OOFS: ?/cluster
+
+receives response. If age received:
+	less: the cluster is out of date. The nodes haven't been
+		participating in the cluster for a while. This
+		node then has more recent information, which
+		it shares with the rest to update their history
+		events.
+	more: the reverse.
+Note tha tit doesnt matter which node sends or receives - in the broadcast,
+the packet is handled as a response by the receiving nodes, who
+have chosen one to respond to the booted node. This node will send
+the cluster age and it's own.
+
+Nodes then keep track of participating in ages - their personal history.
+
+cluster_history:
+	cluster_age:	.long		# array length
+	incarnations:	.space 4*?	# [array of cluster_incarnation]
+
+node_history:
+	node_age:	.long		# array length
+	eras:		.space 4*	# era ID's in which incarnated.
+
+		An era does not change during any node incarnation,
+		because a new era only begins if this one ends,
+		which is when there are no nodes incarnated.
+
+hello_packet:
+	era:	.long 0	# cluster age
+	age:	.long 0	# node incarnation
 

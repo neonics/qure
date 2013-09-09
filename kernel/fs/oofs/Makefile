@@ -1,4 +1,4 @@
-all: oofs.o obj.o
+all: oofs.o export.h
 
 clean:
 	rm -f *.o .dep || true
@@ -9,10 +9,17 @@ DEPS = ../fs_oofs.s ../../fs.s ../../oo.s ../../lib/hash.s \
 	../../debugger/export.s \
 	../../print.s ../../macros.s ../../defines.s extern.h
 
-%.o: %.s $(DEPS)
+%.o: %.s %_*.s $(DEPS)
 	@echo "   AS   $@"
 	@$(AS) -o $@ $<
 
 oofs.o: oofs.s oofs_*.s $(DEPS)
-	@echo "   AS   $@"
-	@$(AS) -o $@ $<
+
+export.h: oofs.o Makefile
+	@# create file with constants: list absolute symbols.
+	@#  (-g: only global/external symbols - speed)
+	@echo "   H    $@"
+	@nm -f bsd -g --defined-only $< \
+	| grep ' A ' \
+	| perl -ne 's/(\S+) . (\S+)/\2=0x\1/; print' \
+	> $@
