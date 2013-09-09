@@ -244,9 +244,10 @@ class_resolve_internal$:
 	pushd	edi
 	pushd	ecx
 	pushd	edx
-	pushstring "class_resolve: super.vptr.count (%d) + this.mptr.count (%d) != this.vptr.count (%d)\n"
+	pushd	[eax + class_name]
+	pushstring "class_resolve(%s): super.vptr.count (%d) + this.mptr.count (%d) != this.vptr.count (%d)\n"
 	call	printf
-	add	esp, 16
+	add	esp, 20
 	popcolor
 	stc
 	jmp	0b
@@ -876,6 +877,8 @@ _obj_print_methods$:
 # in: eax = object
 # TODO: call destructor
 class_deleteinstance:
+	push	ebp
+	lea	ebp, [esp + 4]	# for mfree
 	push_	esi edi ecx
 
 	mov	edi, [class_instances]
@@ -896,10 +899,10 @@ class_deleteinstance:
 	add	eax, [esi + class_object_vptr]
 .endif
 
-	call	mfree
+	call	mfree_
 	mov	eax, -1
 
-	pop_	ecx edi esi
+	pop_	ecx edi esi ebp
 	ret
 91:	printlnc 4, "warning: deleting unknown object"
 	jmp	0b

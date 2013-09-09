@@ -1523,6 +1523,13 @@ mreallocz_:
 
 # in: eax = memory pointer
 mfree:
+	push	ebp
+	lea	ebp, [esp + 4]
+	call	mfree_
+	pop	ebp
+	ret
+
+mfree_:
 	MUTEX_SPINLOCK_ MEM
 	.if MEM_DEBUG2
 		DEBUG "["
@@ -1584,7 +1591,7 @@ mfree:
 	mov	edx, eax
 	call	printhex8
 	print " called from "
-	mov	edx, [esp + 4*4 + COLOR_STACK_SIZE]
+	mov	edx, [ebp] #[esp + 4*4 + COLOR_STACK_SIZE]
 	call	printhex8
 	call	printspace
 	call	debug_printsymbol
