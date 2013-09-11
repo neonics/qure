@@ -10,6 +10,7 @@ DEFINE=0
 .include "debugger/export.s"
 .include "print.s"
 .include "oo.s"
+.include "export.h"
 .include "kapi/export.h"
 .include "lib/hash.s"
 #.include "pci.s"

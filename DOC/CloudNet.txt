@@ -339,3 +339,37 @@ hello_packet:
 	era:	.long 0	# cluster age
 	age:	.long 0	# node incarnation
 
+
+
+
+
+Kernel Revision
+---------------
+Revisions can be counted per branch using git log --pretty=oneline | wc -l.
+The cluster era then can be set to start at a particular revision.
+The number of reboots during an era then serves as a second revision
+number.
+From eras prior to the runtime revision counting their reboots yields
+an age: the number of tests, and their duration - history: time between
+reboots.
+
+cluster_node_onload:
+	mov	edx, [eax + era]
+	cmp	edx, KERNEL_REVISION
+	jz	1f
+	mov	[eax + era], KERNEL_REVISION
+	.if ?
+	mov	edx, [eax + age]
+	mov	[eax + era_start], edx
+	.else
+	mov	[eax + age], dword ptr 0
+	.endif
+
+1:	ret
+
+
+cluster_get_kernel_version:
+	mov	edx, [eax + age]
+	sub	edx, [eax + era_start]
+	mov	eax, [eax + age]
+	ret

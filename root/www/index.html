@@ -4,11 +4,27 @@
 			.ss { width: 144px; }
 			.ss:hover { width: 738px; }
 			dl { padding-left: 1em; }
+			div.box { margin: 1em; padding: .3em;
+				border-top: 2px solid #88e;
+				border-left: 2px solid #88e;
+				border-bottom: 2px solid #228;
+				border-right: 2px solid #114;
+				background-color: #44b;
+				color: #fff;
+			}
+			.box a { color: #eef; text-decoration: none; }
+			.box a:hover { text-decoration: underline; }
 		</style>
 	</head>
 	<body>
 		<h1>QuRe - Intel Assembly Cloud Operating System</h1>
 		<i>This webpage is self-hosted</i>
+
+		<div class="box">
+			Kernel Revision: ${kernel.revision}<br/>
+			<i> <a href="#cluster">Cluster status:</a> ${cluster.status} </i><br/>
+			Cluster Kernel Revision: ${cluster.kernel.revision}
+		</div>
 
 		<h2>feature overview</h2>
 
@@ -73,5 +89,13 @@
 			<li><a href="site.html">Download, installation (out of date)</a></li>
 			<li><a href="C">Live screenshot of console 0</a></li>
 		</ul>
+
+		<h2><a name="cluster">Cluster</h2>
+		<ul>
+			<li>Persistent Network Objects</li>
+			<li>Object Oriented File System</li>
+			<li>zero-configuration cluster discovery</li>
+			<li>Clustered data sharing</li>
+		</li>
 	</body>
 </html>

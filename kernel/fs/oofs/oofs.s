@@ -8,12 +8,21 @@
 
 .global class_oofs
 .global oofs_parent
+.global oofs_lba
+.global oofs_persistent
+.global oofs_persistence
+.global oofs_size
+
 .global oofs_api_init
 .global oofs_api_load
+.global oofs_api_onload
 .global oofs_api_save
+.global oofs_api_get_obj
 .global oofs_api_add
 .global oofs_api_load_entry
 .global oofs_api_lookup
+.global oofs_api_print
+
 
 
 OOFS_DEBUG = 0
@@ -39,6 +48,7 @@ oofs_persistence:.long 0 # nonpersistent: fs_oofs (same as parent for root obj)
 oofs_flags:	.long 0 # nonpersistent
 	OOFS_FLAG_DIRTY = 1
 oofs_lba:	.long 0	# for subclasses
+oofs_size:	.long 0
 oofs_children:	.long 0	# ptr array
 
 oofs_persistent:
@@ -46,7 +56,6 @@ oofs_magic:	.long 0
 oofs_count:	.long 0
 oofs_array:	# {oofs_el_obj, oofs_el_size}[]
 # direct access to first entry: special semantics: free space
-oofs_size:	.long 0
 
 .org oofs_persistent + 512	# make data struct size at least 1 sector
 
@@ -90,10 +99,11 @@ DECLARE_CLASS_METHOD oofs_api_init, oofs_init
 DECLARE_CLASS_METHOD oofs_api_load, oofs_load
 DECLARE_CLASS_METHOD oofs_api_save, oofs_save
 DECLARE_CLASS_METHOD oofs_api_add, oofs_add
-DECLARE_CLASS_METHOD oofs_api_verify_load, oofs_verify_load	#event handler
+DECLARE_CLASS_METHOD oofs_api_onload, oofs_onload	#event handler
 DECLARE_CLASS_METHOD oofs_api_load_entry, oofs_load_entry
 DECLARE_CLASS_METHOD oofs_api_get_obj, oofs_get_obj
 DECLARE_CLASS_METHOD oofs_api_lookup, oofs_lookup
+DECLARE_CLASS_METHOD oofs_api_print, oofs_print
 DECLARE_CLASS_END oofs
 #################################################
 .text32
@@ -140,8 +150,6 @@ oofs_init:
 	mov	[ebx + oofs_array + OOFS_EL_STRUCT_SIZE + oofs_el_size], ecx
 	inc	ecx
 	mov	[ebx + oofs_array + OOFS_EL_STRUCT_SIZE + oofs_el_lba], dword ptr 1
-	#	mov	eax, ebx
-	#	call	oofs_entries_print$
 9:	pop_	ebx edx eax
 	ret
 
@@ -149,7 +157,7 @@ oofs_save:
 	.if OOFS_DEBUG
 		DEBUG "oofs_save", 0xe0
 	.endif
-	push_	eax ebx ecx esi
+	push_	eax ebx ecx esi edx
 	mov	ebx, [eax + oofs_lba]
 	mov	ecx, [eax + oofs_count]
 	OOFS_IDX_TO_EL ecx
@@ -157,21 +165,17 @@ oofs_save:
 	lea	esi, [eax + oofs_persistent]
 
 	mov	eax, [eax + oofs_persistence]
+	mov	edx, [eax + obj_class]
 	call	[eax + fs_obj_api_write]
-	pop_	esi ecx ebx eax
+	pop_	edx esi ecx ebx eax
 	ret
-
-oofs_verify_load:
-	cmp	[eax + oofs_magic], dword ptr OOFS_MAGIC
-	jz	1f
-	stc
-1:	ret
 
 # in: eax = instance
 # out: eax = mreallocced instance if needed
 oofs_load:
 	.if OOFS_DEBUG
-		DEBUG_DWORD eax, "oofs_load", 0xe0
+		DEBUG_CLASS
+		DEBUG_DWORD eax, ".oofs_load", 0xe0
 	.endif
 
 	.if OOFS_DEBUG > 2
@@ -185,10 +189,7 @@ oofs_load:
 		DEBUG_DWORD edx,"persistence"
 		mov edx, [eax + obj_class]
 		DEBUGS [edx+class_name]
-
-		DEBUG "persistence.fs_obj_api_read:"
-		mov edx, [eax+fs_obj_api_read]
-		call debug_printsymbol
+		DEBUG_METHOD fs_obj_api_read
 		call newline
 		pop_	edx eax
 	.endif
@@ -197,6 +198,7 @@ oofs_load:
 	lea	edi, [eax + oofs_persistent]
 	mov	ebx, [eax + oofs_lba]	# 0
 	mov	ecx, 512
+	# TODO: class_instance_resize if edi + ecx > obj_size
 	mov	edx, eax
 
 	.if OOFS_DEBUG
@@ -205,13 +207,23 @@ oofs_load:
 	.endif
 
 	push	eax
+	mov	edx, [eax + obj_class]
 	mov	eax, [eax + oofs_persistence]
 	call	[eax + fs_obj_api_read]
 	pop	eax
 	jc	9f
+	call	[eax + oofs_api_onload]
 
-	call	[eax + oofs_api_verify_load]
-	jc	92f
+9:	pop_	esi edx edi ecx ebx
+	ret
+
+
+oofs_onload:
+	push_	ecx edx
+
+	cmp	[eax + oofs_magic], dword ptr OOFS_MAGIC
+	jnz	91f
+
 	mov	ecx, [edx + oofs_count]
 	OOFS_IDX_TO_EL ecx
 	lea	ecx, [ecx + oofs_persistent]
@@ -219,12 +231,13 @@ oofs_load:
 	cmc
 	jae	1f	# it'll fit
 ###########################################
+DEBUG "resize"
 	# resize
 	mov	edx, ecx
 	add	edx, 511
 	and	edx, ~511
-	call	mreallocz
-	jc	91f
+	call	class_instance_resize
+	jc	92f
 
 	mov	[eax + oofs_parent], esi
 	lea	edi, [eax + oofs_persistent]
@@ -232,6 +245,7 @@ oofs_load:
 	# ecx still ok
 
 	push	eax
+	mov	edx, [eax + obj_class]
 	mov	eax, [esi + oofs_persistence]
 	call	[eax + fs_obj_api_read]
 	pop	eax
@@ -252,24 +266,28 @@ oofs_load:
 ###########################################
 	call	oofs_entries_print$
 ###########################################
-	clc
-
-9:	pop_	esi edx edi ecx ebx
+9:	pop_	edx ecx
 	ret
-91:	printlnc 4, "oofs_load: mrealloc error"
+91:	printlnc 4, "oofs_load: wrong partition magic"
 	stc
 	jmp	9b
-92:	printlnc 4, "oofs_load: wrong partition magic"
+92:	printlnc 4, "oofs_load: mrealloc error"
 	stc
 	jmp	9b
+
+
 
 # in: eax = this (oofs instance)
 # in: ecx = bytes
 # in: edx = class def ptr
 # out: eax = instance
 oofs_add:
-	.if OOFS_DEBUG
+	.if 1#OOFS_DEBUG
+		push edx; mov edx,[eax+obj_class];DEBUGS [edx+class_name];pop edx
 		DEBUG_DWORD eax, "oofs_add", 0xe0
+		DEBUG_DWORD ecx
+		DEBUG_DWORD [eax+oofs_count],"count"
+		DEBUGS [edx + class_name]
 	.endif
 	push_	eax edx
 	mov	eax, edx
@@ -287,6 +305,8 @@ oofs_add:
 	push_	ebx eax edx ebp 
 	lea	ebp, [esp + 4]
 	mov	edx, [eax + oofs_count]
+#	or	edx, edx
+#	jz	2f
 	and	edx, 511
 	jz	1f
 	add	edx, OOFS_EL_STRUCT_SIZE
@@ -334,19 +354,26 @@ oofs_add:
 	mov	eax, [ebp]	# classdef
 	call	class_newinstance
 	jc	9f
+	push_	ebx ecx
+	mov	ebx, [ebp+4]	# this
+	mov	ecx, [ebx + oofs_count]
+	sub	ecx, 2	# -1:count->idx; -1: one-before-last
+	OOFS_IDX_TO_EL ecx
+	lea	ebx, [ebx + oofs_array + ecx]
+	mov	ecx, [ebx + oofs_el_size]
+	mov	ebx, [ebx + oofs_el_lba]
+
 	call	[eax + oofs_api_init]
+	pop_	ecx ebx
 	jc	93f
-	DEBUG "init ok"
 	mov	ebx, eax
 
 	# record object instance
 	mov	eax, [ebp+4]	# this
 	mov	eax, [eax + oofs_children]
-	DEBUG_DWORD eax, "oofs_children"
 	call	ptr_array_newentry	# out: eax + edx
 	jc	94f
 	mov	[eax + edx], ebx
-
 	mov	[ebp + 4], ebx	# change return value
 9:	pop_	ebp edx eax ebx
 	ret
@@ -362,6 +389,10 @@ oofs_add:
 	jmp	9b
 
 92:	printc 4, "oofs_add: not enough free sectors"
+	add	edx, ecx
+	DEBUG_DWORD edx, "avail"
+	DEBUG_DWORD ecx, "requested"
+	call	newline
 	pop_	ecx ebx
 	stc
 	jmp	9b
@@ -376,6 +407,7 @@ oofs_add:
 	stc
 	jmp	9b
 
+
 # in: eax = this
 # in: edx = classdef ptr
 # in: ecx = index
@@ -384,33 +416,31 @@ oofs_load_entry:
 	push_	edi esi ecx ebx edx eax ebp
 	lea	ebp, [esp + 4]
 
-	.if OOFS_DEBUG
+	.if 1#OOFS_DEBUG
+		DEBUG_CLASS
 		DEBUG_DWORD eax, "oofs_load_entry", 0xe0
-	.endif
-	.if OOFS_DEBUG > 2
 		DEBUG_DWORD ecx
-		DEBUG_DWORD edx
 		DEBUGS [edx + class_name]
+		call	newline
 	.endif
 
 	cmp	ecx, [eax + oofs_count]
-	jae	9f
+	jae	91f
 	xchg	eax, edx	# eax=classdef; edx=parent ref(this)
 	call	class_newinstance
-	jc	9f
+	jc	92f
 	# edx = this, still
-	mov	ebx, [edx + oofs_array + ecx * 4 + oofs_el_lba]
-	mov	ecx, [edx + oofs_array + ecx * 4 + oofs_el_size]
+	mov	ebx, [edx + oofs_array + ecx * 8 + oofs_el_lba]
+	mov	ecx, [edx + oofs_array + ecx * 8 + oofs_el_size]
 	call	[eax + oofs_api_init]
-	jc	9f
+	jc	93f
 	mov	ebx, eax
-
 	# record object instance
 	mov	eax, [ebp]	# this
 	mov	edi, eax	# backup for entries_print
 	mov	eax, [eax + oofs_children]
 	call	ptr_array_newentry	# out: eax + edx
-	jc	91f
+	jc	94f
 	mov	[eax + edx], ebx
 	mov	[ebp], ebx
 	mov	eax, ebx
@@ -420,20 +450,33 @@ oofs_load_entry:
 		DEBUGS [ebx + class_name]
 		DEBUG_DWORD [eax+oofs_api_load]
 	.endif
-
 	call	[eax + oofs_api_load]
-	jc	9f
+	jc	95f
 
 	mov	eax, edi
-	call	oofs_entries_print$
+	call	[eax + oofs_api_print]
 	clc
 
 0:	pop_	ebp eax edx ebx ecx esi edi
 	ret
 
-91:	mov	eax, ebx
-	call	class_deleteinstance
-9:	printc 4, "oofs_load_entry: fail"
+91:	LOAD_TXT "index>count"
+	DEBUG_CLASS
+	DEBUG_DWORD ecx;DEBUG_DWORD [eax+oofs_count]
+	jmp	9f
+92:	LOAD_TXT "newinstance fail"
+	jmp	9f
+
+93:	LOAD_TXT "entry init fail"
+	jmp	90f
+95:	LOAD_TXT "entry load fail"
+	DEBUG_METHOD oofs_api_load
+	jmp	90f
+94:	mov	eax, ebx
+	LOAD_TXT "ptr_array_newentry fail"
+90:	call	class_deleteinstance
+9:	printc 4, "oofs_load_entry: "
+	call	println
 	stc
 	jmp	0b
 
@@ -455,7 +498,6 @@ oofs_get_obj:
 	# check if we have that many persistent entries 
 	cmp	ebx, [eax + oofs_count]
 	jae	9f
-
 	# check if we have that many loaded
 	mov	edx, [eax + oofs_children]
 	shl	ebx, 2
@@ -486,6 +528,7 @@ oofs_lookup:
 		DEBUGS [edx + class_name]
 		DEBUG_DWORD ebx
 	.endif
+	push	ecx
 0:	push	eax
 	call	[eax + oofs_api_get_obj]	# out: eax
 	jc	9f
@@ -494,24 +537,29 @@ oofs_lookup:
 	stc
 	jz	1f
 	# ebx verified
+	mov	ecx, eax	# backup in case match
 	call	class_instanceof
 1:	pop	eax
 	jc	0b
+	mov	eax, ecx
+	pop	ecx
 	clc
 	ret
 9:	mov	ebx, -1
-	pop	eax
+	pop_	eax ecx
 	ret
 
 ###########################################################################
 
-# in: eax = this
 oofs_entries_print$:
+# in: eax = this
+oofs_print:
 	push_	edi esi edx ecx ebx
 	printc 11, "Object "
 	mov	edx, eax
 	call	printhex8
 	mov	edx, [eax + obj_class]
+	call printhex8
 	call	printspace
 	mov	esi, [edx + class_name]
 	call	print
@@ -560,13 +608,15 @@ oofs_entries_print$:
 	jae	1f
 	mov	edx, [edx + edi]
 	print " obj: "
-#	call printhex8
-#	call printspace
+	call printhex8
+	call printspace
 	or	edx, edx
 	jz	1f
 	mov	edx, [edx + obj_class]
-#	call printhex8
-#	call printspace
+	call printhex8
+	call printspace
+	push eax; mov eax, edx; call class_is_class; pop eax
+	jc	91f
 	pushd	[edx + class_name]
 	call	_s_print
 1:	call	newline
@@ -575,6 +625,8 @@ oofs_entries_print$:
 	dec ecx;jnz 0b#loop	0b
 9:	pop_	ebx ecx edx esi edi
 	ret
+91:	printc 4, "invalid class"
+	jmp 1b
 
 
 oofs_sector_dump$:

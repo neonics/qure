@@ -110,21 +110,27 @@ fs_oofs_mkfs:
 	mov	ecx, [edx + fs_obj_p_size_sectors]
 	call	[eax + oofs_api_init]
 	# allocate a new array in the next sector
-	push_	eax edx
+	push_	edx
 	mov	ecx, 512
 	mov	edx, offset class_oofs_table #[eax + obj_class]
 	call	[eax + oofs_api_add]	# out: eax = instance
-	pop_	edx eax
-	jc	1f
+	pop_	edx
+	jc	92f
+	push	edx	# preserve oofs root object for fs_oofs_free$
 	call	[eax + oofs_api_save]
-	jc	1f
+	pop	edx
+	jc	93f
 	OK
-1:	call	class_deleteinstance
-	mov	eax, edx
-	call	class_deleteinstance
+1:	call	fs_oofs_free$
 9:	pop_	edx ecx eax
 	ret
-91:	printlnc 4, "fs_oofs_mkfs: fs_oofs_init error"
+91:	PUSHSTRING "class instantiation error"
+	jmp	0f
+92:	PUSHSTRING "table add error"
+	jmp	0f
+93:	PUSHSTRING "table save error"
+0:	printc 4, "fs_oofs_mkfs: "
+	call	_s_println
 	stc
 	jmp	9b
 
@@ -166,4 +172,32 @@ fs_oofs_move:
 	DEBUG "not implemented"
 	stc
 	ret
+
+
+############################################################################
+__FOO:
+SHELL_COMMAND oofs, cmd_oofs
+.text32
+cmd_oofs:
+	ARRAY_LOOP [mtab], MTAB_ENTRY_SIZE, ebx, edx, 9f
+	pushad
+		DEBUGS	[ebx + edx + mtab_mountpoint]
+		mov	eax, [ebx + edx + mtab_fs_instance]
+		mov esi, [eax+obj_class]
+		DEBUGS [esi+class_name]
+		call newline
+
+
+		cmp	[eax + obj_class], dword ptr offset class_fs_oofs
+		jnz	1f
+		printc 9, "OOFS mounted at "
+		mov	esi, [ebx + edx + mtab_mountpoint]
+		call	println
+		mov	eax, [eax + oofs_root]
+		call	[eax + oofs_api_print]
+		call	newline
+1:	popad
+	ARRAY_ENDL
+9:	ret
+
 .endif

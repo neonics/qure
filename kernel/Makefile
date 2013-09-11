@@ -10,6 +10,7 @@ clean:
 # attempt to link multiple object files
 KERNEL_SPLIT_RINGS=1
 
+GIT = /usr/bin/git	# i have a wrapper script in my path
 
 AS_DEFS = --defsym __KERNEL_SPLIT_RINGS=$(KERNEL_SPLIT_RINGS)
 
@@ -183,12 +184,26 @@ kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
 
 fs/fs_oofs.s: fs/oofs/export.h
 
-fs/oofs/oofs.o: FORCE
+fs/oofs/oofs.o: FORCE kapi/export.h export.h
 	@echo " M $@"
 	@make -C fs/oofs
 
+export.h: BRANCH=$(shell $(GIT) branch | grep -e ^\* | cut -b3-)
+export.h: KERNEL_REVISION=$(shell $(GIT) log --pretty=oneline --abbrev-commit | wc -l)
+export.h: kernel.o Makefile ../.git
+	@echo "   H    $@"
+	grep -e "^\.equ SEL_" gdt.s \
+	| perl -pe 's/^\.equ SEL_(\S+),(.*)/SEL_\1=\2/' \
+	> export.h
+	echo "BRANCH=`git branch | grep -e ^\* | cut -b3-`" \
+	>> export.h
+	echo "KERNEL_REVISION=$(KERNEL_REVISION)" \
+	>> export.h
+	@echo ".macro LOAD_KERNEL_VERSION_TXT reg:vararg;LOAD_TXT \"$(BRANCH)-$(KERNEL_REVISION)\",\reg;.endm" \
+	>> export.h
 
-kapi/export.h: kernel.o
+
+kapi/export.h: kernel.o Makefile
 	@echo ".include \"kapi/kapi.s\"" > $@
 	@echo "_KAPI_COUNTER=`nm $< | grep ' A KAPI_' | wc -l`" >> $@
 

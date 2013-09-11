@@ -1,0 +1,64 @@
+Cluster initialization
+======================
+
+When the machine boots, it will start the cluster daemon which will attempt to
+automount hda0 on /net (if nothing is mounted there), verifying it is of type
+'class_fs_oofs'.
+
+To have this work, follow these steps:
+
+Configure the virtual machine to have an empty disk (hda).
+Only disks <= 512Mb have been tested.
+
+> fdisk hda init
+> mkfs -t oofs hda0
+
+The next time the machine boots it will automount and initialize cluster data,
+at current 1 sector. This sector contains the node age, which is incremented
+each time the machine boots. It also contains the cluster era, which is the
+current incarnation of the cluster.
+
+
+Terminology
+===========
+A (network) node is a (virtual) machine.
+A cluster is a group of nodes on a (local) network. It consists of all running
+nodes.
+
+Node age reflects the number of times a node has booted, or 'incarnated'.
+Cluster age reflects the number of times the whole cluster has reincarnated.
+Cluster incarnations are separated by cluster extinction, which is when all
+cluster nodes have 'died' - are offline.
+
+
+Cluster Era
+-----------
+Anytime a node boots, it instantiates an instance of class cluster_node
+which it attempts to load from persistent storage, containing the cluster
+era and node age. The node age is incremented, counting node 'incarnations'
+or reboots.
+It then proceeds to broadcasts a message indicating it's presence in the
+network cluster, sending the cluster era and node age. The first time
+a node attempts to join the cluster, it will have age 1, and a cluster era
+of 0.
+
+All nodes in the cluster respond to this broadcast message if the announcing
+node is unknown, by sending a direct message to the broadcasting node,
+containing their own identification (cluster era and node age).
+
+This way, a node can detect whether it is the only node in the cluster. If this is
+so, it decides it is the first node in the cluster (since the only one), and
+increments the cluster era to mark a new beginning. The cluster era of the
+first cluster then will also have a value of 1. An initialized cluster consisting
+of one node then have era=1, age=1.
+
+Therefore, the cluster era is a counter indicating the stability of the cluster.
+As long as there is always at least one node in the cluster, the cluster era
+will not increment.
+
+
+A second node joining the cluster in the same manner will send era=0, age=1,
+and receive era=1, age=1 from the first node. It knows that era=0 means
+the cluster is not initialized, and receiving the era value from the other
+node, uses it to update it's own value for it.
+

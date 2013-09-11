@@ -230,9 +230,11 @@ http_check_request_complete:
 net_service_tcp_http:
 	call	http_parse_header	# in: esi,ecx; out: edx=uri, ebx=host
 
+	mov	esi, offset www_code_400$
+	jc	www_err_response
+
 	# Send a response
 	cmp	edx, -1	# no GET / found in headers
-	mov	esi, offset www_code_400$
 	jz	www_err_response
 
 	.if NET_HTTP_DEBUG
@@ -293,6 +295,7 @@ net_service_tcp_http:
 	mov	ecx, WWW_DOCROOT_STR_LEN
 	rep	movsb
 
+	# append hostname, if any
 	cmp	ebx, -1
 	jz	1f
 	mov	edi, offset www_file$
@@ -304,9 +307,13 @@ net_service_tcp_http:
 	KAPI_CALL fs_stat
 	pop	eax
 	jnc	1f
+	# unknown host
 	mov	ebx, -1
 	jmp	0b
 1:
+
+FS_DIRENT_ATTR_DIR=0x10
+
 	mov	edi, offset www_file$
 	mov	esi, edx
 	inc	esi	# skip leading /
@@ -325,7 +332,7 @@ net_service_tcp_http:
 	mov	eax, offset www_file$
 	KAPI_CALL fs_stat
 	jc	2f	# takes care of pop eax
-	test	al, FS_DIRENT_ATTR_DIR
+	test	al, offset FS_DIRENT_ATTR_DIR
 	pop	eax
 	jz	1f
 
@@ -335,7 +342,7 @@ net_service_tcp_http:
 	# no need to check escape from docroot.
 1:
 
-	.if 1 # NET_HTTP_DEBUG > 1
+	.if NET_HTTP_DEBUG
 		printc 13, "Serving file: '"
 		mov	esi, offset www_file$
 		call	print
@@ -524,17 +531,20 @@ http_parse_header:
 	.endif
 	call	http_parse_header_line$	# update edx if GET /..., ebx if Host:..
 	mov	edi, esi	# mark new line beginning
+	jc	9f
 	jmp	1f
 
-2:	.if NET_HTTP_DEBUG > 1
+2:;	.if NET_HTTP_DEBUG > 1
 		call	printchar
 	.endif
 
 1:	loop	0b
 	.if NET_HTTP_DEBUG > 1
 		call	newline
+		clc
 	.endif
-	pop	edi
+
+9:	pop	edi
 	pop	eax
 	ret
 
@@ -546,13 +556,13 @@ http_parse_header:
 # in: edx = known value (-1) to compare against
 # out: edx = resource identifier (if request match): 0 for root, etc.
 http_parse_header_line$:
-	push	esi
-	push	ecx
+	push_	edi esi ecx
 	mov	ecx, esi
 	sub	ecx, edi
 	mov	esi, edi
 
-	.if NET_HTTP_DEBUG > 2
+	.if NET_HTTP_DEBUG > 1#2
+		pushcolor 15
 		push esi
 		push ecx
 		printchar '<'
@@ -560,6 +570,7 @@ http_parse_header_line$:
 		printchar '>'
 		pop ecx
 		pop esi
+		popcolor
 	.endif
 
 	LOAD_TXT "GET /", edi
@@ -569,6 +580,7 @@ http_parse_header_line$:
 	repz	cmpsb
 	pop	esi
 	pop	ecx
+		mov	edi, esi	# for debug print
 	jz	1f
 
 	LOAD_TXT "Host: ", edi
@@ -585,6 +597,7 @@ http_parse_header_line$:
 	mov	ecx, 9
 	repz	cmpsb
 	pop_	esi ecx
+	clc
 	jnz	9f
 
 	# found referer header:
@@ -607,14 +620,19 @@ http_parse_header_line$:
 
 
 2:	# found Host header line
-	add	esi, 6		# skip "Host: "
+	cmp	ebx, -1
+	jz	2f
+	printc 4, "Duplicate 'Host:' header: "
+	call	nprintln
+	stc
+	jmp	9f
+2:	add	esi, 6		# skip "Host: "
 	sub	ecx, 6
 	mov	ebx, esi	# start of hostname
 
 	.if NET_HTTP_DEBUG > 1
-		print "Host: <"
-		call	nprint
-		println ">"
+		mov	edi, esi
+		printc 9, "Host: <"
 	.endif
 
 	jmp	0f
@@ -622,12 +640,11 @@ http_parse_header_line$:
 1:	# found GET header line
 	add	esi, 4		# preserve the leading /
 	sub	ecx, 4
+	jle	9f
 	mov	edx, esi	# start of resource
-
 	.if NET_HTTP_DEBUG > 1
-		print "Resource: <"
-		call	nprint
-		println ">"
+		printc 9, "GET: <"
+		mov	edi, esi
 	.endif
 
 0:	lodsb
@@ -639,10 +656,23 @@ http_parse_header_line$:
 	jz	0f
 	loop	0b
 	# hmmm
+
+	.if NET_HTTP_DEBUG > 1
+		printc 9, "Resource: <"
+	.endif
+
+
 0:	mov	[esi - 1], byte ptr 0
 
-9:	pop	ecx
-	pop	esi
+	.if NET_HTTP_DEBUG > 1
+		# mov ecx, esi; sub ecx, ebx; mov esi, ebx; call nprint
+		mov	esi, edi
+		call	print
+		printlnc 9, ">"
+	.endif
+	clc
+
+9:	pop_	ecx esi edi
 	ret
 
 
@@ -701,7 +731,18 @@ expr_h_call:
 
 .data
 www_expr:
+
+# first byte: handler type:
+# 1 = const
+# 2 = mem
+# 3 = call
+# Second byte: data type:
+# 1 = size   (out: edx:eax)
+# 2 = string (in: esi,ecx)
+# 3 = decimal32 (out: edx)
+
 .long (99f - .)/10
+STRINGPTR "kernel.revision";	.byte 1,3;.long KERNEL_REVISION
 .if 1
 STRINGPTR "kernel.size";	.byte 3,1;.long expr_krnl_get_size
 STRINGPTR "kernel.code.size";	.byte 3,1;.long expr_krnl_get_code_size
@@ -717,6 +758,8 @@ STRINGPTR "mem.heap.size";	.byte 2,1;.long mem_heap_size
 STRINGPTR "mem.heap.allocated";	.byte 3,1;.long mem_get_used
 STRINGPTR "mem.heap.reserved";	.byte 3,1;.long mem_get_reserved
 STRINGPTR "mem.heap.free";	.byte 3,1;.long mem_get_free
+STRINGPTR "cluster.kernel.revision";	.byte 3,2;.long cluster_get_kernel_revision
+STRINGPTR "cluster.status";	.byte 3,2;.long cluster_get_status
 99:
 www_expr_handlers:
 	.long expr_h_unknown
@@ -781,22 +824,66 @@ www_expr_handle:
 	# not found
 	jmp	9f
 
-1:	movzx	edi, byte ptr [ebx + 4]	# type
-	mov	edx, [ebx + 6]		# arg2
-		cmp	edi, NUM_EXPR_HANDLERS
-		jae	9f
-	call	www_expr_handlers[edi * 4]
+1:	
+	movzx	edx, byte ptr [ebx + 4]	# type
+	cmp	edx, NUM_EXPR_HANDLERS
+	jae	9f
+	mov	al, byte ptr [ebx + 5]	# data type
+	cmp	al, 1
+	jz	1f	# size
+	cmp	al, 2	# buffer arg
+	jnz	1f
 
+1:	push	eax
+	mov	edi, offset _tmp_expr_buf$ # for stringput types
+	mov	ecx, (offset _tmp_expr_buf_end$-_tmp_expr_buf$)/4
+	xor	eax, eax
+	rep	stosd
+	mov	edi, offset _tmp_expr_buf$ # for stringput types
+	mov	ecx, offset _tmp_expr_buf_end$-_tmp_expr_buf$
+
+	mov	eax, edx
+	mov	edx, [ebx + 6]		# arg2
+
+	call	www_expr_handlers[eax * 4]
+	pop	ebx
+	cmp	bl, 2	# string
+	jnz	1f
+	mov	edi, offset _tmp_fmt$
+	mov	esi, offset _tmp_expr_buf$
+	cmp	ecx, (offset _tmp_expr_buf_end$-_tmp_expr_buf$)
+	jb	2f
+	mov	ecx, (offset _tmp_expr_buf_end$-_tmp_expr_buf$)-1
+	jmp	2f
+
+
+1:	cmp	bl, 3	# decimal32
+	jnz	1f
+	mov	edx, eax
+	call	sprintdec32
+	jmp	3f
+
+1:	cmp	bl, 4	# hex8
+	jnz	1f
+	mov	edx, eax
+	call	sprinthex8
+	jmp	3f
+
+
+1:	# default: 1 = size
+	# data type: size: edx:eax
 	# todo: format
 	.data SECTION_DATA_BSS
 	_tmp_fmt$: .space 32
+	_tmp_expr_buf$: .space 1024
+	_tmp_expr_buf_end$:
 	.text32
-	mov	edi, offset _tmp_fmt$
 	call	sprint_size
-	mov	ecx, edi
+3:	mov	ecx, edi
 	mov	esi, offset _tmp_fmt$
 	sub	ecx, esi
 
+2:
 	.if 0
 		DEBUG "EXPR VAL:"
 		call nprint

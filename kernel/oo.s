@@ -59,6 +59,7 @@ CLASS_METHOD_STRUCT_SIZE = 12
 .global class_instance_resize
 .global class_instanceof
 .global class_extends
+.global class_is_class
 # debug
 .global _obj_print_methods$
 .global _obj_print_vptr$
@@ -101,6 +102,10 @@ class_newinstance:
 	sub	eax, [esi + class_object_vptr]	# skip over vptrs
 .endif
 	mov	[eax + obj_class], esi
+	push	edx	# TODO: efficient
+	mov	edx, [esi + class_object_size]
+	mov	[eax + obj_size], edx
+	pop	edx
 
 	.if OO_DEBUG
 		DEBUG "class_newinstance ", 0xe0
@@ -154,7 +159,6 @@ class_is_class:
 	printc 4, "class_resolve: not classdef ptr: "
 	mov	edx, eax
 	call	printhex8
-	DEBUGS [eax + class_name]
 	call	newline
 	stc
 1:	pop	edx
@@ -526,9 +530,19 @@ class_instance_resize:
 	repnz	scasd
 	jnz	91f
 
+	.if OBJ_VPTR_COMPACT
+	mov	ecx, [eax + obj_class]
+	add	eax, [ecx + class_object_vptr]
+	.endif
 	call	mreallocz
 	jc	9f	# malloc print errors
+	.if OBJ_VPTR_COMPACT
+	sub	eax, [ecx + class_object_vptr]
+	.endif
+
+	mov	[eax + obj_size], edx
 	mov	[edi - 4], eax
+	clc
 
 9:	pop_	ecx edi
 	ret
@@ -1475,6 +1489,7 @@ OBJ_STRUCT_SIZE = .
 
 		.section .classdef$vptr
 			_vptr_\name = . - _class_decl_vptr	# create increment label
+			.global _vptr_\name
 			.long 0	# add space for declared method
 
 		.if OBJ_VPTR_COMPACT
@@ -1575,4 +1590,26 @@ OBJ_STRUCT_SIZE = .
 		.long 0					# class_match_instance
 	.text32
 .endm
+
+
+
+.macro DEBUG_CLASS
+	push	esi
+	mov	esi, [eax + obj_class]
+	mov	esi, [esi + class_name]
+	call	print
+	pop	esi
+.endm
+
+.macro DEBUG_METHOD m
+	push	edx
+	mov	edx, [eax + obj_class]
+	pushd	[edx + class_name]
+	call	_s_print
+	print ".\m: "
+	mov	edx, [eax + \m]
+	call	debug_printsymbol
+	pop	edx
+.endm
+
 .endif	#  __OO_DECLARED

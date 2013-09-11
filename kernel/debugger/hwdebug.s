@@ -47,12 +47,15 @@
 # DR0	linear address 0
 
 # in: eax = mem address
+KAPI_DECLARE breakpoint_memwrite_dword
 breakpoint_enable_memwrite_dword:
 enable_breakpoint_memwrite_dword:
 	#DEBUG "Set breakpoint: addr:"
 	#DEBUG_DWORD eax
+	push	ebx
 	GDT_GET_BASE ebx, ds
 	add	eax, ebx
+	pop	ebx
 	#DEBUG " hw addr:"
 	#DEBUG_DWORD eax
 

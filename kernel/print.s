@@ -626,6 +626,7 @@ COLOR_STACK_SIZE = 2
 ###############################################################################
 # Globals
 
+.global printf
 .global printdec8
 .global printdec16
 .global printdec32
@@ -1883,12 +1884,14 @@ printf:
 	push	ebp
 	lea	ebp, [esp + 8]
 	push	eax
+	push	ebx
 	push	ecx
 	push	edx
 	push	esi
-
 	mov	esi, [ebp]
 	add	ebp, 4
+	push	esi	# remember format string for error msg
+
 
 2:	xor	ecx, ecx	# holds width etc..
 0:	lodsb
@@ -1941,8 +1944,12 @@ printf:
 	jb	1f
 	cmp	al, '9'
 	ja	1f
-	# TODO: process char..
-	jmp	4b
+	dec	esi
+	call	atoi_	# out: eax, esi at first non-digit
+	#jc	91f
+	mov	ecx, eax
+	jmp	4f
+#	jmp	4b
 
 1:	cmp	al, '*' 	# width specifier
 	jne	1f
@@ -1954,7 +1961,7 @@ printf:
 		call printhex8
 		popcolor
 	.endif
-	lodsb
+4:	lodsb
 	or	al, al
 	jz	2f
 1:
@@ -2023,7 +2030,30 @@ printf:
 	jmp	2b
 1:	cmp	al, 'd'	# todo: i
 	jne	1f
-	call	printdec32
+	jecxz	3f
+	# get decimal places
+		push_ edx ecx
+		mov eax, edx
+		mov ebx, 10
+		xor ecx, ecx
+		10:
+		inc ecx
+		xor edx,edx
+		div ebx
+		or eax, eax
+		jnz 10b
+		# ecx = decimal places
+		mov eax, [esp] # get width
+		sub eax, ecx
+		pop_ ecx edx
+		jle 3f # width too small - ignore
+	# pad; "%Nd":  (for %-Nd, first printdec, then pad)
+		10: call printspace
+		dec eax
+		jnz 10b
+		call printdec32
+	jmp	2b
+3:	call	printdec32
 	jmp	2b
 1:	cmp	al, 'b'	# nonstandard
 	jne	1f
@@ -2089,13 +2119,21 @@ printf:
 3:	call	printchar
 ###########################
 	jmp	2b
-2:
+2:	add	esp, 4	# pop format string backup
 	pop	esi
 	pop	edx
 	pop	ecx
+	pop	ebx
 	pop	eax
 	pop	ebp
 	ret
+91:	printc 4, "printf format error at pos "
+	lea	edx, [esi-1]
+	sub	edx, [esp]	# format string
+	call	printdec32
+	printc 4, ": "
+	call	println
+	jmp	2b
 
 #########################################################################
 

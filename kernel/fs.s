@@ -90,6 +90,10 @@ MAX_PATH_LEN = 1024
 .global fs_obj_p_size_sectors
 .global fs_obj_api_read
 .global fs_obj_api_write
+
+.global mtab
+.global mtab_fs_instance
+.global mtab_mountpoint
 .global mtab_get_fs
 .text32
 
@@ -98,7 +102,7 @@ mount_init$:
 	call	mtab_init
 	call	fs_init
 	ret
-
+.endif
 ############################################################################
 ##
 # The mtab maintains a compact array. Any references to its indices
@@ -115,6 +119,7 @@ mtab_partition_size:	.long 0	# sectors
 mtab_fs_instance:	.long 0 # file-system specific data structure
 MTAB_ENTRY_SIZE = .
 .data
+.if DEFINE
 MTAB_INITIAL_ENTRIES = 1
 mtab: .long 0
 .text32
@@ -210,7 +215,6 @@ mtab_get_fs:
 	stc
 	jmp	0f
 1:	mov	edx, [ebx + edx + mtab_fs_instance]
-	DEBUG_DWORD edx,"mtab_fs_instance"
 	call	class_ref_inc
 	clc
 0:	pop_	ecx esi edi ecx ebx	# yes, ecx
@@ -556,7 +560,7 @@ DECLARE_CLASS_END fs
 ###################################################
 .text32
 # protected methods:
-
+FS_OBJ_DEBUG_RW=0	# 0=none; 1=print; 2=enter before disk access
 # in: eax = fs_obj/class_fs instance
 # in: ecx = size
 # in: ebx = sectors
@@ -579,9 +583,25 @@ fs_obj_rw_init$:
 # in: ebx = partition-relative LBA
 # in: edi = buffer
 # in: ecx = bytes
+#[in: edx = class being saved]
 fs_obj_read:
 	push_	eax ebx ecx edx
+	.if FS_OBJ_DEBUG_RW
+		call newline
+		DEBUG_CLASS
+		DEBUG "fs_obj_read", 0x4f
+		DEBUGS [edx+class_name]
+		DEBUG_DWORD ecx
+		DEBUG_DWORD ebx
+	.endif
 	call	fs_obj_rw_init$
+	.if FS_OBJ_DEBUG_RW
+		DEBUG_DWORD ebx
+		call newline
+	.endif
+	.if FS_OBJ_DEBUG_RW > 1
+		call more
+	.endif
 	call	disk_read
 	LOAD_TXT "disk_read error", edx
 	jc	9f
@@ -598,10 +618,26 @@ fs_obj_read:
 # in: ebx = partition-relative LBA
 # in: esi = buffer
 # in: ecx = bytes	# writes at least 1 sector
+#[in: edx = class being saved]
 fs_obj_write:
 	push_	edx ecx ebx eax
+	.if FS_OBJ_DEBUG_RW
+		call newline
+		DEBUG_CLASS
+		DEBUG "fs_obj_write", 0x4f
+		DEBUGS [edx+class_name]
+		DEBUG_DWORD ecx
+		DEBUG_DWORD ebx
+	.endif
 	call	fs_obj_rw_init$
 	jc	9f
+	.if FS_OBJ_DEBUG_RW
+		DEBUG_DWORD ebx
+		call newline
+	.endif
+	.if FS_OBJ_DEBUG_RW > 1
+		call more
+	.endif
 	call	disk_write
 	LOAD_TXT "disk_write error", edx
 	jc	9f
