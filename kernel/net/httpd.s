@@ -389,7 +389,7 @@ FS_DIRENT_ATTR_DIR=0x10
 1:	# esi, ecx = file contents
 	mov	esi, edi
 	.if NET_HTTP_DEBUG
-		println "200 "
+		printlnc 10, "200 "
 	.endif
 	push	ebp
 	mov	ebp, esp
@@ -609,7 +609,7 @@ http_parse_header_line$:
 		mov	al, '\n'
 		repnz	scasb
 		jnz	3f
-		print "Referer: "
+		printc 14, "Referer: "
 		mov	ecx, edi
 		sub	ecx, esi
 		call	nprint
@@ -617,6 +617,7 @@ http_parse_header_line$:
 	3:	printc 4, "referer: no eol"
 	4:	pop_	esi eax ecx
 	.endif
+	jmp	0f
 
 
 2:	# found Host header line
@@ -913,7 +914,9 @@ www_content2$:	.asciz "</body></html>\r\n"
 www_err_response:
 	.if NET_HTTP_DEBUG
 		mov	ecx, 4
+		pushcolor 12
 		call	nprintln
+		popcolor
 	.endif
 
 	mov	edx, esi
