@@ -507,6 +507,9 @@ SCHEDULE_EARLY = 0
 	.text32
 	mov	[kernel_boot_time], edx
 
+	I "Boot Time "
+	call print_datetime
+
 	COLOR 7
 
 .if SHOWOFF

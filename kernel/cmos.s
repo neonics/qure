@@ -231,6 +231,7 @@ cmos_print_date:
 
 .global cmos_get_date
 cmos_get_date:
+	push_	eax ecx
 
 	.macro BCD2BIN
 		mov	cl, 10
@@ -243,10 +244,10 @@ cmos_get_date:
 
 	.macro APPEND_DATE nr, bits
 		CMOS_READ \nr
-		shl	ebx, \bits
+		shl	edx, \bits
 		BCD2BIN
 		#call printspace;movzx edx,al; call printdec32
-		or	bl, al
+		or	dl, al
 	.endm
 
 	APPEND_DATE 9, 6 # Y
@@ -257,6 +258,7 @@ cmos_get_date:
 	APPEND_DATE 0, 6 # s
 	.purgem BCD2BIN
 	.purgem APPEND_DATE
+	pop_	ecx eax
 	ret
 
 # in: edx = date as per cmos_get_date
@@ -270,6 +272,7 @@ print_datetime:
 		call	0f
 	.endm
 	push_	eax ebx ecx edx
+	mov	ebx, edx
 	printchar_ '2'
 	printchar_ '0'
 	PRINT_DATEPART 6,'/'	# Y
@@ -302,6 +305,7 @@ sprint_datetime:
 	_B=0
 	_C=0
 	push_	eax ebx ecx edx
+	mov	ebx, edx
 	sprintchar '2'
 	sprintchar '0'
 	PRINT_DATEPART 6,'/'	# Y
