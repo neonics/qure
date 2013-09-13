@@ -1295,12 +1295,16 @@ net_dns_request:
 	pop	esi
 	NET_BUFFER_SEND
 
-9:
-	pop	edx
+0:	pop	edx
 	pop	ecx
 	pop	ebx
 	pop	eax
 	pop	esi
 	pop	edi
 	ret
+9:	pop	eax	# net buffer
+	NET_BUFFER_FREE
+	stc
+	jmp	0b
+	
 

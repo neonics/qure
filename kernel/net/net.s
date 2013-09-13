@@ -10,6 +10,8 @@ NET_QUEUE_DEBUG = 0
 NET_ARP_DEBUG = NET_DEBUG
 NET_IPV4_DEBUG = NET_DEBUG
 
+NET_RX_QUEUE_MIN_SIZE = 8
+
 CPU_FLAG_I = (1 << 9)
 CPU_FLAG_I_BITS = 9
 
@@ -164,7 +166,7 @@ net_buffer_allocate$:
 	mov	[net_buffer_index], edx
 	add	edx, eax
 	mov	eax, BUFFER_SIZE + 16
-	call	malloc
+	call	mallocz
 	mov	[edx], eax
 	jnc	1f
 9:	printlnc 0x4f, "net_buffer_allocate: malloc error"
@@ -183,7 +185,7 @@ net_buffer_get:
 	add	edx, 4
 	cmp	edx, [eax + array_capacity]
 	jb	0f
-	xor	edx, edx
+	xor	edx, edx	# round robin
 0:	mov	[net_buffer_index], edx
 	cmp	edx, [eax + array_index]
 	mov	eax, [eax + edx]
@@ -228,6 +230,10 @@ net_buffer_send:
 	mov	ecx, edi
 	sub	ecx, esi
 	call	net_buffer_send$
+.endm
+
+.macro NET_BUFFER_FREE
+	# TODO
 .endm
 
 ##############################################################################
@@ -748,7 +754,7 @@ net_rx_queue_newentry:
 	jmp	2f
 
 # this'll append - assuming tail = [eax+array_index]
-1:	ARRAY_NEWENTRY [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, 4, 9f
+1:	ARRAY_NEWENTRY [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, NET_RX_QUEUE_MIN_SIZE, 9f
 2:	add	ecx, edx
 	cmp	ecx, [eax + array_capacity]
 	jb	1f

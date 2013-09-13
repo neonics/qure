@@ -131,8 +131,10 @@ net_icmp_header_put:
 net_ipv4_icmp_handle:
 	call	net_sock_deliver_icmp
 
+	mov	ax, [esi + icmp_type]	# al=type ah=code
+
 	# check for ping request
-	cmp	[esi + icmp_type], byte ptr 8
+	cmp	al, 8
 	jnz	1f
 	.if NET_ICMP_DEBUG
 		printc 11, "ICMP PING REQUEST "
@@ -141,7 +143,7 @@ net_ipv4_icmp_handle:
 	clc
 	ret
 
-1:	cmp	[esi + icmp_type], byte ptr 0
+1:	cmp	al, byte ptr 0
 	jnz	1f
 	mov	eax, [edx + ipv4_src]
 	.if NET_ICMP_DEBUG
@@ -153,7 +155,7 @@ net_ipv4_icmp_handle:
 	clc
 0:	ret
 
-1:	cmp	[esi + icmp_type], byte ptr 5
+1:	cmp	al, byte ptr 5
 	jnz	1f
 	.if 1# NET_ICMP_DEBUG
 		printc 11, "ICMP Redirect "
@@ -167,7 +169,7 @@ net_ipv4_icmp_handle:
 	clc
 	ret
 
-1:	cmp	[esi + icmp_type], byte ptr 11
+1:	cmp	al, byte ptr 11
 	jnz	1f
 	.if NET_ICMP_DEBUG
 		printc 11, "ICMP timeout "
@@ -182,6 +184,24 @@ net_ipv4_icmp_handle:
 	clc
 	ret
 
+1:	cmp	al, 3
+	jnz	1f
+	.if NET_ICMP_DEBUG
+		printc 11, "ICMP destination unreachable: code "
+		mov	al, ah
+		call	printhex2
+	# 3	destination unreachable
+	#	codes: 0=net / 1=host / 2=protocol / 3=port unreachable
+	#	  4=fragmentation needed & DontFrag set; 5=src route failed,
+	#	  6=dest net unknown, 7=dest host unknown, 8=source host
+	#	  isolated, 9 = dest net comm prohibit, 10=dest host admin prhbt
+	#	  11 = dest net unreach for TOS, 12=dest Host unr for TOS,
+	#	  13 = comm prohibit, 14 = host precedence violation,
+	#	  15 = precedence cutoff in effect.
+	#	msg format: [type][code][checksum], [id][seq] unused,
+	#	[internet header][64 bits of original datagram].
+	#	codes 0,1,4,5: gateway; codes 2,3: host
+	.endif
 1:
 9:	printlnc 4, "ipv4_icmp: dropped packet"
 	call	net_ivp4_icmp_print
@@ -562,6 +582,16 @@ net_ivp4_icmp_print:
 	call	printhex4
 
 	call	newline
+
+	cmp	byte ptr [esi + icmp_type], 3
+	jnz	1f
+	push_	esi ecx
+	add	esi, offset icmp_payload
+	mov	ecx, TCP_HEADER_SIZE + 64/8	# 64 bits orig dgram
+	call	net_ipv4_print
+	pop_	ecx esi
+
+1:
 	ret
 
 
