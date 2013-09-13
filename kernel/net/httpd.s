@@ -730,6 +730,14 @@ expr_h_call:
 	call	edx
 	ret
 
+kernel_get_uptime:
+	push	edi
+	call	get_time_ms_40_24
+	call	sprint_time_ms_40_24
+	mov	ecx, edi
+	pop	edi
+	sub	ecx, edi
+	ret
 .data
 www_expr:
 
@@ -744,6 +752,7 @@ www_expr:
 
 .long (99f - .)/10
 STRINGPTR "kernel.revision";	.byte 1,3;.long KERNEL_REVISION
+STRINGPTR "kernel.uptime";	.byte 3,2;.long kernel_get_uptime
 .if 1
 STRINGPTR "kernel.size";	.byte 3,1;.long expr_krnl_get_size
 STRINGPTR "kernel.code.size";	.byte 3,1;.long expr_krnl_get_code_size
@@ -761,6 +770,7 @@ STRINGPTR "mem.heap.reserved";	.byte 3,1;.long mem_get_reserved
 STRINGPTR "mem.heap.free";	.byte 3,1;.long mem_get_free
 STRINGPTR "cluster.kernel.revision";	.byte 3,2;.long cluster_get_kernel_revision
 STRINGPTR "cluster.status";	.byte 3,2;.long cluster_get_status
+STRINGPTR "cluster.status.list";.byte 3,2;.long cluster_get_status_list
 99:
 www_expr_handlers:
 	.long expr_h_unknown

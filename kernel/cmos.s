@@ -194,6 +194,208 @@ cmos_list:
 .endif
 	ret
 
+# modifies ax
+cmos_print_date:
+	#1,3,5=alarm
+	#6=day of week
+	printchar '2'
+	printchar '0'
+	CMOS_PRINTDEC 9	# year
+	PRINTCHAR '/'
+	CMOS_PRINTDEC 8	# month
+	PRINTCHAR '/'
+	CMOS_PRINTDEC 7	# date 
+	PRINTCHAR ' '
+	CMOS_PRINTDEC 4	# hours
+	PRINTCHAR ':'
+	CMOS_PRINTDEC 2	# minutes
+	PRINTCHAR ':'
+	CMOS_PRINTDEC 0	# seconds
+	# or:
+	#call	newline
+	#call	cmos_get_date
+	#call	print_datetime
+	ret
+
+
+# date format:	bit	bcd
+# year: 100:	7 bit	2
+# month: 12:	4 bit	2
+# date: 31:	5 bit	2
+# hours: 23:	5 bit	2
+# minutes: 60:	6 bit	2
+# seconds: 60	6 bit	2
+#---------------------------------
+#               33 bit	6 bytes
+# make 32 bit: year: 6 bit - max 2064.
+
+.global cmos_get_date
+cmos_get_date:
+
+	.macro BCD2BIN
+		mov	cl, 10
+		mov	ch, al
+		shr	al, 4
+		and	ch, 0xf
+		imul	cl
+		add	al, ch
+	.endm
+
+	.macro APPEND_DATE nr, bits
+		CMOS_READ \nr
+		shl	ebx, \bits
+		BCD2BIN
+		#call printspace;movzx edx,al; call printdec32
+		or	bl, al
+	.endm
+
+	APPEND_DATE 9, 6 # Y
+	APPEND_DATE 8, 4 # M
+	APPEND_DATE 7, 5 # d
+	APPEND_DATE 4, 5 # h
+	APPEND_DATE 2, 6 # m
+	APPEND_DATE 0, 6 # s
+	.purgem BCD2BIN
+	.purgem APPEND_DATE
+	ret
+
+# in: edx = date as per cmos_get_date
+.global print_datetime
+print_datetime:
+	_B=0
+	_C=0
+	.macro PRINT_DATEPART bits, chr=0
+		.if _B != \bits; _B=\bits; mov cl, \bits; .endif
+		.if _C != \chr;  _C=\chr;  mov al, \chr;  .endif
+		call	0f
+	.endm
+	push_	eax ebx ecx edx
+	printchar_ '2'
+	printchar_ '0'
+	PRINT_DATEPART 6,'/'	# Y
+	PRINT_DATEPART 4,'/'	# M
+	PRINT_DATEPART 5,' '	# d
+	PRINT_DATEPART 5,':'	# h
+	PRINT_DATEPART 6,':'	# m
+	PRINT_DATEPART 6	# s
+	pop_	edx ecx ebx eax
+	ret
+
+0:	mov	ah, 1
+	rol	ebx, cl
+	shl	ah, cl
+	movzx	edx, bl
+	dec	ah
+	and	dl, ah #(1<<\bits)-1
+	cmp	dl, 10
+	jae	1f
+	printchar '0'
+1:	call	printdec32
+	or	al, al
+	jnz	printchar
+	ret
+
+# in: edx = date as per cmos_get_date
+# in: edi = buffer with at least 5+3+3+3+3+2=19 bytes of free space
+.global sprint_datetime
+sprint_datetime:
+	_B=0
+	_C=0
+	push_	eax ebx ecx edx
+	sprintchar '2'
+	sprintchar '0'
+	PRINT_DATEPART 6,'/'	# Y
+	PRINT_DATEPART 4,'/'	# M
+	PRINT_DATEPART 5,' '	# d
+	PRINT_DATEPART 5,':'	# h
+	PRINT_DATEPART 6,':'	# m
+	PRINT_DATEPART 6	# s
+	pop_	edx ecx ebx eax
+	ret
+	.purgem PRINT_DATEPART
+
+0:	mov	ah, 1
+	rol	ebx, cl
+	shl	ah, cl
+	movzx	edx, bl
+	dec	ah
+	and	dl, ah #(1<<\bits)-1
+	cmp	dl, 10
+	jae	1f
+	sprintchar '0'
+1:	call	sprintdec32
+	or	al, al
+	jz	1f
+	sprintchar al
+1:	ret
+
+# in: edx = datetime
+# in: eax = milliseconds
+# out: edx = datetime
+datetime_add:
+	push_	eax ebx ecx esi edi
+	mov	ecx, edx
+
+	# ms -> s
+	xor	edx, edx
+	mov	ebx, 1000
+	div	ebx
+
+
+	.macro NEXT_PART b, v
+		movzx	ebx, cl
+		shr	ecx, \b
+		and	bl, (1<<\b)-1
+		mov	esi, \v
+		xor	edx, edx
+		div	esi
+		or	edi, edx
+		add	ebx, edx
+		ror	edi, \b
+	.endm
+
+	NEXT_PART 6, 60	# s
+	NEXT_PART 6, 60	# m
+	NEXT_PART 5, 24	# h
+	NEXT_PART 5, 31	# d	# XXX lenient
+	NEXT_PART 4, 12	# M
+	NEXT_PART 6, 64	# Y
+	.purgem NEXT_PART
+
+	# correction
+
+	mov	eax, edi
+	shr	eax, 32-6-4	# M
+	and	al, 0xf
+	.data
+	months$: .byte 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+	.text32
+	mov	ebx, offset months$
+	xlatb
+
+	mov	edx, edi
+	shr	edx, 32-6	# Y
+	call	is_leap_year	# CF = leap year
+	adc	ebx, 0
+
+	mov	edx, edi
+	pop_	edi esi ecx ebx eax
+	ret
+
+# in: edx
+# out: CF = 1 = leap year.
+is_leap_year:
+#	year % 400 -> yes
+#	year % 100 -> no
+#	year % 4   -> yes
+#		   -> no
+	# input dates range from 2012 to 2064, so we can skip 100/400.
+	test	dl, 3
+	jnz	1f
+	stc
+1:	ret
+
+
 .if 0	# code not used
 #############################################################################
 # port 0x70: register select, NMI flag

@@ -222,6 +222,7 @@ SHELL_COMMAND "play"		cmd_play
 SHELL_COMMAND "kapi"		cmd_kapi
 SHELL_COMMAND "kapi_test"	cmd_kapi_test
 SHELL_COMMAND "uptime"		cmd_uptime
+SHELL_COMMAND "date"		cmos_print_date
 # NOTE: linker must terminate list with LONG(0);
 ### End of Shell Command list
 ############################################################################
@@ -2741,6 +2742,16 @@ cmd_uptime:
 	call printdec32
 	print "ms"
 	call	newline
+
+		sub esp, 40
+		mov edi, esp
+		call get_time_ms_40_24
+		call sprint_time_ms_40_24
+		mov esi, esp
+		mov ecx, edi
+		sub ecx, esi
+		call nprintln
+		add esp, 40
 	ret
 
 .include "../lib/xml.s"

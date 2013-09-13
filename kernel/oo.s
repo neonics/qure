@@ -103,7 +103,14 @@ class_newinstance:
 .endif
 	mov	[eax + obj_class], esi
 	push	edx	# TODO: efficient
+	.if OBJ_VPTR_COMPACT
+	mov	edx, [esi + class_decl_vptr_count]
+	shl	edx, 2
+	neg	edx
+	add	edx, [esi + class_object_size]
+	.else
 	mov	edx, [esi + class_object_size]
+	.endif
 	mov	[eax + obj_size], edx
 	pop	edx
 
@@ -507,7 +514,14 @@ class_cast:
 class_proxy:
 	push_	esi ecx
 	mov	esi, eax
+	.if OBJ_VPTR_COMPACT
+	mov	ecx, [edx + obj_class]
+	mov	ecx, [ecx + class_decl_vptr_count]
+	shl	ecx, 2
+	add	ecx, [edx + obj_size]
+	.else
 	mov	ecx, [edx + obj_size]
+	.endif
 	call	mdup
 	mov	edx, esi
 	call	obj_init_vptrs
@@ -531,6 +545,14 @@ class_instance_resize:
 	jnz	91f
 
 	.if OBJ_VPTR_COMPACT
+	# add vptr size to obj size
+	mov	edi, [eax + obj_class]
+	mov	edi, [edi + class_decl_vptr_count]
+	shl	edi, 2
+	add	edx, edi
+	.endif
+
+	.if OBJ_VPTR_COMPACT
 	mov	ecx, [eax + obj_class]
 	add	eax, [ecx + class_object_vptr]
 	.endif
@@ -538,6 +560,10 @@ class_instance_resize:
 	jc	9f	# malloc print errors
 	.if OBJ_VPTR_COMPACT
 	sub	eax, [ecx + class_object_vptr]
+	.endif
+
+	.if OBJ_VPTR_COMPACT
+	sub	edx, edi
 	.endif
 
 	mov	[eax + obj_size], edx
@@ -1340,7 +1366,7 @@ OBJ_decl_vptr_count=0
 .struct 0
 #obj_refcount: .long 0
 obj_class: .long 0
-obj_size: .long 0
+obj_size: .long 0	# the data part of the object
 OBJ_STRUCT_SIZE = .
 .text32
 

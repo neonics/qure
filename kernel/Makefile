@@ -155,6 +155,7 @@ ring1.o: ring1.s
 ring2.o: ring2.s defines.s macros.s $(DBG_SRC) print.s \
 		gdt.s mutex.s oo.s schedule.s \
 		lib/hash.s \
+		export.h \
 		kapi/export.h \
 		dev.s \
 		pci.s pic.s dma.s ata.s \

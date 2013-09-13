@@ -73,7 +73,7 @@ cloudnet_daemon:
 # in: esi, ecx = packet
 # out: ZF = 0: added, ZF = 1: updated
 mov	eax, [lan_ip]
-lea	esi, [packet_hello_c_era]
+lea	esi, [packet_hello_payload]
 call	cluster_add_node	# register self
 
 
@@ -126,7 +126,7 @@ cloud_init_ip:
 	print " - DHCP "
 
 	mov	ecx, 100	# 100 * .2s = 10s
-0:	
+0:
 	test	cl, 7
 	jnz	2f
 	printchar '.'
@@ -184,14 +184,19 @@ cloud_register:
 	call	cloud_send_hello
 	ret
 
+.struct 0
+pkt_cluster_era:	.long 0
+pkt_node_age:		.long 0
+pkt_kernel_revision:	.long 0
+pkt_node_birthdate:	.long 0
+PKT_STRUCT_SIZE = .
+
 .data
 packet_hello$:
 .asciz "hello"
-packet_hello_c_era: .long 0
-packet_hello_n_age: .long 0
+packet_hello_payload:
+.space PKT_STRUCT_SIZE
 packet_hello_end$ = .
-.struct 6; pkt_cluster_c_era:
-.struct 10; pkt_cluster_n_age:
 .text32
 
 .macro LOAD_PACKET p
@@ -205,9 +210,13 @@ cloud_send_hello:
 	push_	edx eax
 	mov	eax, [cluster_node]
 	mov	edx, [eax + cluster_era]
-	mov	[packet_hello_c_era], edx
+	mov	[packet_hello_payload + pkt_cluster_era], edx
 	mov	edx, [eax + node_age]
-	mov	[packet_hello_n_age], edx
+	mov	[packet_hello_payload + pkt_node_age], edx
+	mov	edx, [kernel_boot_time]
+	mov	[packet_hello_payload + pkt_node_birthdate], edx
+	mov	edx, KERNEL_REVISION
+	mov	[packet_hello_payload + pkt_kernel_revision], edx
 	pop_	eax edx
 	call	cloud_packet_send
 	ret
@@ -322,7 +331,7 @@ cloudnet_rx:
 	pop	eax
 
 	jmp	0b
-	
+
 
 9:	printlnc 4, "cloudnet: cannot open socket, terminating"
 	ret
@@ -337,6 +346,8 @@ node_cstatus_n_age: .long 0
 node_cycles:	.long 0
 node_clock_met:	.long 0
 node_clock:	.long 0
+node_birthdate:	.long 0
+node_kernel_revision: .long 0
 NODE_SIZE = .
 .data
 cluster_ips:	.long 0	# ptr_array for scasd
@@ -387,15 +398,27 @@ cluster_add_node:
 	printc 13, " add cluster node "
 	mov	eax, ecx
 	call	print_ip$
-	call	printspace
+	print " era "
+	mov	edx, [esi + pkt_cluster_era]
+	call	printdec32
+	print " age "
+	mov	edx, [esi + pkt_node_age]
+	call	printdec32
+	print " krev "
+	mov	edx, [esi + pkt_kernel_revision]
+	call	printdec32
 	call	newline
 
 2:	mov	eax, [clock]
 	mov	[ebx + node_clock], eax
-	mov	eax, [esi + 0]	# cluster era
+	mov	eax, [esi + pkt_cluster_era]	# cluster era
 	mov	[ebx + node_cstatus_c_era], eax
-	mov	eax, [esi + 4] # node age
+	mov	eax, [esi + pkt_node_age] # node age
 	mov	[ebx + node_cstatus_n_age], eax
+	mov	eax, [esi + pkt_kernel_revision]
+	mov	[ebx + node_kernel_revision], eax
+	mov	eax, [esi + pkt_node_birthdate]
+	mov	[ebx + node_birthdate], eax
 
 	clc
 
@@ -420,9 +443,9 @@ cluster_ping:
 	mov	eax, [ebx + edx + node_addr]
 	# send era,age nown for node
 	mov	ecx, [ebx + edx + node_cstatus_c_era]
-	mov	[packet_hello_c_era], ecx
+	mov	[packet_hello_payload + pkt_cluster_era], ecx
 	mov	ecx, [ebx + edx + node_cstatus_n_age]
-	mov	[packet_hello_c_era], ecx
+	mov	[packet_hello_payload + pkt_cluster_era], ecx
 
 	pushad
 	LOAD_PACKET ping
@@ -464,7 +487,7 @@ cloudnet_handle_packet:
 
 	mov	eax, [esi]	# peer ip
 	push	esi
-	lea	esi, [esi + 12 + pkt_cluster_c_era]
+	lea	esi, [esi + 12 + 6] # 12:READPEER, 6: "hello\0"
 	call	cluster_add_node
 	pop	esi
 
@@ -490,9 +513,9 @@ cloudnet_handle_packet:
 	push	eax	# preserve ip
 	mov	eax, [cluster_node]
 	mov	edx, [eax + cluster_era]
-	mov	[packet_hello_c_era], edx
+	mov	[packet_hello_payload + pkt_cluster_era], edx
 	mov	edx, [eax + node_age]
-	mov	[packet_hello_n_age], edx
+	mov	[packet_hello_payload + pkt_node_age], edx
 	pop	eax
 	printc 13, " respond "
 	LOAD_PACKET hello
@@ -627,28 +650,32 @@ cmd_cloud:
 	call	printspace
 	mov	eax, [ebx + ecx + node_addr]
 	call	print_ip$
-	movzx	edx, word ptr [ebx + ecx + node_cstatus_n_age]
+	pushd	[ebx + ecx + node_kernel_revision]
+	mov	edx, [ebx + ecx + node_cstatus_n_age]
 	push	edx
-	movzx	edx, word ptr [ebx + ecx + node_cstatus_c_era]
+	mov	edx, [ebx + ecx + node_cstatus_c_era]
 	push	edx
-	pushstring " c.era %3d n.age %3d"
+	pushstring " c.era %3d n.age %3d krnlrev %3d"
 	call	printf
-	add	esp, 3*4
-		
-	printc 15, " met: "
+	add	esp, 4*4
+
+	print " birthdate: "
+	mov	edx, [ebx + ecx + node_birthdate]
+	call	print_datetime
+
+	call	newline
+	printc 15, "  (met: "
 	mov	edx, [clock]
 	sub	edx, [ebx + ecx + node_clock_met]
 	call	_print_time$
 	print " ago"
 
-
 	printc 15, " seen: "
 	mov	edx, [clock]
 	sub	edx, [ebx + ecx + node_clock]
 	call	_print_time$
-	print " ago"
+	println " ago)"
 
-	call	newline
 	ARRAY_ENDL
 2:
 	ret
@@ -732,10 +759,10 @@ netobj_send:
 DECLARE_CLASS_BEGIN cluster_node, netobj
 
 cluster_node_persistent:
-	cluster_era:	.long 0
+	cluster_era:	.long 0 # cluster incarnations
 	node_age:	.long 0
-	cluster_era_start:
-	cluster_birth:	.long 0	# age when era incremented
+	cluster_era_start:.long 0 # age when era incremented
+	cluster_birthdate:.long 0 # cmos time
 
 .org cluster_node_persistent + 512
 
@@ -936,9 +963,13 @@ table:.long 0
 	add	esp, 12
 
 	mov	edx, [eax + cluster_era]
-	mov	[packet_hello_c_era], edx
+	mov	[packet_hello_payload + pkt_cluster_era], edx
 	mov	edx, [eax + node_age]
-	mov	[packet_hello_n_age], edx
+	mov	[packet_hello_payload + pkt_node_age], edx
+	mov	edx, KERNEL_REVISION
+	mov	[packet_hello_payload + pkt_kernel_revision], edx
+	mov	edx, [kernel_boot_time]
+	mov	[packet_hello_payload + pkt_node_birthdate], edx
 
 	mov	[esp], eax
 
@@ -1010,6 +1041,23 @@ cluster_get_kernel_revision:
 # in: edi, ecx = buffer
 # out: ecx = len
 cluster_get_status:
+	push	edx
+	mov	edx, 1
+	call	cluster_get_status_
+	pop	edx
+	ret
+cluster_get_status_list:
+	push	edx
+	mov	edx, 3
+	call	cluster_get_status_
+	pop	edx
+	ret
+
+# Produces html
+# in: edx = flags
+# in: edi, ecx = buffer
+# out: ecx = len
+cluster_get_status_:
 	push_	edx ebx esi edi ecx ebp
 	lea	ebp, [esp + 4]
 
@@ -1034,20 +1082,40 @@ cluster_get_status:
 	mov	edx, eax
 
 1:	call	sprintdec32
+	testb	[ebp + 16], 1
+	jz	9f
 
 	mov	word ptr [edi], ' '
 
-	mov	edx, ecx
-	LOAD_TXT " ages: [ ", esi, ecx
+	testb	[ebp + 16], 2
+	jnz	1f
+	mov	eax, '<'|('u'<<8)|('l'<<16)|('>'<<24)
+	stosd
+	jmp	3f
+
+1:	mov	edx, ecx
+	LOAD_TXT "<table>", esi, ecx, 1
 	sub	edx, ecx
 	jle	9f
 	sub	[ebp], ecx
 	rep	movsb
 	mov	ecx, edx
-	dec	edi
-
+3:
 	ARRAY_LOOP [cluster_nodes], NODE_SIZE, ebx, esi
-	mov	eax, [cloud_nic]
+	mov	ecx, edi
+	add	ecx, 64	# guestimate
+	sub	ecx, [ebp + 4]
+	jle	9f
+	testb	[ebp + 16], 2
+	jnz	1f
+	mov	eax, '<'|('l'<<8)|('i'<<16)|('>'<<24)
+	stosd
+	jmp	2f
+1:	push	esi
+	LOAD_TXT "<tr><td>", esi, ecx, 1
+	rep	movsb
+	pop	esi
+2:	mov	eax, [cloud_nic]
 	mov	eax, [eax + nic_ip]
 	cmp	eax, [ebx + esi + node_addr]
 	mov	ah, 0
@@ -1057,23 +1125,53 @@ cluster_get_status:
 	dec	edi
 	mov	ah, 1
 	1:
-	movzx	edx, word ptr [ebx + esi + node_cstatus_c_era]
+	mov	edx, [ebx + esi + node_cstatus_c_era]
 	call	sprintdec32
 	mov	al, '#'
 	stosb
-	movzx	edx, word ptr [ebx + esi + node_cstatus_n_age]
+	mov	edx, [ebx + esi + node_cstatus_n_age]
 	call	sprintdec32
 	cmp	ah, 1
 	jnz	1f
 	mov	eax, '<'|('/'<<8)|('b'<<16)|'>'<<24
 	stosd
 	1:
-	mov	al, ' '
-	stosb
-	ARRAY_ENDL
 
-	mov	ax, ']'
-	stosw
+	testb	[ebp + 16], 2
+	jnz	1f
+	mov	eax, '<'|'/'<<8|'l'<<16|'i'<<24
+	stosd
+	mov	al, '>'
+	stosb
+	jmp	0f
+
+1:	push esi
+	LOAD_TXT "</td><td>", esi, ecx, 1
+	rep	movsb
+	pop esi
+	movzx	edx, word ptr [ebx + esi + node_kernel_revision]
+	call	sprintdec32
+
+	mov	edx, [ebx + esi + node_birthdate]
+	push	esi
+	LOAD_TXT "</td><td>birthdate ", esi, ecx, 1
+	rep	movsb
+	call	sprint_datetime
+	LOAD_TXT "</td></tr>", esi, ecx, 1
+	rep	movsb
+	pop	esi
+0:	ARRAY_ENDL
+
+	testb	[ebp + 16], 2
+	jnz	1f
+	mov	eax, '<'|('/'<<8)|('u'<<16)|('l'<<24)
+	stosd
+	mov	al, '>'
+	stosb
+	jmp	9f
+
+1:	LOAD_TXT "</table>", esi, ecx, 1
+	rep	movsb
 
 9:	mov	ecx, edi
 	sub	ecx, [ebp + 4]

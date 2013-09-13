@@ -335,7 +335,7 @@ COLOR_STACK_SIZE = 2
 .endm
 
 .macro sPRINTCHAR c
-	mov	[edi], byte ptr \c
+	mov	byte ptr [edi], \c
 	inc	edi
 .endm
 
@@ -358,7 +358,7 @@ COLOR_STACK_SIZE = 2
 .endm
 
 ###### Load String Pointer
-.macro LOAD_TXT txt, reg=esi, lenreg=0
+.macro LOAD_TXT txt, reg=esi, lenreg=0, incz=0
 	_CODE_OFFS = .
 	.data SECTION_DATA_STRINGS
 		199: .asciz "\txt"
@@ -368,7 +368,7 @@ COLOR_STACK_SIZE = 2
 	.text32
 	mov	\reg, offset 199b
 	.ifnc \lenreg,0
-	mov	\lenreg, offset 198b-199b
+	mov	\lenreg, offset 198b-199b -\incz # without trailing 0
 	.endif
 .endm
 
@@ -1867,6 +1867,117 @@ print_time_ms_40_24:
 	shl	eax, 8
 	call	printdec32
 	printchar 'd'
+	mul	ebx
+	shrd	eax, edx, 8
+	shr	edx, 8
+	jmp	4b
+
+9:	pop_	eax edx ebx
+	ret
+
+
+# in: edx:eax = ms << 24 (and 24-bit fraction)
+# in: edi = buffer (min size: ...?)
+sprint_time_ms_40_24:
+	push_	ebx edx eax
+
+	# milliseconds
+	cmp	edx, 0
+	jnz	1f
+	cmp	eax, 1<<24	# 1 ms
+	jae	1f
+	# microseconds
+	mov	ebx, 1000 << 8
+	imul	ebx
+	mov	bl, 3
+	call	sprint_fixedpoint_32_32$
+	sprint "us"
+	jmp	9f
+1:
+
+	cmp	edx, 1000 >> 8
+	ja	1f
+
+	shld	edx, eax, 8	# align: edx = ms, eax = frac
+	shl	eax, 8
+
+	mov	bl, 3
+	call	sprint_fixedpoint_32_32$
+	sprint "ms"
+	jmp	9f
+
+1:	# seconds
+	cmp	edx, 60000 >> 8
+	ja	1f
+
+	# edx:eax << 8 = ms
+	mov	ebx, 1000
+	div	ebx
+	# edx = mod 1000
+	xor	edx, edx
+	shld	edx, eax, 8
+	shl	eax, 8
+	mov	bl, 3
+	call	sprint_fixedpoint_32_32$
+
+	sprint "s"
+	jmp	9f
+
+1:	# minutes:seconds
+	cmp	edx, 3600000 >> 8
+	jae	1f
+
+3:	mov	ebx, 60000
+	div	ebx
+	xor	edx, edx
+	shld	edx, eax, 8
+	shl	eax, 8
+	cmp	edx, 10
+	jae	2f
+	sprintchar '0'
+2:	call	sprintdec32
+
+	# eax = fraction
+	mov	edx, 60
+	mul	edx
+	sprintchar 'm'
+	cmp	edx, 10
+	jae	2f
+	sprintchar '0'
+2:	mov	bl, 3
+	call	sprint_fixedpoint_32_32$
+	sprintchar 's'
+	jmp	9f
+
+
+1:	# hour
+	cmp	edx, 3600000 * 24 >> 8
+	jae	1f
+4:	mov	ebx, 3600000
+	div	ebx
+	xor	edx, edx
+	shld	edx, eax, 8
+	shl	eax, 8
+	cmp	edx, 10
+	jae	2f
+	sprintchar '0'
+2:	call	printdec32
+	sprintchar 'h'
+	mov	edx, 3600000
+	mul	edx
+
+	shrd	eax, edx, 8
+	shr	edx, 8
+	jmp	3b
+
+1:	# days
+	mov	ebx, 3600000 * 24
+	idiv	ebx	# using idiv in case negative time (no #DE)
+	xor	edx, edx
+	shld	edx, eax, 8
+	shl	eax, 8
+	call	sprintdec32
+	sprintchar 'd'
 	mul	ebx
 	shrd	eax, edx, 8
 	shr	edx, 8

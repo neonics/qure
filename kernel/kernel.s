@@ -137,6 +137,7 @@ include "fs/iso9660.s", iso9660
 	.global print_size
 	.global sprint_size
 	.global print_time_ms_40_24
+	.global sprint_time_ms_40_24
 	.global printc
 	.global printchar
 	.global printcharc
@@ -212,6 +213,7 @@ include "fs/iso9660.s", iso9660
 	.global clock
 	.global clock_ms
 	.global get_time_ms
+	.global get_time_ms_40_24
 
 	# scheduler
 	.global task_wait_io
@@ -497,6 +499,13 @@ SCHEDULE_EARLY = 0
 	call	newline
 
 	call	cmos_list
+
+	call	cmos_get_date
+	.data SECTION_DATA_BSS
+	.global kernel_boot_time
+	kernel_boot_time: .long 0
+	.text32
+	mov	[kernel_boot_time], edx
 
 	COLOR 7
 
