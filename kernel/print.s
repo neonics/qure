@@ -1961,7 +1961,7 @@ sprint_time_ms_40_24:
 	cmp	edx, 10
 	jae	2f
 	sprintchar '0'
-2:	call	printdec32
+2:	call	sprintdec32
 	sprintchar 'h'
 	mov	edx, 3600000
 	mul	edx
