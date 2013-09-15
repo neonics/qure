@@ -15,6 +15,8 @@ OOFS_MAGIC = ( 'O' | 'O' << 8 | 'F' << 16 | 'S' << 24)
 ###############################################################################
 .if DEFINE
 
+.include "fs/oofs/export.h" # so that GAS doesn't assume memref for constants
+
 DECLARE_CLASS_BEGIN fs_oofs, fs
 .global oofs_root
 oofs_root:	.long 0	# ptr to root object

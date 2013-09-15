@@ -334,6 +334,96 @@ sprint_datetime:
 1:	ret
 
 # in: edx = datetime
+# out: edx = seconds since epoch (2000)
+.global datetime_to_s
+datetime_to_s:
+	push_	eax ebx ecx esi edi
+	mov	ecx, edx	# backup
+
+	call	datetime_to_days	# in/out: edx
+	mov	ebx, edx
+
+	# ..:5:6:6
+	mov	edi, ecx
+	shr	ecx, 6
+	and	edi, (1<<6)-1	# seconds
+
+	mov	esi, 60
+	mov	eax, ecx
+	shr	ecx, 6
+	and	eax, (1<<6)-1	# minutes
+	imul	esi
+	add	edi, eax
+
+	mov	esi, 3600
+	mov	eax, ecx
+	and	eax, (1<<5)-1	# hours
+	imul	esi
+	add	edi, eax
+
+	# convert ebx (days) to seconds
+	mov	eax, 24*60*60
+	imul	ebx
+
+	lea	edx, [eax + edi]
+
+	pop_	edi esi ecx ebx eax
+	ret
+
+# in: edx
+# out: edx = day of year
+.global datetime_to_days
+datetime_to_days:
+	push_	eax ebx
+
+	shr	edx, 6+6+5	# shift out s, m, h
+
+	# day
+	mov	ebx, edx	# ebx = sum of days
+	and	ebx, (1<<5)-1	# d
+	shr	edx, 5
+
+	.data
+	mcnt$: .word 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365
+	.text32
+
+	# month
+	mov	eax, edx
+	shr	edx, 4	# shift out month
+
+	and	eax, (1<<4)-1
+	dec	eax
+
+	cmp	eax, 1
+	jbe	1f
+	# month march+: check leap
+	test	dl, 3
+	jnz	1f
+	inc	ebx	# add leapday
+
+1:	movzx	eax, word ptr [mcnt$ + eax*2]
+	add	ebx, eax
+
+	# EBX = DAY OF YEAR: done.
+
+	# but, continue to calc all days since epoch:
+
+	# dl = year (0=2000).
+	# the current year leapday has been added.
+	# count nr of leapyears:
+	shr	dl, 2	# nr of 4-years = nr of leapdays
+	add	ebx, edx	# add leap days since epoch before this year
+
+	mov	eax, 365
+	imul	edx
+	add	ebx, eax	# add days
+
+	mov	edx, ebx
+	pop_	ebx eax
+	ret
+
+
+# in: edx = datetime
 # in: eax = milliseconds
 # out: edx = datetime
 datetime_add:

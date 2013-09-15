@@ -474,6 +474,7 @@ cur_clock:	.long 0
 cur_status:	.byte 0
 latch_val:	.word 0
 frac:		.long 0,0
+.global clock_ms_fp
 clock_ms_fp:	.long 0, 0 # clock_ms >> 8 (34 year; 24 bit fraction)
 
 last_clock:	.long 0
@@ -646,3 +647,24 @@ get_time_ms:
 	mov	eax, edx
 	pop	edx
 	ret
+
+.global get_datetime_s
+# out: edx = time in seconds since epoch (2000)
+get_datetime_s:
+	push_	esi eax
+	# bypass CMOS: read kernel time
+	mov	edx, [clock_ms_fp]
+	mov	eax, [clock_ms_fp+4]
+	shrd	eax, edx, 24
+	shr	edx, 24
+
+	mov	esi, 1000
+	idiv	esi		# eax: seconds since boot
+
+	mov	edx, [kernel_boot_time]
+	call	datetime_to_s	# TODO: cache
+	add	edx, eax
+
+	pop_	eax esi
+	ret
+

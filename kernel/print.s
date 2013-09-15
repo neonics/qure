@@ -630,6 +630,7 @@ COLOR_STACK_SIZE = 2
 .global printdec8
 .global printdec16
 .global printdec32
+.global _s_printdec32
 
 ###############################################################################
 # structures, data, code
@@ -1485,6 +1486,13 @@ printdec32:
 	PRINT_END
 	ret
 
+_s_printdec32:
+	push	edx
+	mov	edx, [esp + 8]
+	call	printdec32
+	pop	edx
+	ret
+
 # unsigned 32 bit print
 __printdec32:
 	push	edx
@@ -1765,6 +1773,167 @@ sprint_size_:
 
 ##############################################################################
 # Printing Time-periods
+
+.global print_time_s
+# in: eax = seconds (edx ignored)
+print_time_s:
+	push_	ebx edx eax
+######################################
+	# years
+	cmp	eax, 52*7*24*60*60
+	jb	1f
+	xor	edx, edx
+	mov	ebx, 52*7*24*60*60
+	idiv	ebx
+	xchg	eax, edx
+	call	printdec32
+	printcharc 8,'y'
+	jmp	2f
+######################################
+1:	# weeks
+	cmp	eax, 7*24*60*60
+	jb	1f
+2:	xor	edx, edx
+	mov	ebx, 7*24*60*60
+	idiv	ebx
+	xchg	eax, edx
+	cmp	dl, 10
+	jae	3f
+	printchar '0'
+3:	call	printdec32
+	printcharc 8,'w'
+	jmp	2f
+######################################
+1:	# days
+	cmp	eax, 24*60*60
+	jb	1f
+2:	xor	edx, edx
+	mov	ebx, 24*60*60
+	idiv	ebx
+	xchg	eax, edx
+	call	printdec32
+	printcharc 8, 'd'
+	jmp	2f
+######################################
+1:	# hours
+	cmp	eax, 60*60
+	jb	1f
+2:	xor	edx, edx
+	mov	ebx, 60*60
+	idiv	ebx
+	xchg	eax, edx
+	cmp	dl, 10
+	jae	3f
+	printchar '0'
+3:	call	printdec32
+	printcharc 8, 'h'
+	jmp	2f
+######################################
+1:	# minutes
+	cmp	eax, 60
+	jb	1f
+2:	xor	edx, edx
+	mov	ebx, 60
+	idiv	ebx
+	xchg	eax, edx
+	cmp	dl, 10
+	jae	3f
+	printchar '0'
+3:	call	printdec32
+	printcharc 8, 'm'
+######################################
+1:	# seconds
+	mov	edx, eax
+	call	printdec32
+	printcharc 8, 's'
+######################################
+9:	pop_	eax edx ebx
+	ret
+
+
+
+
+
+
+.global sprint_time_s
+# in: eax = seconds (edx ignored)
+sprint_time_s:
+	push_	ebx edx eax
+######################################
+	# years
+	cmp	eax, 52*7*24*60*60
+	jb	1f
+	xor	edx, edx
+	mov	ebx, 52*7*24*60*60
+	idiv	ebx
+	xchg	eax, edx
+	call	sprintdec32
+	sprintchar 'y'
+	jmp	2f
+######################################
+1:	# weeks
+	cmp	eax, 7*24*60*60
+	jb	1f
+2:	xor	edx, edx
+	mov	ebx, 7*24*60*60
+	idiv	ebx
+	xchg	eax, edx
+	cmp	dl, 10
+	jae	3f
+	sprintchar '0'
+3:	call	sprintdec32
+	sprintchar 'w'
+	jmp	2f
+######################################
+1:	# days
+	cmp	eax, 24*60*60
+	jb	1f
+2:	xor	edx, edx
+	mov	ebx, 24*60*60
+	idiv	ebx
+	xchg	eax, edx
+	call	sprintdec32
+	sprintchar 'd'
+	jmp	2f
+######################################
+1:	# hours
+	cmp	eax, 60*60
+	jb	1f
+2:	xor	edx, edx
+	mov	ebx, 60*60
+	idiv	ebx
+	xchg	eax, edx
+	cmp	dl, 10
+	jae	3f
+	sprintchar '0'
+3:	call	sprintdec32
+	sprintchar 'h'
+	jmp	2f
+######################################
+1:	# minutes
+	cmp	eax, 60
+	jb	1f
+2:	xor	edx, edx
+	mov	ebx, 60
+	idiv	ebx
+	xchg	eax, edx
+	cmp	dl, 10
+	jae	3f
+	sprintchar '0'
+3:	call	sprintdec32
+	sprintchar 'm'
+######################################
+1:	# seconds
+	mov	edx, eax
+	cmp	dl, 10
+	jae	3f
+	sprintchar '0'
+3:	call	sprintdec32
+	sprintchar 's'
+######################################
+9:	pop_	eax edx ebx
+	ret
+
 
 # in: edx:eax = ms << 24 (and 24-bit fraction)
 print_time_ms_40_24:

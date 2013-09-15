@@ -754,7 +754,7 @@ TODO: cat sourcecode | syntax -f asm | cut -page -oprefix=page%d.html,.svg -prin
 
 DONE: kernel uptime (http) - seems to clip (02h -> 0h)
 
-TODO: cluster uptime: record start date
-TODO: have kernel read cmos at boot and store the value, when the PIT is inited
+DONE: cluster uptime: record start date
+DONE: have kernel read cmos at boot and store the value, when the PIT is inited
 and then provide math to get current date - saves CMOS IO access (no CPL0 needed)
 DONE: cluster send kernel revision
