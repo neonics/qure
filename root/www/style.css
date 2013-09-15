@@ -1,0 +1,19 @@
+		<style type='text/css'>
+			.ss { width: 144px; }
+			.ss:hover { width: 738px; }
+			dl { padding-left: 1em; }
+			div.box { margin: 1em; padding: .3em;
+				border-top: 2px solid #88e;
+				border-left: 2px solid #88e;
+				border-bottom: 2px solid #228;
+				border-right: 2px solid #114;
+				background-color: #44b;
+				color: #fff;
+			}
+			.box a { color: #eef; text-decoration: none; }
+			.box a:hover { text-decoration: underline; }
+			.box table { color: #ddd; font-size: smaller; padding: 0; margin-left: 1em }
+			.box div { margin-left: 1em }
+			.b { color: #0a0 }
+			.s { color: #00a }
+		</style>

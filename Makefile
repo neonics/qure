@@ -25,7 +25,7 @@ endef
 all: os.iso
 
 os.iso: SECTORS = $(call CALC_SECTORS,build/boot.img)
-os.iso: init build/boot.img
+os.iso: init build/boot.img site-doc
 	@echo Generating $@
 	@echo "Sectors: $(SECTORS)"
 	@cp --sparse=always build/boot.img root/boot/boot.img
@@ -116,17 +116,29 @@ build/coff.exe: util/coff.cpp
 ##########################################################################
 
 site:	root/www/site.html all
-	[ -d root/www/screenshots ] || mkdir -p root/www/screenshots
+
+site-download:
 	[ -d root/www/download ] || mkdir -p root/www/download
-	cp -a DOC/Screenshots/*.png root/www/screenshots/
 	[ -f root/www/download/boot.img.gz ] && rm root/www/download/boot.img.gz || true
 	[ -f root/www/download/os.iso.gz ] && rm root/www/download/os.iso.gz || true
 	gzip build/boot.img -c > root/www/download/boot.img.gz
 	gzip os.iso -c > root/www/download/os.iso.gz
-	[ -d root/src/kernel ] || mkdir -p root/src/kernel
-	cp -a TODO Makefile 16 bootloader kernel util fonts root/src/kernel
-	[ -d root/src/kernel/DOC ] || mkdir -p root/src/kernel/DOC
-	cp DOC/* root/src/kernel/DOC/
+
+site-src:
+	#[ -d root/src/kernel ] || mkdir -p root/src/kernel
+	#cp -a TODO Makefile 16 bootloader kernel util fonts root/src/kernel
+
+site-doc:
+	#[ -d root/src/kernel/DOC ] || mkdir -p root/src/kernel/DOC
+	#[ -d root/www/screenshots ] || mkdir -p root/www/screenshots
+	#cp -a DOC/Screenshots/*.png root/www/screenshots/
+	#cp DOC/* root/src/kernel/DOC/
+	@echo " HTML root/www/doc"
+	@[ -d root/www/doc ] || mkdir root/www/doc
+	@util/txt2html.pl DOC/Bootsector.txt root/www/doc/Bootsector.html
+	@util/txt2html.pl DOC/Cluster.txt root/www/doc/Cluster.html
+	@ls root/www/doc | util/genlinks.pl > root/www/doc.inc
+
 
 site-clean:
 	rm -rf root/www/screenshots root/www/download root/src/

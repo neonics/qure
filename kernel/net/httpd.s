@@ -433,7 +433,6 @@ FS_DIRENT_ATTR_DIR=0x10
 # use edi,ecx
 	lea	edx, [ecx + 3]
 	sub	[ebp - 12], edx	# update remaining source len
-
 	call	www_expr_handle
 
 	jmp	1b
@@ -680,10 +679,12 @@ http_parse_header_line$:
 
 # in: edi = data to scan
 # in: ecx = data len
+# out: edx = argument offset (say, ${include foo}, edx->foo)
 # out: edi, ecx: expression string
 www_findexpr:
 	push	esi
 	push	eax
+	xor	edx, edx
 
 	mov	al, '$'
 	repnz	scasb
@@ -694,11 +695,14 @@ www_findexpr:
 
 	# parse expression
 	mov	esi, edi	# start of expr
+
+	#mov	al, '}'
+	#repnz	scasb
+	#jnz	1f
+
 0:	dec	ecx
 	jle	1f
 	lodsb
-	cmp	al, ' '
-	jz	1f
 	cmp	al, '\n'
 	jz	1f
 	cmp	al, '}'
@@ -746,6 +750,7 @@ www_expr:
 # 2 = mem
 # 3 = call
 # Second byte: data type:
+# 0 = none - handler outputs to socket directly (maybe)
 # 1 = size   (out: edx:eax)
 # 2 = string (in: esi,ecx)
 # 3 = decimal32 (out: edx)
@@ -753,6 +758,7 @@ www_expr:
 .long (99f - .)/10
 STRINGPTR "kernel.revision";	.byte 1,3;.long KERNEL_REVISION
 STRINGPTR "kernel.uptime";	.byte 3,2;.long kernel_get_uptime
+STRINGPTR "include";		.byte 3,0;.long expr_include
 .if 1
 STRINGPTR "kernel.size";	.byte 3,1;.long expr_krnl_get_size
 STRINGPTR "kernel.code.size";	.byte 3,1;.long expr_krnl_get_code_size
@@ -797,13 +803,91 @@ expr_krnl_get_data_size:
 	mov	eax, offset KERNEL_DATA_SIZE
 	ret
 
+# in: ebx = expressoin argument string: expect filename
+# in: [ebp] = socket
+#[in: edi,ecx=1kb expr buffer]
+expr_include:
+	#DEBUG "include"
+	#DEBUGS ebx
+	pushad
 
+	# use static www_file$
 
-# in: eax = tcp conn
-# in: edi = expressoin
+	mov	esi, offset www_file$
+	call	strlen_
+	lea	edi, [esi + ecx]
+0:	cmpb	[edi], '/'
+	jz	1f
+	dec	edi
+	loop	0b
+	jmp	91f
+
+1:
+#	mov	al, '/'
+#	std
+#	repnz	scasd
+#	cld
+	#jnz	91f
+	inc	edi
+	movb	[edi], 0
+
+	mov	edi, offset www_file$
+	mov	esi, ebx
+	call	fs_update_path
+
+	# check whether path is still in docroot:
+	mov	esi, offset www_docroot$
+	mov	edi, offset www_file$
+	mov	ecx, WWW_DOCROOT_STR_LEN - 1 # skip null terminator
+	repz	cmpsb
+	mov	esi, offset www_code_404$
+	jnz	92f
+
+		mov	eax, offset www_file$
+		xor	edx, edx	# fs_open flags argument
+		KAPI_CALL fs_open
+		jc	93f
+		mov	ebx, eax
+
+		mov	eax, ecx
+		add	eax, 2047
+		and	eax, ~2047
+		call	mallocz
+		mov	edi, eax
+		mov	esi, eax
+
+		mov	eax, ebx
+		KAPI_CALL fs_read	# in: edi,ecx,eax
+		#jc
+
+		KAPI_CALL fs_close
+		#jc
+
+		mov	eax, [ebp]
+		call	socket_write	# eax, esi, ecx; out: esi, ecx
+
+		mov	eax, edi
+		call	mfree
+
+9:	popad
+	ret
+91:	printc 4, "illegal www_file$: no /: "
+0:	call	println
+	stc
+	jmp	9b
+92:	printc 4, "include path exceeds docroot: "
+1:	mov	esi, offset www_file$
+	jmp	0b
+93:	printc 4, "include file not found: "
+	jmp	1b
+
+# in: eax = socket
+# in: edi = expression
 # in: ecx = expression len
 # free to use: edx, esi
 www_expr_handle:
+	xor	esi,esi
+	push	esi
 	push	ebx
 	push	ecx
 	push	edi
@@ -811,10 +895,24 @@ www_expr_handle:
 
 	mov	byte ptr [edi + ecx], 0	# '}' -> 0
 	inc	ecx	# include 0 terminator for rep cmpsb
+	push	edi
+	push	eax
+	mov	al, ' '
+	repnz	scasb
+	pop	eax
+	jnz	1f
+	neg	ecx
+	add	ecx, [esp + 3*4]	# trunc
+	mov	[esp + 5*4], edi
+	mov	[esp + 3*4], ecx	# update expr len
+1:	pop	edi
+	mov	ecx, [esp + 2*4]
 
 	.if 0
+		DEBUG "www_expr_handle:"
 		mov	esi, edi
 		call	nprint
+		call	newline
 	.endif
 
 	# find expression info
@@ -835,9 +933,9 @@ www_expr_handle:
 	# not found
 	jmp	9f
 
-1:	
-	movzx	edx, byte ptr [ebx + 4]	# type
-	cmp	edx, NUM_EXPR_HANDLERS
+1:	movzx	edx, byte ptr [ebx + 4]	# type
+	and	dl, 0x7f
+	cmp	dl, NUM_EXPR_HANDLERS
 	jae	9f
 	mov	al, byte ptr [ebx + 5]	# data type
 	cmp	al, 1
@@ -853,10 +951,14 @@ www_expr_handle:
 	mov	edi, offset _tmp_expr_buf$ # for stringput types
 	mov	ecx, offset _tmp_expr_buf_end$-_tmp_expr_buf$
 
-	mov	eax, edx
+	movzx	eax, dl
 	mov	edx, [ebx + 6]		# arg2
 
+	mov	ebx, [esp + 5*4]
+	push	ebp
+	lea	ebp, [esp + 8]	# [ebp] = socket
 	call	www_expr_handlers[eax * 4]
+	pop	ebp
 	pop	ebx
 	cmp	bl, 2	# string
 	jnz	1f
@@ -868,7 +970,9 @@ www_expr_handle:
 	jmp	2f
 
 
-1:	cmp	bl, 3	# decimal32
+1:	or	bl, bl
+	jz	9f	# handler took care of sending stuff
+	cmp	bl, 3	# decimal32
 	jnz	1f
 	mov	edx, eax
 	call	sprintdec32
@@ -904,10 +1008,12 @@ www_expr_handle:
 	mov	eax, [esp]
 	KAPI_CALL socket_write
 
-9:	pop	eax
+9:	
+	pop	eax
 	pop	edi
 	pop	ecx
 	pop	ebx
+	pop	esi
 	ret
 
 .data SECTION_DATA_STRINGS

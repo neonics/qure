@@ -73,7 +73,8 @@ in the first sector.
 
 It is then required to have both the code and the data present
 in the first sector. This can be done in various ways:
-* using only .text in the first sector
+
+* using only .text in the first sector.
 * disallowing using .data in succeeding sectors.
 * using only .text throughout, using subsections.
 
@@ -295,21 +296,21 @@ Note that only 32 bit relocation compression is implemented as yet.
 
 Here is the format:
 
-	.long addr32_count | 0x4000000
-	.word alphabet_size			# i.e. 218
-	.byte alphabet_width_in_bits		# i.e. 16
-	.byte delta_width_in_bits		# i.e. 8
-alpha:	.rept alphabet_size
-		.<alphawidth> delta_value
-	.endr
-delta:	.rept addr32_count			# i.e. 5933 
-	 	.<deltawidth> alpha_idx	# i.e. .byte alpha_idx
-	.endr
+		.long addr32_count | 0x4000000
+		.word alphabet_size			# i.e. 218
+		.byte alphabet_width_in_bits		# i.e. 16
+		.byte delta_width_in_bits		# i.e. 8
+	alpha:	.rept alphabet_size
+			.<alphawidth> delta_value
+		.endr
+	delta:	.rept addr32_count			# i.e. 5933 
+			.<deltawidth> alpha_idx	# i.e. .byte alpha_idx
+		.endr
 
 
-	LEGEND:
-		<alphawidth>: .byte, .word or .dword
-		<deltawidth>: .byte, .word or .dword
+		LEGEND:
+			<alphawidth>: .byte, .word or .dword
+			<deltawidth>: .byte, .word or .dword
 
 
 Limitations
