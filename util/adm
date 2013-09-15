@@ -42,6 +42,8 @@ sub main {
 
 sub filter
 {
+	my %h = %{ shift @_ };
+
 	grep
 	{
 		my $fc = substr($_, 0, 1);
@@ -50,6 +52,12 @@ sub filter
 		lc $fc eq $fc && $fc ne '_' && $lc ne ':' &&
 		$_ ne 'new'
 	}
+	grep
+	{
+		my $a = "$h{$_}";	# get full name
+		my $c = *$a{CODE};
+		ref $c eq 'CODE'
+	}
 	@_;
 }
 
@@ -57,7 +65,7 @@ sub getmethods
 {
 	#print "(GETMETHODS $_[0])";
 	#print "[", join(', ', @m), "]";
-	filter( keys %{ shift @_ } );
+	filter( $_[0], keys %{ $_[0] } );
 }
 
 
@@ -396,19 +404,12 @@ package root::vm::cluster;
 use parent -norequire, 'root::vm';
 
 
-#			_default => 'status',
-#			new => {},
-#			stop => {},
-#			start => {},
-#			restart => {},
-#			status => {
-#				_ => sub
-#				{
-#					print "status:\n";
-#
-#				}
-#			},
 
+package vm::qemu;
+my $QEMU_PATH = "c:/apps/Qemu-windows-1.0.1/qemu-img.exe create -f raw hdd0-qemu.raw 512M";
+
+
+package vm::vmware;
 
 
 =pod
