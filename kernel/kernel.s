@@ -466,6 +466,8 @@ kmain:
 
 	call	mem_init
 
+	call	acpi_init	# before paging!
+
 	call	paging_init
 
 	call	kapi_init	# initialize the kernel api (uses paging)

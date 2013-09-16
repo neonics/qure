@@ -223,6 +223,8 @@ SHELL_COMMAND "kapi"		cmd_kapi
 SHELL_COMMAND "kapi_test"	cmd_kapi_test
 SHELL_COMMAND "uptime"		cmd_uptime
 SHELL_COMMAND "date"		cmos_print_date
+SHELL_COMMAND "shutdown"	cmd_shutdown
+SHELL_COMMAND "reboot"		cmd_reboot
 # NOTE: linker must terminate list with LONG(0);
 ### End of Shell Command list
 ############################################################################
@@ -2755,4 +2757,16 @@ cmd_uptime:
 	ret
 
 .include "../lib/xml.s"
+.include "acpi.s"
+
+cmd_shutdown:
+	call	acpi_shutdown
+	ret
+
+cmd_reboot:
+	cli
+	pushd	0
+	pushw	0
+	lidt [esp]
+	int 3
 .endif
