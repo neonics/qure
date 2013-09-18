@@ -127,16 +127,22 @@ site-download:
 site-src:
 	#[ -d root/src/kernel ] || mkdir -p root/src/kernel
 	#cp -a TODO Makefile 16 bootloader kernel util fonts root/src/kernel
+DOC=Bootsector Cluster NetFork
+DOC_SRC=$(addprefix DOC/, $(addsuffix .txt,${WWW_DOC}))
+WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${DOC}))
 
-site-doc:
+root/www/doc/%.html: DOC/%.txt util/txt2html.pl
+	@[ -d root/www/doc ] || mkdir root/www/doc
+	util/txt2html.pl $< $@
+
+root/www/doc.inc: $(WWW_DOC)
+
+site-doc: $(WWW_DOC) root/www/doc.inc
 	#[ -d root/src/kernel/DOC ] || mkdir -p root/src/kernel/DOC
 	#[ -d root/www/screenshots ] || mkdir -p root/www/screenshots
 	#cp -a DOC/Screenshots/*.png root/www/screenshots/
 	#cp DOC/* root/src/kernel/DOC/
 	@echo " HTML root/www/doc"
-	@[ -d root/www/doc ] || mkdir root/www/doc
-	@util/txt2html.pl DOC/Bootsector.txt root/www/doc/Bootsector.html
-	@util/txt2html.pl DOC/Cluster.txt root/www/doc/Cluster.html
 	@ls root/www/doc | util/genlinks.pl > root/www/doc.inc
 
 
