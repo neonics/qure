@@ -152,6 +152,7 @@ disk_read_partition_tables:
 	mov	[ebx + array_index], dword ptr 0
 1:
 	xor	ebx, ebx	# first sector
+	call	ata_get_hs_geometry	# al->ecx
 	call	disk_load_partition_table$	# out: esi = ptable in MBR/EBR
 	jc	1f
 	# copy the info
@@ -215,9 +216,7 @@ disk_load_partition_table$:
 	pop	eax
 	jc	1f
 
-	push	eax
 	call	ata_get_hs_geometry
-	pop	eax
 	call	disk_br_verify$	# in: ecx, esi
 	jc	2f
 	add	esi, 446
@@ -300,8 +299,7 @@ disk_ptables_append$:
 	call	array_new	# out: eax
 1:	call	array_newentry	# in: eax, ecx; out: eax + edx
 	mov	[disk_ptables$ + ebx * 4], eax
-	mov	edi, eax
-	add	edi, edx
+	lea	edi, [eax + edx]
 	rep	movsb
 	mov	esi, eax
 
@@ -385,7 +383,7 @@ disk_ptables_print$:
 	PRINTLN	"Part | Stat | C/H/S Start | C/H/S End | Type | LBA Start | LBA End | Sectors  |"
 	COLOR 8
 
-0:	
+0:
 	xor	edx, edx
 	PRINT " "
 	mov	dl, [esp]	# partition number
@@ -403,7 +401,7 @@ disk_ptables_print$:
 
 	lodsb		# partition type
 	mov	ah, al
-	
+
 	call	disk_print_chs$	# in: esi; CHS end
 	PRINTc	7, "  | "
 
@@ -416,7 +414,7 @@ disk_ptables_print$:
 	call	printhex8
 	PRINTc	7, "  | "
 
-	mov	eax, [esi - 16 + 5 + 4]	# CHS end
+	mov	eax, [esi - 16 + 5 + 4]	# CHS end; calc LBA end
 	and	eax, 0x00ffffff
 
 	call	chs_to_lba	# in: ecx=C H
@@ -429,43 +427,41 @@ disk_ptables_print$:
 	call	printhex8
 	PRINTLNc 7, " |"
 
-
+#
 
 	# verify LBA start
-	mov	eax, [esi - 16 + 1]
+	mov	eax, [esi - 16 + PT_CHS_START]	# +1
 	and	eax, 0x00ffffff
+	call	chs_to_lba	# eax->eax
 	mov	edx, eax
-	call	chs_to_lba
-	mov	edx, eax
-	mov	eax, [esi - 16 + 8]
+	mov	eax, [esi - 16 + PT_LBA_START]	# +8
 	cmp	edx, eax
 	jz	1f
 	PRINTc 4, "ERROR: CHS/LBA start mismatch: expect "
-	call	printdec32
+	call	printhex8
 	PRINTc 4, ", got "
 	mov	edx, eax
-	call	printdec32
+	call	printhex8
 	call	newline
 1:
 	# if sectorcount zero, dont perform check
-	cmp	dword ptr [esi - 4], 0
+	cmp	dword ptr [esi -16 + PT_SECTORS], 0	# esi-4
 	jz	1f
 
 	# verify num sectors:
-	mov	eax, [esi - 16 + 5] # chs end
-	and	eax, 0xffffff
+	mov	eax, [esi - 16 + PT_CHS_END] # +5; chs end
+	and	eax, 0x00ffffff
 	call	chs_to_lba
-	inc	eax
 
 	# subtract LBA start
 	sub	edx, eax	# lba start - lba end
 	neg	edx
-	mov	eax, [esi - 16 + 0xc] # load num sectors
+	mov	eax, [esi - 16 + PT_SECTORS] # +0xc load num sectors
 	cmp	eax, edx
 	jz	1f
 	PRINTc 4, "ERROR: CHS/LBA numsectors mismatch: expect "
 	#call	printdec32
-	call	printhex8
+	call	printhex8	# end-start
 	PRINTc 4, ", got "
 	mov	edx, eax
 	#call	printdec32
@@ -494,18 +490,21 @@ cmd_fdisk:
 	cmp	[esi + 4], dword ptr 0
 	jne	1f
 fdisk_print_usage$:
-0:	printlnc 12, "Usage: fdisk [-l] <drive> [cmd] [args]"
-	printlnc 12, " -l:    large: use 255 heads in CHS/LBA calculations"
+0:	printlnc 12, "Usage: fdisk [-l] <drive> [cmd [args]]"
+	printlnc 12, "  -l:   large: use 255 heads in CHS/LBA calculations"
 	printlnc 12, "        for harddisks larger than 0x100000 sectors (512Mb)"
+	call	newline
 	printlnc 12, "  cmd:  list - the default; lists the partition table"
 	call	newline
-	printlnc 12, "        init - writes the partition table"
-	printlnc 12, "             args:  -t [nr]   : select partition, set partition type (hex)"
-	printlnc 12, " drive: hdX with X lowercase alpha (hda, hdb, ...)"
-	printlnc 12, "Run 'disks' to see available disks."
+	printlnc 12, "        init - writes the partition table assigning all space to the first"
+	printlnc 12, "               partition."
+	printlnc 12, "             args:  -t [nr]   : set partition type (hex, 00..ff)"
+	call	newline
+	printlnc 12, "  drive: hdX with X lowercase alpha (hda, hdb, ...)"
+	printlnc 12, "         Run 'disks' to see available disks."
 	ret
 
-1:	
+1:
 	printcharc 4, '!'
 	mov	ecx, 16		# 16 heads
 
@@ -653,18 +652,14 @@ fdisk_cmd_init$:
 	mov	eax, edx
 
 	printlnc 11, "fdisk initialize"
-	push	eax
 	call	ata_get_hs_geometry	# get ecx
-	pop	eax
-	DEBUG_DWORD ecx
 
 	xor	ebx, ebx	# first sector
 	call	disk_load_partition_table$	# out: esi = ptable in MBR/EBR
 	jnc	0f
 	printlnc 4, "Error loading partition table"
 	jmp	1f
-0:	mov	ebx, 4
-		call	disk_ptables_print$
+0:
 	printlnc 0xcf, "WARNING: Overwriting partition table!"
 1:
 	print	"Writing bootsector to "
@@ -677,63 +672,169 @@ fdisk_cmd_init$:
 	call	disk_print_label
 	call	newline
 
+##################################
+	push	ebp
+	mov	ebp, esp
+	sub	esp, 12
+
+	push	eax
+	LOAD_TXT "/?/boot/boot.img"
+	mov	al, 'a'
+	add	al, [boot_drive]
+	mov	[esi + 1], al
+	mov	eax, esi	# fs_open arg
+	xor	edx, edx	# fs_open arg
+	KAPI_call	fs_open
+	jc	2f
+	mov	[ebp - 4], eax	# file handle
+	mov	[ebp - 8], ecx	# file size
+2:	pop	eax
+	jc	91f
+
 	# prepare the bootsector
 	push	eax
-	mov	eax, 512
+	mov	eax, 2048	# in case isofs
 	call	mallocz
 	mov	esi, eax
 	pop	eax
-	jc	1f
+	jc	92f
+
+	# load the first 2kb of the boot image
+	push_	eax edi ecx
+	mov	edi, esi
+	mov	ecx, 2048	# isofs
+	mov	eax, [ebp - 4]
+	KAPI_call	fs_read
+	pop_	ecx edi eax
+	jc	931f
+
+	cmpw	[esi + 512 - 2], 0xaa55
+	jz	2f
+	printc 4, "ERROR: boot image first sector no boot sig!"
+	jmp	1f
+2:	movzx	edx, word ptr [esi + 444]	# 2 bytes before 446: nr sectors
+	mov	[ebp - 12], edx
+	printc 11, "bootloader sectors: "
+	call	printdec32
+	call	newline
+
+	MBR_RESERVE = 10 * 1024*1024 / 512
+
+		# reserve space for boot image
+		call	ata_get_hs_geometry	# al->ecx
+		push	eax
+		mov	eax, MBR_RESERVE
+		mov	[esi + 446 + PT_LBA_START], eax
+		call	lba_to_chs
+		mov	[esi + 446 + PT_CHS_START], eax	# overwrites byte
+		pop	eax
+
 
 	mov	word ptr [esi + 512 - 2], 0xaa55
-	mov	[esi + 446 + PT_STATUS], byte ptr 0x80
-	mov	[esi + 446 + PT_CHS_START + 1], byte ptr 2
-	mov	[esi + 446 + PT_TYPE], edi	# guaranteed to be <256
-	mov	[esi + 446 + PT_LBA_START], dword ptr 1
+	mov	[esi + 446 + PT_STATUS], byte ptr 0x80  #(not) bootable
+	push	eax
+	mov	eax, edi
+	mov	[esi + 446 + PT_TYPE], al
+	pop	eax
 	push	eax
 	call	ata_get_capacity
 DEBUG "cap"
 DEBUG_DWORD edx
 DEBUG_DWORD eax
 call newline
-.if 1
+	# convert to sectors
 	shrd	eax, edx, 9
 	shr	edx, 9
-.else
-	mov	al, dl
-	ror	eax, 8
-	shr	edx, 8
-	shr	edx, 1
-	sar	eax, 1
-.endif
-	or	edx, edx
 	jz	2f
 	printlnc 12, "Warning: Disk capacity too large, truncating"
 	mov	eax, -1
-2:	mov	[esi + 446 + PT_SECTORS], eax
+2:	sub	eax, MBR_RESERVE #10*1024*1024 /512
+	mov	[esi + 446 + PT_SECTORS], eax
 	mov	al, [esp]	# restore drive nr
 	call	ata_get_hs_geometry	# in: al; out: ecx
+	mov	eax, [esi + 446 + PT_SECTORS]	# restore lba
+	add	eax, [esi + 446 + PT_LBA_START]
 	call	lba_to_chs
-	mov	[esi + 446 + PT_CHS_END], eax
+	mov	[esi + 446 + PT_CHS_END], ax
+	shr	eax, 16
+	mov	[esi + 446 + PT_CHS_END+2], al
+
 	pop	eax
-	mov	[esi + 446 + PT_LBA_START], dword ptr 1 # chs_end overwrites
+
+		printlnc 0xf0, "------------"
+		call disk_ptable_print$
 
 	#
+#####################
+	# we loaded 2kb of boot image
+	mov	edi, esi	# backup
+	xor	ebx, ebx	# LBA 0 (sector 1)
+	call	_copy$
+	jc	94f
+5:	printchar '.'
 
-	mov	ecx, 1	# 1 sector
-	mov	ebx, 0	# address 0
-	push	esi
-	call	ata_write
-	pop	esi
+	mov	esi, edi	# reset load buf
+	mov	edx, [ebp - 8]
+	sub	edx, 2048
+	jz	4f
+	mov	[ebp - 8], edx
 
-	mov	eax, esi
+# only write bootloader
+#	subd	[ebp - 12], 4	# written 4 sectors
+#	jle	4f
+##################
+	# read some more
+	push_	eax
+	mov	eax, [ebp - 4]	# fs handle
+	mov	ecx, 2048
+	KAPI_call	fs_read
+	pop_	eax
+	jc	93f
+
+	call	_copy$
+	jc	94f
+
+	jmp	5b
+#####################
+
+4:	mov	eax, [ebp - 4]
+	KAPI_call	fs_close
+
+
+3:	mov	eax, esi
 	call	mfree
-	
+
+0:	mov	esp, ebp
+	pop	ebp
 	ret
+91:	printlnc 4, "can't open boot image"
+	jmp	0b
+92:	printlnc 4, "malloc error"
+	jmp 	0b
+93:	mov	esi, edi
+931:	printlnc 4, "read error"
+	jmp	4b
+94:	printlnc 4, "write error"
+	mov	esi, edi
+	jmp	4b
+##################################
 
 1:	printlnc 12, "Aborted."
 	pop	eax
 	ret
+
+_copy$:
+	mov	edx, 2048
+0:	mov	ecx, 1	# 1 sector
+	push	esi
+	call	ata_write
+	pop	esi
+	jc	9f
+	inc	ebx
+	add	esi, 512
+	sub	edx, 512
+	jnz	0b
+9:	ret
 
 
 reallysure:
@@ -741,7 +842,7 @@ reallysure:
 	push	eax
 
 	printc 0xc7, " Are you sure?"
-	
+
 	mov	ecx, 2
 0:	printc 0xc1, " Type 'Yes' if so:"
 	call	printspace
@@ -789,6 +890,7 @@ disk_ptable_print$:
 	cmp	word ptr [esi + 512 - 2], 0xaa55
 	je	1f
 	printlnc 4, "invalid partition table"
+	push edx; mov edx, [esp+4]; call debug_printsymbol;pop edx
 	stc
 	ret
 
@@ -810,6 +912,7 @@ disk_br_verify$:
 	# check for bootsector
 	cmp	word ptr [esi + 512 - 2], 0xaa55
 	je	1f
+DEBUG "wrong bootsig"
 	stc
 	ret
 
@@ -821,7 +924,7 @@ disk_br_verify$:
 
 	add	esi, 446 # offset to MBR
 	xor	bl, bl
-0:	
+0:
 	# verify LBA start
 	mov	eax, [esi + PT_CHS_START]
 	and	eax, 0x00ffffff
@@ -830,7 +933,7 @@ disk_br_verify$:
 	call	chs_to_lba
 	# eax = lba start
 	cmp	eax, [esi + PT_LBA_START]
-	jnz	0f	# CHS/LBA mismatch
+	jnz	91f#0f	# CHS/LBA mismatch
 
 	# if sectorcount zero, dont perform check
 	cmp	dword ptr [esi + PT_SECTORS], 0
@@ -843,12 +946,12 @@ disk_br_verify$:
 	and	eax, 0xffffff
 	# TODO: verify C/H/S range
 	call	chs_to_lba
-	inc	eax
 
 	# subtract LBA start
 	sub	eax, edx	# lba end - lba start = numsectors
 	sub	eax, [esi + PT_SECTORS]
-	jnz	0f		# chs end-start != numsectors
+	jnz	92f#0f		# chs end-start != numsectors
+62:
 
 	add	esi, 16
 
@@ -867,6 +970,16 @@ disk_br_verify$:
 
 0:	stc
 	jmp	1b
+
+91:	printc 12, "LBA start mismatch"
+	jmp	0b
+92:	printc 12, " SECTORS mismatch"
+	DEBUG_DWORD eax
+	DEBUG_DWORD edx,"lba start";
+	inc	eax
+	jnz	0b
+	printc 12, "off-by-1 error: allowing."
+	jmp	62b
 
 # in: al = disk (ATA device number), ah = partition (-1: entire disk;0:first)
 # out: esi = pointer to partition table entry
@@ -931,9 +1044,7 @@ disk_get_partition:
 	call	disk_load_partition_table$
 
 	push	ecx
-	push	eax
 	call	ata_get_hs_geometry
-	pop	eax
 	call	disk_br_verify$
 
 	jc	3f	# partition table malformed
@@ -956,7 +1067,7 @@ disk_get_partition:
 1:	pop	ecx
 9:	ret
 
-3:	
+3:
 DEBUG "err"
 DEBUG_DWORD ecx
 	call	disk_ptable_print$	# prints the errors
@@ -996,7 +1107,7 @@ cmd_partinfo$:
 	mov	al, dl
 
 	# check for known partition types
-	
+
 
 	mov	dl, [esi + PT_TYPE]
 	call	fs_fat_is_partition_supported
@@ -1115,7 +1226,7 @@ disk_parse_partition_label:
 	cmp	al, 25
 	ja	3f
 	mov	dl, al
-	
+
 	# now, parse the partition. might be two decimals (extended etc..)
 1:	mov	ebx, esi	# for error message
 	mov	eax, esi
@@ -1283,7 +1394,7 @@ chs_to_lba:
 
 	pop	ebx
 	pop	edx
-	
+
 	ret
 
 #############################################################################
@@ -1303,10 +1414,6 @@ lba_to_chs:
 	# cyl: 1024
 	# head: 16
 	# sect: 64
-	and	eax, 0x00ffffff
-	jnz	0f	# when CHS = 0, also return LBA 0 (as CHS 0 is invalid)
-	ret
-0:
 	push	edx
 	push	ebx
 	push	ecx

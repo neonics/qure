@@ -9,6 +9,8 @@ MULTISECTOR_LOADING = 1	# 0: 1 sector, 1: 128 sectors(64kb) at a time
 KERNEL_ALIGN_PAGE = 1	# load kernel at page boundary
 KERNEL_RELOCATION = 1
 
+KERNEL_IMG_PARTITION = 0 # 1: first bootable partition; 0: img follows bootloader
+
 .text
 .code16
 . = 512
@@ -26,6 +28,9 @@ msg_sector1$: .asciz "Transcended sector limitation!"
 
 	push	ds
 	pop	es
+
+	push	ss	# copy from stack
+	pop	ds
 
 	mov	si, bp
 	mov	di, offset bootloader_registers
@@ -255,8 +260,9 @@ mov ebx, [ramdisk_buffer]
 	push	cs
 	push	word ptr offset bootloader_ret
 
-	.if 1#DEBUG_BOOTLOADER
+	.if DEBUG_BOOTLOADER
 		push	dx
+		push	bp
 		PRINT	"ss:sp: "
 		mov	dx, ss
 		call	printhex
@@ -270,6 +276,7 @@ mov ebx, [ramdisk_buffer]
 		call	printhex
 		mov	dx, [bp + 2]
 		call	printhex
+		pop	bp
 		pop	dx
 
 	.endif
@@ -298,6 +305,7 @@ mov ebx, [ramdisk_buffer]
 		mov ah, 0x1f
 		mov bp, sp
 		add bp, 4
+		push dx
 		mov dx, [bp+2]
 		mov fs, dx
 		call printhex
@@ -310,6 +318,8 @@ mov ebx, [ramdisk_buffer]
 		mov edx, fs:[bx+4]
 		call printhex8
 		pop bx
+		pop dx
+		pop bp
 		pop fs
 
 		call	waitkey
@@ -509,9 +519,13 @@ ramdisk_entry_load_end:	.long 0
 load_ramdisk_fat:
 	call	get_boot_drive
 
+.if KERNEL_IMG_PARTITION
 	mov	dh, [si+1]	# head
 	mov	cx, [si+2]	# [7:6][15:8] cylinder, [0:5] = sector
 	call	chs_to_lba	# out: eax = LBA = partition start
+.else
+	xor	eax, eax
+.endif
 	add	eax, SECTORS + 1	# skip bootloader sectors
 	mov	ebx, eax	# calculate memory offset
 	mov	ecx, eax
@@ -679,6 +693,26 @@ load_ramdisk_kernel:
 	and	ebx, ~511
 	add	ebx, [chain_addr_flat]
 	mov	[ramdisk_buffer], ebx
+
+	.if 0
+	# verify signature
+	push	edx
+	push	ebx
+	push	fs
+	mov	ebx, [chain_addr_flat]
+	add	ebx, [si + ramdisk_entry_size]
+	sub	ebx, 4
+	ror	ebx, 4
+	mov	fs, bx
+	shr	ebx, 28
+	mov	edx, fs:[bx]
+	print	"Signature: "
+	call	printhex8
+	pop	fs
+	pop	ebx
+	pop	edx
+	call waitkey
+	.endif
 
 .if 0 # copies the kernel to 1mb
 	push	ds
@@ -1451,15 +1485,20 @@ PRINT_LOAD_SECTORS = 0
 		push	eax
 	.endif
 
-	call	get_boot_drive	# dl = drive
-	call	lba_to_chs	# dh = head, cx = cyl/sect
+	call	get_boot_drive	# out: dl = drive
+	call	lba_to_chs	# out: dh = head, cx = cyl/sect
 
 	.if PRINT_LOAD_SECTORS
 		push	dx
-		mov	ah, 0xf7
+		mov	ah, 0xf1
+		print "H,D:"
 		call	printhex
+		print "C,S:"
 		mov	dx, cx
 		call	printhex
+		print "N"
+		mov	dl, [bp]	# nsect
+		call	printhex2
 		pop	dx
 	.endif
 
@@ -1467,8 +1506,7 @@ PRINT_LOAD_SECTORS = 0
 	mov	eax, ebx	# convert flat ebx to es:bx
 	ror	eax, 4
 	mov	es, ax
-	rol	eax, 4
-	and	eax, 0xf
+	shr	eax, 28
 	push	ebx
 	mov	bx, ax
 	mov	ah, 2		# read sector
@@ -1479,8 +1517,14 @@ PRINT_LOAD_SECTORS = 0
 TRACE '>'
 
 	jc	fail
-	cmp	ax, [bp]
-	jne	fail
+# vmware hdd boot: ax=0x0050 (al should be 1);
+# according to ralph brown's list, al only valid if CF set
+# on some BIOS.
+# So, we don't check.
+#	cmp	ax, [bp]	# al?
+#	jne	fail
+	or	ah, ah
+	jnz	fail
 TRACE 'c'
 
 	mov	dx, ax
@@ -1587,15 +1631,16 @@ lba_to_chs:
 	push	ax
 	push	bx
 	push	dx	# backup drive number
-
 .if CHS_DEBUG
 	push	edx
 	push	ax
 
-	.if 0
-	mov	dl, bl
+	.if 1
+	#mov	dl, bl
+	push ax; mov ah, 0xf0
 	print "Drive: "
 	call	printhex2
+	pop ax
 	.endif
 
 	mov	edx, eax
@@ -1614,7 +1659,7 @@ lba_to_chs:
 	mov	ah, 8	# load CX, DX with drive parameters
 	push	es
 	push	di
-	xor	di, di
+	xor	di, di	# set es:di to 0000:0000 (advised)
 	mov	es, di
 	int	0x13
 	pop	di
@@ -1630,8 +1675,8 @@ lba_to_chs:
 	# hpc = heads per cylinder= bh
 	mov	bx, cx
 	shr	bl, 6	# high 2 bits of cyl
-	ror	bx, 8	# bx now okay
-	and	cl, 0b0011111
+	ror	bx, 8	# bx now okay: 000000cc CCCCCCCC
+	and	cl, 0b111111
 	mov	ch, dh
 
 	# ch = max head
@@ -1641,6 +1686,7 @@ lba_to_chs:
 	push ax
 	push dx
 	mov ah, 0xf9
+	print ">>"
 	mov dx, bx
 	print "C "
 	call printhex
@@ -1684,6 +1730,7 @@ lba_to_chs:
 
 .if CHS_DEBUG
 	mov	ah, 0xf3
+	print ">>>"
 	print "S "
 	call	printhex2
 

@@ -211,6 +211,7 @@ realmode_kernel_entry:
 
 	mov	[bootloader_ds], ax
 	mov	[boot_drive], dx
+
 	mov	[ramdisk], cx
 	mov	[mbr], si
 
@@ -336,7 +337,7 @@ pop edx
 	.endif
 
 	rmI2	" size: "
-	mov	eax, offset KERNEL_SIZE	# linker
+	mov	edx, offset KERNEL_SIZE	# linker
 	call	printhex8_16
 
 	rmI2	"Signature: "

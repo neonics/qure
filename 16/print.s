@@ -156,9 +156,9 @@ print:	lodsb
 .endm
 
 printhex8:
-	push	ecx
+	push	cx
 	push	ax
-	mov	ecx, 8
+	mov	cx, 8
 0:	rol	edx, 4
 	mov	al, dl
 	and	al, 0x0f
@@ -170,7 +170,7 @@ printhex8:
 	loop	0b
 	add	di, 2
 	pop	ax
-	pop	ecx
+	pop	cx
 	ret
 
 .endif

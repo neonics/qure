@@ -15,6 +15,7 @@
 .equ WHITE_PRESSKEY, 0
 .equ WHITE_PRINTREGISTERS_PRINT_FLAGS, 0
 
+BOOTLOADER_FOLLOWS_MBR = 1
 
 .equ INCLUDE_SECTOR1, 1
 #######################################################
@@ -355,6 +356,7 @@ preparereadsector$:
 	int	0x13
 	jnc	0f
 	loop	0b
+	jmp	fail
 0:
 
 
@@ -379,6 +381,10 @@ loadsectors$:
 	xor	dh, dh		# head 0
 .else
 
+  .if BOOTLOADER_FOLLOWS_MBR	# ignore boot partitions, just read LBA 1+ for bootloader
+	xor	dh, dh
+	mov	cx, 2
+  .else
 # find bootable partition
 	mov	si, offset mbr
 	mov	cx, 4
@@ -386,13 +392,15 @@ loadsectors$:
 	jnz	1f
 	add	si, 16 # partition table size - 1
 	loop	0b
+	mov	ax, 0xbbbb
 	jmp	fail
 1:
 	mov	dh, [si + 1] # [chs_start$]
 	mov	cx, [si + 2] # [chs_start$+1]
-	mov	bx, 512	
-	mov	ax, (2 << 8) + SECTORS # ah = 02 read sectors al = # sectors
 	inc	cl	# skip bootsector itself
+  .endif
+	mov	bx, 512		# mem offset
+	mov	ax, (2 << 8) + SECTORS # ah = 02 read sectors al = # sectors
 0:
 	call	printregisters
 .endif
@@ -439,7 +447,20 @@ fail:	push	ax
 	pop	ax
 
 	call	printregisters
+.if 1
+	movw	es:[di], 'R'|(0xf4<<8)
+	mov	dx, 0x40
+	mov	fs, dx
+	mov	ah, 0xf0
+	mov	dx, fs:[0x6c]	# BDA daily timer (dword) - TODO timeout reboot
+	call	printhex
+
+	xor	ah,ah
+	int	0x16
+	ljmp	0xffff,0
+.else
 	jmp	halt
+.endif
 
 .endif # WHITE
 
@@ -451,7 +472,12 @@ BOOTSECTOR=1
 .EQU bs_code_end, .
 
 data:
+.if WHITE_PRINT_HELLO
 	hello$: .asciz "Hello!"
+.endif
+
+. = 444
+.word SECTORS
 
 #. = 440
 #	.ascii "MBR$"

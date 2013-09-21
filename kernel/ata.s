@@ -397,7 +397,7 @@ ata_get_hs_geometry:
 # CHS MAX COUNT:  1024 / 256 / 63	( sector 0 is invalid )
 
 	call	ata_get_drive_info
-	jc	9f
+	jc	91f
 	mov	ebx, eax
 
 	mov	edx, [ebx + ata_driveinfo_capacity + 4]
@@ -406,10 +406,10 @@ ata_get_hs_geometry:
 	shr	eax, 9
 
 	or	edx, edx	# 2 Tb check
-	jnz	91f
+	jnz	92f
 	# eax is nr sectors. Max 4G sectors, or 2Tb.
 	cmp	eax, 1<<24
-	jae	92f
+	jae	93f
 
 	# disk is < 8Gb, we can use CHS.
 
@@ -427,10 +427,13 @@ ata_get_hs_geometry:
 2:	clc
 9:	pop_	eax edx ebx
 	ret
-91:	printlnc 4, "disk geo > 2Tb; cannot use CHS"
+91:	printlnc 4, "disk geo: unknown drive"
 	stc
 	jmp	9b
-92:	printlnc 4, "disk geo > 8Gb; better not use CHS"
+92:	printlnc 4, "disk geo > 2Tb; cannot use CHS"
+	stc
+	jmp	9b
+93:	printlnc 4, "disk geo > 8Gb; better not use CHS"
 	stc
 	jmp	9b
 
@@ -563,7 +566,7 @@ ata_list_drives:
 	ret
 
 .data SECTION_DATA_BSS
-ata_irq: .byte 0
+ata_irq: .byte 0, 0
 .text32
 ata_isr1:
 	push_	eax edx
@@ -604,10 +607,11 @@ ata_isr2:
 # - PIO mode: begining of each data block
 # - DMA mode: on completion.
 #
-	inc	byte ptr [ata_irq]
 	mov	al, 0x20
 	out	IO_PIC2, al
 	out	IO_PIC1, al
+	movzx	eax, ah
+	inc	byte ptr [ata_irq+eax]
 	pop	ds
 	pop_	edx eax
 	iret
@@ -762,7 +766,7 @@ ata_list_drive:
 	out	dx, al	# write command
 	in	al, dx	# read status
 	pop	dx
-	.if ATA_DEBUG > 1
+	.if ATA_DEBUG # > 1
 		call	ata_print_status$
 	.endif
 	
@@ -776,10 +780,11 @@ ata_list_drive:
 	push	dx
 	add	dx, ATA_PORT_ADDRESS2
 	in	ax, dx	# read port ADDR2 and ADDR3
-	mov	dx, ax
-	.if ATA_DEBUG > 1
+	.if ATA_DEBUG # > 1
+		print " T "
+		mov	dx, ax
 		call	printhex4
-		PRINTCHAR ' '
+		call	printspace
 	.endif
 	pop	dx
 
@@ -789,12 +794,23 @@ ata_list_drive:
 	# ax=EB14 : PATAPI
 	# ax=9669 : SATAPI
 
+	# vmware: 1414=atapi, ffff=ata
+
+	# qemu: 0004=ata
+
 	or	ax, ax
 	jz	ata$
 	cmp	ax, 0xeb14
 	jz	atapi$
 	cmp	ax, 0xc33c
 	jz	sata$
+
+	cmp	ax, -1
+	jz	ata$
+	cmp	ax, 4
+	jz	ata$
+	cmp	ax, 0x1414
+	jz	atapi$
 
 	# try atapi anyway
 	jmp	atapi$
@@ -809,6 +825,7 @@ ata$:	mov	bh, TYPE_ATA
 	call	ata_wait_DRQ1$
 	LOAD_TXT "ATA   "
 	jnc	read$	# has data!
+	DEBUG "DRQ1 wait bug, fallthrough ATAPI"
 
 	# DRQ fail: fallthrough to try atapi
 
@@ -1167,13 +1184,20 @@ ata_print_error$:
 
 
 ata_print_bits$:
+		push	ecx
+		xor	ecx, ecx
+	call printspace
+	printcharc 8,'['
 	PRINT_START 
 0:	shl	al, 1
 	jnc	1f
 	push	ax
 	push	esi
+		jecxz 2f
 	xor	al, al
 	stosw
+		2:
+		or cl,1
 	call	__print
 	pop	esi
 	pop	ax
@@ -1181,6 +1205,8 @@ ata_print_bits$:
 	test	al, al
 	jnz	0b
 	PRINT_END
+	printcharc 8,']'
+		pop	ecx
 	ret
 
 ata_print_drq_reason$:
@@ -1803,7 +1829,14 @@ atapi_packet_command:
 	stc
 	ret
 0:
-	mov	byte ptr [ata_irq], 0
+
+.data SECTION_DATA_BSS
+atapi_cur: .byte 0
+.text32
+push eax
+shr al, 1	# shift out drive
+mov [atapi_cur], al
+pop eax
 
 	.if ATAPI_DEBUG > 2
 		PRINT "Select Drive "
@@ -1857,6 +1890,11 @@ atapi_packet_command:
 		pop	dx
 	.endif
 
+push eax
+movzx eax, byte ptr [atapi_cur]
+mov	byte ptr [ata_irq + eax], 0
+pop eax
+
 	# write packet data
 	push	dx
 	push	ecx
@@ -1881,6 +1919,7 @@ atapi_packet_command:
 
 	# TODO: check IO set and CoD clear
 
+	movzx	eax, byte ptr [atapi_cur]
 	call	ata_wait_irq
 	jc	ata_timeout$
 	#WAIT_DATAREADY 1f
@@ -1956,22 +1995,26 @@ atapi_packet_command:
 # jump target for when SECTOR_COUNT register (ATAPI DRQ Reason) shows 
 # unexpected value (i.e. OUT vs IN, CMD vs DATA, or RELEASE when not expected).
 atapi_drq_reason_mismatch$:
-	printlnc 4, "atapi_drq_reason_mismatch"
+	printc 4, "atapi_drq_reason_mismatch: "
+	call	ata_print_drq_reason$
+	push edx; mov edx, [esp+4]; call debug_printsymbol; pop edx
+	call	newline
 	stc
 	ret
 
 #######
 ATA_WAIT_IRQ_TIMEOUT = 0x100	# using hlt.
+# in: eax = 0: ISR0, 1: ISR1
 ata_wait_irq:
 	push	ecx
 	mov	ecx, 0x100 # ATA_WAIT_IRQ_TIMEOUT
 
 	.if ATA_DEBUG > 2
 		DEBUG "ata_wait_irq:"
-		DEBUG_BYTE [ata_irq]
+		DEBUG_BYTE [ata_irq + eax]
 	.endif
 
-1:	cmp	byte ptr [ata_irq], 0
+1:	cmp	byte ptr [ata_irq + eax], 0
 	jnz	1f
 	hlt
 	loop	1b
@@ -1985,9 +2028,9 @@ ata_wait_irq:
 		neg	ecx
 		add	ecx, ATA_WAIT_IRQ_TIMEOUT
 		DEBUG_DWORD ecx
-		DEBUG_BYTE [ata_irq]
+		DEBUG_BYTE [ata_irq + eax]
 	.endif
-	mov	byte ptr [ata_irq], 0
+	mov	byte ptr [ata_irq + eax], 0
 	pop	ecx
 	clc
 	ret
@@ -2098,9 +2141,9 @@ cmd_disks_print$:
 	PRINTSKIP_
 	PRINT_
 3:	PRINT_
-	inc	dl
 
-1:	inc	ebx
+1:	inc	dl
+	inc	ebx
 	loop	0b
 	call	newline
 

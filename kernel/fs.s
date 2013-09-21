@@ -1258,13 +1258,17 @@ fs_read:
 	push_ eax edx
 	FS_HANDLE_CALL_API read, edx
 	pop_ edx eax
+	jc	0f
 	shr	ecx, 11	# 2kb !! NOTE!! iso9660!
 	add	[eax + edx + fs_handle_dir], ecx	# add lba lseek pos
 
 0:	pop_	edi edx ecx ebx eax
+	pushf
 	UNLOCK_READ [fs_handles_sem]
+	popf
 	ret
 9:	printc 4, "fs_read: invalid handle"
+	stc
 	jmp	0b
 
 
