@@ -14,6 +14,8 @@ acpi_init:
 	mov	edx, [acpi_rsdp]
 	call	printhex8
 	call	newline
+	call	acpi_enable
+#call more
 	ret
 9:	printlnc 12, "No ACPI"
 	ret
@@ -175,16 +177,8 @@ cmd_acpi:
 
 
 .data
-SMI_CMD:	.word 0 # dword ptr
-ACPI_ENABLE:	.byte 0;
-ACPI_DISABLE:	.byte 0;
-PM1a_CNT:	.word 0 # dword ptr
-PM1b_CNT:	.word 0 # dword ptr
-SLP_TYPa:	.word 0
-SLP_TYPb:	.word 0
-SLP_EN:		.word 0
-SCI_EN:		.word 0
-PM1_CNT_LEN:	.byte 0
+SLP_TYPa:	.word 0	# 3bit value
+SLP_TYPb:	.word 0	# 3bit value
 
 #########
 
@@ -208,31 +202,6 @@ PM1_CNT_LEN:	.byte 0
 # (Pkglength bit 6-7 encode additional PkgLength bytes [shouldn't be the case here])
 #
 
-#
-#struct FACP
-#{
-#   byte Signature[4];
-#   dword Length;
-#   byte unneded1[40 - 8];
-.equ FACP_DSDT, 1 + 4 + 32 
-#   dword *DSDT;
-#   byte unneded2[48 - 44];
-.equ FACP_SMI_CMD, FACP_DSDT + 4  + 4
-#   dword *SMI_CMD;
-.equ FACP_ACPI_ENABLE, FACP_SMI_CMD + 4
-.equ FACP_ACPI_DISABLE, FACP_ACPI_ENABLE + 1
-#   byte ACPI_ENABLE;
-#   byte ACPI_DISABLE;
-#   byte unneded3[64 - 54];
-.equ FACP_PM1a_CNT_BLK, FACP_ACPI_DISABLE + 12
-#   dword *PM1a_CNT_BLK;
-.equ FACP_PM1b_CNT_BLK, FACP_ACPI_DISABLE + 12 + 4
-#   dword *PM1b_CNT_BLK;
-#   byte unneded4[89 - 72];
-.equ FACP_PM_CNT_LEN, FACP_ACPI_DISABLE + 12 + 4 + 4 + 89-72
-#   byte PM1_CNT_LEN;
-#};
-#
 .struct 0	# all tables, except RSDP/FACS
 acpi_tbl_sig:		.long 0
 acpi_tbl_size:		.long 0
@@ -243,7 +212,7 @@ acpi_tbl_oem_tbl_id:	.space 8
 acpi_tbl_oem_rev:	.long 0
 acpi_tbl_cmplr_id:	.long 0	# ascii ASL compiler vendor id
 acpi_tbl_cmplr_rev:	.long 0	# ascii ASL compiler vendor id
-ACPI_TBL_HEADER_SIZE = . # 36
+ACPI_TBL_HDR_SIZE = . # 36
 
 
 .struct 0 # acpi_generic_address structure (GAS)
@@ -264,12 +233,12 @@ acpi_addr_addr:		.long 0, 0
 ACPI_GAS_SIZE = .
 
 
-.struct ACPI_TBL_HEADER_SIZE	# FACP; (FADT: sig "FACP" fixed acpi desc tab)
+.struct ACPI_TBL_HDR_SIZE	# FACP; (FADT: sig "FACP" fixed acpi desc tab)
 FADT_FACS_ptr:		.long 0
 FADT_DSDT_ptr:		.long 0
 FADT_model:		.byte 0
 FADT_preferred_profile:	.byte 0
-FADT_sci_interrupt:	.word 0
+FADT_SCI_interrupt:	.word 0
 
 FADT_SMI_CMD_PORT:	.long 0	# SMI command port
 FADT_ACPI_ENABLE:	.byte 0
@@ -282,6 +251,14 @@ FADT_PM1a_EVT_BLK_PORT:	.long 0	# event
 FADT_PM1b_EVT_BLK_PORT:	.long 0	# event
 FADT_PM1a_CNT_BLK_PORT:	.long 0 # control
 FADT_PM1b_CNT_BLK_PORT:	.long 0 # control
+	# pm1 control reg fixed hardware feat ctrl
+	PM1_SCI_EN	= 1<<0#1=sci, 0=smi
+	PM1_BM_RLD	= 1<<1	# busmaster req c3->c0
+	PM1_GBL_RLS	= 1<<2	# w/o: gen SMI->BIOS
+	PM1_SLP_TYP	= 0b111<<10 # sleep state for SLP_EN (\_Sx)
+	PM1_SLP_EN	= 1<<13
+
+
 FADT_PM2_CNT_BLK_PORT:	.long 0 # control
 FADT_PM_TIMER_BLK_PORT:	.long 0 # control
 FADT_GP_EVT0_BLK_PORT:	.long 0 # general purpose event 0 reg blk
@@ -389,9 +366,46 @@ acpi_check_facp$:
 	DEBUG_DWORD [eax + FADT_SMI_CMD_PORT]
 	DEBUG_BYTE [eax + FADT_ACPI_ENABLE]
 	DEBUG_BYTE [eax + FADT_ACPI_DISABLE]
-	DEBUG_DWORD [eax + FADT_PM1a_CNT_BLK_PORT]
-	DEBUG_DWORD [eax + FADT_PM1b_CNT_BLK_PORT]
-	DEBUG_BYTE [eax + FADT_PM1_CNT_LEN]
+	call	newline
+	DEBUG_DWORD [eax + FADT_PM1a_CNT_BLK_PORT],"PM1a CNT"
+	DEBUG_DWORD [eax + FADT_PM1b_CNT_BLK_PORT], "PM1b CNT"
+	DEBUG_BYTE [eax + FADT_PM1_CNT_LEN],"CNT LEN"
+	call	newline
+
+	DEBUG_DWORD [eax + FADT_PM1a_EVT_BLK_PORT],"PM1a EVT"
+	DEBUG_DWORD [eax + FADT_PM1b_EVT_BLK_PORT], "PM1b EVT"
+	DEBUG_BYTE [eax + FADT_PM1_EVT_LEN],"EVT LEN"
+	call	newline
+
+
+
+	DEBUG_DWORD [eax + FADT_PM1b_CNT_BLK_PORT], "PM2 CNT"
+	call	newline
+	DEBUG_WORD [eax + FADT_SCI_interrupt]
+
+	push	eax
+	movzx	eax, word ptr [eax + FADT_SCI_interrupt]
+	PIC_ENABLE_IRQ_LINE
+	pop	eax
+
+	.if 1
+	pushad
+	movzx	eax, byte ptr [eax + FADT_SCI_interrupt]
+	mov	cx, cs
+	mov	ebx, offset acpi_isr
+	.if IRQ_SHARING
+	call newline
+	call newline
+	DEBUG_BYTE al, "ADD IRQ HANDLER"
+	call newline
+	call newline
+	call	add_irq_handler
+	.else
+	add	al, offset IRQ_BASE
+	call	hook_isr
+	.endif
+	popad
+	.endif
 	call	newline
 
 	# reference facp->dsdt (pointer to dsdt)
@@ -410,10 +424,12 @@ acpi_check_facp$:
 	mov ebx, [edx]
 	PRINTSIG
 
-	mov	ecx, [edx + 4] # len
-	add	edx, 36 # skip header
+	call	parse_dsdt$
+
+	mov	ecx, [edx + acpi_tbl_size]
+	add	edx, ACPI_TBL_HDR_SIZE # 36 # skip header
 	DEBUG_DWORD ecx, "DSDT size"
-	sub	ecx, 36
+	sub	ecx, ACPI_TBL_HDR_SIZE # 36
 
 	DEBUG "Finding _S5_"
 
@@ -448,48 +464,27 @@ acpi_check_facp$:
 	PRINTLNc 0xf0 "Found valid AML structure"
 #S5Addr += 5;
 #S5Addr += ((*S5Addr &0xC0)>>6) +2;   # calculate PkgLength size
-	add	si, 5
-	mov	dx, si
-	and	dx, 0xc0
-	sar	dx, 6
-	add	dx, 2
-	add	si, dx
+	add	esi, 5
+	mov	edx, esi
+	and	edx, 0xc0
+	sar	edx, 6
+	add	edx, 2
+	add	esi, edx
 
 	cmp	[esi], byte ptr 0xa0 # skip byte pfx
 	jnz	1f
-	inc	si
+	inc	esi
 1:	mov	dx, [esi]
 	shl	dx, 10
 	mov	[SLP_TYPa], dx
-	inc	si
+	inc	esi
 
-	cmp	[esi], byte ptr 0xa0
+	cmp	[esi], byte ptr 0xa0	# 0xb0?
 	jnz	1f
-	inc	si
+	inc	esi
 1:	mov	dx, [esi]
 	shl	dx, 10
 	mov	[SLP_TYPb], dx
-
-	mov	dx, [esi + FACP_SMI_CMD]
-	mov	[SMI_CMD], dx
-
-	mov	dx, [esi + FACP_ACPI_ENABLE]
-	mov	[ACPI_ENABLE], dx
-
-	mov	dx, [esi + FACP_ACPI_DISABLE]
-	mov	[ACPI_DISABLE], dx
-
-	mov	dx, [esi + FACP_PM1a_CNT_BLK]
-	mov	[PM1a_CNT], dx
-
-	mov	dx, [esi + FACP_PM1b_CNT_BLK]
-	mov	[PM1b_CNT], dx
-
-	mov	dx, [esi + FACP_PM_CNT_LEN]
-	mov	[PM1_CNT_LEN], dx
-                     
-	mov	word ptr [SLP_EN], 1 << 13
-	mov	word ptr [SCI_EN], 1
 
 	clc
 	PRINTLNc 3 "ACPI found"
@@ -502,6 +497,141 @@ acpi_check_facp$:
 92:	printlnc 4, "_S5_ not present"
 	stc
 	ret
+
+# ACPIspec50.pdf section 5.4
+# in: edx = dsdt ptr
+parse_dsdt$:
+	pushad
+	mov	esi, edx
+	mov	ecx, [esi + acpi_tbl_size]
+	add	esi, ACPI_TBL_HDR_SIZE
+	sub	ecx, ACPI_TBL_HDR_SIZE 
+	mov	edi, esi	# backup
+	call	newline
+	printc 11, "DSDT: size="
+	mov	edx, ecx
+	call	printhex8
+	call	newline
+
+	push_ esi ecx
+	.rept 3
+	mov ecx, 0x8
+0:	lodsb
+	call	printchar
+	loop	0b
+	mov	ecx, 8
+	sub	esi, 8
+0:	call	printspace
+	lodsb
+	mov	dl, al
+	call	printhex2
+	loop	0b
+	call	newline
+	.endr
+	pop_ ecx esi
+
+inc esi
+
+
+0:	dec	ecx
+	jle	9f
+
+	mov	edx, esi
+	sub	edx, edi
+	call	printhex8
+	print ": "
+
+	lodsb	# leadbyte
+	print "lead: "
+	mov	dl, al
+	call	printhex2
+	print " ("
+	call	printbin8
+	print ")"
+
+	# hi 2 bits = nr of bytes to follow for pkglen
+	# 2 bits below that only used for 1-byte pkglen (maxlen 0x3f)
+	# for 2 byte pkglen maxlen=0x0fff, 3: 0x0fffff, 4: 0x0f ffff ffff (?!)
+
+	mov	eax, [esi - 1]
+	and	al, 0b00111111
+
+	shr	dl, 6	# hi 2 bits = nr of bytes for pkglen follow
+	movzx	edx, dl
+	DEBUG_BYTE dl
+
+	cmp	dl, 1
+	jz	1f
+	cmp	dl, 2
+	jz	2f
+	cmp	dl, 3
+	jz	3f
+	cmp	dl, 0
+	jnz	5f
+	and	eax, 0x3f
+	jmp	4f
+5:	DEBUG_BYTE dl, "WARN: illegal value"
+	jmp	9f
+
+# bytes follow:
+3:	add	esi, 3
+	shl	al, 4
+	shr	eax, 4
+	sub	ecx, 3
+	jle	9f
+	jmp	4f
+2:	add	esi, 2
+	and	eax, 0xffffff
+	shl	al, 4
+	shr	eax, 4
+	sub	ecx, 2
+	jle	9f
+	jmp	4f
+1:	inc	esi
+	and	eax, 0xffff
+	shl	al, 4
+	shr	eax, 4
+	sub	ecx, 1
+	jle	9f
+4:
+## eax = pkglen
+	mov	edx, eax
+	print " pkglen: "
+	call	printhex8
+
+	call	printspace
+	push eax
+	mov eax, [esi]
+	call	printchar; shr eax, 8
+	call	printchar; shr eax, 8
+	call	printchar; shr eax, 8
+	call	printchar
+	call	printspace
+	pop eax
+	mov	edx, [esi]
+	call	printhex2; shr edx, 8
+	call	printhex2; shr edx, 8
+	call	printhex2; shr edx, 8
+	call	printhex2
+	call	printspace
+	cmpw	[esi], '\\'
+	jnz	1f
+	printc 11, "ROOT"
+1:
+
+	call	newline
+
+	or	eax, eax
+	jle	9f
+
+	add	esi, eax
+	jmp	0b
+
+
+9:
+	popad
+	ret
+
 
 # checks for a given header and validates checksum
 # in: eax = ptr to ACPI object, ebx = "ABCD" sig
@@ -555,30 +685,76 @@ acpi_enable:
 	jz	0f
 
 	PRINTLNc 4 "ACPI already enabled"
+	jmp 0f # go on anyway
 
 	clc
 	ret
 0:
 	mov	dx, [ebx + FADT_SMI_CMD_PORT]
+	DEBUG_WORD dx,"SMI_CMD port"
 	mov	al, [ebx + FADT_ACPI_ENABLE]
+	DEBUG_BYTE al,"ACPI_ENABLE"
 	or	dx, dx
 	jz	0f
 	or	al, al
 	jz	0f
-	PRINTLNc 3 "Enabling ACPI"
+	PRINTc 3 "Enabling ACPI"
+	push eax; in al, dx; DEBUG_BYTE al,"SMI_CMD val"; pop eax
+	DEBUG_BYTE al,"set val"
 	out	dx, al
+
+	mov ecx, 100
+	10: in al, dx
+	loop 10b
+	DEBUG_BYTE al, "SMI_CMD val"
+	call newline
+
+
+	# enable events
+	mov	dx, [ebx + FADT_PM1a_EVT_BLK_PORT]
+	DEBUG_WORD dx,"PM1a_EVT_BLK_PORT"
+	or	dx, dx
+	jz	0f
+
+	movzx	ax, byte ptr [ebx + FADT_PM1_EVT_LEN]
+	DEBUG_WORD ax,"PM1 evt len"
+	shr	ax, 1
+	add	dx, ax
+	DEBUG_WORD dx, "PM1 ENABLE port"
+
+	PM1_EVT_TMR_EN=1<<0
+	PM1_EVT_GBL_EN=1<<5 # global enable
+	PM1_EVT_PWRBTN_EN=1<<8
+	PM1_EVT_SLPBTN_EN=1<<9
+	PM1_EVT_RCT_EN=1<<10#enable RTC_STS->wake
+	PM1_EVT_PCIEXP_WAKE_DIS=1<<14
+	in ax, dx
+	DEBUG_WORD ax, "PM1 evt val"
+
+	mov	ax, PM1_EVT_GBL_EN|PM1_EVT_PWRBTN_EN|PM1_EVT_SLPBTN_EN
+	DEBUG_WORD ax,"set val"
+	out	dx, ax
+	mov ecx, 10
+	10: in ax, dx
+	loop 10b
+	DEBUG_WORD ax,"PM1_evt val"
+
 
 # need timer
 	mov	dx, [ebx + FADT_PM1a_CNT_BLK_PORT]
+	DEBUG_WORD dx,"PM1a_CNT port"
 	in	ax, dx
-	test	ax, [ebx + SCI_EN]
+	DEBUG_WORD ax
+	test	ax, PM1_SCI_EN#[ebx + SCI_EN]
 	jnz	1f
 
+	# optional
 	mov	dx, [ebx + FADT_PM1b_CNT_BLK_PORT]
+	DEBUG_WORD dx,"PM1b_CNT port"
 	or	dx, dx
-	jz	0f
+	jz	1f
 	in	ax, dx
-	test	ax, [ebx + SCI_EN]
+	test	ax, PM1_SCI_EN#[ebx + SCI_EN]
 	jnz	1f
 	PRINTLNc 4 "Failed to initialize ACPI"
 	stc
@@ -607,17 +783,17 @@ call paging_disable
 #	pop	ax
 #	jc	no_acpi$
 	
-	cmp	word ptr [SCI_EN], 0	# shutdown possibility
-	jz	no_acpi$
-
-	call	acpi_enable
+#	cmp	word ptr [SCI_EN], 0	# shutdown possibility
+#	jz	no_acpi$
+#
+#	call	acpi_enable
 
 	mov	ebx, [acpi_fadt]
 
 	mov	dx, [ebx + FADT_PM1a_CNT_BLK_PORT]
 	DEBUG_WORD dx,"PM1a port"
 	mov	ax, [SLP_TYPa]
-	or	ax, [SLP_EN]
+	or	ax, PM1_SLP_EN
 	out	dx, ax
 # possible shutdown may have occurred
 
@@ -626,7 +802,7 @@ call paging_disable
 	or	dx, dx
 	jz	0f
 	mov	ax, [SLP_TYPb]
-	or	ax, [SLP_EN]
+	or	ax, PM1_SLP_EN
 	out	dx, ax
 0:	
 	PRINTc	4, "ACPI Shutdown failure"
@@ -668,3 +844,29 @@ sti
 
 
 
+acpi_isr:
+	push_	eax ebx edx ds es
+	mov	ax, SEL_compatDS
+	mov	ds, ax
+	mov	es, ax
+
+	DEBUG "ACPI ISR", 0xf4
+
+	mov	ebx, [acpi_fadt]
+call paging_disable
+	mov	dx, [ebx + FADT_PM1a_EVT_BLK_PORT]	# status reg
+	in	ax, dx
+	DEBUG_WORD ax, "ACPI PM1 STS"
+	PRINTFLAG ax, 1<<0, "TMR "
+	PRINTFLAG ax, 1<<4, "BM "
+	PRINTFLAG ax, 1<<5, "GBL "	# bios wants attention
+	PRINTFLAG ax, 1<<8, "PWRBTN "
+	PRINTFLAG ax, 1<<9, "SLPBTN "
+	PRINTFLAG ax, 1<<10, "RTC "
+	PRINTFLAG ax, 1<<14, "PCIEXP_WAKE "
+	PRINTFLAG ax, 1<<15, "WAKE "
+
+	PIC_SEND_EOI [ebx + FADT_SCI_interrupt]
+call paging_enable
+	pop_	es ds edx ebx eax
+	iret
