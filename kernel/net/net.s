@@ -370,6 +370,25 @@ net_print_ip:
 # in: eax = stringpointer
 # out: eax = ip
 net_parse_ip:
+	push	ebx
+	mov	bl, 1
+	call	net_parse_ip$
+	pop	ebx
+	ret
+
+# in: eax = stringpointer
+# out: eax = ip
+net_parse_ip_:
+	push	ebx
+	xor	bl, bl
+	call	net_parse_ip$
+	pop	ebx
+	ret
+
+# in: eax = stringpointer
+# in: bl = 1: print parse errors; 0: don't
+# out: eax = ip
+net_parse_ip$:
 	push	esi
 	push	edx
 	push	ecx
@@ -402,7 +421,10 @@ net_parse_ip:
 	pop	esi
 	ret
 
-1:	printc 12, "net_parse_ip: malformed IP address: "
+1:	or	bl, bl
+	stc
+	jz	0b
+	printc 12, "net_parse_ip: malformed IP address: "
 	print "at '"
 	call	print
 	print "': "
@@ -631,11 +653,26 @@ cmd_host:
 	call	strlen
 	mov	ecx, eax
 
-	call	net_dns_request
+	mov	eax, esi
+	call	net_parse_ip_	# _ version: don't print parse errors
+	jc	1f
 
-	ret
+	call	dns_resolve_ptr	# out: eax = mallocced stringbuf
+	jc	0f
+	mov	esi, eax
+	call	println
+	call	mfree
+	jmp	0f
+
+1:	call	dns_resolve_name
+	jc	0f
+	call	net_print_ip
+	call	newline
+
+0:	ret
 9:	printlnc 12, "usage: host <hostname>"
 	stc
+	jmp	0b
 	ret
 
 ##############################################################################

@@ -631,6 +631,8 @@ COLOR_STACK_SIZE = 2
 .global printdec16
 .global printdec32
 .global _s_printdec32
+.global sprintdec32
+.global sprintdec8
 
 ###############################################################################
 # structures, data, code
@@ -1545,10 +1547,16 @@ __printdec32:
 
 	ret
 
+sprintdec8:
+	push	edx
+	movzx	edx, dl
+	jmp	1f
+# KEEP-WITH-NEXT
+
 # identical except uses stosb
 sprintdec32:
 	push	edx
-	push	eax
+1:	push	eax
 	push	ebx
 	push	ecx
 

@@ -224,6 +224,7 @@ strcopy:
 
 # in: eax
 # out: eax
+.global strdup
 strdup:
 	push	ebp
 	lea	ebp, [esp + 4]
@@ -235,9 +236,10 @@ strdup:
 	inc	eax
 	mov	ecx, eax
 	call	malloc_
+	jc	9f
 	mov	edi, eax
 	rep	movsb
-	pop	ecx
+9:	pop	ecx
 	pop	edi
 	pop	esi
 	pop	ebp

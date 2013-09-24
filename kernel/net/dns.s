@@ -211,7 +211,7 @@ net_service_dnsd_main:
 	call	net_dns_service
 	pop	eax
 	jmp	0b
-	
+
 	ret
 9:	printlnc 4, "dnsd: failed to open socket"
 	ret
@@ -523,7 +523,9 @@ dns_parse_name$:
 	rep	movsb
 	mov	al, '.'
 	stosb
-	jmp	0b
+	or	edx, edx
+	jnz	0b
+	jmp	8f
 
 1:	stosb
 8:	clc
@@ -672,7 +674,7 @@ dns_put_response:
 	#   condition: answers = 0
 	#	response payload injects data: overwrites auth/addt.
 	#   possibility: auth rr > 0
-	#	
+	#
 	#   possibility: addt rr > 0
 	#
 	# hybrid solution:
@@ -680,7 +682,7 @@ dns_put_response:
 	#   
 	##################
 
-	
+
 	# process questions
 	movzx	eax, word ptr [ebx + dns_questions]
 	xchg	al, ah
@@ -720,7 +722,7 @@ dns_process_header$:
 	# process in network-byte-order (flags defined in native order)
 	# optimized no jumps for correct packets
 	lodsw	# dns_flags
-	
+
 	and	ax, (DNS_FLAG_QR | DNS_OPCODE_MASK) >> 8 # no other flags supp.
 # 4,4
 	or	al, al	# check opcode type: only DNS_OPCODE_STDQ impl
@@ -813,7 +815,7 @@ dns_process_question$:
 	push	esi
 	push	ebp
 	mov	ebp, esp
-	sub	esp, DNS_MAX_NAME_LEN	
+	sub	esp, DNS_MAX_NAME_LEN
 
 	push	edi
 	lea	edi, [esp + 4]
@@ -959,7 +961,7 @@ dns_answer_question$:
 	stosw	# data len
 	mov	eax, [internet_ip]
 	stosd	# ip
-	
+
 	# update nr of answers
 0:	mov	ax, [edx + dns_answer_rr]
 	add	ah, 1
@@ -992,11 +994,50 @@ dns_answer_question$:
 	stc
 	ret
 
+# in: eax = ip
+# out: eax = name (mallocced, so free it!)
+dns_resolve_ptr:
+	push_	ebp esi edi ecx
+	mov	ebp, esp
+
+	# construct reverse lookup name on stack
+	sub	esp, 32	# "123.123.123.123.in-addr.arpa\0".length + 3 
+	mov	edi, esp
+	mov	edx, eax
+	mov	al, '.'
+	.rept 4
+	rol	edx, 8
+	call	sprintdec8
+	stosb
+	.endr
+	mov	dword ptr [edi], 'i'|'n'<<8|'-'<<16|'a'<<24
+	mov	dword ptr [edi+4], 'd'|'d'<<8|'r'<<16|'.'<<24
+	mov	dword ptr [edi+8], 'a'|'r'<<8|'p'<<16|'a'<<24
+	mov	byte ptr [edi+12], 0
+
+	mov	esi, esp
+	mov	edx, DNS_TYPE_PTR << 16 | DNS_CLASS_IN
+	call	dns_resolve$
+	mov	esp, ebp
+	pop_	ecx edi esi ebp
+	ret
+
 
 # in: esi = domain name
 # out: eax = ipv4 address
 dns_resolve_name:
-	# receives all dns packets....
+	push	edx
+	mov	edx, DNS_TYPE_A << 16 | DNS_CLASS_IN
+	call	dns_resolve$
+	pop	edx
+	ret
+
+# in: esi = domain name
+# in: edx = DNS_TYPE << 16 | DNS_CLASS
+# out: eax = result (IP or ascii ptr depending on DNS_TYPE)
+#
+# NOTE! if DNS_TYPE_PTR, the name will be mallocced and will need to be freed!
+dns_resolve$:
 	push	edx
 	push	ebx
 	mov	edx, IP_PROTOCOL_UDP << 16
@@ -1016,8 +1057,11 @@ dns_resolve_name:
 	mov	edi, esi
 
 	call	strlen_
-	mov	edx, ecx
+	#mov	edx, ecx
+	push	ecx
+	mov	edx, [esp + 4+4+4]	# get edx=class/type
 	call	net_dns_request
+	pop	edx
 
 	mov	ecx, 2 * 1000
 	KAPI_CALL socket_read	# in: eax, ecx; out: esi, ecx
@@ -1079,7 +1123,7 @@ dns_resolve_name:
 		mov	edi, esp # in: edi = ptr to buffer to contain name
 
 		push	edi
-		call	dns_parse_name$	# in: edi, ebp; in: esi
+		call	dns_parse_name$	# in: all; out: esi, edi
 		pop	edi
 		jc	2f
 
@@ -1111,8 +1155,8 @@ dns_resolve_name:
 			DEBUG "name"
 		.endif
 		lodsd	# load type/class
-		cmp	eax, 0x01000100
-		jnz	1f
+		bswap	eax
+		mov	edi, eax	# remember type
 		.if NET_DNS_DEBUG > 1
 			DEBUG "type/class"
 		.endif
@@ -1134,9 +1178,6 @@ dns_resolve_name:
 		add	eax, ebx
 		cmp	eax, edx	# question rr
 		jnz	1f
-		lodsd
-		cmp	eax, 0x01000100	# type, class
-		jnz	1f
 		jmp	3f
 	2:	# noncompressed name: compare RR with question RR
 		.if NET_DNS_DEBUG > 1
@@ -1152,11 +1193,16 @@ dns_resolve_name:
 		pop	ecx
 		pop	edi
 		jnz	1f
-	3:
-		.if NET_DNS_DEBUG > 1
-			DEBUG "aname"
-		.endif
+	3:	# name verified
+
+		lodsd			# class, type
+		bswap	eax
+		cmp	eax, edi	# verify answer class/type matches question
+		jnz	1f
 	########
+		cmp	eax, DNS_TYPE_A << 16 | DNS_CLASS_IN
+		jnz	10f
+
 		lodsd	# ttl - ignore
 		.if NET_DNS_DEBUG > 1
 			DEBUG_DWORD eax,"ttl"
@@ -1175,7 +1221,43 @@ dns_resolve_name:
 		.endif
 
 		jmp	7f
-	1:	printlnc 4, "DNS error: wrong response"
+
+	####################################
+	# check for PTR answer
+	10:	cmp	eax, DNS_TYPE_PTR << 16 | DNS_CLASS_IN
+		jnz	1f
+
+		add	esi, 4	# skip ttl
+		xor	eax, eax
+		lodsw	# data len
+		xchg	al, ah
+
+		push	ebp
+		mov	ebp, esp	# in: ebp=end of namebuf
+		sub	esp, DNS_MAX_NAME_LEN
+		mov	edi, esp	# in: edi=start of namebuf
+		mov byte ptr [edi],0
+					# in: ebx = dns frame (namerefs)
+		mov	ecx, eax	# in: ecx = dns frame remaining size
+					# in: esi = RR ptr (label)
+		call	dns_parse_name$
+		jnc 11f
+		printc 4, "dns_parse_name error: "
+		DEBUG_DWORD edi
+		mov	eax, -1
+		stc
+		jmp 12f
+	11:
+		mov	eax, esp
+		call	strdup
+		mov	edx, eax
+	12:
+		mov	esp, ebp
+		pop	ebp
+		jmp	7f
+
+	####################################
+	1:	printlnc 4, "DNS error: unimplemented response"
 		xor	edx, edx
 7:
 	pop	eax
@@ -1202,6 +1284,7 @@ dns_resolve_name:
 # in: eax = socket
 # in: esi = name to resolve
 # in: ecx = length of name
+# in: edx = DNS_TYPE << 16 | DNS_CLASS
 net_dns_request:
 	.data
 	dns_server_ip: .byte 192, 168, 1, 1
@@ -1287,10 +1370,9 @@ net_dns_request:
 #	mov	al, 0
 #	stosb
 
-	mov	ax, 1 << 8	# Type A
-	stosw
-	mov	ax, 1 << 8	# Class IN
-	stosw
+	mov	eax, [esp + 4]	# get edx: type (IN A...)
+	bswap	eax
+	stosd
 
 	pop	esi
 	NET_BUFFER_SEND
@@ -1306,5 +1388,5 @@ net_dns_request:
 	NET_BUFFER_FREE
 	stc
 	jmp	0b
-	
+
 
