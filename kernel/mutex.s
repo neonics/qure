@@ -408,10 +408,9 @@ __MUTEX_DECLARE = 1
 
 # timeout: -1 = infinity, other = ms
 .macro YIELD_SEM sem, timeout=-1
-	# TODO: make system call.
 	pushd	\timeout
 	pushd	\sem
-	call	task_wait_io
+	KAPI_CALL task_wait_io
 .endm
 
 .endif

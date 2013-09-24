@@ -179,6 +179,7 @@ SHELL_COMMAND "hs",		cmd_human_readable_size$
 #SHELL_COMMAND "regexp",		regexp_parse
 SHELL_COMMAND "obj"		pci_list_obj_counters
 SHELL_COMMAND "gfx"		cmd_gfx
+SHELL_COMMAND "stats"		cmd_stats
 # tasks / processes
 SHELL_COMMAND_CATEGORY "tasks"
 SHELL_COMMAND "exe"		cmd_exe
@@ -2769,4 +2770,11 @@ cmd_reboot:
 	pushw	0
 	lidt [esp]
 	int 3
+
+cmd_stats:
+	printc 15, "Task Switches: "
+	mov	edx, [stats_task_switches]
+	call	printdec32
+	call	newline
+	ret
 .endif

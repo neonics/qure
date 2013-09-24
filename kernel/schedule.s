@@ -183,6 +183,7 @@ task_io_sem_timeout:.long 0	# 'abs' clock_ms
 task_time_start:.long 0, 0	# timestamp value on resume
 task_time_stop:	.long 0, 0	# timestamp value on interrupted/suspended
 task_time:	.long 0, 0	# total running time
+task_schedcount:.long 0
 
 task_cur_cr3:	.long 0
 # these values are only used for jobs:
@@ -204,6 +205,11 @@ tls:		.long 0 # task/thread local storage (not SMP friendly perhaps?)
 tls_pid:	.long 0	# not used - no tls setup in this file.
 tls_task_idx:	.long 0	# not used - no tls setup in this file.
 .tdata_end
+
+
+.data SECTION_DATA_STATS
+.global stats_task_switches
+stats_task_switches: .long 0
 .text32
 
 ################################################################
@@ -635,7 +641,14 @@ schedule_isr:
 	# ignore CF: scheduler_init creates an idle task that can always run.
 
 	or	dword ptr [eax + edx + task_flags], TASK_FLAG_RUNNING
+
+	cmp	[scheduler_current_task_idx], edx
 	mov	[scheduler_current_task_idx], edx
+	jz	1f
+	incd	[stats_task_switches]
+	incd	[eax + edx + task_schedcount]
+1:
+
 	mov	[task_index], edx
 
 lea ebx, [eax + edx]
@@ -2585,6 +2598,13 @@ mov edx, [eax + ebx + task_stack0_top]
 		call	printhex8
 	.endif
 
+
+	.if 0
+	mov	edx, [eax + ebx + task_schedcount]
+	pushcolor 0x3
+	call	printdec32
+	popcolor
+	.endif
 
 	mov	edx, [eax + ebx + task_regs + task_reg_eip]
 

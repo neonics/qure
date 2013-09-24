@@ -68,3 +68,5 @@ alias qemu-nonetc "$QEMU_RUN -hda vm/misc/hdd0-qemu.raw"               -boot c -
 alias qemu-dos    "$QEMU_RUN -hda vm/misc/hdd-dos.raw"
 endsw
 ##############################
+
+alias vm adm vm

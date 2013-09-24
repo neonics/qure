@@ -758,6 +758,7 @@ www_expr:
 .long (99f - .)/10
 STRINGPTR "kernel.revision";	.byte 1,3;.long KERNEL_REVISION
 STRINGPTR "kernel.uptime";	.byte 3,2;.long kernel_get_uptime
+STRINGPTR "kernel.stats.ts";	.byte 2,3;.long stats_task_switches
 STRINGPTR "include";		.byte 3,0;.long expr_include
 .if 1
 STRINGPTR "kernel.size";	.byte 3,1;.long expr_krnl_get_size

@@ -3,18 +3,28 @@
 		${include style.css}
 	</head>
 	<body>
+		<div style="float:right">
+			<canvas id="canvas" width="400" height="400"></canvas>
+			<div id="debug" style="display:visible"></div>
+			<div id="link"></div>
+			<script type="text/javascript" src="scene_pack.js"></script>
+			<script type="text/javascript">init();render();</script>
+		</div>
+
 		<h1>QuRe - Intel Assembly Cloud Operating System</h1>
 		<i>This webpage is self-hosted</i>
 
-		<div class="box">
+		<div class="box" style="margin-right: 400px">
 			<b>Kernel revision:</b> ${kernel.revision}
-			<b>uptime:</b> ${kernel.uptime} <br/>
+			<b>uptime:</b> ${kernel.uptime}
+			<b>Task Switches:</b> ${kernel.stats.ts}<br/>
 			<a href="#cluster">Cluster status:</a> 
 			<div>
 			<b>Cluster Kernel Revision:</b> ${cluster.kernel.revision}<br/>
 			${cluster.status.list}
 			</div>
 		</div>
+
 
 		${include doc.inc}
 

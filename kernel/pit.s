@@ -418,8 +418,10 @@ udelay:
 	ret
 
 # in: eax = milliseconds
-# returns: time slept in ms
 sleep:
+.if 1
+	YIELD eax
+.else
 	push_	ebx edx
 	mov	edx, eax
 	call	get_time_ms
@@ -435,6 +437,7 @@ sleep:
 	jb	0b
 	sub	eax, ebx
 0:	pop_	edx ebx
+.endif
 	ret
 
 pit_test:
