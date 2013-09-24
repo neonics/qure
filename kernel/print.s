@@ -1491,7 +1491,7 @@ _s_printdec32:
 	mov	edx, [esp + 8]
 	call	printdec32
 	pop	edx
-	ret
+	ret	4
 
 # unsigned 32 bit print
 __printdec32:

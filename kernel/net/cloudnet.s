@@ -69,6 +69,8 @@ cloudnet_daemon:
 # out: ZF = 0: added, ZF = 1: updated
 lea	esi, [eax + cluster_node_persistent]	# also payload start
 mov	eax, [lan_ip]
+mov	edi, [cloud_nic]
+lea	edi, [edi + nic_mac]
 call	cluster_add_node	# register self
 
 
@@ -158,7 +160,7 @@ cloud_socket_open:
 
 	xor	eax, eax	# IPV4
 	mov	edx, IP_PROTOCOL_UDP << 16 | 999
-	mov	ebx, SOCK_READPEER
+	mov	ebx, SOCK_READPEER|SOCK_READPEER_MAC
 	KAPI_CALL socket_open
 	jc	9f
 	mov	[cloud_sock], eax
@@ -342,6 +344,8 @@ node_kernel_revision:	.long 0
 node_node_birthdate:	.long 0
 node_cluster_birthdate:	.long 0	# birthdate of first cluster node
 
+node_mac:	.space 6
+
 node_clock_met:	.long 0
 node_clock:	.long 0
 #node_cycles:	.long 0	# node age?
@@ -351,7 +355,8 @@ cluster_ips:	.long 0	# ptr_array for scasd
 cluster_nodes:	.long 0	# array of node struct
 .text32
 
-# in: eax = ip
+# in: eax = IP
+# in: edi = MAC
 # in: esi = ptr pkt_*
 cluster_add_node:
 	push_	eax ebx ecx edx
@@ -389,6 +394,10 @@ cluster_add_node:
 	mov	ecx, ebx
 	lea	ebx, [eax + edx]
 	mov	[ebx + node_addr], ecx
+	mov	eax, [edi + 0]	# read mac
+	mov	[ebx + node_mac], eax
+	mov	ax, [edi + 4]	# read mac
+	mov	[ebx + node_mac + 4], ax
 	mov	eax, [clock]
 	mov	[ebx + node_clock_met], eax
 
@@ -454,9 +463,9 @@ cluster_ping:
 
 CLUSTER_DEBUG = 1
 
+CL_PAYLOAD_START = 18	# sock readpeer: src.ip,src.port,dst.ip,dst.port,src.mac
+
 # in: esi,ecx = packet
-# in: eax = remote ip, edx = ports
-#
 cloudnet_handle_packet:
 	printc 11, "rx "
 
@@ -467,6 +476,12 @@ cloudnet_handle_packet:
 	xchg	dl, dh
 	call	print_addr$
 
+	add	esi, 12	# mac
+	pushcolor 8
+	call	net_print_mac
+	popcolor
+	sub	esi, 12
+
 	print "->"
 
 	mov	eax, [esi+ 6]		# peer ip
@@ -476,31 +491,33 @@ cloudnet_handle_packet:
 	call	printspace
 .endif
 	push	esi
-	add	esi, 12	# adjust
-	sub	ecx, 12
+	lea	edi, [esi + 12]	# mac
+	add	esi, CL_PAYLOAD_START
+	sub	ecx, CL_PAYLOAD_START
 	call	cloudnet_packet_print
-	add	ecx, 12
+	add	ecx, CL_PAYLOAD_START
 	pop	esi
 
 	mov	eax, [esi]	# peer ip
 	push	esi
-	lea	esi, [esi + 12 + 6] # 12:READPEER, 6: "hello\0"
+	lea	edi, [esi + 12]	# mac
+	lea	esi, [esi + CL_PAYLOAD_START + 6] # 6: "hello\0"
 	call	cluster_add_node
 	pop	esi
 
 	# detect message
 	.macro ISMSG name, label
 		push_	edi esi ecx
-		add	esi, 12
+		add	esi, CL_PAYLOAD_START
 		LOAD_TXT "\name", edi, ecx
 		repz	cmpsb
 		pop_	ecx esi edi
 		jz	\label
 	.endm
 
-	cmpd	[esi + 12], 'h'|'e'<<8|'l'<<16|'l'<<24
+	cmpd	[esi + CL_PAYLOAD_START + 0], 'h'|'e'<<8|'l'<<16|'l'<<24
 	jnz	91f
-	cmpw	[esi + 16], 'o'
+	cmpw	[esi + CL_PAYLOAD_START + 4], 'o'
 	jnz	91f
 
 #	ISMSG "hello", 1f
@@ -517,10 +534,16 @@ cloudnet_handle_packet:
 	.if CLUSTER_DEBUG
 		DEBUG "adopt?"
 	.endif
-	mov	edx, [esi + 12 + 6 + pkt_cluster_era]
+	mov	edx, [esi + CL_PAYLOAD_START + 6 + pkt_cluster_era]
 	cmp	edx, [eax + cluster_era]
 	jz	1f	# same era
 	jb	51f	# remote node out of date: respond
+		# sanity check
+		push	edx
+		sub	edx, [eax + cluster_era]
+		cmp	edx, 100
+		pop	edx
+		jae	53f
 	# local node out of date.
 	printc 13, " adopting new cluster era: "
 	pushd	[eax + cluster_era]
@@ -529,7 +552,7 @@ cloudnet_handle_packet:
 	call	printdec32
 	call	newline
 	mov	[eax + cluster_era], edx
-	mov	edx, [esi + 12+6 + pkt_cluster_birthdate]
+	mov	edx, [esi + CL_PAYLOAD_START + 6 + pkt_cluster_birthdate]
 	mov	[eax + cluster_birthdate], eax
 	mov	edx, [eax + node_age]
 	mov	[eax + cluster_era_start], edx	# 'our' age when we saw this era
@@ -539,7 +562,7 @@ cloudnet_handle_packet:
 	.if CLUSTER_DEBUG
 		DEBUG "same era"
 	.endif
-	mov	edx, [esi + 12 + 6 + pkt_cluster_birthdate]
+	mov	edx, [esi + CL_PAYLOAD_START + 6 + pkt_cluster_birthdate]
 	or	edx, edx
 	jz	52f		# remote no date: out of date, respond?
 	cmpd	[eax + cluster_birthdate], 0	# do we have a date?
@@ -560,6 +583,8 @@ cloudnet_handle_packet:
 	call	[eax + oofs_api_save]
 	lea	esi, [eax + cluster_node_persistent]
 	mov	eax, [lan_ip]
+	mov	edi, [cloud_nic]
+	lea	edi, [edi + nic_mac]
 	call	cluster_add_node	# update display list
 	mov	eax, [cluster_node]
 	jmp	4f
@@ -580,6 +605,9 @@ cloudnet_handle_packet:
 		call	print_datetime
 	.endif
 	jmp	4f
+53:	printc 12, "cluster age difference too high, ignoring"
+	jmp	4f
+
 5:	.if CLUSTER_DEBUG
 		DEBUG "remote out of date"
 	.endif
@@ -591,11 +619,7 @@ cloudnet_handle_packet:
 	mov	edx, [esi]	# src ip
 	call	[eax + send]
 	ret
-# ping
-2:	LOAD_PACKET pong
-
 # pong
-3:
 9:	printlnc 13, " ignore"
 	ret
 91:	printlnc 13, " ignore: unknown message"
@@ -748,6 +772,12 @@ cmd_cloud_print$:
 	call	printspace
 	mov	eax, [ebx + ecx + node_addr]
 	call	print_ip$
+	call	printspace
+	pushcolor 8
+	lea	esi, [ebx + ecx + node_mac]
+	call	net_print_mac
+	popcolor
+
 	pushd	[ebx + ecx + node_kernel_revision]
 	mov	edx, [ebx + ecx + node_node_age]
 	push	edx
@@ -835,9 +865,8 @@ cmd_cloud_print$:
 	printc 15, " uptime "
 		call	print_time_s
 
-
 	call	newline
-
+	call	newline
 
 	ARRAY_ENDL
 2:	ret
@@ -1004,7 +1033,7 @@ cluster_node_add$: printlnc 4, "oofs_api_add: N/A @ cluster_node";stc;ret
 cluster_node_get_obj$: printlnc 4, "oofs_api_get_obj: N/A @ cluster_node";stc;ret
 cluster_node_lookup$: printlnc 4, "oofs_api_lookup: N/A @ cluster_node";stc;ret
 cluster_node_print$:
-	printlnc 11, "cluster_node: "
+	printc 11, "cluster_node: "
 
 	pushd	[eax + node_age]
 	pushd	[eax + cluster_era]
@@ -1130,6 +1159,11 @@ table:.long 0
 ##################################################################
 2:	printc 10, " * got cluster node: "
 	incd	[eax + node_age]
+
+# TEMP FIX
+#mov [eax+cluster_era], dword ptr 0
+#mov [eax + cluster_birthdate], dword ptr 0x365b77dc
+
 	call	[eax + oofs_api_save]
 
 	pushd	[eax + node_age]
@@ -1161,7 +1195,6 @@ table:.long 0
 
 # in: edx = dest IP
 cluster_node_send:
-	DEBUG "cluster_node_send"
 	push	ecx
 	mov	ecx, offset cluster_node_packet_end
 	call	netobj_send # explicit super ref

@@ -13,9 +13,11 @@ SOCK_LISTEN	= 0x80000000
 SOCK_STREAM	= 0x40000000	# 1: continuous buffer; 0: packetized buffer
 # NOTE: gnored: the above option is automatically determined based on IP_PROTOCOL_TCP.
 # options affecting socket packetized read/peek contents (i.e. deliver)
+# READPEER: the ordering will be as listed here:
 SOCK_READPEER	= 0x08000000 	# prepend packetized data with peer address (ip:port)
-SOCK_READTTL	= 0x04000000	# prepend IP ttl (after peer)
-SOCK_READTTL_SHIFT = (24+2)
+SOCK_READPEER_MAC=0x04000000 	# prepend packetized data with peer MAC
+SOCK_READTTL	= 0x02000000	# prepend IP ttl (after peer)
+SOCK_READTTL_SHIFT = (24+1)
 
 # internal flags
 SOCK_PEER	= 0x00400000	# socket is 'forked' from SOCK_LISTEN on rx SYN
@@ -646,7 +648,7 @@ net_socket_deliver_udp:
 
 # precondition: [socket_array] locked
 # in: eax = socket index
-# in: ebx = ipv4 frame
+# in: ebx = ipv4 frame (preceeded by ethernet frame)
 # in: edx = [dest port] [peer port]
 # in: esi = payload
 # in: ecx = payload len
@@ -673,6 +675,9 @@ net_socket_in_append$:
 	test	edi, SOCK_READPEER
 	jz	1f
 	add	edx, 12
+1:	test	edi, SOCK_READPEER_MAC
+	jz	1f
+	add	edx, 6
 1:	bt	edi, SOCK_READTTL_SHIFT
 	adc	edx, 0
 	call	buffer_put_word
@@ -689,8 +694,15 @@ net_socket_in_append$:
 	mov	edx, [esp+2]
 	call	buffer_put_word
 
-	# write ttl
-1:	test	edi, SOCK_READTTL
+1:	test	edi, SOCK_READPEER_MAC
+	jz	1f
+	mov	edx, [ebx - ETH_HEADER_SIZE + eth_src]
+	call	buffer_put_dword
+	mov	edx, [ebx - ETH_HEADER_SIZE + eth_src + 4]
+	call	buffer_put_word
+
+1:	# write ttl
+	test	edi, SOCK_READTTL
 	jz	1f
 	mov	dl, [ebx + ipv4_ttl]
 	call	buffer_put_byte

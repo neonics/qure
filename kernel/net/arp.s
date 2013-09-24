@@ -81,7 +81,7 @@ arp_table_put_mac_ipv4:
 2:	ARRAY_ENDL
 0:	
 	test	ebx, 1 << 31
-	jz	0f	# do not add
+	jz	91f	# do not add
 	call	arp_table_newentry_ipv4
 1:	add	ecx, edx
 	mov	[ecx + arp_entry_ip], eax
@@ -93,10 +93,16 @@ arp_table_put_mac_ipv4:
 .if ARP_TABLE_DEBUG
 	mov	eax, [esp + 12]
 	mov	[ecx + arp_entry_caller], eax
+.else
+91:
 .endif
 0:	pop	ecx
 	pop	edx
 	ret
+.if ARP_TABLE_DEBUG
+91:	printlnc 4, "arp_table: not adding"
+	jmp	0b
+.endif
 
 ##########################################################################
 # Generic implementation for various protocol address sizes
@@ -423,14 +429,14 @@ net_arp_handle:
 
 	# check if it is for ethernet
 	cmp	word ptr [esi + arp_hw_type], ARP_HW_ETHERNET
-	jnz	9f	# don't have any other hardware types as yet.
+	jnz	95f	# don't have any other hardware types as yet.
 
 	# proto size 4, hw size 6, proto 0800 (ipv4)
 	cmp	dword ptr [esi + arp_proto], 0x04060008
 	jz	4f
 	# proto size 0x10, hw size 6, proto 0x86dd (ipv6)
 	cmp	dword ptr [esi + arp_proto], 0x1006dd86
-	jnz	9f
+	jnz	96f
 
 6:	# IPv6
 	.if NET_ARP_DEBUG
@@ -455,7 +461,7 @@ net_arp_handle:
 
 	# not supported yet, so no response.
 .endif
-	jmp	9f
+	jmp	94f
 
 
 ######### IPV4
@@ -509,20 +515,23 @@ net_arp_handle:
 	# and thus, whether or not to add the entry to the table if it doesnt
 	# exist.
 
-	push	esi
 	mov	eax, [esi + arp_src_ip]
+	# check if sender has IP (gratuitious arp)
+	or	eax, eax
+	jz	1f	# no ip, don't add to table
+	push	esi
 	lea	esi, [esi + arp_src_mac]
 	call	arp_table_put_mac_ipv4	# in: eax, esi, ebx
 	pop	esi
-
+1:
 	# check if it is a request directed at us. If it is not,
 	# even if it is a response to a prior request we made, it will have
 	# been processed. Therefore, only if it is a request respond.
 
 	test	ebx, 1 << 31	# local target
-	jz	9f		# nope.
+	jz	92f		# nope.
 	cmp	word ptr [esi + arp_opcode], ARP_OPCODE_REQUEST
-	jnz	9f		# nope, done.
+	jnz	93f		# nope, done.
 
 	.if NET_ARP_DEBUG > 1
 		DEBUG "ARP who has"
@@ -538,15 +547,32 @@ net_arp_handle:
 	mov	eax, [ebx + nic_ip]
 	call	protocol_arp_response
 
+.if !NET_ARP_DEBUG
+91:; 92:; 93:; 94:; 95:; 96:
+.endif
 9:	pop_	edx ebx
 	ret
 
-91:	printlnc 4, "arp: unknown opcode"
-	pushad
-	call	net_print_protocol
+.if NET_ARP_DEBUG
+0:	pushad
+	mov	edx, [esp + 32]
+	call	net_arp_print#net_print_protocol
 	popad
 	jmp	9b
-
+	
+91:	printlnc 4, "arp: unknown opcode"
+	jmp	0b
+92:	printlnc 4, "arp: not for us"
+	jmp	0b
+93:	printlnc 4, "arp: not a request"
+	jmp	0b
+94:	printlnc 4, "arp: IPv6 not implemented"
+	jmp	0b
+95:	printlnc 4, "arp: hw type not ethernet"
+	jmp	0b
+96:	printlnc 3, "arp: unknown protocol"
+	jmp	0b
+.endif
 
 
 # in: ebx = nic
@@ -667,18 +693,12 @@ net_arp_resolve_ipv4:
 	stc
 	jmp	1b
 
-9:	printc 11, "[In ISR - arp resolve suspended]"
-	stc
-	jmp	1b
-
 ########
 0:	# no entry in arp table. Check if we can make request.
 	call	arp_table_newentry_ipv4	# in: eax; out: ecx + edx
 	jc	1b	# out of mem
 
-2:###### have arp entry
-#	IN_ISR
-#	jc	9b
+2:###### have unresolved arp entry
 
 	mov	ecx, 5
 0:
@@ -736,7 +756,7 @@ arp_request:
 	mov	byte ptr [edi + edx + arp_entry_status], ARP_STATUS_REQ
 
 	NET_BUFFER_GET
-	jc	9f
+	jc	91f
 	push	edi
 
 	# in: ebx = nic object
@@ -757,7 +777,7 @@ arp_request:
 
 	pop	esi
 	NET_BUFFER_SEND
-	jc	9f
+	jc	92f
 
 	.if NET_ARP_DEBUG
 		DEBUG "Sent ARP request"
@@ -768,8 +788,10 @@ arp_request:
 	pop	ecx
 	pop	edi
 	ret
-
-9:	printlnc 4, "arp_request: send error"
+91:	printlnc 4, "arp_request: buffer error"
+	stc
+	jmp	0b
+92:	printlnc 4, "arp_request: send error"
 	stc
 	jmp	0b
 
@@ -785,35 +807,26 @@ arp_wait_response:
 	.if NET_ARP_DEBUG
 		DEBUG "Wait for ARP on "
 		call	net_print_ip
-		push edx
-		movzx edx, byte ptr [ebx + edx + arp_entry_status]
-		call printdec32
-		pop edx
+		call	printspace
+		push	edx
+		mov	ebx, [arp_table]
+		movzx	edx, byte ptr [ebx + edx + arp_entry_status]
+		call	printdec32
+		pop 	edx
 		call	newline
 	.endif
 
 	# wait for arp response
-# TODO: suspend (blocking IO/wait for arp response with timeout)
 
-IN_ISR
-jnc 1f
-DEBUG "WARNING: IF=0"
-1:
-
-	mov	ecx, [clock_ms]
-	add	ecx, 500	# 500 ms delay
+	mov	ecx, 10
 0:	mov	ebx, [arp_table]
 	cmp	byte ptr [ebx + edx + arp_entry_status], ARP_STATUS_RESOLVED
 	jz	0f
 	.if NET_ARP_DEBUG
 		printcharc 11, '.'
 	.endif
-	push	ecx
-	sub	ecx, [clock_ms]
-	YIELD	ecx
-	pop	ecx
-	cmp	ecx, [clock_ms]
-	ja	0b
+	YIELD timeout=10
+	loop	0b
 
 	printc 4, "arp timeout for "
 	call	net_print_ip
