@@ -1147,6 +1147,7 @@ jz	9f
 	jmp	0b
 
 # in: eax = tcp connection index
+# in: esi = tcp packet
 # out: eax = -1 if the ACK is for the FIN
 # side-effect: send_buf free'd.
 net_tcp_conn_update_ack:
@@ -1162,6 +1163,9 @@ net_tcp_conn_update_ack:
 	# see if ACK is for FIN
 	test	bl, TCP_CONN_STATE_FIN_TX
 	jz	1f
+	# see if we already received this ack
+	test	bl, TCP_CONN_STATE_FIN_ACK_RX
+	jnz	1f
 	mov	edx, [eax + tcp_conn_tx_fin_seq]
 	bswap	edx
 	cmp	edx, [esi + tcp_ack_nr]
