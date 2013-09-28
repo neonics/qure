@@ -349,7 +349,7 @@ __MUTEX_DECLARE = 1
 990:	lock sub dword ptr \sem, 1
 	jc	999f
 	lock inc dword ptr \sem
-	YIELD
+	YIELD#_SEM [\sem]
 	jmp	990b
 999:	
 .endm

@@ -40,7 +40,7 @@ net_service_httpd_main:
 		call	printspace
 	.endif
 
-	.if 0
+	.if 1
 	call	httpd_sched_client # some es problem
 	.else
 	call	httpd_handle_client
@@ -69,6 +69,8 @@ httpd_handle_client:
 	KAPI_CALL socket_peek
 	jc	9f
 
+	jecxz	22f	# connection closed
+
 	lea	edx, [ecx + 1]	# new minimum request size
 
 	push	eax
@@ -82,12 +84,15 @@ httpd_handle_client:
 	call	net_service_tcp_http	# takes care of socket_close
 	ret
 
+	22: DEBUG "socket closed while reading"
+	jmp 2f
+
 9:	printlnc 4, "httpd: timeout, closing connection"
 	LOAD_TXT "HTTP/1.1 408 Request timeout\r\n\r\n"
 	call	strlen_
 	KAPI_CALL socket_write
 1:	KAPI_CALL socket_flush
-	KAPI_CALL socket_close
+2:	KAPI_CALL socket_close
 0:	ret
 
 4:	LOAD_TXT "HTTP/1.1 400 Bad request\r\n\r\n"
@@ -228,6 +233,9 @@ http_check_request_complete:
 # in: esi = request data (complete)
 # in: ecx = request data len
 net_service_tcp_http:
+	push	ebp
+	mov	ebp, esp
+
 	call	http_parse_header	# in: esi,ecx; out: edx=uri, ebx=host
 
 	mov	esi, offset www_code_400$
@@ -254,18 +262,23 @@ net_service_tcp_http:
 
 	cmp	word ptr [edx], '/' | 'C'<<8
 	jnz	1f
-		call	www_send_screen
-		ret
+
+	call	www_send_screen
+
+	mov	esp, ebp
+	pop	ebp
+	ret
 ###################################################
 
-1:
-	# serve custom file:
+1:	# serve custom file:
+	sub	esp, ~3&(MAX_PATH_LEN+3)
+
 	.data SECTION_DATA_STRINGS
 	www_docroot$: .asciz "/c/www/"
 	WWW_DOCROOT_STR_LEN = . - www_docroot$
 	.data SECTION_DATA_BSS
-	www_content$: .long 0
-	www_file$: .space MAX_PATH_LEN
+	#www_content$: .long 0
+	#www_file$: .space MAX_PATH_LEN
 	.text32
 	push	eax
 	movzx	eax, byte ptr [boot_drive]
@@ -283,6 +296,19 @@ net_service_tcp_http:
 	mov	esi, edx
 	push	ecx
 	call	strlen_
+		# strip query
+		push_	edi ecx eax
+		mov	edi, edx
+		mov	al, '?'
+		repnz	scasb
+		jnz	1f
+		mov	byte ptr [edi-1], 0
+		# todo: store query ptr edi somewhere
+		mov	ecx, edi
+		sub	ecx, edx
+		# dec ecx?
+		1:
+		pop_	eax ecx edi
 	add	ecx, [esp]
 	add	esp, 4
 	cmp	ecx, MAX_PATH_LEN - WWW_DOCROOT_STR_LEN -1
@@ -290,7 +316,7 @@ net_service_tcp_http:
 	jae	www_err_response
 
 	# calculate path
-0:	mov	edi, offset www_file$
+0:	mov	edi, esp#offset www_file$
 	mov	esi, offset www_docroot$
 	mov	ecx, WWW_DOCROOT_STR_LEN
 	rep	movsb
@@ -298,12 +324,13 @@ net_service_tcp_http:
 	# append hostname, if any
 	cmp	ebx, -1
 	jz	1f
-	mov	edi, offset www_file$
+	mov	edi, esp#offset www_file$
 	mov	esi, ebx
 	call	fs_update_path
 	mov	word ptr [edi - 1], '/'
 	push	eax
-	mov	eax, offset www_file$
+	#mov	eax, offset www_file$
+	lea	eax, [esp+4]
 	KAPI_CALL fs_stat
 	pop	eax
 	jnc	1f
@@ -314,14 +341,14 @@ net_service_tcp_http:
 
 FS_DIRENT_ATTR_DIR=0x10
 
-	mov	edi, offset www_file$
+	mov	edi, esp#offset www_file$
 	mov	esi, edx
 	inc	esi	# skip leading /
 	call	fs_update_path	# edi=base/output, esi=rel
 
 	# check whether path is still in docroot:
 	mov	esi, offset www_docroot$
-	mov	edi, offset www_file$
+	mov	edi, esp#offset www_file$
 	mov	ecx, WWW_DOCROOT_STR_LEN - 1 # skip null terminator
 	repz	cmpsb
 	mov	esi, offset www_code_404$
@@ -329,14 +356,15 @@ FS_DIRENT_ATTR_DIR=0x10
 
 	# now, if it is a directory, append index.html
 	push	eax
-	mov	eax, offset www_file$
+	#mov	eax, offset www_file$
+	lea	eax, [esp+4]
 	KAPI_CALL fs_stat
 	jc	2f	# takes care of pop eax
 	test	al, offset FS_DIRENT_ATTR_DIR
 	pop	eax
 	jz	1f
 
-	mov	edi, offset www_file$
+	mov	edi, esp#offset www_file$
 	LOAD_TXT "./index.html"
 	call	fs_update_path
 	# no need to check escape from docroot.
@@ -344,14 +372,15 @@ FS_DIRENT_ATTR_DIR=0x10
 
 	.if NET_HTTP_DEBUG
 		printc 13, "Serving file: '"
-		mov	esi, offset www_file$
+		mov	esi, esp#offset www_file$
 		call	print
 		printc 13, "' "
 	.endif
 
 	push	eax	# preserve socket
 	push	edx
-	mov	eax, offset www_file$
+	#mov	eax, offset www_file$
+	lea	eax, [esp+8]
 	xor	edx, edx	# fs_open flags argument
 	KAPI_CALL fs_open
 	pop	edx
@@ -392,7 +421,7 @@ FS_DIRENT_ATTR_DIR=0x10
 		printlnc 10, "200 "
 	.endif
 	push	ebp
-	mov	ebp, esp
+	mov	ebp, esp# ebp + 4    www_file
 	push	eax	# [ebp - 4]  tcp conn
 	push	esi	# [ebp - 8]  orig buf
 	push	ecx	# [ebp - 12] orig buflen
@@ -401,16 +430,21 @@ FS_DIRENT_ATTR_DIR=0x10
 	call	strlen_
 	KAPI_CALL socket_write
 
-	mov	esi, offset www_file$
+	#mov	esi, offset www_file$
+	lea	esi, [ebp + 4]
 	call	http_get_mime	# out: esi
 	call	strlen_
+	mov	ebx, esi	# remember mime
 	KAPI_CALL socket_write
 
 	LOAD_TXT "\r\nConnection: close\r\n\r\n"
 	call	strlen_
 	KAPI_CALL socket_write
 
+	# ebx = mime:
+	cmp	ebx, offset _mime_text_html$
 	mov	ebx, [ebp - 8]	# buf
+	jnz	3f		# not proper mime, do not parse
 
 1:	mov	edi, ebx
 	mov	ecx, [ebp - 12]	# buflen
@@ -437,7 +471,7 @@ FS_DIRENT_ATTR_DIR=0x10
 
 	jmp	1b
 ##################################
-
+3:
 1:	mov	ecx, [ebp - 12]
 	mov	esi, ebx
 	KAPI_CALL socket_write
@@ -447,11 +481,15 @@ FS_DIRENT_ATTR_DIR=0x10
 	mov	eax, [ebp - 8]
 	call	mfree
 ########
-9:	mov	esp, ebp
+	mov	esp, ebp	# restore the tmp thing
+	pop	ebp
+	# and again for outer
+	mov	esp, ebp
 	pop	ebp
 	ret
 
 .data SECTION_DATA_STRINGS
+_mime_text_xml$:	.asciz "text/xml"
 _mime_text_html$:	.asciz "text/html"
 _mime_text_css$:	.asciz "text/css"
 _mime_text_javascript$:	.asciz "text/javascript"
@@ -462,6 +500,8 @@ _mime_application_unknown$: .asciz "application/unknown"
 
 .data
 mime_table:
+	STRINGPTR "xml";	.long _mime_text_xml$
+	STRINGPTR "xsl";	.long _mime_text_xml$
 	STRINGPTR "html";	.long _mime_text_html$
 	STRINGPTR "css";	.long _mime_text_css$
 	STRINGPTR "js";		.long _mime_text_javascript$
@@ -608,7 +648,10 @@ http_parse_header_line$:
 		mov	al, '\n'
 		repnz	scasb
 		jnz	3f
-		printc 14, "Referer: "
+		cmp	byte ptr [edi-2], '\r'
+		jnz	5f
+		dec	edi
+	5:	printc 14, "Referer: "
 		mov	ecx, edi
 		sub	ecx, esi
 		call	nprint
@@ -804,8 +847,9 @@ expr_krnl_get_data_size:
 	mov	eax, offset KERNEL_DATA_SIZE
 	ret
 
-# in: ebx = expressoin argument string: expect filename
+# in: ebx = expression argument string: expect filename
 # in: [ebp] = socket
+# in: [ebp+4] = www_file (the file containing the expression)
 #[in: edi,ecx=1kb expr buffer]
 expr_include:
 	#DEBUG "include"
@@ -814,7 +858,7 @@ expr_include:
 
 	# use static www_file$
 
-	mov	esi, offset www_file$
+	mov	esi, [ebp + 4]#offset www_file$
 	call	strlen_
 	lea	edi, [esi + ecx]
 0:	cmpb	[edi], '/'
@@ -832,19 +876,19 @@ expr_include:
 	inc	edi
 	movb	[edi], 0
 
-	mov	edi, offset www_file$
+	mov	edi, [ebp + 4]#offset www_file$
 	mov	esi, ebx
 	call	fs_update_path
 
 	# check whether path is still in docroot:
 	mov	esi, offset www_docroot$
-	mov	edi, offset www_file$
+	mov	edi, [ebp + 4]#offset www_file$
 	mov	ecx, WWW_DOCROOT_STR_LEN - 1 # skip null terminator
 	repz	cmpsb
 	mov	esi, offset www_code_404$
 	jnz	92f
 
-		mov	eax, offset www_file$
+		mov	eax, [ebp + 4] #offset www_file$
 		xor	edx, edx	# fs_open flags argument
 		KAPI_CALL fs_open
 		jc	93f
@@ -877,7 +921,7 @@ expr_include:
 	stc
 	jmp	9b
 92:	printc 4, "include path exceeds docroot: "
-1:	mov	esi, offset www_file$
+1:	mov	esi, [ebp + 4] # offset www_file$
 	jmp	0b
 93:	printc 4, "include file not found: "
 	jmp	1b
@@ -885,13 +929,17 @@ expr_include:
 # in: eax = socket
 # in: edi = expression
 # in: ecx = expression len
+# in: ebp+4 = www_file (NOTE! LEA [ebp+4]!!)
 # free to use: edx, esi
 www_expr_handle:
 	xor	esi,esi
 	push	esi
 	push	ebx
-	push	ecx
-	push	edi
+	push	ecx	# expr len
+	push	edi	# expr
+	lea	esi, [ebp + 4]
+	push	esi
+	xor	esi, esi
 	push	eax
 
 	mov	byte ptr [edi + ecx], 0	# '}' -> 0
@@ -903,11 +951,11 @@ www_expr_handle:
 	pop	eax
 	jnz	1f
 	neg	ecx
-	add	ecx, [esp + 3*4]	# trunc
-	mov	[esp + 5*4], edi
-	mov	[esp + 3*4], ecx	# update expr len
+	add	ecx, [esp + 4*4]	# trunc
+	mov	[esp + 6*4], edi
+	mov	[esp + 4*4], ecx	# update expr len
 1:	pop	edi
-	mov	ecx, [esp + 2*4]
+	mov	ecx, [esp + 3*4]
 
 	.if 0
 		DEBUG "www_expr_handle:"
@@ -955,7 +1003,7 @@ www_expr_handle:
 	movzx	eax, dl
 	mov	edx, [ebx + 6]		# arg2
 
-	mov	ebx, [esp + 5*4]
+	mov	ebx, [esp + 6*4]
 	push	ebp
 	lea	ebp, [esp + 8]	# [ebp] = socket
 	call	www_expr_handlers[eax * 4]
@@ -1011,6 +1059,7 @@ www_expr_handle:
 
 9:	
 	pop	eax
+	pop	esi	# www_file
 	pop	edi
 	pop	ecx
 	pop	ebx
@@ -1028,7 +1077,13 @@ www_code_500$:	.asciz "500 Internal Server Error"
 www_content1$:	.asciz "<html><body>"
 www_content2$:	.asciz "</body></html>\r\n"
 .text32
+
+# JUMP target: do not call!
+# in: ebp = stack pointer: replaces esp with ebp and pops ebp
 www_err_response:
+	mov	ebp, esp		# for convenience jumping
+	pop	ebp
+
 	.if NET_HTTP_DEBUG
 		mov	ecx, 4
 		pushcolor 12

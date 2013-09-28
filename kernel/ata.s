@@ -1753,6 +1753,9 @@ atapi_print_packet$:
 
 	ret
 
+.data SECTION_DATA_BSS
+atapi_sem: .long 0
+.text32
 
 
 # in: al = drive
@@ -1762,6 +1765,9 @@ atapi_print_packet$:
 # out: esi = offset to buffer
 # out: ecx = length of data in buffer
 atapi_read12$:
+	push_	eax ecx
+	SEM_SPINLOCK [atapi_sem]#LOCK_WRITE [atapi_sem]
+	pop_	ecx eax
 	push	edx
 	push	ebx
 
@@ -1787,6 +1793,9 @@ atapi_read12$:
 	call	atapi_packet_command
 9:	pop	ebx
 	pop	edx
+	pushf
+	SEM_UNLOCK [atapi_sem]#UNLOCK_WRITE [atapi_sem]
+	popf
 	ret
 
 .data SECTION_DATA_BSS
@@ -2016,7 +2025,8 @@ ata_wait_irq:
 
 1:	cmp	byte ptr [ata_irq + eax], 0
 	jnz	1f
-	hlt
+	YIELD
+	#hlt
 	loop	1b
 	printc 4, "ata_wait_irq: timeout"
 	stc
