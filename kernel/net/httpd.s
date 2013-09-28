@@ -236,6 +236,13 @@ net_service_tcp_http:
 	push	ebp
 	mov	ebp, esp
 
+	#sub	esp, 16 # reserve some space for header pointers.
+	pushd	0;	HTTP_STACK_HDR_INM	= 12	# If-None-Match
+	pushd	0;	HTTP_STACK_HDR_REFERER	= 8	# Referer
+	pushd	0;	HTTP_STACK_HDR_HOST	= 4
+	pushd	0;	HTTP_STACK_HDR_RESOURCE	= 0
+	HTTP_STACKARGS = 16
+
 	call	http_parse_header	# in: esi,ecx; out: edx=uri, ebx=host
 
 	mov	esi, offset www_code_400$
@@ -385,7 +392,44 @@ FS_DIRENT_ATTR_DIR=0x10
 	KAPI_CALL fs_open
 	pop	edx
 	jc	2f
+#####################################
+	call	fs_handle_get_mtime	# out: esi -> 8 bytes
+	jc	1f
 
+	# check ETag / If-None-Match
+	cmp	dword ptr [ebp - HTTP_STACKARGS + HTTP_STACK_HDR_INM], 0
+	stc
+	jz	1f	# not present
+#	DEBUG "have INM:" ; DEBUGS [ebp-HTTP_STACKARGS + HTTP_STACK_HDR_INM]
+	push_ eax edx
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_HDR_INM]
+	call	htoid	# out: edx:eax
+	jc	91f	# wrong format
+	cmp	edx, [esi]
+	jnz	91f
+	cmp	eax, [esi + 4]
+	jnz	91f
+91:	pop_ edx eax
+	jc	1f
+	jnz	1f
+##################
+	# got match
+#	DEBUG "ETag match"
+	mov	dword ptr [ebp - HTTP_STACKARGS + HTTP_STACK_HDR_INM], -2
+	# send '304 Not Modified'
+	pushf
+	KAPI_CALL fs_close
+	popf
+
+	pop	eax	# socket
+
+	LOAD_TXT "HTTP/1.1 304 Not Modified\r\nConnection: close\r\n\r\n", esi, ecx, 1
+	KAPI_CALL socket_write
+	KAPI_CALL socket_flush
+	KAPI_CALL socket_close
+	jmp	90f
+1:
+#####################################
 	push	eax
 	mov	eax, ecx
 	add	eax, 2047
@@ -393,23 +437,19 @@ FS_DIRENT_ATTR_DIR=0x10
 	add	eax, 8	# for time
 	call	mallocz
 	mov	edi, eax
-	mov	esi, eax
 	pop	eax
 	jnc 1f; printc 4, "mallocz error"; 1:
+#TODO:	jc
 
-	call	fs_handle_get_mtime
-	jc	1f
+	# copy mtime
 	movsd
 	movsd
 	mov	esi, edi
-1:
-
-#TODO:	jc	
 
 	KAPI_CALL fs_read	# in: edi,ecx,eax
 	jnc 1f; printc 4, "fs_read error"; 1:
 #TODO:	jc
-	
+
 	pushf
 	KAPI_CALL fs_close
 	popf
@@ -434,6 +474,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	push	eax	# [ebp - 4]  tcp conn
 	push	esi	# [ebp - 8]  orig buf
 	push	ecx	# [ebp - 12] orig buflen
+
 
 	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: "
 	call	strlen_
@@ -505,7 +546,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	mov	esp, ebp	# restore the tmp thing
 	pop	ebp
 	# and again for outer
-	mov	esp, ebp
+90:	mov	esp, ebp
 	pop	ebp
 	ret
 
@@ -573,9 +614,12 @@ http_get_mime:
 
 # in: esi = header
 # in: ecx = header len
+# in: esp+4 = space for header value pointers (above the ret)
 # out: ebx = host ptr (in header), if any
 # out: edx = -1 or resource name (GET /x -> /x)
 http_parse_header:
+	push	ebp
+	lea	ebp, [esp + 8]
 	push	eax
 	push	edi
 	mov	edx, -1		# the file to serve
@@ -606,6 +650,7 @@ http_parse_header:
 
 9:	pop	edi
 	pop	eax
+	pop	ebp
 	ret
 
 
@@ -614,6 +659,7 @@ http_parse_header:
 # in: edi = start of header line
 # in: esi = end of header line
 # in: edx = known value (-1) to compare against
+# in: ebp = ptr to array to store header value pointers
 # out: edx = resource identifier (if request match): 0 for root, etc.
 http_parse_header_line$:
 	push_	edi esi ecx
@@ -633,34 +679,65 @@ http_parse_header_line$:
 		popcolor
 	.endif
 
-	LOAD_TXT "GET /", edi
-	push	ecx
-	push	esi
-	mov	ecx, 5
+	push_	ecx esi
+	LOAD_TXT "GET /", edi, ecx, 1
 	repz	cmpsb
-	pop	esi
-	pop	ecx
+	pop_	esi ecx
 		mov	edi, esi	# for debug print
 	jz	1f
 
-	LOAD_TXT "Host: ", edi
-	push	ecx
-	push	esi
-	mov	ecx, 5
-	repz	cmpsb
-	pop	esi
-	pop	ecx
-	jz	2f
-
-	LOAD_TXT "Referer: ", edi
 	push_	ecx esi
-	mov	ecx, 9
+	LOAD_TXT "Host: ", edi, ecx, 1
 	repz	cmpsb
 	pop_	esi ecx
-	clc
-	jnz	9f
+	jz	2f
 
-	# found referer header:
+	push_	ecx esi
+	LOAD_TXT "Referer: ", edi, ecx, 1
+	repz	cmpsb
+	pop_	esi ecx
+	jz	3f
+
+	push_	ecx esi
+	LOAD_TXT "If-None-Match: ", edi, ecx, 1
+	repz	cmpsb
+	pop_	esi ecx
+	jz	4f
+
+	clc
+	jmp	9f
+
+################################################
+4:	# found If-None-Match header
+	add	esi, 15
+	sub	ecx, 15
+	push_	ecx eax esi
+	mov	al, '\n'
+	mov	edi, esi
+	repnz	scasb
+	stc
+	jnz	91f
+	cmp	byte ptr [edi-2], '\r'
+	jnz	92f
+	dec	edi
+92:	mov	byte ptr [edi-1], 0
+	.if NET_HTTP_DEBUG > 1
+		printc 15, "If-None-Match: "
+		call	print
+	.endif
+	# strip
+	cmp	byte ptr [esi], '"'
+	jnz	91f
+	cmp	byte ptr [edi-2], '"'
+	jnz	91f
+	inc	esi
+	mov	byte ptr [edi-2], 0
+	mov	[ebp + HTTP_STACK_HDR_INM], esi
+
+91:	pop_	esi eax ecx
+	jmp	9f
+
+3:	# found referer header:
 	add	esi, 9
 	sub	ecx, 9
 	.if 1
@@ -673,6 +750,8 @@ http_parse_header_line$:
 		jnz	5f
 		dec	edi
 	5:	printc 14, "Referer: "
+		mov	byte ptr [edi - 1], 0
+		mov	[ebp + HTTP_STACK_HDR_REFERER], esi
 		mov	ecx, edi
 		sub	ecx, esi
 		call	nprint
@@ -693,6 +772,8 @@ http_parse_header_line$:
 2:	add	esi, 6		# skip "Host: "
 	sub	ecx, 6
 	mov	ebx, esi	# start of hostname
+
+	mov	[ebp + HTTP_STACK_HDR_HOST], esi
 
 	.if NET_HTTP_DEBUG > 1
 		mov	edi, esi
@@ -727,6 +808,8 @@ http_parse_header_line$:
 
 
 0:	mov	[esi - 1], byte ptr 0
+
+	mov	[ebp + HTTP_STACK_HDR_RESOURCE], edi	# store resource
 
 	.if NET_HTTP_DEBUG > 1
 		# mov ecx, esi; sub ecx, ebx; mov esi, ebx; call nprint

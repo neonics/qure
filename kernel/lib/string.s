@@ -112,6 +112,7 @@ htoi:
 
 # in: eax = pointer to radix 16 (hex) string
 # out: edx:eax = number on CF = 0; CF=1: error
+.global htoid
 htoid:
 	push	esi
 	push	ebx
