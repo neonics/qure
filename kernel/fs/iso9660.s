@@ -236,8 +236,7 @@ fs_iso9660_open:
 	jz	2f
 .endif
 
-1:
-	call	iso9660_find_entry$	# in: eax, esi, ebx; out: ebx
+1:	call	iso9660_find_entry$	# in: eax, esi, ebx; out: ebx
 	jc	9f
 
 	mov	edx, ebx
@@ -257,11 +256,25 @@ fs_iso9660_open:
 fs_iso9660_close:
 	cmp	ebx, -1
 	jz	9f
-	test	byte ptr [edi + fs_dirent_attr], FS_DIRENT_ATTR_DIR
-	jz	9f	# it's an extent (lba sector)
+
 .if ISO9660_CACHE_ROOT_DIR
 	cmp	ebx, [eax + iso_root_dir]
 	jz	9f
+.endif
+
+.if 0
+	# if closing a directory, this will be the current 'nextentry' value, and thus
+	# useless.
+	test	byte ptr [edi + fs_dirent_attr], FS_DIRENT_ATTR_DIR
+	jz	9f	# it's an extent (lba sector)
+.else
+	push_	ecx edx
+	call	iso9660_delete_bufref$
+	pop_	edx ecx
+	jnc	1f
+	clc
+	jmp	9f
+1:	
 .endif
 	push	eax
 	mov	eax, ebx
@@ -292,7 +305,7 @@ fs_iso9660_nextentry:
 .endif
 0:	lea	edx, [ebx + ecx]
 	cmp	byte ptr [edx + iso9660_dr_record_len], 0
-	jz	1f
+	jz	2f
 
 	.if ISO9660_DEBUG > 1
 		push esi
@@ -333,6 +346,31 @@ fs_iso9660_nextentry:
 
 	clc
 	ret
+
+2:	# record entry len 0
+	# ebx = bufstart
+	# ecx = offset in buf
+	push	edi
+	mov	edi, [iso9660_buffers$]
+	push	eax
+	push	ecx
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	# assume ok
+	mov	eax, ebx
+	repnz	scasd
+	pop	ecx
+	# assume ok
+	sub	edi, 4
+	sub	edi, [iso9660_buffers$]
+	or	ecx, 2047
+	inc	ecx
+	mov	eax, [iso9660_bufsizes$]
+	mov	eax, [eax + edi]
+	cmp	ecx, eax
+	pop	eax
+	pop	edi
+	jb	0b
 
 1:	mov	ecx, -1
 	stc
@@ -881,11 +919,37 @@ iso9660_find_entry$:
 	push	edi
 	call	strlen_ # in esi, out ecx
 
-0:	cmp	byte ptr [ebx], 0 # rec len
-	stc
-	jz	9f
+0:	
+#DEBUG_BYTE [ebx],"<<RECLEN>>"
+	cmp	byte ptr [ebx], 0 # rec len
+	jnz	1f
 
-	# TODO: scan rockridge extensions for long filenames
+#DEBUG "<EOR>"
+	push_	ecx edx
+	call	iso9660_get_bufsize$	# out: ecx = bufsize; edx = bufstart
+	jc	2f
+#DEBUG_DWORD ecx, "ctd", 0xf0
+	cmp	ecx, 2048
+	stc
+	jz	4f
+	sub	ebx, edx	# ebx = offset
+	or	ebx, 2047
+	inc	ebx
+	#call more
+	cmp	ebx, ecx
+	jae	3f	# buf exceed
+	# continue to next 2k block
+	add	ebx, edx
+	clc
+	jmp	4f
+2:	DEBUG "iso9660: unknown buffer"
+3:	stc
+4:	pop_	edx ecx
+	jnc	1f
+#	DEBUG "<NOT FOUND>", 0x4f
+	stc
+	jmp	9f
+1:
 
 ######## find length of filename - strip trailing ;1 etc.
 	call	iso9660_dr_get_name	# out: edi, eax
@@ -922,8 +986,9 @@ iso9660_dr_get_name:
 	mov	edx, ebx
 	call	iso9660_dr_get_susp	# out: esi, ecx
 	pop	edx
-	jecxz	1f
+	or ecx,ecx; jz 9f #jecxz	1f
 0:	cmp	byte ptr [esi + 3], 1	# check version
+#DEBUG_DWORD esi
 	jnz	2f
 	cmp	[esi], word ptr ('N'|'M'<<8)	# check signature word
 	jnz	2f
@@ -935,14 +1000,18 @@ iso9660_dr_get_name:
 	jle	2f
 	mov	ecx, eax
 	lea	edi, [esi + 5]
+#DEBUGS edi
 	jmp	9f		# return rockridge name
 
-2:	movzx	eax, byte ptr [esi + 2]
+2:	
+	movzx	eax, byte ptr [esi + 2]
 	or	eax, eax
 	jz	1f
 	add	esi, eax
 	sub	ecx, eax
 	jg	0b
+#		DEBUG "<<quit>>"
+#	1: DEBUG "end of record"
 
 1:	movzx	ecx, byte ptr [ebx + iso9660_dr_dir_name_len]
 	mov	al, ';'
@@ -956,6 +1025,73 @@ iso9660_dr_get_name:
 
 9:	pop	esi
 	pop	ecx
+	ret
+
+.data SECTION_DATA_BSS
+iso9660_buffers$: .long 0
+iso9660_bufsizes$: .long 0
+.text32
+# in: ebx = directory entry ptr
+# out: ecx = size of buffer
+# out: edx = buf start
+iso9660_get_bufsize$:
+	push_	eax edi
+	mov	edi, [iso9660_bufsizes$]
+	ARRAY_LOOP [iso9660_buffers$], 4, eax, edx, 9f
+
+	cmp	ebx, [eax + edx]
+	jb	1f
+
+	mov	ecx, [edi + edx]	# bufsize
+	add	ecx, [eax + edx]	# bufstart: ecx=bufend
+	cmp	ebx, ecx
+	jae	1f
+
+	# found the buf
+	mov	ecx, [edi + edx]
+	mov	edx, [eax + edx]
+	clc
+	jmp	9f
+
+1:	ARRAY_ENDL
+	stc	# not found
+9:	pop_	edi eax
+	ret
+
+
+# in: ebx = buffer
+iso9660_delete_bufref$:
+	push_	eax ebx esi edi
+	mov	eax, ebx
+	mov	edi, [iso9660_buffers$]
+	mov	ebx, edi
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	repnz	scasd
+	stc
+	jnz	9f
+
+	subd	[ebx + array_index], 4
+
+	sub	ebx, edi
+	neg	ebx
+	mov	eax, ecx
+
+	mov	esi, edi
+	sub	edi, 4
+	rep	movsd
+
+	mov	ecx, eax
+
+	mov	edi, [iso9660_bufsizes$]
+	subd	[edi + array_index], 4
+	add	edi, ebx
+	mov	esi, edi
+	sub	edi, 4
+	rep	movsd
+	clc
+
+9:	pop_	edi esi ebx eax
 	ret
 
 
@@ -972,23 +1108,44 @@ iso9660_load_dir$:
 	mov	eax, [edx + iso9660_dr_data_len]
 	add	eax, 2		# add extra byte (+align) for end of buf check (reclen)
 	call	mallocz
+push	eax
 	jc	9f
+
+push_ eax edx ebx ecx
+mov ebx, eax
+mov ecx, [edx + iso9660_dr_data_len]
+PTR_ARRAY_NEWENTRY [iso9660_buffers$], 4, 91f
+mov [eax + edx], ebx
+PTR_ARRAY_NEWENTRY [iso9660_bufsizes$], 4, 91f
+mov [eax + edx], ecx
+91:pop_ ecx ebx edx eax
+jc 9f
+
 	mov	edi, eax	# todo: keep track somewhere
 	mov	al, cl
-	mov	ecx, 1
 	mov	ebx, [edx + iso9660_dr_extent_location]
-	push	esi
-	call	atapi_read12$
-	pop	esi
+mov	edx, [edx + iso9660_dr_data_len]
+0:	
+	push_	esi eax
+	mov	ecx, 1
+	call	atapi_read12$	# mod: eax, esi, ecx (->0x800)
+	pop_	eax esi
 	jc	1f
-	mov	ebx, edi
+inc	ebx
+add	edi, 2048
+sub	edx, 2048
+ja	0b
 
-9:	pop	edi
+	mov	ebx, [esp]#edi
+
+9:	
+pop edi
+	pop	edi
 	pop	ecx
 	pop	eax
 	ret
 
-1:	mov	eax, edi
+1:	mov	eax, [esp]#edi
 	call	mfree
 	stc
 	jmp	9b

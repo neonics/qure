@@ -5,11 +5,63 @@
 #include <stdlib.h> // exit
 #include <string.h>
 
-void error( char * msg )
+void error( const char * msg )
 {
 	perror( msg );
 	exit(1);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+/// simple hashtable
+struct el {
+		struct {
+			int key;
+			int value;
+		};
+};
+
+typedef struct hash {
+	int capacity;
+	int index;
+
+	struct el el[];
+} *HASH;
+
+
+HASH hash_new()
+{
+	HASH hash = (HASH) malloc( sizeof(struct hash) + sizeof(struct el) * 256 );
+	hash->capacity = 256;
+	hash->index = 0;
+	return hash;
+}
+
+void hash_put( HASH &hash, int key, int value)
+{
+	for ( int i = 0; i < hash->index; i++ )
+		if ( hash->el[i].key == key )
+		{
+			hash->el[i].value = value;
+			return;
+		}
+
+	if ( hash->index >= hash->capacity )
+	{
+		hash = (HASH)realloc( hash, sizeof(struct hash) + sizeof(struct el) * (hash->capacity*=2) );
+	}
+
+	hash->el[ hash->index   ].key = key;
+	hash->el[ hash->index++ ].value = value;
+}
+
+int hash_get( HASH hash, int key )
+{
+	for ( int i = 0; i < hash->index; i ++)
+		if ( hash->el[i].key == key )
+			return hash->el[i].value;
+	return -1;
+}
+///////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const char * voltypes[256];
 
@@ -19,12 +71,13 @@ void pa( const char * label, unsigned char * buf, int start, int end )
 	printf( "%s: (%d) \"", label, 1+ end - start );
 	for ( int i = start; i <= end; i ++)
 		printf( "%c", buf[i] );
-	printf( "\"\n" );
+	printf( "\"" );
 }
 
 void pd( const char * label, unsigned char * buf, int start, int end )
 {
 	pa( label, buf, start, end );
+	printf("\n");
 }
 
 long pn( const char * label, unsigned char * buf, int start, int end )
@@ -39,7 +92,7 @@ long pn( const char * label, unsigned char * buf, int start, int end )
 		for ( int i = 0; i < 8; i ++ )
 		{
 			if ( label ) printf( "%02x ", buf[start] );
-			value <<= 8; value |= buf[start++]; 
+			value <<= 8; value |= buf[start++];
 		}
 		if ( label ) printf( "] " );
 		value &= 0xffffffff;
@@ -51,7 +104,7 @@ long pn( const char * label, unsigned char * buf, int start, int end )
 		for ( int i = 0; i < 4; i ++ )
 		{
 			if ( label ) printf( "%02x ", buf[start] );
-			value <<= 8; value |= buf[start++]; 
+			value <<= 8; value |= buf[start++];
 		}
 		if ( label ) printf( "] " );
 
@@ -103,13 +156,13 @@ void pdr( const char * label, unsigned char * buf, int start, int end )
 	printf( "  Extended Attribute Length: %d (0x%x)\n", buf[start+1], buf[start+1] );
 	pn( "  Location of Extent", buf, start+2, start + 9 );
 	pn( "  Data Length", buf, start+10, start + 17 );
-	pa( "  Recording Date and Time", buf, start+18, start + 24 );
+	pa( "  Recording Date and Time", buf, start+18, start + 24 ); printf("\n");
 	printf( "  File Flags: %x\n", buf[start+25] );
 	printf( "  File Unit Size: %d\n", buf[26] );
 	printf( "  Interleave Gap Size: %d\n", buf[27] );
 	pn( "  Volume Sequence Number", buf, start+28, start+31);
 	printf( "  Length of file identifier: %d\n", buf[start+32]);
-	pa( "  File Identifier", buf, start+33, start+32+buf[start+32]);
+	pa( "  File Identifier", buf, start+33, start+32+buf[start+32]); printf("\n");
 	// padding byte if buf[start+32] is odd
 	// buf[start] - LEN_SU +1 ... buf[start] system use bytes
 
@@ -144,6 +197,7 @@ int main(int argc, char ** argv)
 	voltypes[255] = "Volume Descriptor Set Terminator";
 	for ( int i = 4; i < 255; i ++ ) voltypes[i] = "reserved";
 
+	HASH extsize_hash = hash_new();
 
 	handle = open( "os.iso", O_RDONLY );
 	if ( handle <= 0 )
@@ -183,9 +237,9 @@ int main(int argc, char ** argv)
 	{
 		// 7..38: boot system identifier (ascii)
 		// 39..70: boot identifier (ascii)
-		// 71..2047: boot system use 
-		pa( "Boot System Identifier", buf, 7, 38 );
-		pa( "Boot Identifier", buf, 39, 70 );
+		// 71..2047: boot system use
+		pa( "Boot System Identifier", buf, 7, 38 ); printf("\n");
+		pa( "Boot Identifier", buf, 39, 70 ); printf("\n");
 		pd( "Boot System Use", buf, 71, 128 );
 
 		const char * eltorito = "EL TORITO SPECIFICATION";
@@ -194,7 +248,7 @@ int main(int argc, char ** argv)
 		//	if ( eltorito[q] != buf[7 + q] ) {ok = false; break;}
 		if ( memcmp( &buf[7], eltorito, strlen( eltorito ) ) == 0 )
 		{
-			boot_catalog_sector = 
+			boot_catalog_sector =
 			pnlsb( "Boot Catalog", buf, 0x47, 0x4a );
 		}
 	}
@@ -202,7 +256,7 @@ int main(int argc, char ** argv)
 	{
 		// offset 7: unused
 		// 9 to 40
-		pa( "System Identifier", buf, 8, 39 );	// for sectors 0..15
+		pa( "System Identifier", buf, 8, 39 );	printf("\n");// for sectors 0..15
 		pd( "Volume Identifier", buf, 40, 71 );
 		// 72-79 unused
 		pn( "Volume Space Size", buf, 80, 87 );
@@ -211,7 +265,7 @@ int main(int argc, char ** argv)
 		pn( "Volume Sequence Number", buf, 124, 127 );
 		pn( "Logical Block Size", buf, 128, 131 );
 		pn( "Path table size", buf, 132, 139 );
-		path_sector = 
+		path_sector =
 		pnlsb( "LSB Path Table location: ", buf, 140, 143 );
 		pnlsb( "LSB Path Table optional location: ", buf, 144, 147 );
 		pnmsb( "MSB Path Table location: ", buf, 148, 151 );
@@ -221,21 +275,21 @@ int main(int argc, char ** argv)
 		printf("\n");
 		pd( "Volume Set Identifier", buf, 190, 317 );
 		pa( "Publisher Identifier", buf, 318, 445 );
-		pa( "Data Preparer Identifier", buf, 446, 573 );
-		pa( "Application Identifier", buf, 574, 701 );
-		pd( "Copyright File Identifier", buf, 702, 738 ); // d-char,sep1, sep2
+		pa( "\nData Preparer Identifier", buf, 446, 573 );
+		pa( "\nApplication Identifier", buf, 574, 701 );
+		pd( "\nCopyright File Identifier", buf, 702, 738 ); // d-char,sep1, sep2
 		pd( "Abstract file Identifier", buf, 739, 775 ); // d-, sep1, sep2
 		pd( "Bibliographic File identifier", buf, 776, 812 ); // d-, sep1, sep2
-		
+
 		pa( "Volume Creation date and time", buf, 813, 829 ); // digits/numval
-		pa( "Volume Modification date and time", buf, 830, 846 ); // digits/numval
-		pa( "Volume Expiration date and time", buf, 847, 863 ); // digits/numval
-		pa( "Volume Effective date and time", buf, 864, 880 ); // digits/numval
+		pa( "\nVolume Modification date and time", buf, 830, 846 ); // digits/numval
+		pa( "\nVolume Expiration date and time", buf, 847, 863 ); // digits/numval
+		pa( "\nVolume Effective date and time", buf, 864, 880 ); // digits/numval
 		printf( "File Structure Version: %d\n", buf[881] );
 		// 882 reserved
 
 		// app use: 883..1394
-		pa( "Application Use", buf, 883, 1394 );
+		pa( "\nApplication Use", buf, 883, 1394 );
 		pa( "Reserved", buf, 1395, 2047 );
 	}
 	else
@@ -274,7 +328,7 @@ int main(int argc, char ** argv)
 			int offset = 0x20;
 
 			printf( "\nInitial/Default entry\n" );
-			printf( "  Boot Indicator: %02x (%s)\n", buf[offset+0], 
+			printf( "  Boot Indicator: %02x (%s)\n", buf[offset+0],
 				buf[offset] == 0 ? "Not Bootable" :
 				buf[offset] == 0x88 ? "Bootable" : "unknown"
 			);
@@ -332,7 +386,6 @@ int main(int argc, char ** argv)
 
 			int offs = 0;
 
-			unsigned char extbuf[ 2048 ];
 
 			while ( buf[offs] != 0 )
 			{
@@ -346,17 +399,33 @@ int main(int argc, char ** argv)
 
 			offs += 8 + buf[offs] + (buf[offs]&1);
 
+
 			if ( extsect )
 			{
+				int extsect_size = hash_get( extsize_hash, extsect ); //2048;
+				if ( extsect_size == -1 )
+					extsect_size = 2048;	// unspecified
+				else if ( extsect_size <= 0 || extsect_size & 2047 != 0 )
+				{
+					printf("ERROR: ext sector %04x size %08x\n", extsect, extsect_size);
+					continue;
+				}
+				unsigned char extbuf[ extsect_size ];
+
 				lseek( handle, extsect * 2048, SEEK_SET );
-				read( handle, extbuf, 2048 );
+				read( handle, extbuf, extsect_size );
 				printf( "   - sector %d (0x%x) offset 0x%x\n", extsect, extsect,
 					extsect * 2048 );
 
 				int o = 0;
-				while ( o < 2048 )
+				while ( o < extsect_size )
 				{
-					if ( extbuf[o] == 0 ) break;
+					if ( extbuf[o] == 0 )
+					{
+						o = (o|2047)+1;	// continue on next sector
+						if ( o >= extsect_size )
+							break;
+					}
 
 					//pdr( "   Directory Record", extbuf, o, o + extbuf[o] );
 					printf("    [offset: %x]\n", o);
@@ -366,10 +435,11 @@ int main(int argc, char ** argv)
 					printf( "\" FUS 0x%x", extbuf[o+26] ); // file unit size
 					printf( " ExtAttrLen: %d", extbuf[o+1] );
 					printf( " Flags: 0x%02x", extbuf[o+25] );
-					printf( " Vol %d", pn(NULL, extbuf, 28, 31 ));
+					printf( " Vol %d ", pn(NULL, extbuf, 28, 31 ));
 					int fext = pn( NULL, extbuf, o+2, o+9 );
 					int size = pn( NULL, extbuf, o+10, o+17 );
-					printf( "EXT %02x Size %d\n", fext, size );
+					printf( "EXT %04x Size %d\n", fext, size );
+					hash_put( extsize_hash, fext, size );
 					printf("      rlen %d nmlen %d extradatalen: %d",
 						extbuf[o], extbuf[o+32],
 						extbuf[o] - 33 - extbuf[o+32]
@@ -430,6 +500,10 @@ int main(int argc, char ** argv)
 							if ( fl & 32 ) { printf("Expiration " ); o+=fieldlen; }
 							if ( fl & 64 ) { printf("Effective " ); o+=fieldlen; }
 						}
+						else if ( is_rr( "NM", extbuf, p ) )
+						{
+							pa("name", extbuf, p+5, extbuf[p+2]+p -1 );
+						}
 						else
 						{
 						for ( int pp = p+4; pp < p + extbuf[p+2]; pp++ )
@@ -456,7 +530,7 @@ int main(int argc, char ** argv)
 
 					/*
 					//pa("    File: ", extbuf, o+33, o+32+extbuf[o+32] );
-				
+
 				printf("\n    Directory Record:\n");
 				printf( "    Directory Record len: %d\n", extbuf[o+0] );
 				printf( "    Extended Attribute len: %d\n", extbuf[o+1] );
@@ -480,9 +554,13 @@ int main(int argc, char ** argv)
 			}
 
 			printf("End of path table at offset %d (0x%x)\n", offs, offs );
-			
-			
 		}
+
 	}
+
+	/*printf("\n\nHASH:\n");
+	for ( int i = 0; i < extsize_hash->index; i ++ )
+		printf("  ext %04x  size %d\n", extsize_hash->el[i].key, extsize_hash->el[i].value );
+	*/
 
 }
