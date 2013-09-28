@@ -1081,7 +1081,7 @@ www_content2$:	.asciz "</body></html>\r\n"
 # JUMP target: do not call!
 # in: ebp = stack pointer: replaces esp with ebp and pops ebp
 www_err_response:
-	mov	ebp, esp		# for convenience jumping
+	mov	esp, ebp		# for convenience jumping
 	pop	ebp
 
 	.if NET_HTTP_DEBUG
