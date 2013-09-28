@@ -317,6 +317,7 @@ ptr_array_newentry:
 # in: ecx = entry size / size of memory to remove
 # in: edx = entry to release
 array_remove:
+	push_	edx edi esi
 	add	edx, ecx
 	cmp	edx, [eax + buf_capacity]
 	jae	0f	# ja -> misalignment
@@ -326,9 +327,15 @@ array_remove:
 	add	esi, eax
 	add	edi, eax
 	push	ecx
+	push	ecx
+	and	ecx, 3
 	rep	movsb
 	pop	ecx
+	shr	ecx, 2
+	rep	movsd
+	pop	ecx
 0:	sub	[eax + buf_index], ecx
+	pop_	esi edi edx
 	ret
 
 .endif
