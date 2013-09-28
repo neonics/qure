@@ -390,11 +390,20 @@ FS_DIRENT_ATTR_DIR=0x10
 	mov	eax, ecx
 	add	eax, 2047
 	and	eax, ~2047
+	add	eax, 8	# for time
 	call	mallocz
 	mov	edi, eax
 	mov	esi, eax
 	pop	eax
 	jnc 1f; printc 4, "mallocz error"; 1:
+
+	call	fs_handle_get_mtime
+	jc	1f
+	movsd
+	movsd
+	mov	esi, edi
+1:
+
 #TODO:	jc	
 
 	KAPI_CALL fs_read	# in: edi,ecx,eax
@@ -408,7 +417,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	jnc	1f
 
 	push	eax
-	mov	eax, edi
+	lea	eax, [edi - 8]
 	call	mfree
 2:	pop	eax
 	mov	esi, offset www_code_404$
@@ -430,11 +439,22 @@ FS_DIRENT_ATTR_DIR=0x10
 	call	strlen_
 	KAPI_CALL socket_write
 
-	#mov	esi, offset www_file$
-	lea	esi, [ebp + 4]
+	lea	esi, [ebp + 4]	# filename
 	call	http_get_mime	# out: esi
 	call	strlen_
 	mov	ebx, esi	# remember mime
+	KAPI_CALL socket_write
+
+	push_	edi eax
+	LOAD_TXT "\r\nETag: \"YYMMDDhhmmsszz00\""
+	lea	edi, [esi + 9]
+	mov	eax, [ebp -8]
+	mov	edx, [eax - 8]
+	call	sprinthex8
+	mov	edx, [eax - 4]
+	call	sprinthex8
+	pop_	eax edi
+	call	strlen_
 	KAPI_CALL socket_write
 
 	LOAD_TXT "\r\nConnection: close\r\n\r\n"
@@ -479,6 +499,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	KAPI_CALL socket_close
 
 	mov	eax, [ebp - 8]
+	sub	eax, 8
 	call	mfree
 ########
 	mov	esp, ebp	# restore the tmp thing
@@ -1057,7 +1078,7 @@ www_expr_handle:
 	mov	eax, [esp]
 	KAPI_CALL socket_write
 
-9:	
+9:
 	pop	eax
 	pop	esi	# www_file
 	pop	edi

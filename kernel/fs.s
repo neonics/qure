@@ -963,6 +963,9 @@ fs_dirent_posix_mtime:	.long 0,0
 fs_dirent_posix_atime:	.long 0,0
 # some other times - ignored.
 FS_DIRENT_STRUCT_SIZE = .
+
+.global fs_dirent_posix_mtime
+
 .text32
 
 
@@ -976,6 +979,8 @@ fs_handle_dir_size:	.long 0 # total 3?
 fs_handle_buf:		.long 0 # total 4?
 fs_handle_dirent:	.space FS_DIRENT_STRUCT_SIZE
 FS_HANDLE_STRUCT_SIZE = .
+
+.global fs_handle_dirent
 
 # Since the structure is several doublewords long, a number of bits in the
 # offset becomes available. These can be used as flags. Otherwise,
@@ -1129,6 +1134,16 @@ fs_handle_getname:
 	UNLOCK_READ [fs_handles_sem]
 	ret
 
+# in: eax = handle index
+# out: esi
+.global fs_handle_get_mtime
+fs_handle_get_mtime:
+	LOCK_READ [fs_handles_sem]
+	ASSERT_ARRAY_IDX eax, [fs_handles$], FS_HANDLE_STRUCT_SIZE
+	mov	esi, [fs_handles$]
+	lea	esi, [eax + esi + fs_handle_dirent + fs_dirent_posix_mtime]
+	UNLOCK_READ [fs_handles_sem]
+	ret
 
 	.macro FS_HANDLE_CALL_API api, reg
 		# proxy through mtab to fs_instance

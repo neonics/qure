@@ -240,7 +240,16 @@ fs_iso9660_open:
 	jc	9f
 
 	mov	edx, ebx
-	call	iso9660_make_fs_entry$
+	call	iso9660_make_fs_entry$	# in: edx=iso dirent, edi=fs dirent
+
+	# parse RockRidge Extensions, and update the fs dirent info in edi
+	push	esi
+	push	ecx
+	call	iso9660_dr_get_susp	# in: edx; out: esi, ecx
+	call	iso9660_parse_rockridge	# in: esi,ecx=SUSP area; in: edi=dirent
+	pop	ecx
+	pop	esi
+
 	test	byte ptr [edx + iso9660_dr_file_flags], DR_FLAG_DIRECTORY
 	jnz	2f
 	mov	ebx, [edx + iso9660_dr_extent_location]
@@ -376,6 +385,7 @@ fs_iso9660_nextentry:
 	stc
 	ret
 
+# in: edi = fs dirent structure ptr
 # in: esi = points to directory entry system use area
 # in: ecx = system use area size
 iso9660_parse_rockridge:
@@ -667,20 +677,33 @@ RR_TF_FLAG_LONG_FORM	= 1 << 7 # fmt:1=(l=17)9660:8.4.26.1; 0=(l=7)9660:9.1.5
 		call	iso9660_time_long_print
 	59:;	.endr
 	.endif
+	# jmp 1b ?
 
 51:	# short form
 	.if ISO9660_RR_DEBUG > 1
 		printcharc 12, 'S'
+	.endif
 		.irp l,ctime,mtime,atime,attrtime,btime,exptime,efftime
 		shr	ah, 1
 		jnc	59f
 		call	iso9660_time_short_specified
 		jc	59f
+
+		.ifc \l,mtime
+		mov	edx, [esi]
+		mov	[edi + fs_dirent_posix_mtime], edx
+		mov	edx, [esi+4]
+		and	edx, 0x00ffffff
+		mov	[edi + fs_dirent_posix_mtime+4], edx
+		.endif
+
+	.if ISO9660_RR_DEBUG > 1
 		printc	15, " \l "
 		call	iso9660_time_short_print
-	59:;	.endr
+	.else
+		add	esi, 7
 	.endif
-
+	59:;	.endr
 	jmp	1b
 #################################
 # SP
