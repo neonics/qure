@@ -22,6 +22,7 @@ SOCK_READTTL_SHIFT = (24+1)
 # internal flags
 SOCK_PEER	= 0x00400000	# socket is 'forked' from SOCK_LISTEN on rx SYN
 SOCK_ACCEPTABLE	= 0x00200000
+SOCK_CLOSED	= 0x00100000
 .struct 0
 sock_addr:	.long 0
 sock_port:	.word 0
@@ -317,6 +318,7 @@ KAPI_DECLARE socket_peek
 socket_peek:
 	call	socket_buffer_read
 	jc	9f
+	jecxz	9f	# if socket closed
 	add	esi, [esi + buffer_start]
 	call	socket_is_stream
 	jnz	1f
@@ -368,6 +370,9 @@ socket_buffer_read:
 	add	ebx, [clock_ms]
 
 0:	mov	edi, [socket_array]
+		xor	ecx, ecx
+		test	dword ptr [edi + eax + sock_flags], SOCK_CLOSED
+		jnz	11f
 	mov	esi, [edi + eax + sock_in_buffer]
 	mov	ecx, [esi + buffer_index]
 	mov	edi, [esi + buffer_start]
@@ -391,12 +396,17 @@ socket_buffer_read:
 ########
 	MUTEX_SPINLOCK_ SOCK
 	jmp	0b
+11:
+#DEBUG_DWORD [edi+eax+sock_flags], "socket_buffer_read: sock closed"
+#clc;#stc
+#xor ecx, ecx;
+#jmp 3f
 
 1:	cmp	dword ptr [socket_buffer_sem], 0
 	jbe	9f	# TODO FIXME - just in case. 2 appends can result in 1 read...
 	lock dec dword ptr [socket_buffer_sem]
 	clc
-
+3:
 	MUTEX_UNLOCK_ SOCK
 2:	pop	ebx
 	pop	edi
@@ -454,6 +464,20 @@ socket_flush:
 	MUTEX_UNLOCK_ SOCK
 	ret
 
+# a TCP socket is closed remotely: signal any pending readers.
+# in: edx = socket index
+net_socket_deliver_close:
+	MUTEX_SPINLOCK_ SOCK
+	ASSERT_ARRAY_IDX edx, [socket_array], SOCK_STRUCT_SIZE
+	push	edx
+	add	edx, [socket_array]
+	cmp	[edx + sock_port], dword ptr -1
+	jz	9f	# skip, already closed
+	or	dword ptr [edx + sock_flags], SOCK_CLOSED
+	pop	edx
+	lock inc dword ptr [socket_buffer_sem]
+9:	MUTEX_UNLOCK_ SOCK
+	ret
 
 # TCP socket usage:
 #
@@ -478,7 +502,6 @@ socket_flush:
 # 
 # NOTE: [peer_socket_array] is now a virtual array consisting of all sockets
 # in [socket_array] that are peer sockets (SOCK_PEER flag).
-
 
 .data SECTION_DATA_BSS
 sock_accept_sem: .long 0

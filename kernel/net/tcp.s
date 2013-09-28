@@ -922,9 +922,24 @@ net_tcp_handle:
 	call	net_tcp_send
 	pop	ecx
 	pop	edx
+
 	.if NET_TCP_DEBUG
 		call	newline
 	.endif
+
+	# indicate the connection is closed to the socket layer
+
+		push_	eax edx
+		mov	edx, IP_PROTOCOL_TCP << 16
+		mov	dx, [eax + tcp_conn_remote_port]
+		xchg	dl, dh
+		mov	eax, [esi + ipv4_src]
+		call	net_socket_find_remote
+		jc	1f
+		DEBUG_DWORD edx "TCP conn closed, notifying socket"
+		call	net_socket_deliver_close
+	1:	pop_	edx eax
+
 	#ret
 ########
 0:	
