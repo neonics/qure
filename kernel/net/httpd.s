@@ -427,6 +427,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	KAPI_CALL socket_write
 	KAPI_CALL socket_flush
 	KAPI_CALL socket_close
+	printlnc 10, "304"
 	jmp	90f
 1:
 #####################################
