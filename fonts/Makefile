@@ -12,9 +12,8 @@ all:	$(FONTS_S) $(FONTS_BIN) ../build/font.exe
 init:
 
 clean:
-	rm -f $(FONTS_S) $(FONTS_BIN)
-
+	@rm -f $(FONTS_S) $(FONTS_BIN)
 
 ../build/font.exe: ../util/font.cpp
-	@echo "   GCC $@"
+	@echo "  C     $@"
 	@gcc -x c -std=c99 $< -o $@

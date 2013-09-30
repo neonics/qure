@@ -58,13 +58,13 @@ endef
 
 
 kernel.bin: kernel.obj
-	@echo "   OBJ  $@"
-	objcopy -O binary -j .text $< $@
+	@echo "  OBJ   $@"
+	@objcopy -O binary -j .text $< $@
 
 kernel.obj: $(KERNEL_OBJECTS) kernel.link
-	@echo "   LD $@ <- $^"
+	@echo "  LD    $@ <- $^"
 
-		# produce relocatable obj with sections
+		@# produce relocatable obj with sections
 		@ld $(LD_OPTS) \
 			--script kernel.link-sections \
 			-Map $@.map \
@@ -73,7 +73,7 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 			$(KERNEL_OBJECTS) \
 			-o $@0.r
 
-		# link the one with sections
+		@# link the one with sections
 		@ld $(LD_OPTS) \
 			--script kernel.link \
 			-Map $@.obj0.map \
@@ -143,12 +143,12 @@ GFX_SRC = gfx.s ../fonts/courier56.s
 LIB_SRC = ../lib/sha.s ../lib/base64.s ../lib/xml.s ../lib/browser.s
 
 ring0.o: ring0.s
-	@echo "   AS   $@"
+	@echo "  AS   $@"
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
 
 ring1.o: ring1.s
-	@echo "   AS   $@"
+	@echo "  AS   $@"
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
 
@@ -166,12 +166,12 @@ ring2.o: ring2.s defines.s macros.s $(DBG_SRC) print.s \
 		$(USB_SRC) \
 		nic.s $(NIC_SRC) \
 		$(NET_SRC)
-	@echo "   AS   $@"
+	@echo "  AS    $@"
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
 
 ring3.o: ring3.s
-	@echo "   AS   $@"
+	@echo "  AS    $@"
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
 
@@ -179,26 +179,26 @@ kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
 		$(FS_SRC) $(NET_SRC) $(GFX_SRC) \
 		$(LIB_SRC) \
 		shell.s Makefile
-	@echo "   AS   $@"
+	@echo "  AS    $@"
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
 
 fs/fs_oofs.s: fs/oofs/export.h
 
 fs/oofs/oofs.o: FORCE kapi/export.h export.h
-	@echo " M $@"
-	@make -C fs/oofs
+	@echo "  M     $@"
+	@make -s -C fs/oofs
 
 export.h: BRANCH=$(shell $(GIT) branch | grep -e ^\* | cut -b3-)
 export.h: KERNEL_REVISION=$(shell $(GIT) log --pretty=oneline --abbrev-commit | wc -l)
 export.h: kernel.o Makefile ../.git
-	@echo "   H    $@"
-	grep -e "^\.equ SEL_" gdt.s \
+	@echo "  H     $@"
+	@grep -e "^\.equ SEL_" gdt.s \
 	| perl -pe 's/^\.equ SEL_(\S+),(.*)/SEL_\1=\2/' \
 	> export.h
-	echo "BRANCH=`git branch | grep -e ^\* | cut -b3-`" \
+	@echo "BRANCH=`git branch | grep -e ^\* | cut -b3-`" \
 	>> export.h
-	echo "KERNEL_REVISION=$(KERNEL_REVISION)" \
+	@echo "KERNEL_REVISION=$(KERNEL_REVISION)" \
 	>> export.h
 	@echo ".macro LOAD_KERNEL_VERSION_TXT reg:vararg;LOAD_TXT \"$(BRANCH)-$(KERNEL_REVISION)\",\reg;.endm" \
 	>> export.h

@@ -4,7 +4,6 @@
 .code32
 
 .if DEFINE
-.print " <<<< DEFINE ata >>>> "
 
 ATA_DEBUG = 0		# 0..4
 ATAPI_DEBUG = 0		# 0..3
@@ -2258,6 +2257,4 @@ cmd_disks_print$:
 9:	printlnc 12, "usage: disks [-v]"
 	ret
 
-.else # DEFINE
-.print " <<<< declare ata >>>> "
 .endif # DEFINE

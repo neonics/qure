@@ -1,8 +1,8 @@
 #!/usr/bin/perl
+$VERBOSE = 0;
 getopt(@ARGV) or
-	die "usage: reloc.pl [[-C [-R]] <kernel.o>] <kernel.reloc>\n\t-C: compress\n";
+	die "usage: reloc.pl [-v] [[-C [-R]] <kernel.o>] <kernel.reloc>\n\t-C: compress\n";
 
-$VERBOSE = 1;
 $ADDR16 = 0;	# set to 0 to clobber 16-bit relocation entries.
 $RLE = $opt{rle};
 $RLE_NO_TABLE = $opt{rle_no_table};	# set to 1 to have no RLE repeat count lookup table
@@ -474,6 +474,7 @@ sub getopt
 {
 	while ($ARGV[0] && $ARGV[0] =~ /^-/)
 	{
+		$ARGV[0] eq '-v' and do{ $VERBOSE++; shift @ARGV } or
 		$ARGV[0] eq '-C' and ($opt{compressed} = shift @ARGV) or
 		$ARGV[0] eq '-L' and ($opt{rle_no_table} = shift @ARGV) or
 		$ARGV[0] eq '-R' and ($opt{rle} = shift @ARGV) or return 0;

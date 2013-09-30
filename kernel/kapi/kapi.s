@@ -63,7 +63,7 @@ KAPI_MODE = KAPI_MODE_PAGE_INT		# ok
 	.offset _KAPI_COUNTER	# absolute section (aka .struct _KAPI_COUNTER)
 	KAPI_\name: #= _KAPI_COUNTER
 	.global KAPI_\name
-	.print "Declare Kernel API: \name"
+	#.print "Declare Kernel API: \name"
 	_KAPI_COUNTER = _KAPI_COUNTER + 1
 	.text32
 .endm

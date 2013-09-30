@@ -12,13 +12,13 @@ DEPS = ../fs_oofs.s ../../fs.s ../../oo.s ../../lib/hash.s \
 	../../print.s ../../macros.s ../../defines.s extern.h
 
 oofs.o: oofs.s oofs_*.s $(DEPS) Makefile
-	@echo "   AS   $@"
+	@echo "  AS    $@"
 	@$(AS) -o $@ $<
 
 export.h: oofs.o Makefile
 	@# create file with constants: list absolute symbols.
 	@#  (-g: only global/external symbols - speed)
-	@echo "   H    $@"
+	@echo "  H     $@"
 	@nm -f bsd -g --defined-only $< \
 	| grep ' A ' \
 	| perl -ne 's/(\S+) . (\S+)/\2=0x\1/; print' \

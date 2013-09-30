@@ -5,9 +5,9 @@ KERNEL_MIN_STACK_SIZE	= 0x1000	# needs to be power of 2!
 KERNEL_SPLIT_RINGS = __KERNEL_SPLIT_RINGS # compiler argument --defsym __K...=1
 
 .if KERNEL_SPLIT_RINGS
-.print "Kernel: multiple object files"
+#.print "Kernel: multiple object files"
 .else
-.print "Kernel: single object file"
+#.print "Kernel: single object file"
 .endif
 
 .include "defines.s"
@@ -111,10 +111,7 @@ include "fs/iso9660.s", iso9660
 
 
 .if KERNEL_SPLIT_RINGS
-	.print "<< SPLIT RINGS >>"
-
 	.global pci_get_device_subclass_info
-
 
 	# idt
 	.global add_irq_handler

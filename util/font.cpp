@@ -1,5 +1,5 @@
 // AngelCode 'Bitmap Font Generator' file format convertor
-// 
+//
 
 #include <sys/types.h> /* unistd.h needs this */
 #include <unistd.h>    /* contains read/write */
@@ -7,6 +7,8 @@
 #include <string.h> // memset
 #include <stdio.h> // printf, fopen
 #include <stdlib.h> // atoi
+
+int verbose = 0;
 
 int main(int argc, char** argv)
 {
@@ -20,7 +22,7 @@ int main(int argc, char** argv)
 	//	path[i] = argv[1][i];
 	// path[strlen(path)-1]=0;
 
-	
+
 
 	// text file describing the stuff
 	int f = open( argv[1], O_RDONLY );
@@ -56,19 +58,21 @@ int main(int argc, char** argv)
 	while (*in++ != '\n'); linenr++;
 	memmove( fontname, fontname+1, strlen(fontname)-1);
 	fontname[strlen(fontname)-2]=0;
-	printf( "Font: '%s' %dpx ", fontname, fontsize );
+	if ( verbose )
+		printf( "Font: '%s' %dpx ", fontname, fontsize );
 
 	int lineHeight, base, scaleW, scaleH, pages, packed, alpha, red, green, blue;
-	
+
 	if ( 10 != sscanf( in, "common lineHeight=%d base=%d scaleW=%d scaleH=%d pages=%d packed=%d alphaChnl=%d redChnl=%d greenChnl=%d blueChnl=%d\n",
 		&lineHeight, &base, &scaleW, &scaleH, &pages, &packed, &alpha, &red, &green, & blue
 	) )
 	{ printf("Can't parse file: error at line 2\n"); return 2; }
 	while (*in++ != '\n'); linenr++;
-	printf("image %dx%d \n", scaleW, scaleH );
+	if ( verbose )
+		printf("image %dx%d \n", scaleW, scaleH );
 
 
-	char outfilenamebase[128]; 
+	char outfilenamebase[128];
 	char outfilename_s[128]; outfilename_s[0]=0;
 	char outfilename_bin[128]; outfilename_bin[0]=0;
 	fontname[strlen(fontname)-1]=0;
@@ -77,7 +81,7 @@ int main(int argc, char** argv)
 	{	outfilenamebase[i] = argv[1][i]; outfilenamebase[i+1]=0;}
 	strcat(outfilename_s, outfilenamebase); strcat(outfilename_s, ".s");
 	strcat(outfilename_bin, outfilenamebase); strcat(outfilename_bin, ".bin" );
-	
+
 	FILE * out = fopen( outfilename_s, "w+" );
 	if ( out ==0 ) { perror("create file");printf("Error opening '%s'\n", outfilename_s ); return 3;}
 
@@ -101,7 +105,8 @@ int main(int argc, char** argv)
 		file[strlen(file)-1]=0;
 		strcat( imgfile, file+1 );
 
-		printf("  page %d file %s", page, imgfile );
+		if ( verbose )
+			printf("  page %d file %s", page, imgfile );
 
 		// use imagemagick to convert the file to a raw file
 		char tgtfile[100];//strlen(file)+4];
@@ -124,6 +129,7 @@ int main(int argc, char** argv)
 		{ printf("Can't parse file: error at line %d\n", linenr ); return 1;}
 		while (*in++ != '\n'); linenr++;
 
+		if ( verbose )
 		printf( " %d chars", numchars );
 
 		int charsSoFar=0;
@@ -198,6 +204,7 @@ int main(int argc, char** argv)
 			}
 
 		}
-		printf("\n");
+		if ( verbose )
+			printf("\n");
 	}
 }

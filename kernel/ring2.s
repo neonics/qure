@@ -1,8 +1,6 @@
 .ifdef RING2_INCLUDED
 .else
 
-.print "ring2 object"
-
 .include "defines.s"
 .include "macros.s"
 

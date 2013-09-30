@@ -24,6 +24,7 @@
 # define O_BINARY 0
 #endif
 
+int verbose = 0;
 bool debug = false;
 char * out_name = NULL;
 char * boot_name = NULL;
@@ -57,6 +58,7 @@ void fill_sector()
 
 			sprintf( (char*)boot_buf, "RAMDISK0" );
 
+			if ( verbose )
 			printf( " + sector %02d (0x%04x):"
 				" add image %d: RAMDISK0 directory index\n",
 				sector, sector << 9,
@@ -68,6 +70,7 @@ void fill_sector()
 		}
 		else
 		{
+			if ( verbose )
 			printf( " + sector %02d (0x%04x):"
 				" add image %d: %s",
 				sector, sector << 9,
@@ -86,6 +89,7 @@ void fill_sector()
 				long sl = (flen >> 9) + (flen % 9 > 0);
 
 				lseek( h_in, 0, SEEK_SET );
+				if ( verbose )
 				printf( " - %lld bytes in %ld sectors\n",
 					flen, (flen + 0x1ff ) >> 9
 				);
@@ -95,6 +99,7 @@ void fill_sector()
 					long long so = ( sector - dirindex_sector ) << 9;
 					long ooffs = lseek( h_out, 0, SEEK_CUR );
 
+					if ( verbose )
 					printf( " * sector %02d (0x%04x):"
 						" update index %lld:"
 						" sector %02d (%02lld) + %02d"
@@ -127,6 +132,7 @@ void fill_sector()
 		if ( b && h_in < 0 )
 		{
 			b=false;
+			if ( verbose )
 			printf(" . sector %02d (0x%04x): end of images."
 				" Total size: %d bytes / %dkb / %.3fMb\n",
 				sector, sector << 9,
@@ -176,7 +182,8 @@ int main( int argc, char * argv[] )
 	if ( !parse_args( argc, argv ) )
 		return 1;
 
-	printf("Creating image %s\n", out_name );
+	if ( verbose )
+		printf("Creating image %s\n", out_name );
 
 	h_out = open( out_name, O_RDWR|O_CREAT|O_BINARY);
 
@@ -185,6 +192,7 @@ int main( int argc, char * argv[] )
 		out_offs += write(h_out, boot_buf, 512);
 	}
 
+	if ( verbose )
 	printf( " . sector %02d (0x%04x): end of image.\n", sector, sector << 9 );
 
 	close(h_out);
@@ -199,7 +207,9 @@ bool parse_args( int argc, char ** argv )
 
 	for ( i = 1; ok && i < argc; i ++ )
 	{
-		if ( strcmp( argv[i], "-b" ) == 0 )
+		if ( strcmp( argv[i], "-v" ) == 0 )
+			verbose++;
+		else if ( strcmp( argv[i], "-b" ) == 0 )
 		{
 			if ( ++i < argc ) images[imgidx++] = argv[i];
 			else ok = false;

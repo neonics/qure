@@ -13,10 +13,9 @@ ISO_ARGS += -boot-load-size $(SECTORS)
 KERNEL_OBJ = kernel/kernel.obj
 
 
-MSGPFX="    "
 define MAKE
-	@echo "$(MSGPFX)M $(1) $(2)"
-	@make --no-print-directory -C $(1) $(2)
+	@echo "  M     $(1) $(2)"
+	@make -s --no-print-directory -C $(1) $(2)
 endef
 
 
@@ -25,11 +24,11 @@ endef
 all: os.iso
 
 os.iso: SECTORS = $(call CALC_SECTORS,build/boot.img)
-os.iso: init build/boot.img site-doc
-	@echo Generating $@
-	@echo "Sectors: $(SECTORS)"
+os.iso: init build/boot.img site
+	@#echo "Sectors: $(SECTORS)"
 	@cp --sparse=always build/boot.img root/boot/boot.img
-	@genisoimage -input-charset utf-8 -o os.iso.tmp \
+	@echo "  ISO   $@"
+	@genisoimage -P Neonics -quiet -input-charset utf-8 -o os.iso.tmp \
 		-r -b boot/boot.img \
 		$(ISO_ARGS) \
 		root/ && cp --sparse=always os.iso.tmp os.iso && rm os.iso.tmp
@@ -38,8 +37,8 @@ os.iso: init build/boot.img site-doc
 	@#-hard-disk-boot
 
 init:	build-deps
-	[ -d build/ ] || mkdir -p build/
-	[ -d root/boot/ ] || mkdir -p root/boot/
+	@[ -d build/ ] || mkdir -p build/
+	@[ -d root/boot/ ] || mkdir -p root/boot/
 
 build-deps:
 	@as -o /dev/null /dev/null || (echo "missing binutils" && false)
@@ -49,9 +48,10 @@ build-deps:
 	@genisoimage --version > /dev/null || (echo "missing genisoimage" && false)
 
 clean:
-	[ -d build ] && rm -rf build || true
-	[ -f os.iso ] && rm os.iso || true
-	[ -d root/boot/ ] && rm -rf root/boot/ || true
+	@echo "  CLEAN"
+	@[ -d build ] && rm -rf build || true
+	@[ -f os.iso ] && rm os.iso || true
+	@[ -d root/boot/ ] && rm -rf root/boot/ || true
 	$(call MAKE,bootloader,clean)
 	$(call MAKE,kernel,clean)
 	$(call MAKE,fonts,clean)
@@ -79,14 +79,17 @@ build/kernel.bin: fonts build/coff.exe
 	$(call MAKE,kernel) && mv kernel/kernel.bin $@
 
 build/kernel.reloc: $(KERNEL_OBJ) util/reloc.pl Makefile
-	# -C -R # 32 bit alpha unsupported.
-	util/reloc.pl $(KERNEL_OBJ).r build/kernel.reloc
+	@# -C -R # 32 bit alpha unsupported.
+	@echo "  RELOC $@"
+	@util/reloc.pl $(KERNEL_OBJ).r build/kernel.reloc
 
 build/kernel.sym: $(KERNEL_OBJ) util/symtab.pl Makefile
-	util/symtab.pl $(KERNEL_OBJ) build/kernel.sym
+	@echo "  SYM   $@"
+	@util/symtab.pl $(KERNEL_OBJ) build/kernel.sym
 
 build/kernel.stabs: $(KERNEL_OBJ) util/stabs.pl Makefile
-	util/stabs.pl -C $(KERNEL_OBJ) build/kernel.stabs
+	@echo "  STABS $@"
+	@util/stabs.pl -C $(KERNEL_OBJ) build/kernel.stabs
 
 .PHONY: fonts
 fonts:
@@ -98,31 +101,41 @@ fonts:
 util:	init build/write.exe build/asm.exe build/malloc.exe
 
 build/write.exe: util/write.cpp
-	@echo " C $@"
-	$(GCC) $< -o $@
+	@echo "  C     $@"
+	@$(GCC) $< -o $@
 
 build/malloc.exe: util/malloc.cpp
-	@echo " C $@"
+	@echo "  C     $@"
 	@g++ -std=c++0x -o $@ $<
 
 build/font.exe: util/font.cpp
-	@echo " C $@"
-	echo $gcc -x c -std=c99 $< -o $@
+	@echo "  C     $@"
+	@gcc -x c -std=c99 $< -o $@
 
 build/coff.exe: util/coff.cpp
-	@echo " C $@"
+	@echo "  C     $@"
 	@g++ -std=c++0x -o $@ $<
 
 ##########################################################################
 
-site:	root/www/site.html all
+site:	site-init site-download site-doc www-neonics
 
-site-download:
-	[ -d root/www/download ] || mkdir -p root/www/download
-	[ -f root/www/download/boot.img.gz ] && rm root/www/download/boot.img.gz || true
-	[ -f root/www/download/os.iso.gz ] && rm root/www/download/os.iso.gz || true
-	gzip build/boot.img -c > root/www/download/boot.img.gz
-	gzip os.iso -c > root/www/download/os.iso.gz
+site-init:
+	@[ -d root/www/download ] || mkdir -p root/www/download
+	@[ -f root/www/download/boot.img.gz ] && rm root/www/download/boot.img.gz || true
+	@[ -f root/www/download/os.iso.gz ] && rm root/www/download/os.iso.gz || true
+
+site-download: os.iso.tmp.gz
+	@mv os.iso.tmp.gz root/www/download/os.iso.gz
+
+os.iso.tmp.gz: site-init
+	@echo "  ISO   $@"
+	@cp --sparse=always build/boot.img root/boot/boot.img
+	@#gzip build/boot.img -c > root/www/download/boot.img.gz
+	@genisoimage -P Neonics -quiet -input-charset utf-8 -o os.iso.tmp \
+		-r -b boot/boot.img \
+		$(ISO_ARGS) \
+		root/ && gzip -9 os.iso.tmp
 
 site-src:
 	#[ -d root/src/kernel ] || mkdir -p root/src/kernel
@@ -137,13 +150,21 @@ root/www/doc/%.html: DOC/%.txt util/txt2html.pl
 
 root/www/doc.inc: $(WWW_DOC)
 
-site-doc: $(WWW_DOC) root/www/doc.inc
-	#[ -d root/src/kernel/DOC ] || mkdir -p root/src/kernel/DOC
-	#[ -d root/www/screenshots ] || mkdir -p root/www/screenshots
-	#cp -a DOC/Screenshots/*.png root/www/screenshots/
-	#cp DOC/* root/src/kernel/DOC/
-	@echo " HTML root/www/doc"
+site-doc: root/www/doc.inc
+	@#[ -d root/src/kernel/DOC ] || mkdir -p root/src/kernel/DOC
+	@#[ -d root/www/screenshots ] || mkdir -p root/www/screenshots
+	@#cp -a DOC/Screenshots/*.png root/www/screenshots/
+	@#cp DOC/* root/src/kernel/DOC/
+
+root/www/doc.inc: $(WWW_DOC)
+	@echo "  HTML  $@"
 	@ls root/www/doc | util/genlinks.pl > root/www/doc.inc
+
+WWW_N = root/www/www.neonics.com
+
+www-neonics:
+	@[ -d web/www.neonics.com ] && ( \
+	cd web/www.neonics.com && cpio --quiet -W none -d -p < .list ../../$(WWW_N)/ >& /dev/null ) || true
 
 
 site-clean:

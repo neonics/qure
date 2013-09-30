@@ -1,11 +1,11 @@
 ###########################################################################
 ######################## Bootloader: bootsector and sector1 ###############
 ###########################################################################
-.print "*** 16/print.s:"
+#.print "*** 16/print.s:"
 
 
 .ifndef SECTOR1
-.print " * including cls"
+#.print " * including cls"
 cls:
 	mov	di, 0xb800
 	mov	es, di
@@ -22,7 +22,7 @@ cls:
 # arg: dx
 .if BOOTSECTOR
 .else
-.print " * including printhex2"
+#.print " * including printhex2"
 printhex2:
 	push	ax
 	push	cx
@@ -32,7 +32,7 @@ printhex2:
 	jmp	printhex$
 .endif
 .ifndef SECTOR1
-.print " * including printhex"
+#.print " * including printhex"
 printhex:
 	push	ax
 	push	cx
@@ -87,7 +87,7 @@ print:	lodsb
 
 .if BOOTSECTOR
 .else
-.print " * Including extended print functions"
+#.print " * Including extended print functions"
 ###########################################################################
 ############ Non-bootloader code is safe to go here #######################
 ###########################################################################

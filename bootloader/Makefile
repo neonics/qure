@@ -8,10 +8,10 @@ AS = as --32 -R -n --warn --fatal-warnings
 
 boot.bin: bootloader.o
 	@../util/checksymbols $<
-	@echo "   OBJ $@"
+	@echo "  OBJ   $@"
 	@objcopy -O binary $< $@
 
 bootloader.o: bootloader.s sector1.s ../16/print.s ../16/gdt.s ../kernel/keycodes.s
-	@echo "   AS $@"
+	@echo "  AS    $@"
 	@$(AS) -o $@ $<
 	@../util/checksymbols $@ || (rm $@ && false)

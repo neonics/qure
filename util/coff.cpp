@@ -71,46 +71,76 @@ const char * getname( char * sname, struct filehdr * h )
 	return sname;
 }
 
+void print_usage( char ** argv )
+{
+	printf( "usage: %s [-v] <filename.o> [command [options]]\n", argv[0]);
+	printf( "  -v: verbose\n\n");
+	printf( "  commands:\n"
+			"      --remove-padding <sectionname> <elementsize>\n"
+			"        treats <sectionname> as an array containing multiple elements of\n"
+			"        <elementsize> and removes trailing padding by updating the section size.\n"
+			"        This allows to split structured arrays over multiple object files.\n\n"
+//			"      --section-align <sectionname> <elementsize>\n"
+	);
+}
+
 int main(int argc, char ** argv)
 {
 	if ( argc < 2)
 	{
-		printf( "usage: %s <filename.o> [command [options]]\n", argv[0]);
-		printf( "  commands:\n"
-				"      --remove-padding <sectionname> <elementsize>\n"
-				"        treats <sectionname> as an array containing multiple elements of\n"
-				"        <elementsize> and removes trailing padding by updating the section size.\n"
-				"        This allows to split structured arrays over multiple object files.\n\n"
-//				"      --section-align <sectionname> <elementsize>\n"
-		);
+		print_usage( argv );
 		error("no filename");
 	}
+
+	bool verbose = 0;
+	char * objfilename = NULL;
 
 	char * rempad_sections[10];
 	int rempad_elsize[10];
 	int rempad_idx=0;
-	for ( int i = 2; i < argc; i++ )
+
+	for ( int i = 1; i < argc; i++ )
 	{
-		if ( strcmp( "--remove-padding", argv[i] ) == 0 )
+		if ( objfilename == NULL )
 		{
-			if ( rempad_idx == 9 ) error( "array too small - edit source" );
-			if ( i+2 >= argc ) error( "--remove-padding takes <sectionname> <elementsize>" );
-
-			char * n = rempad_sections[rempad_idx]=argv[++i];
-			int s = rempad_elsize[rempad_idx]=atoi(argv[++i]);
-			printf(" * remove padding from array section %s element size %d\n", n, s );
-
-			rempad_idx++;
+			if ( argv[i][0] == '-' )
+			{
+				if ( strcmp( argv[i], "-v" )==0 )
+					verbose=1;
+				else
+					printf( "unknown option: %s\n", argv[i] );
+					print_usage( argv );
+					exit(1);
+			}
+			else
+				objfilename = argv[i];
 		}
 		else
 		{
-			printf( "unknown argument: %s\n", argv[i] );
-			exit(1);
+			if ( strcmp( "--remove-padding", argv[i] ) == 0 )
+			{
+				if ( rempad_idx == 9 ) error( "array too small - edit source" );
+				if ( i+2 >= argc ) error( "--remove-padding takes <sectionname> <elementsize>" );
+
+				char * n = rempad_sections[rempad_idx]=argv[++i];
+				int s = rempad_elsize[rempad_idx]=atoi(argv[++i]);
+				if ( verbose )
+					printf(" * remove padding from array section %s element size %d\n",
+						n, s );
+
+				rempad_idx++;
+			}
+			else
+			{
+				printf( "unknown argument: %s\n", argv[i] );
+				print_usage( argv );
+				exit(1);
+			}
 		}
 	}
 
 	int handle;
-	handle = open( argv[1], O_RDWR );
+	handle = open( objfilename, O_RDWR );
 	if ( handle <= 0 )
 		error( "Cannot open file" );
 
@@ -123,37 +153,44 @@ int main(int argc, char ** argv)
 
 	struct filehdr * h = (struct filehdr*) buf;
 
-	printf("Magic: %04x\n", h->h_magic);
-	printf("Sections: %d\n", h->h_nsections );
-	printf("Timedate: %d\n", h->h_timdat );
-	printf("Symbol Pointer: %x\n", h->h_symptr );
-	printf("Number of symbols: %x\n", h->h_nsyms );
-	printf("Optional header len: %d\n", h->h_opthdr);
-	printf("Flags: %x\n", h->h_flags);
+	if ( verbose )
+	{
+		printf("Magic: %04x\n", h->h_magic);
+		printf("Sections: %d\n", h->h_nsections );
+		printf("Timedate: %d\n", h->h_timdat );
+		printf("Symbol Pointer: %x\n", h->h_symptr );
+		printf("Number of symbols: %x\n", h->h_nsyms );
+		printf("Optional header len: %d\n", h->h_opthdr);
+		printf("Flags: %x\n", h->h_flags);
+	}
 
 	sectionhdr* sec = (sectionhdr*) (buf + sizeof(filehdr));
 
-	printf("SECTION nr vaddr    size     name         flags\n");
+	if ( verbose )
+		printf("SECTION nr vaddr    size     name         flags\n");
 	for ( int i = 0; i < h->h_nsections; i++)
 	{
-		const char * sname;
-		printf("section %2d %08x %08x %-12s %08x", i,
-			sec[i].s_vaddr,
-			sec[i].s_size,
-			sname = getname( sec[i].s_name, h ),
-			sec[i].s_flags
-		);
+		const char * sname = getname( sec[i].s_name, h );
+		if ( verbose )
+			printf("section %2d %08x %08x %-12s %08x", i,
+				sec[i].s_vaddr,
+				sec[i].s_size,
+				sname,
+				sec[i].s_flags
+			);
 
 		for ( int j = 0; j < rempad_idx; j++ )
 		{
 			if ( strcmp( sname, rempad_sections[j] ) == 0 )
 			{
 				int mod = sec[i].s_size % 10;
-				printf( " padding=%d", mod );
+				if ( verbose )
+					printf( " padding=%d", mod );
 				if ( mod != 0 )
 				{
 					int newsize = sec[i].s_size - mod;
-					printf(": new size := 0x%x\n", newsize );
+					if ( verbose )
+						printf(": new size := 0x%x\n", newsize );
 					lseek( handle, (unsigned char*)&(sec[i].s_size) - buf, SEEK_SET );
 					write( handle, &newsize, 4 );
 					// also update section alignment
@@ -162,12 +199,14 @@ int main(int argc, char ** argv)
 					newflags &=~0x00f00000;	// mask out section align flags
 					newflags |= 0x00100000; // 1 byte alignment (NOPAD=8 is deprecated).
 					write( handle, &newflags, 4);
-					printf("newflags:%08x",newflags);
+					if ( verbose )
+						printf("newflags:%08x",newflags);
 				}
 			}
 		}
 
-		printf("\n");
+		if ( verbose )
+			printf("\n");
 	}
 
 	close( handle );
