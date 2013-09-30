@@ -2099,6 +2099,67 @@ posix_perm_3_print$:
 	call	printchar
 	ret
 
+# in: esi = ptr to 7 bytes of time (i.e. posix_mtime)
+fs_posix_time_print:
+	push_	eax edx
+	# date
+	lodsb
+	movzx	edx, al
+	add	edx, 1900
+	call	printdec32
+	.rept 2
+	printchar_ '-'
+	lodsb
+	movzx	edx, al
+	cmp	al, 10
+	jae	1f
+	printchar_ '0'
+1:	call	printdec32
+	.endr
+	call	printspace
+	# time
+	lodsb
+	mov	dl, al
+	cmp	al, 10
+	jae	1f
+	printchar_ '0'
+1:	call	printdec32
+	.rept 2
+	printchar_ ':'
+	lodsb
+	mov	dl, al
+	cmp	al, 10
+	jae	1f
+	printchar_ '0'
+1:	call	printdec32
+	.endr
+	# timezone
+	lodsb
+	call	fs_posix_print_tz
+	pop_	edx eax
+	sub	esi, 7
+	ret
+
+fs_posix_print_tz:
+	push_	edx eax
+	movsx	edx, al
+	mov	al, '+'
+	or	edx, edx
+	jns	1f
+	mov	al, '-'
+	neg	edx
+1:	call	printchar
+	# 4 -> 60 minutes -> 100
+	# so take 25 'minutes' per quarter
+	mov	eax, 25
+	imul	edx, eax
+	cmp	edx, 1000
+	jae	1f
+	printchar_ '0'
+1:	call	printdec32
+	pop_	eax edx
+	ret
+
 ###############################################################################
 .endif # DEFINE
 

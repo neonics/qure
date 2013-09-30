@@ -1379,6 +1379,20 @@ cmd_ls$:
 	call	printspace
 	mov	edx, [esi + fs_dirent_posix_gid]
 	call	printdec32
+
+	# print mtime
+	call	printspace
+	pushcolor 8
+	push	esi
+	lea	esi, [esi + fs_dirent_posix_mtime]
+	cmp	dword ptr [esi], 0
+	jz	2f
+	call	fs_posix_time_print
+	jmp	3f
+2:	print "                 "
+3:	pop	esi
+	popcolor
+
 	# ls --color
 	# ls -F: "/@|=>*" [dir link pipe socket door executable]
 	mov	ebx, eax
