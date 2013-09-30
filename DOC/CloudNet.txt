@@ -1,4 +1,5 @@
 Distributed Architecture
+------------------------
 
 
 Setup with 2 instances on a LAN:
@@ -60,7 +61,7 @@ portforwarding, though this is not commonly supported with low-end modems.
 
 Communication behind a gateway (LAN)
 ------------------------------------
-Since a single gateay only can forward packets for a particular port to one IP,
+Since a single gateway only can forward packets for a particular port to one IP,
 when multiple cloud machines are present behind the gateway, one must be chosen
 to handle the requests.
 
@@ -129,7 +130,7 @@ other, which would flood the network unnecessarily.
 When all machines receive all requests, monitoring the presence of a response
 from the elected machine then determines whether or not a new machine must
 be elected to handle the response.
-D
+
 When a machine detects a timeout in the response time, it can query the
 elected machine to see if it is still present. If not, this then serves as
 the trigger to elect a new machine to handle requests.
@@ -151,12 +152,15 @@ ACPI shutdown detect
 --------------------
 On shutdown detect, a message can be broadcast.
 
+ACPI event detection is implemented, but VMWare Player does not send such
+events (even when power options are manually configured as 'soft').
+
 Shared DMZ
 ----------
 Each vm can implement multiple virtual devices. It can use 192.168.1.11
-as the shared DMZ along a DHCP address.
+as the shared DMZ alongside a DHCP address.
 A second MAC must be made - possibly a virtual NIC, for the 2nd IP
-address. (like eth0:0).
+address (like eth0:0).
 
 Running multiple VM's: keep each other informed of who is handling DMZ.
 Regular peer-to-peer messages to keep aware of DMZ IP assigned to VM.
@@ -222,7 +226,7 @@ In this scheme, the IP is fixed, as it is a service IP configured
 in the router. The MAC is temporary, since any cluster node
 can take the IP if there is no answer.
 
-A script-expressoin rule for this then might be:
+A script-expression rule for this then might be:
 
 	auto-answer ARP $LANMASK
 
@@ -247,16 +251,14 @@ Custom Protocol
 Requirements:
 
 1) Maintain Cluster Knowledge
------------------------------
-a) broadcast on boot [COMPLETE]
-b) multicast PING
-
+ a) broadcast on boot [COMPLETE]
+ b) multicast PING
+	
 	Multicast (notes from cisco)
 	---------
 	free IP range: 239.0.0.0-239.255.255.255 (239/8)
 	(prohibited on internet/ttl=1)
-	dynamic allocation:
-		SDR, Multicast Address Set Claim (MASC), SSM; MADCAP, SSM 
+	dynamic allocation: SDR, Multicast Address Set Claim (MASC), SSM; MADCAP, SSM 
 	
 	static: 'GLOP': 233/8: 233.[16bit ASN].[0-255]
 
@@ -268,7 +270,7 @@ b) multicast PING
 		IP multicast addresses
 		time session
 
-c) cluster uptime: session duration.
+ c) cluster uptime: session duration.
 
 Shared Objects
 --------------
@@ -323,21 +325,21 @@ the cluster age and it's own.
 
 Nodes then keep track of participating in ages - their personal history.
 
-cluster_history:
-	cluster_age:	.long		# array length
-	incarnations:	.space 4*?	# [array of cluster_incarnation]
+	cluster_history:
+		cluster_age:	.long		# array length
+		incarnations:	.space 4*?	# [array of cluster_incarnation]
 
-node_history:
-	node_age:	.long		# array length
-	eras:		.space 4*	# era ID's in which incarnated.
+	node_history:
+		node_age:	.long		# array length
+		eras:		.space 4*	# era ID's in which incarnated.
 
-		An era does not change during any node incarnation,
-		because a new era only begins if this one ends,
-		which is when there are no nodes incarnated.
+			An era does not change during any node incarnation,
+			because a new era only begins if this one ends,
+			which is when there are no nodes incarnated.
 
-hello_packet:
-	era:	.long 0	# cluster age
-	age:	.long 0	# node incarnation
+	hello_packet:
+		era:	.long 0	# cluster age
+		age:	.long 0	# node incarnation
 
 
 
@@ -353,23 +355,23 @@ From eras prior to the runtime revision counting their reboots yields
 an age: the number of tests, and their duration - history: time between
 reboots.
 
-cluster_node_onload:
-	mov	edx, [eax + era]
-	cmp	edx, KERNEL_REVISION
-	jz	1f
-	mov	[eax + era], KERNEL_REVISION
-	.if ?
-	mov	edx, [eax + age]
-	mov	[eax + era_start], edx
-	.else
-	mov	[eax + age], dword ptr 0
-	.endif
+	cluster_node_onload:
+		mov	edx, [eax + era]
+		cmp	edx, KERNEL_REVISION
+		jz	1f
+		mov	[eax + era], KERNEL_REVISION
+		.if ?
+		mov	edx, [eax + age]
+		mov	[eax + era_start], edx
+		.else
+		mov	[eax + age], dword ptr 0
+		.endif
 
-1:	ret
+	1:	ret
 
 
-cluster_get_kernel_version:
-	mov	edx, [eax + age]
-	sub	edx, [eax + era_start]
-	mov	eax, [eax + age]
-	ret
+	cluster_get_kernel_version:
+		mov	edx, [eax + age]
+		sub	edx, [eax + era_start]
+		mov	eax, [eax + age]
+		ret

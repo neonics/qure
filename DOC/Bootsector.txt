@@ -227,8 +227,8 @@ Boot Image Layout
 		RAMDISK FAT
 		Kernel
 			16bit code/data
-			32bit code/data
-			32 bit data
+			32bit code
+			32bit data
 		relocation table
 		symbol table
 		source table
@@ -314,6 +314,7 @@ Here is the format:
 
 
 Limitations
+-----------
 
 The compression algorithm rounds the number of bits for alpha and delta
 to 1, 2, or 4 bytes, at current, for ease of programming.

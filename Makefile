@@ -140,13 +140,14 @@ os.iso.tmp.gz: site-init
 site-src:
 	#[ -d root/src/kernel ] || mkdir -p root/src/kernel
 	#cp -a TODO Makefile 16 bootloader kernel util fonts root/src/kernel
-DOC=Bootsector Cluster NetFork
+DOC=Bootsector Cluster NetFork CloudNet
 DOC_SRC=$(addprefix DOC/, $(addsuffix .txt,${WWW_DOC}))
 WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${DOC}))
 
-root/www/doc/%.html: DOC/%.txt util/txt2html.pl
+root/www/doc/%.html: DOC/%.txt util/txt2html.pl Makefile
 	@[ -d root/www/doc ] || mkdir root/www/doc
-	util/txt2html.pl $< $@
+	@echo "  HTML  $@"
+	@util/txt2html.pl $< | xmllint - > $@
 
 root/www/doc.inc: $(WWW_DOC)
 
@@ -157,7 +158,7 @@ site-doc: root/www/doc.inc
 	@#cp DOC/* root/src/kernel/DOC/
 
 root/www/doc.inc: $(WWW_DOC)
-	@echo "  HTML  $@"
+	@echo "  HTMLl $@"
 	@ls root/www/doc | util/genlinks.pl > root/www/doc.inc
 
 WWW_N = root/www/www.neonics.com

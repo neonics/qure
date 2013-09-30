@@ -1,8 +1,20 @@
 <html>
 	<head>
+		<title>QuRe - Intel Assembly Cloud Operating System</title>
 		${include style.css}
+		<meta http-equiv="Cache-control" content="no-cache"/>
+		<meta http-equiv="Pragma" content="no-cache"/>
+		<meta http-equiv="Expires" content="-1"/>
 	</head>
-	<body>
+	
+	<body style="margin-left: 10%; margin-right: 10%">
+
+		<h1 style="text-align: center">QuRe
+			<span style="font-size: smaller; font-style: italic; color: #119">
+			Intel Assembly Cloud Operating System
+			</span>
+		</h1>
+
 		<div style="float:right">
 			<canvas id="canvas" width="400" height="400"></canvas>
 			<div id="debug" style="display:visible"></div>
@@ -11,10 +23,9 @@
 			<script type="text/javascript">init();render();</script>
 		</div>
 
-		<h1>QuRe - Intel Assembly Cloud Operating System</h1>
 		<i>This webpage is self-hosted</i>
 
-		<div class="box" style="margin-right: 400px">
+		<div class="box" style="margin-right: 400px; font-size: smaller">
 			<b>Kernel revision:</b> ${kernel.revision}
 			<b>uptime:</b> ${kernel.uptime}
 			<b>Task Switches:</b> ${kernel.stats.ts}<br/>
@@ -25,13 +36,45 @@
 			</div>
 		</div>
 
+		<h2>TOC</h2>
+		<ul>
+			<li><a href="#source">Source</a></li>
+			<li><a href="#download">Download</a></li>
+			<li><a href="#links">Links</a></li>
+			<li><a href="#docs">Docs</a></li>
+			<li><a href="#features">Features</a></li>
+			<li><a href="#cluster">Cluster (short explanation)</a></li>
+			<li><a href="#topics">Topics on this page</a>
+				<ul>
+					<li><a href="#nc-intro">Object Oriented Persistent Network Cluster</a></li>
+					<li><a href="#pnc">Persistent Network Objects</a></li>
+					<li><a href="#oofs">Object Oriented File System</a></li>
+					<li>zero-configuration cluster discovery</li>
+					<li>Clustered data sharing</li>
+				</ul>
+			</li>
+		</ul>
 
+
+		<h2><a name="source"/>Source / Issues / Wiki</h2>
+		<a href="https://github.com/neonics/qure">GitHub</a>
+
+		<h2><a name="download"/>Download</h2>
+		<a href="download/os.iso.gz">GZipped ISO Image</a>
+
+		<h2><a name="links"/>Links</h2>
+		<ul>
+			<li><a href="site.html">Download, installation (out of date)</a></li>
+			<li><a href="C">Live screenshot of console 0</a></li>
+		</ul>
+
+		<h2><a name="docs"/>Docs</h2>
 		${include doc.inc}
 
-		<h2>feature overview</h2>
+		<h2><a name="features"/>Feature overview</h2>
 
 		<ul>
-			<li>extremely small memory footprint:
+			<li>extremely small memory footprint: <i>(actual/realtime values)</i>
 				<ul>
 					<li>Kernel size: ${kernel.size} (
 						<b>Code:</b>${kernel.code.size}
@@ -87,47 +130,42 @@
 			</li>
 
 		</ul>
-		<h2><a name='s_source'>Source / Issues / Wiki</h2>
-			<a href='https://github.com/neonics/qure'>GitHub</a>
-		<h2><a name='s_download'>Download</h2>
-			<a href='download/os.iso.gz'>GZipped ISO Image</a>
-		<h2>Links</h2>
-		<ul>
-			<li><a href="site.html">Download, installation (out of date)</a></li>
-			<li><a href="C">Live screenshot of console 0</a></li>
-		</ul>
 
-		<h2><a name="cluster">Cluster</h2>
-		<p><i>0#17	445	birthdate 2013/09/12 06:50:05</i></p>
+		<h2><a name="cluster"/>Cluster</h2>
+		<p><i>0#17	445	birthdate 2013/09/12 06:50:05</i>
 		<dl>
-		<dt>0#17</dt>
-		<dd>means cluster era 0, node age 17: A node ages each time it reboots, whereas
-		a cluster ages when all nodes are offline (called 'era' for now, to track
-		incarnations of nodes).
-		<dt>445</dt>
-		<dd>is the kernel revision, which consists of the number of commits in the node's branch.
-		For now, the branch is not communicated on the cluster.
-		</dt>
-		<dt>birthdate</dt>
-		<dd>means the CMOS time when the node booted. (this will have to do for 'uptime' for now).
-		The format is YYYY/MM/dd hh:mm:ss, since this is unambiguous and allows for easy ordering.
-		The internal CMOS date representation does not exceed 100 years, and the date representation
-		internally to represent this would use 33 bits. One bit is sacrificed for obvious reasons,
-		reducing the number of years to 64, resulting in a 'milennium bug' on january first, 2064.
-		By that time, this code will hopefully be obsolete.
-		</dt>
+			<dt>0#17</dt>
+			<dd>means cluster era 0, node age 17: A node ages each time it reboots, whereas
+			a cluster ages when all nodes are offline (called 'era' for now, to track
+			incarnations of nodes).
+			</dd>
+
+			<dt>445</dt>
+			<dd>is the kernel revision, which consists of the number of commits in the node's branch.
+			For now, the branch is not communicated on the cluster.
+			</dd>
+
+			<dt>birthdate</dt>
+			<dd>means the CMOS time when the node booted.
+			The format is YYYY/MM/dd hh:mm:ss, since this is unambiguous and allows for easy ordering.
+			The internal CMOS date representation does not exceed 100 years, and the date representation
+			internally to represent this would use 33 bits. One bit is sacrificed for obvious reasons,
+			reducing the number of years to 64, resulting in a 'milennium bug' on january first, 2064.
+			By that time, this code will hopefully be obsolete.
+			</dd>
 		</dl>
 		</p>
-		<h3>Topics</h3>
+
+		<h2><a name="topics"/>Topics</h2>
 		<ul>
-			<li>Persistent Network Objects</li>
-			<li>Object Oriented File System</li>
+			<li><a href="#nc-intro">Object Oriented Persistent Network Cluster</a></li>
+			<li><a href="#pnc">Persistent Network Objects</a></li>
+			<li><a href="#oofs">Object Oriented File System</a></li>
 			<li>zero-configuration cluster discovery</li>
 			<li>Clustered data sharing</li>
-		</li>
-		<p>
+		</ul>
 
-		<h3>Object Oriented Persistent Network Cluster</h3>
+		<h3><a name="nc-intro"/>Object Oriented Persistent Network Cluster</h3>
 		<p>
 		Or, OOPNC (I don't think so), applied to assembly, allows for a hardware-efficient
 		implementation, such as aligning sector boundaries to page boundaries, and being able
@@ -236,6 +274,8 @@
 		the same location for the checksum, which makes it insufficient to determine the protocol
 		of the packet.
 		</p>
+
+		<a name="pnc"/>
 		<h3>Persistent Network Objects</h3>
 		<p>
 		Not all data on the network needs to be persisted on disk, and vice versa.
@@ -367,14 +407,14 @@
 			b: .space B
 		}
 		class Y extends X {
-			c: space C
+			c: .space C
 		}
 		</pre>
 		class <code>Y</code> will have the object structure <code>A B C</code>.
 		Class <code>Y1</code> on the other hand:
 		<pre>
 		class Y1 extends X at b {
-			c: space C
+			c: .space C
 		}
 		</pre>
 		will have the object structure <code>A C</code>.
@@ -383,7 +423,7 @@
 		At current, class <code>Y1</code> would be declared using macros as follows:
 		<pre>
 		DECLARE_CLASS_BEGIN Y1, X, offs=b
-		c: space C
+		c: .space C
 		DECLARE_CLASS_END Y1
 		</pre>
 		</p>
@@ -393,10 +433,10 @@
 		may be present in a class hierarchy.<br/>
 		Network cards often allow to specify multiple pointers in a queue structure,
 		where a field indicates whether to concatenate this memory region with the next
-		to construct packet (<code>EOP</code> - end-of-packet).
+		to construct a packet (<code>EOP</code> - end-of-packet).
 		[the data] A list of pointers [refers to] can then be concatenated in hardware,
 		constructing a packet. A similar scheme can be employed for disk access,
-		although the granularity is poor (512 bytes) relative to network IO (2 bytes).
+		although the granularity is poor (512 bytes) relative to network IO (1 byte).
 		</p>
 
 		<a name="oofs"/>
@@ -466,8 +506,7 @@
 		<ul>
 			<li>zero-configuration cluster discovery</li>
 			<li>Clustered data sharing</li>
-		</li>
-		<p>
+		</ul>
 
 	</body>
 </html>
