@@ -682,7 +682,7 @@ jz 11f
 	call	printhex8
 	PRINTc	7, " ("
 	push	edx
-	sub	edx, [realsegflat]
+	sub	edx, [reloc$]
 	call	printhex8
 	pop	edx
 	PRINTc	7, ") "
