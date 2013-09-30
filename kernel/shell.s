@@ -208,6 +208,7 @@ SHELL_COMMAND "paging"		cmd_paging
 SHELL_COMMAND "vmcheck"		cmd_vmcheck
 SHELL_COMMAND "vmx"		cmd_vmx
 SHELL_COMMAND "ramdisk"		cmd_ramdisk
+SHELL_COMMAND "inspect_str"	cmd_inspect_str
 .if VIRTUAL_CONSOLES
 SHELL_COMMAND "consoles"	cmd_consoles
 .endif
@@ -2776,5 +2777,25 @@ cmd_stats:
 	mov	edx, [stats_task_switches]
 	call	printdec32
 	call	newline
+	ret
+
+cmd_inspect_str:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	91f
+	call	htoi
+	jc	9f
+	mov	edx, eax
+	lodsd
+	or	eax, eax
+	jz	91f
+	call	htoi
+	jc	9f
+	mov	ecx, eax
+	mov	esi, edx
+	call	nprintln
+9:	ret
+91:	printlnc 4, "usage: t <hex_addr> <hex_len>"
 	ret
 .endif
