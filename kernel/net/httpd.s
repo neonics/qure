@@ -1014,7 +1014,7 @@ expr_include:
 		#jc
 
 		mov	eax, [ebp]
-		call	socket_write	# eax, esi, ecx; out: esi, ecx
+		KAPI_CALL socket_write	# eax, esi, ecx; out: esi, ecx
 
 		mov	eax, edi
 		call	mfree
