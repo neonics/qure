@@ -1624,7 +1624,7 @@ fs_open:
 	push	esi
 	call	handle_pathpart$
 	pop	esi
-	jc	9f
+	jc	91f
 	push	esi
 	call	handle_dup$
 	pop	esi
@@ -1649,6 +1649,8 @@ fs_open:
 	pop	ecx
 	pop	esi
 	jnc	0b
+	mov	eax, [edi + fs_handle_label]
+	call	mfree
 	# error: CF=1
 	mov	eax, [ebp]
 	cmp	eax, -1	# optional if root is always present
@@ -1692,6 +1694,14 @@ fs_open:
 	pop	ebp
 	ret
 
+91:	# free handle_label
+	push	eax
+	mov	eax, [ebp - 4 - FS_HANDLE_STRUCT_SIZE + fs_handle_label]
+	call	mfree
+	pop	eax
+	stc
+	jmp	9b
+
 
 handle_copy_path$:
 	# copy path so far:
@@ -1730,7 +1740,7 @@ handle_dup$:
 	mov	[ebp], edx # store last handle
 	pop	edi
 	clc
-9:	UNLOCK_WRITE [fs_handles_sem]
+9:	UNLOCK_WRITE_ [fs_handles_sem]
 	ret
 
 # in: esi = path part ptr

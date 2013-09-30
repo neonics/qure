@@ -403,6 +403,12 @@ __MUTEX_DECLARE = 1
 	#    in a change of 0 or +1 and thus cannot cause negativity.
 .endm
 
+.macro UNLOCK_WRITE_ sem
+	pushf
+	UNLOCK_WRITE \sem
+	popf
+.endm
+
 
 # scheduler specific:
 
