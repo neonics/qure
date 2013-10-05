@@ -3,10 +3,11 @@ Proprietary enclosed source Kernel for sale.
 Enclosed source is source that is embedded in an executable. Once the executable is run, there is access to the source of the entire thing, with room to spare for a payload.
 
 Security
+--------
 The best encryption is the one that cannot be simulated. This means, that no optimizable algorithms can be defined. Since the problem space of such an encryption consists of any possible CPU instruction, instead of mere binary arithmetic using a subset of the instructions, (which translate to mere binary arithmetic within the cpu), it is slowest to simulate a cpu, and fastest to run it directly.
 
 The content of such can only be accessed by either executing the binary, possibily in a simulated environment.
-By providing compressoin at the data storage level, which requires a runtime signature key to decrypt, decryption can be slowed. The software being a bootable image containing a kernel implies the use of custom filesystems. The kernel can be made to obfuscate the payload, requiring execution to attain it. 
+By providing compression at the data storage level, which requires a runtime signature key to decrypt, decryption can be slowed. The software being a bootable image containing a kernel implies the use of custom filesystems. The kernel can be made to obfuscate the payload, requiring execution to attain it. 
 
 Such execution can have a payload itself, besides offering the source, such as notifying a service. Such a notification system keeps track of which eggs have opened, and thus, reveal possible distribution points. Modified versions can register themselves using such notifications, and thus propagate their change among themselves.
 The central distribution point will customize each download with a unique serial number. Receiving the IP, it tracks location in IP address space. It also sends the unique serial number. The source it reveals contains that same serial number as the parent, and another unique serial number as itself. Thus, initial downloads provide two numbers – one for the binary, and one for the source, referring to the binary. Each kernel will locate the communication address of their parent to notify their execution.
@@ -18,6 +19,7 @@ The notification code can be removed, and those cannot be tracked.
 To enclose source in such software means that when the source is accessible, the executable need to be run anymore, as a modified one can be built. The source then, is within the egg that is it's hardware reflection.
 
 Partial Source
+--------------
 
 Another layer of such a shell is where the binary can only be produced within the runtime environment. Tools for other environments can be built, assuming the source is accessible via the network. 
 
@@ -25,9 +27,10 @@ The compiler and such are provided as source code, but, there not being a compil
 This approach, however, is only a slowing step.
 
 Free Name Service
+-----------------
 
 The defense it makes against modifications can be removed, at which point no notification standard exists for them to recognize each other, unless such capabilities are included again.
 The emphasis should not be on a central tracking agency of the kind that knows more than it reveals. The source shows what is sent, aswell as how to retrieve what anyone sent.
 Thus, each instance can mirror the central database, making it so, that any listing in it is able to be contacted for data retrieval. In this way, a phonebook is passed along.
 
-[continued in DNS2.txt]
+[continued in DNS2.txt|DNS2.html]

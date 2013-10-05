@@ -27,54 +27,52 @@ The main screen of the OS serves as the userinterface, with fullscreen
 mode capability.
 
 When someone clicks a HostMe button and has the os preinstalled,
-a browser extension notifies the service.
+a browser extension notifies the service, or a LAN address can be used pointing
+to the local cluster (or node).
 
 
 Required software:
 
-- Installer
-  - automatic virtual machine creation
-  	- automatic TAP device creation
-	- automatic bridging
-	or
-	- openvpn installation
+	- Installer
+	  - automatic virtual machine creation
+		- automatic TAP device creation (QEmu)
+		- automatic bridging
+		or
+		- openvpn installation
 
 
-VirtualBox:
-- run their installer
-- use their commandline interfaces to set up a virtual machine and TAP device
+	VirtualBox:
+	- run their installer
+	- use their commandline interfaces to set up a virtual machine and TAP device
 
 
-Open Virtualization Format - OVF...
-
-
-http://www.dmtf.org/sites/default/files/standards/documents/DSP-IS0102_1.0.0.pdf
+[Open Virtualization Format - OVF...|http://www.dmtf.org/sites/default/files/standards/documents/DSP-IS0102_1.0.0.pdf]
+-----------------------------------
 Reading that - very corporate, with billing and such.
 
 So, doing away with all that - a free foundation.
 
 They mention in their salespitch the benefits of cloud management standards:
-  - quicker 'time to value', whatever that means
-  - shorter deployment cycles
 
-  	Disagree.
-	In a distributed cloud environment, any item inserted in the cloud
-	is automatically distributable throughout the cloud.
-	As such, each program that is able to communicate only with itself
-	is thus its own standard.
+* quicker 'time to value', whatever that means
+* shorter deployment cycles
+ 
+ 	Disagree.
+ 	In a distributed cloud environment, any item inserted in the cloud
+ 	is automatically distributable throughout the cloud.
+ 	As such, each program that is able to communicate only with itself
+ 	is thus its own standard.
+ 
+ 	Deployment cycles, which occur after product finalization,
+ 	are always the same and thus not shorter.
 
-	Deployment cycles, which occur after product finalization,
-	are always the same and thus not shorter.
-
-  - lower risk and costs
+* lower risk and costs
   	nonsense.
-
-  - vendor choice
+* vendor choice
   	as if having no cloud management standards would prevent that.
-
-  - foundation for innovation
+* foundation for innovation
   	innovation is not done by setting standards, as they are meant
-	to limit deviation from the norm, which is the opposite of innovation.
+ 	to limit deviation from the norm, which is the opposite of innovation.
 
 
 The foundation for their standards are based on a separation between
@@ -89,5 +87,10 @@ an operating system.
 At current qemu and QuRe load about as fast as flash, and with a VMX service
 that needs to be started once this load is negligible. The OS is small
 enough to be downloaded from the website as it is about 60kb, leaving
-plenty of room for custom applications.
+plenty of room for custom applications. The runtime footprint of the OS itself
+is about 300kb (including DNS, HTTP, E-Mail, Persistence), and the runtime
+footprint of a virtual machine emulator is (depending on the brand) about 4Mb,
+much less than Flash.
+
+
 

@@ -569,6 +569,7 @@ not contiguous, it is relocated to a free area (which is always contiguous).
 		#
 
 OOFS:
+=====
 
 base class: table_allocator.s
 This file combines the concepts of table and of allocation.
@@ -620,6 +621,7 @@ sector cache service.
 
 
 Allocator Base Class
+--------------------
 
 The first sector then will contain a checksum or signature, which the base class
 verifies to determine the data fits the expectations.

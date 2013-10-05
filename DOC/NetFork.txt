@@ -1,0 +1,216 @@
+
+Dynamic DNS
+===========
+
+At current, as far as I can tell, DNS is rather static.
+The only general support for it is a ''DYNA'' record using remote authentication, or, custom scripts on the server, which require a reload in the daemon and may take some time (in ''BIND'').
+Something akin to ''SMTP'''s ''EXPN'' may improve things there.
+
+Loadbalancing can be done by incorporating the DNS server with the webserver.
+Any node in the cluster can serve as a DNS server for any domain. Thus, whenever it gets queried for one of it's managed domains, it checks whether it handles that website, and if so, put's its address into the result.
+
+Dynamic Wildcard subdomains.
+----------------------------
+
+Using existing DNS structures: hosting providers use such, where they return the same address for any subdomain – a catch-all. This is not dynamic. May use SOA redirect for subdomain – return DNS redirect, which is then consulted. This allows for a one step delegation, where the root dns server has a list of regions and the clusters in those regions, and can use any IP address of such a cluster as a subdomain NS. The DNS node of that cluster, has more up-to-date information on local network topology, and can better decide which of it's cluster nodes should handle the request.
+A multistep delegation method may make use of a name-path, such as ''CNAME a.b.c.d.TLD''.
+
+The clusternode knows all the nodes that carry the site, as it does itself, and can return a sorted IP list. [reminds me of my earliest network code in C using sockets at the university – hobbytime – where i would do a loop over all the addresses returned from a name lookup and attempt to connect to them in turn until success].
+
+Breaking out of localnet
+========================
+
+The process of development must continue beyond LAN boundaries. Requirements:
+* remote reboot:
+  * depends reboot: done
+  * depends protocol
+* remote upgrade
+  * depends boot from hdd
+    * depends write proper MBR: load first sector of bootloader and use that instead of mallocz
+    * depends vm boot order
+  * depends protocol
+  * depends create file for HTTP download (unless cache or [#runtime-reconstruction])
+  * depends failsafe: automatic bootable bit removal from MBR in bootloader, to be explicitly enabled. Bit can be set to another partition, or, volume boot loader which knows of multiple kernels.
+* Depends DNS registration
+
+Broadcasts are not propagated onto the internet. Node looks up ''cloud.neonics.com'',
+finds the nameserver(s) for it, and send the UDP packet. It will repeat this until a response is received. If responses are sent but not received, it can detect whether the remote node is online by accessing a well known service - DNS, HTTP on the same IP - using a request (which [should work|http://www.google.com/#q=cloud.neonics.com]). An IP mirror service can be established, echoing back the requestors ID for a distributed IP detection service (say, http://cloud.neonics.com/?IP), and other URLS can be established that transmit a status over TCP, if the router doesn't do UDP NAT properly.
+Local machines should figure out whether they have that public IP.
+Depends on individual node communication – 'chat' – using the udp bcast thingy. The originator will also scan the list of clusters to see whether there are remote clusters (using IP & lanmask = lanip), and if not, send an udp packet.
+
+Receiving remote UDP.
+Detect source IP lan or not. If not, remote cluster communication. The shared virtual IP taking public requests does this. TODO maybe: filter. It is possible that other local nodes also see the packet and due to their socket listening on 0.0.0.0 may receive the packet, depending on whether the NIC is in promiscuous mode (meaning, the kernel doesn't filter the IP).
+
+Remote clusters do not receive broadcasts from all local nodes. Thus, localnodes must send their list of peers aswell for the remote cluster to have individual communication. On the other hand, the local node taking care of public communication must summarize and integrate the data to reduce network traffic.
+
+[TODO: Nicname (whois) protocol: radio station broadcasting their own name]
+
+Upgrading
+=========
+
+A local node when broadcasting it's presence (and there is already a node) also broadcasts it's kernel revision. The node responsable for delegation to public IP space knows the revision, but does not send a packet to remote clusters.
+Only when the active node becomes the one with the highest kernel revision will it send it's own kernel revision public. Thus, when the public delegation node is locally upgraded.
+The backup nodes will have a lower kernel revision. Once they have all been rebooted, the revision is considered stable. Yet still no upgrade is sent. When local nodes are rebooted, development is resuming. The public node knows the previous incarnation and kernel revision and can count the number of reboots – the node itself remembers this. Thus it can detect which node is in development, and it knows the remote cluster kernel. It can then automatically publish the new kernel by indicating a new stable release in the notification message. Since the remote cluster knows the local (public) IP, it can establish a connection to fetch the data, using some sort of FTP, or perhaps the webserver. Some sort of delegation can take place, say, a hardcoded name field which has to be looked up in DNS, or, an URL in the packet, though this may turn out to be insecure.
+
+Looking up ''download.cloud.neonics.com'', the primary cluster will resolve it to itself alone. Once the second cluster is rebooted, it will contact the primary cluster again as it has stored it on OOFS, and notify it of it's kernel revision. The primary node then will upgrade the kernel revision for the remote cluster. The next time it receives a DNS request for download.[domain], it will return two addresses.
+
+Each node keeps track of how many downloads of the current kernel revision it has served, and thus, how many nodes have upgraded. This field is also communicated to the primary server, doing all DNS requests (for now). It can then sort the nodes according to the load.
+
+Download Kernel Modification [=runtime-reconstruction]
+----------------------------
+
+Each node may update the kernel, once it has booted from it, writing some values into the download image to make it different from the running version. It can fill in it's public IP, to distribute the DNS service for the non-official domain ''.cloud'' (or something). This will make such a TLD exclusive to the system and purely used for cluster communication and load distribution.
+This domain or tree can then be organized according to some fancy structure and become independent
+of the bootstrap DNS domain (''cloud.neonics.com'').
+
+IP Field
+--------
+
+The protocol for public cluster communication also contains the public IP, when a response is sent. This allows a node to find out it's public IP.
+
+* ''clusters.cloud.neonics.com''
+
+This will contain all public IPs for all clusters.
+
+Plan.
+=====
+
+1) Have someone run the kernel on another public IP
+2) Have local upgrade working: ''> cloud upgrade''
+3) Have download kernel modification working: on the fly data mod [=runtime-reconstruction]
+The ''download.cloud.neonics.com/kernel/rREVISION'' knows the remote IP, and modifies it's send buffer in a particular place to fill in an IP address. If the client IP is LAN, it puts it's LAN address. If the client IP is public, it put's it's public address.
+The offset for the dword can be calculated. The image is of the running kernel (always), and it can do a symbol table lookup (or use compile-time relocation). It then knows the offset of the adress in it's memory space, and it thus knows the offset relative to the kernel image in the RAMDISK.
+
+It can even send it's entire runtime image over the network. It knows the bootloader address (BIOS constant 0x7c000), it knows the size of the bootloader (reading some offset in the bootloader as the bootloader is not present in the RAMDISK and the boot image disappears if it was from ISO9660 boot emulation), and it knows the ramdisk contents.
+Note that the RAMDISK is merely a simple object file, each entry corresponding to a specific aspect
+of an object file: the .text segment, the relocation table, the symbol table, and the source-line table, all of which reside in memory. Some care needs to be taken with initialisation code which
+checks memory addresses for NULL pointers. Such pointers should be allocated in the '.bss' section,
+(as yet implemented as a .data subsection), and should be zeroed out during transfer (or rather
+sent compressed).
+
+Network Fork.
+=============
+
+For this to work – migrate a running kernel – also the pages must be sent. 
+The malloc code must be split, so that the kernel can run until the cloud service is started, at which point a remote booted kernel has a compact memory handle list referring only to memory that is needed so far. This memory is frozen, and all tasks running will malloc from another pool. This makes the locations for the kernel data to change limited. Then, task by task the pages can be transferred (suspend task, examine stack pointers, send only used portion).
+The local kernel keeps running, handling requests, until all tasks are shut down. At this time, it examines the page directory to see what pages in kernel space have changed, and sends the delta.
+At this point, the two machines are identical (except for their IP address in the NIC, which should be delayed from overwriting so that the two nodes can communicate).
+The remote node, having booted from the same revision, yet with it's kernel image indicating that it is to be a clone, goes into 'clone-slave-mode', and waits to receive the remote data. Once the tasks are allocated, it waits for final updates, and then resumes.
+
+
+Job transfer can be implemented, if resource allocation is managed on a per-task basis.
+Tasks must then reside in any of a number of kernel calls (not IO calls), which must be
+completed. At current, the ''yield'' kernel API may do, although open file handles and sockets
+may still be present. Tasks using a threaded system (forking tasks) to handle client requests
+may easily be transferred running, by ommitting the client threads, which are sessions.
+
+However, the idea is to have identical machines, which may differ in kernel revision,
+but have the same persistent storage and class definitions. As yet, there is no stateful
+communication protocol being used - HTTP TCP is closed ASAP. Thus, it does not matter
+which node handles the request, as they are all supposed to be synchronized.
+
+Upgrade Propagation
+-------------------
+To prevent overloading the primary source for kernel upgrades, the DNS records for
+the download site have a low timeout. A 'service not available' can be returned
+while a download is in progress, both in DNS and in HTTP. If this is caught at the DNS
+level, remote clusters who receive a notification of an update, will retry the name
+lookup periodically. When the transfer is complete with the first cluster, and it 
+has successfully rebooted and notified it's source of this, the DNS records are enabled
+again, and, the next time a remote cluster requests the download IP, it will receive,
+as said, the other IP first, in a round robin fashion. The local node need not know
+whether the remote cluster is already transfering to another cluster. At this level, 
+a HTTP service not available can be used.
+The timeout will be such that also the DNS records have expired (simply by not caching
+them). 
+
+Upgraded nodes will make their presence known to the main server (a domain DNS requirement),
+which maintains the list of all possible download locations for the revision.
+
+Clients attempting to download will use something like the following algorithm:
+
+	upgrade:
+		LOAD_TXT "download.neonics.com"
+		call	dns_resolve_ip	# out: esi, ecx
+		jc	exception
+		jecxz	no_downloads
+
+	0:	lodsd	# get ip
+		mov	dx, 80
+		mov	ebx, SOCKET_STREAM << 16 | IP_PROTO_TCP
+		call	socket_open
+		mov	ecx, TIMEOUT
+		call	socket_connect
+		jc	0b
+
+		call	http_send_request
+		jc	0b
+
+		call	download
+		jc	0b
+
+		call	socket_close
+
+		call	install_kernel
+		jc	9f
+
+		call	reboot
+
+	9:	ret
+
+
+	http_send_request:
+		LOAD_TXT "GET /        ", esi
+
+		lea	edi, [esi + 5]
+		call	sprint_kernel_rev
+		inc	ecx
+		movw	[edi], '\n'
+		call	socket_write
+
+		call	socket_read
+		cmp	dx, 200
+		jz	1f
+		stc
+	1:	ret
+
+	sprint_kernel_rev:
+		push	eax
+		mov	eax, [cluster_node]
+		mov	edx, [eax + latest_kernel_rev]
+		pop	eax
+		call	sprintdec32
+		mov	ecx, edi
+		sub	ecx, esi
+		ret
+
+	
+	download:
+		push_	esi ecx eax
+		# some filename representing reserved sectors
+		LOAD_TXT "/boot/kernel/\0         "	# /boot: partition fs
+		call	strlen_
+		lea	edi, [esi + ecx]
+		call	sprint_kernel_rev
+		call	fs_create
+
+	0:	xchg	eax, [esp]
+		call	socket_read
+		xchg	eax, [esp]
+		jc	1f
+		jecxz	1f
+		call	fs_write
+		jnc	0b
+	1:	pushf
+		call	fs_close
+		popf
+		pop_	eax ecx esi
+		ret
+
+
+
+	
+
+
+
+

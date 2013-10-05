@@ -62,7 +62,7 @@ are hardwired to devices.
 
 The CPU implements IO ports by mapping these onto registers. It thus
 does not distinguish between types of registers. It can see an IO
-port register as a read-write registers, where writing a value issues
+port register as a read-write register, where writing a value issues
 the execution of an instruction known to the device connected to the IO
 port, and a read instruction to read the result. As such these represent
 simplistic function calls.  The execution of instructions themselves
@@ -98,7 +98,7 @@ available.
 To this end, certain registers are functionally remapped to become
 references to values. It does this by invoking a native PUSH.
 What it pushes creates a space that can hold a value, and yields
-a reference to this space. This in effect breaching the limitation
+a reference to this space. This is in effect breaching the limitation
 of having a limited number of value-spaces - registers.
 The PUSH is responded to by the system, as it veeres back with a reference
 to it's imprint.
@@ -125,7 +125,7 @@ instructions.
 Jumps are instructions that allow arbitrary change to the IP register.
 A simple jump is effected thus:
 
-JMP:	mov	eip, LOCATION
+	JMP:	mov	eip, LOCATION
 
 often the instruction is given a specific mnemonic to indicate that 
 instruction execution control transfer is taking place, to distinguish
@@ -147,7 +147,7 @@ values of registers, typically a flag register. This flag register
 is automatically updated during the execution of each instruction,
 such as the shift-left instruction, where the 'carry flag' bit in
 the flags register indicates whether the value shifted out of the register
-was a 0 or a 1. As such, the carry flag is an parameter to the shift
+was a 0 or a 1. As such, the carry flag is a parameter to the shift
 instruction.
 This flag can then be incorporated in a conditional jump, by jumping,
 or not, depending on this flag. As such, jumps can be parameterized
@@ -180,15 +180,15 @@ the IP register with the address retrieved from memory.
 We thus envision a simple calling convention, dedicating a register
 to point to a storage area for return addresses:
 
-CALL:	mov	[esp], eip + (CONT - CALL)
-	sub	esp, sizeof eip
-	jmp	CALLEE
-CONT:
+	CALL:	mov	[esp], eip + (CONT - CALL)
+		sub	esp, sizeof eip
+		jmp	CALLEE
+	CONT:
 
-CALLEE:
-	....
-RET:	add	esp, sizeof eip
-	jmp	[esp - sizeof eip]
+	CALLEE:
+		....
+	RET:	add	esp, sizeof eip
+		jmp	[esp - sizeof eip]
 
 Since these are typical operations, they are compacted into instructions.
 These instructions use a predetermined register holding the memory location,
@@ -198,21 +198,21 @@ Not always is a execution control transfer required when values on the
 stack are manipulated, and thus, a separate set of instructions to do
 so are introduced:
 
-PUSH:	mov	[esp], VALUE
-	sub	esp, sizeof VALUE
+	PUSH:	mov	[esp], VALUE
+		sub	esp, sizeof VALUE
 
-POP:	mov	target, [esp]
-	add	esp, sizeof target
+	POP:	mov	target, [esp]
+		add	esp, sizeof target
 
 There are two possibilities for each instruction in regards to incrementing
 or decrementing the value, which is represented in a stack direction flag.
 
 The calling convention now looks like:
 
-CALL:	push	eip.next
-	jmp	CALLEE
+	CALL:	push	eip.next
+		jmp	CALLEE
 
-CALLEE:	pop	eip
+	CALLEE:	pop	eip
 
 These are typically given mnemonics such as
 
@@ -353,27 +353,27 @@ and ability to read more data from the boot device.
 = Second Limitation: Bootsector Code =
 
 * 512 bytes of code (sector)
-	Transcended using the help of the BIOS, providing:
-	1) the bootdevice ID in register dl,
-	2) it's ROM mapped onto memory, 
-	3) pointers to this memory (interrupt vectors)
+ 	Transcended using the help of the BIOS, providing:
+ 	1) the bootdevice ID in register dl,
+ 	2) it's ROM mapped onto memory, 
+ 	3) pointers to this memory (interrupt vectors)
 
-	This BIOS memory area contains both information (EBDA),
-	aswell as the functionality that allowed to load the first 512 bytes,
-	and other sectors.
+ 	This BIOS memory area contains both information (EBDA),
+ 	aswell as the functionality that allowed to load the first 512 bytes,
+ 	and other sectors.
 
 = Second Limitation: Memory range =
 
 * 1MB of memory accessible using 20 bits linear addressing.
-	Or, 'real mode'. The CPU offers the ability to change it's
-	operational mode to protected mode, long mode, what have you.
+ 	Or, 'real mode'. The CPU offers the ability to change it's
+ 	operational mode to protected mode, long mode, what have you.
 	
-= Third Limitiation: Device Functionality =
+= Third Limitation: Device Functionality =
 
-== Replicating BIOS functionality ==
-	The Protected Mode however might break certain BIOS'es that are
-	designed to only function in real mode.
-	Thus, device drivers are needed to replace BIOS functionality,
-	as the BIOS itself is ROM and does not guarantee PMODE functionality.
+-- Replicating BIOS functionality --
+ 	The Protected Mode however might break certain BIOS'es that are
+ 	designed to only function in real mode.
+ 	Thus, device drivers are needed to replace BIOS functionality,
+ 	as the BIOS itself is ROM and does not guarantee PMODE functionality.
 
 

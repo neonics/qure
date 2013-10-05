@@ -28,19 +28,19 @@ socket_array
 == RX Packets ==
 
 The nic's driver contains an ISR that gets activated whenever packets are
-received. Upon reception, net_rx_packet is called.
+received. Upon reception, ''net_rx_packet'' is called.
 
-net_rx_packet appends the pointers to the packet (address and size) to
-net_rx_queue, and schedules the net_rx_queueu_handler task to empty this queue.
+''net_rx_packet'' appends the pointers to the packet (address and size) to
+''net_rx_queue'', and schedules the ''net_rx_queue_handler'' task to empty this queue.
 It returns as quickly as possible to the NIC's ISR.
 
-net_rx_queue_handler iterates over all the queued packets and handles them
-one by one. It delegates to the top level packet handler, net_rx_packet_task,
+''net_rx_queue_handler'' iterates over all the queued packets and handles them
+one by one. It delegates to the top level packet handler, ''net_rx_packet_task'',
 (a legacy name from when a task was scheduled for each packet),
-which has a packet analyzing hook (cmd_netdump), and calls net_handle_packet,
+which has a packet analyzing hook (cmd_netdump), and calls ''net_handle_packet'',
 the top level packet handler, expecting Ethernet packets.
 
-net_handle_packet looks at the ethernet addresses to see if the packet
+''net_handle_packet'' looks at the ethernet addresses to see if the packet
 matches a NIC's MAC. If so, it delegates the packet to the proper protocol
 handle applicable at this level: LLC, ARP, IPv4, IPV6.
 
@@ -49,12 +49,12 @@ LLC is currently not implemented, but recognized.
 
 === Ethernet ===
 
-net_eth_header_put constructs an ethernet header with the sending NIC's MAC,
+''net_eth_header_put'' constructs an ethernet header with the sending NIC's MAC,
 and the target MAC, given as a parameter. It also sets the protocol (ARP,
 IPv4, IPv6, or any other). 
 
-This method is called by net_ipv4_header_put and various ARP methods,
-such as net_arp_response.
+This method is called by ''net_ipv4_header_put'' and various ARP methods,
+such as ''net_arp_response''.
 
 === ARP: MAC to IP mapping ===
 
@@ -70,7 +70,7 @@ When an ARP request is received, the nics list is scanned to see if the IP
 matches. If so, an ARP response is sent using the IP/MAC from the request.
 The arp table is not updated with the IP/MAC combination of a request.
 
-net_arp_resolve_ip takes an IP address and resolves it's MAC using the
+''net_arp_resolve_ip'' takes an IP address and resolves it's MAC using the
 routing table and ARP, and returns the MAC and the NIC connected to the
 network containing the target IP.
 First the routing table is consulted: if a route's subnet matches the target
@@ -84,10 +84,10 @@ At current there is no timeout or retry.
 
 ==== Sending packets ====
 
-net_eth_ipv4_header_put calls net_arp_resolve_ip to get the target MAC and the
+''net_eth_ipv4_header_put'' calls ''net_arp_resolve_ip'' to get the target MAC and the
 NIC to use. If the target IP is -1 (255.255.255.255), both MAC and NIC must
 be provided to this method.
-Next, it calls net_eth_header_put, and continues to construct the IPv4s
+Next, it calls ''net_eth_header_put'', and continues to construct the IPv4s
 header using the source IP of the NIC. It calculates the IP header checksum,
 and requires the size of the payload.
 
@@ -96,7 +96,7 @@ and requires the size of the payload.
 
 === Accepting TCP connections ===
 
-At current, tcp_connections is managed by the core networking, which
+At current, ''tcp_connections'' is managed by the core networking, which
 automatically accepts connections for known services (HTTP).
 
 Using sockets, incoming connections are matched to sockets using protocol,

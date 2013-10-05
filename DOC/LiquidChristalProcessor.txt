@@ -1,5 +1,8 @@
-Have a piece of semiconductor that is able to at runtime configure
-connections. 
+Liquid Crystal Processor
+========================
+
+Have a piece of semiconductor that is able to configure
+connections at runtime.
 
 Thus, the 'firmware' of the CPU is then loaded at boot-time,
 thus creating the architecture of the cpu at runtime.
@@ -16,7 +19,7 @@ which equates to the hardwiring of switches into certain patterns.
 A NAND gate is the basic building block and can be used to generate any
 kind of binary logic.
 
-It and's its arguments, and then inverts the result.
+It ''and'''s its arguments, and then inverts the result.
 
 At a more basic level, NPN and PNP transistors are the switches.
 At the most basic level, diodes are the switches.
@@ -40,22 +43,21 @@ In this way one can then draw a grid of conductivity.
 
 A normal semiconductor switch looks something like this:
 
-      C    B    E
-      _    _    _
------| |--| |--| |----
-     ---  ---  ---
-----------------------
-
+	      C    B    E
+	      _    _    _
+	-----| |--| |--| |----
+	     ---  ---  ---
+	----------------------
 
 The proposed one looks like this:
 
-         B
-         _
---------| |----------
-        ---
-     _        _
-----| |------| |-----
-    ---      ---
+		 B
+		 _
+	--------| |----------
+		---
+	     _        _
+	----| |------| |-----
+	    ---      ---
 
 However in this case, for the top layer, more than two anodes are defined,
 put in a square or triangle.
@@ -63,15 +65,16 @@ put in a square or triangle.
 
 
 2D simulation, 'game of life'
+-----------------------------
 
 Tic-tac-toe:
 
-  X X
-   O 
-  X X
+	  X X
+	   O 
+	  X X
 
-The center is the Base, whereas the four X-es are connection points.
-When the O is 1, all X's are connected with near-zero resistance.
+The center is the Base, whereas the four ''X''-es are connection points.
+When the ''O'' is 1, all ''X'''s are connected with near-zero resistance.
 
 
 The decoding of the signal, or the application of the matrix/blueprint,
@@ -104,6 +107,7 @@ Given the speed of light for electric waves, and assuming a superconductor,
 
 
 Registers
+---------
 
 These register - and remember - the state of connection, or, the value
 calulations. These remain persistent across the carrier wave, clock cycles.
@@ -119,8 +123,56 @@ compared to a value change from 1 to 0 (discharge). This then allows
 to encode three values in the magnetic field: North-South (positive charge),
 South-North (discharge/negative charge), and neutral or no change.
 
+[edit: 2013-09-30]
+
+Quantum Similarity
+------------------
+
+Quantum computers are said to require 4 numbers to encode 2 bits:
+
+	00 a
+	01 b
+	10 c
+	11 d
+
+Whereas binary computers are only required to present two numbers to indicate
+the entire state: the two bits.
+
+Since quantum computers operate on the concept of probability distribution, the range
+of values can be said to be the entire potential of the four states. We can thus normalize
+the total potential as 1, resulting in only requiring 3 numbers to indicate all four
+quantum states:
+
+	x = (a+b) : (c+d)
+	y = a : b
+	z = c : d
+
+(or another form, such as:
+
+	x = a : (b+c+d)
+	y = b : (c + d)
+	z = c : d
+)
+
+Recalculating the potentials based on x, y, z using the first above formula then yields
+
+	a = x * y
+	b = x / y
+	c = x * z
+	d = x / z
+
+(or something in that vein).
+
+The qubits need not even be symmetric: it is sufficient to specify three angles to define
+a tetragon (quadrilateral). Since their sum must be one circle, the fourth angle can be
+deduced. Note that this only allows for one dimension of information: potential distribution.
+To also specify the radial distance of each corner, another dimension (bit) must be added.
+
+[end edit]
+
 
 Application
+-----------
 
 The first application is to emulate the current processor architectures,
 which is done at start time, and this architecture is kept constant
@@ -154,7 +206,7 @@ changes they effect.]
 
 Next, programs will make use of this architecture, where the hypervisor
 reserves an area of the semiconductor for use of the currently executing
-program. THis program is then free to generate its own organisation of
+program. This program is then free to generate its own organisation of
 this to execute its own instructions. Certain pieces of code for instance,
 might want to make heavy use of parallelism, such as image manipulation,
 by applying a single operation to an area of memory simultaneously.
@@ -180,11 +232,11 @@ any number of purposes by changing the blueprint of the instructions.
 LOOP instruction: 'rep my_opcode'
 
 my_opcode could be defined as a method call. In this way, a generic function
-iterating a list of numbers could either sum them up, or print them, for isntance.
+iterating a list of numbers could either sum them up, or print them, for instance.
 
-BEGIN	initialisation	for ( int i = 0;
-WORK	operation		i++
-END	completion		i< X)
+	BEGIN	initialisation	for ( int i = 0;
+	WORK	operation		i++
+	END	completion		i< X)
 
 The work 'command' here could be a type-specific operation. By changing
 the instruction blueprint of the operation, it would apply to say integers
@@ -232,7 +284,7 @@ Programming this in parallel, the tests for a, b and c would be
 evaluated simulatenously. This yields 3 bits indicating whether to jump.
 As such it yields three addresses for the next instruction to execute.
 The first bit (we only deal with the zero flag here as a specialized version
-of the test instruction) that is 0 will be the next isntruction to execute.
+of the test instruction) that is 0 will be the next instruction to execute.
 
 A simpler parallel example would be:
 
@@ -253,7 +305,7 @@ The parallel optimisation suggested deals with branching (jumping),
 which is where parallel processing provides the 'fork'.
 The next check to be done is to find references between the sections,
 to find out whether B influences c. This is where things become
-complicated, as B may refer to indirectly using a register which
+complicated, as B may refer to c indirectly using a register which
 may or may not be changed by A. 
 As such, this type of optimization is best done at runtime, since when
 the instruction to test for c is executed, the exact memory address
@@ -263,19 +315,20 @@ in A referencing c has been executed.
 
 
 Crystal Structure
+-----------------
 
 Let's assume that it is possible to, depending on the polarity of the potential
 applied to the Base (O) in the 'tic tac toe' structure,
-to either configure the node as either an anode or a cathode, i.e., to
+to configure the node as either an anode or a cathode, i.e., to
 generate 'N' or 'P' material.
 In this way diodes could be programmed ('etched') configuring any kind
 of connection or transistor. 
 Another possibility for the encoding is to have the diagonals of the X's
 respond in opposite, i.e., have 
 
-N P
- O
-P N
+	N P
+	 O
+	P N
 
 or vice versa depending on the potential's polarity. This would allow to
 direct the current in two directions and thus create an oriented graph.

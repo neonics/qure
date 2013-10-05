@@ -10,7 +10,7 @@ with SCREEN_BUFFER enabled, and half that without screen buffer.
 Using movsd instead of movsd reduces it from 6 to 3. The first ping is
 then 1 ms.
 
-Wwen doing a similar movsw without referencing video memory the ping 
+When doing a similar movsw without referencing video memory the ping 
 times become < 1ms again.
 
 Thus i suspect that on memory access vmware steps in and does a screen update.

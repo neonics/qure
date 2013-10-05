@@ -140,16 +140,22 @@ os.iso.tmp.gz: site-init
 site-src:
 	#[ -d root/src/kernel ] || mkdir -p root/src/kernel
 	#cp -a TODO Makefile 16 bootloader kernel util fonts root/src/kernel
-DOC=Bootsector Cluster NetFork CloudNet
+
+DOC=Bootsector Cluster NetFork CloudNet LiquidChristalProcessor CircularBuffer \
+	HostMe Freedom Net TaskSwitching CallingConvention Filesystem \
+	EnclosedSource DNS2
+
 DOC_SRC=$(addprefix DOC/, $(addsuffix .txt,${WWW_DOC}))
 WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${DOC}))
 
 root/www/doc/%.html: DOC/%.txt util/txt2html.pl Makefile
 	@[ -d root/www/doc ] || mkdir root/www/doc
 	@echo "  HTML  $@"
-	@util/txt2html.pl $< | xmllint - > $@
-
-root/www/doc.inc: $(WWW_DOC)
+	@#util/txt2html.pl -t web/doc.htmlt $< | xmllint - > $@
+	@echo '$${CONTENT}' > _tmp_template.html
+	@util/txt2html.pl -t none $< > $@.tmp
+	@util/template.pl -t util/template.html -p ../www.neonics.com/ $@.tmp > $@
+	@rm _tmp_template.html $@.tmp
 
 site-doc: root/www/doc.inc
 	@#[ -d root/src/kernel/DOC ] || mkdir -p root/src/kernel/DOC
@@ -163,7 +169,10 @@ root/www/doc.inc: $(WWW_DOC)
 
 WWW_N = root/www/www.neonics.com
 
-www-neonics:
+WWW_N_SRC=$(patsubst %,web/www.neonics.com/%,\
+	$(shell [ -d web/www.neonics.com ] && cat web/www.neonics.com/.list | xargs ))
+
+www-neonics: $(WWW_N_SRC)
 	@[ -d web/www.neonics.com ] && ( \
 	cd web/www.neonics.com && cpio --quiet -W none -d -p < .list ../../$(WWW_N)/ >& /dev/null ) || true
 

@@ -1,26 +1,36 @@
 #!/usr/bin/perl
-$ARGV[0] or die "usage : txt2html [-t template] <txtfile> [out.html]";
+$ARGV[0] or die "usage : txt2html [-t template] <txtfile> [out.html]\n\n"
+	."\t -t\ttemplate file: default: a builtin xhtml header/footer.\n"
+	."\t\tspecify 'none' for no header/footer\n";
 
 if ( $ARGV[0] eq '-t' ) {
 	shift @ARGV;
-	open IN, $_ = shift @ARGV or die "can't open template $_: $!";
-	$template = join("", (<IN>) );
-	close IN;
+	if ( $ARGV[0] eq 'none' )
+	{
+		$template = '${CONTENT}';
+		shift @ARGV;
+	}
+	else
+	{
+		open IN, $_ = shift @ARGV or die "can't open template $_: $!";
+		$template = join("", (<IN>) );
+		close IN;
+	}
 }
 
 open IN, $ARGV[0] or die "can't open $ARG[0]: $!";
 @l = <IN>;
 close IN;
 
-$c = join "", @l;
+$c = "\n".join "", @l;
 
-$c=~ s@<@&lt;@g;
 $c=~ s@&@&amp;@g;
+$c=~ s@<@&lt;@g;
 
-$c=~ s@\n*([^\n]+)\n=+\n@\n\n<h1>$1</h1>\n\n@g;
-$c=~ s@\n*([^\n]+)\n-+\n@\n\n<h2>$1</h2>\n\n@g;
-$c=~ s@\n*(=+([^\n=]+)=+)\n@\n\n<h1>$2</h1>\n\n@g;
-$c=~ s@\n*(-+([^\n-]+)-+)\n@\n\n<h2>$2</h2>\n\n@g;
+$c=~ s@\n+([^\n]+)\n=+\n@\n\n<h1>$1</h1>\n\n@g;
+$c=~ s@\n+([^\n]+)\n-+\n@\n\n<h2>$1</h2>\n\n@g;
+$c=~ s@\n+(=+([^\n=]+)=+)\n@\n\n<h1>$2</h1>\n\n@g;
+$c=~ s@\n+(-+([^\n-]+)-+)\n@\n\n<h2>$2</h2>\n\n@g;
 #$c=~ s@\n(\*\s+([^\n]+))\n@\n<h3>$2</h3>\n\n@g;
 
 $c=~ s@(\n\t+[^\n]*)\n+(?=\n\t)@$1\n\t@g;
@@ -83,11 +93,12 @@ $c=~ s@\n\* ([^\n]+)@\n<li>$1</li>@g;
 $c=~ s@\n((<li>[^\n]+</li>\n)+)@\n<ul>\n$1</ul>\n@g;
 
 # [label|site]
-$c=~ s@\[([^\|\]]+)\|([^\]]+)\]@<a href="$2">$1</a>@g;
+$c=~ s@(?<!\t)\[([^\|\]]+)\|([^\]]+)\]@<a href="$2">$1</a>@g;
 
-#
-$c=~ s@\[#([^\]]+)\]@<a href="#$1">$1</a>@g;
-$c=~ s@\[=([^\]]+)\]@<a name="$1"/>@g;
+# [#label] : anchor ref (same as [label|#label])
+$c=~ s@(?<!\t)\[#([^\]]+)\]@<a href="#$1">$1</a>@g;
+# [=label] : anchor definition
+$c=~ s@(?<!\t)\[=([^\]]+)\]@<a name="$1"></a>@g;
 #
 
 

@@ -1,3 +1,6 @@
+Circular Buffer
+===============
+
 The circular buffer is employed in asynchronous communication,
 such as that which occurs by the gap-bridging network device.
 
@@ -14,9 +17,10 @@ a hardware level. Other simultanous thread execution is done using
 hardware assisted software task switching. 
 
 Task Switching
+--------------
 
 From the CPU's perspective, there is only one task running at any time,
-comprising of the entire memory and the instructions stored therein.
+comprised of the entire memory and the instructions stored therein.
 The division into processes, tasks and the like is purely organisational.
 
 When all processes are seen to be sharing the same execution thread,
@@ -25,6 +29,7 @@ a context switch (far call) to the next scheduled program in the appropriate
 places.
 
 Task Scheduling
+---------------
 
 The task switches are executed by the programs by calling functions that
 are beyond a certain border - the operating system boundary. These
@@ -37,6 +42,7 @@ by being an asynchronous bridge, connecting physically independent threads
 of execution.
 
 Network Interface
+-----------------
 
 A network device is a holograpic reflection of the entire computer,
 with a specialized function. It has its own cpu and memory.
@@ -60,14 +66,14 @@ only work when the calling program does not assume the communication
 has completed. The operating system then shall supply a flag indicating
 blocking and non-blocking IO operations.
 
-When blocking io is employed, the calling processes is marked as a suspended
+When blocking io is employed, the calling process is marked as a suspended
 thread of execution, waiting for completion of an asynchronous communication
 before it can continue.
 
 When non-blocking io is employed, the calling process is added to the list
 of schedulable processes.
 
-The first function the operating system then employs in terms of scheduling
+The first function the operating system then employs, in terms of scheduling,
 is to check which blocking io calls have completed, and if there are any,
 transfer control to the appropriate calling process.
 
@@ -90,7 +96,7 @@ Programs that do not do IO typically have no effect when their
 memory access is limited to themselves. If they do not communicate
 with local or remote storage (where even a read access is considered
 a 'sign of life' and can be seen as communication from the program),
-if they do output video or audio or other communications,
+if they do not output video or audio or other communications,
 then they do not serve a purpose. A program that would respond to
 keystrokes, yet have no other communication - no output, would
 also serve no purpose. If there is one keystroke combination for
@@ -107,11 +113,11 @@ they modify is not accessed by other programs.
 The operating system then provides a facade to detect program output.
 
 Timer
+-----
 
 The Timer Interrupt would not be required for the operating system to resume
 control under the following conditions:
-1) programs do not get stuck in an endless loop in which they do not
-access the operating system.
+1) programs do not get stuck in an endless loop in which they do not access the operating system.
 2) programs exceed the minimum response time for user input.
 
 Ad 1. The watchdog function.
@@ -173,27 +179,28 @@ are full.
 
 
 The Circular Buffer, ctd
+------------------------
 
-linear.path( begin, end ):
-	size = end - begin;
+	linear.path( begin, end ):
+		size = end - begin;
 
-	inc(): begin ++% size;
+		inc(): begin ++% size;
 
-cb( path ):
-	size = path( begin, end );
+	cb( path ):
+		size = path( begin, end );
 
-cb.head.inc():
-	path( head, tail ).next();
+	cb.head.inc():
+		path( head, tail ).next();
 
-cb.process()
-	while (distance() > 1)
-		tail ++% size;
-	
-cb.distance():
-	(tail - head) % size;
+	cb.process()
+		while (distance() > 1)
+			tail ++% size;
+		
+	cb.distance():
+		(tail - head) % size;
 
 
- [begin .........................|........................end]
+	[begin .........................|........................end]
 
 
 2 headed machine:
@@ -221,95 +228,95 @@ execution pipeline is emptying due to an instruction taking multiple
 clock cycles to complete - such as IO access.
 
 Certain instructions, such as the exchange instruction, both initiate
-and receive the result of an io operatoin.
+and receive the result of an io operation.
 
 As such they can be split into two instructions, and other instructions
 inserted in the pipeline.
 
-xchg	eax, [mem]
-==>
-read	tmp0, [mem]
-write	[mem], eax
-write	eax, tmp0
-==>
+	xchg	eax, [mem]
+	==>
+	read	tmp0, [mem]
+	write	[mem], eax
+	write	eax, tmp0
+	==>
 
-read [mem, i]:
-	out	maddr, mem | READ_BIT
-	in	tmp.i, mdata
+	read [mem, i]:
+		out	maddr, mem | READ_BIT
+		in	tmp.i, mdata
 
-		link	maddr, mem   [OP_ZERO, OP_OR, OP_ONE]
-		link	mdata, tmp.i [OP_ONE, OP_OR, OP_ZERO]
+			link	maddr, mem   [OP_ZERO, OP_OR, OP_ONE]
+			link	mdata, tmp.i [OP_ONE, OP_OR, OP_ZERO]
 
-write [mem, i]:
-	out	maddr, mem | WRITE_BIT
-	out	mdata, tmp.i
+	write [mem, i]:
+		out	maddr, mem | WRITE_BIT
+		out	mdata, tmp.i
 
-		link	maddr, mem	[OP_ZERO, OP_OR, OP_ONE]
-		link	mdata, tmp.i	[OP_NOT, OP_XOR, OP_NOT]
+			link	maddr, mem	[OP_ZERO, OP_OR, OP_ONE]
+			link	mdata, tmp.i	[OP_NOT, OP_XOR, OP_NOT]
 
-write [reg, i]
-	link	eax, tmp.i, OP_ZERO, OP_OR
+	write [reg, i]
+		link	eax, tmp.i, OP_ZERO, OP_OR
 
-==>
-push	eax
-read	mem
-swap
-store	mem
+	==>
+	push	eax
+	read	mem
+	swap
+	store	mem
 
-	XOR	NOT	XOR	NOT
-0 0	0	1	0	1
-0 1	1	1	1	0
-1 0	1	0	1	1
-1 1	0	0	0	0
+		XOR	NOT	XOR	NOT
+	0 0	0	1	0	1
+	0 1	1	1	1	0
+	1 0	1	0	1	1
+	1 1	0	0	0	0
 
-ab	swap	b	a	xor	!ab
-00	00	0	0	0	1
-01	10	1	0	1	1
-10	01	0	1	1	0
-11	11	1	1	0	0
-
-
-	central op
-A	   XOR		B
-0	    0		0
-0	    1		1
-1	    1		0
-1	    0		1
+	ab	swap	b	a	xor	!ab
+	00	00	0	0	0	1
+	01	10	1	0	1	1
+	10	01	0	1	1	0
+	11	11	1	1	0	0
 
 
-A	A XOR B		b = A XOR (A XOR B)
-0	0		0
-0	1		1
-1	1		0
-1	0		1
+		central op
+	A	   XOR		B
+	0	    0		0
+	0	    1		1
+	1	    1		0
+	1	    0		1
 
 
-B	A XOR B		A = B XOR ( A XOR B )
-0	0		0		
-1	1		0
-0	1		1
-1	0		1
+	A	A XOR B		b = A XOR (A XOR B)
+	0	0		0
+	0	1		1
+	1	1		0
+	1	0		1
 
 
-swap( a, b ):
-  [parallel]
-	link,0	a, b, xor	# l0 = a xor b
-	link,1	a, l0, xor
-	link,2	b, l0, xor
-  [serial]
-	clock	# fixates values in l0, l1, l2
-  [parallel]
-	link	a, l1
-	link	b, l2
-  [serial]
-	clock
+	B	A XOR B		A = B XOR ( A XOR B )
+	0	0		0		
+	1	1		0
+	0	1		1
+	1	0		1
+
+
+	swap( a, b ):
+	  [parallel]
+		link,0	a, b, xor	# l0 = a xor b
+		link,1	a, l0, xor
+		link,2	b, l0, xor
+	  [serial]
+		clock	# fixates values in l0, l1, l2
+	  [parallel]
+		link	a, l1
+		link	b, l2
+	  [serial]
+		clock
 
 
 
-0000
-0001
-0010
-0011
-0100
-1000
-1100
+	0000
+	0001
+	0010
+	0011
+	0100
+	1000
+	1100
