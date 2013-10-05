@@ -1190,7 +1190,7 @@ task_done:
 # in: ebx = task index
 KAPI_DECLARE task_exit
 task_exit:
-DEBUG_DWORD ebx,"TASK_EXIT idx", 0xf0
+#DEBUG_DWORD ebx,"TASK_EXIT idx", 0xf0
 0:	MUTEX_LOCK SCHEDULER, nolocklabel=0b
 0:	SEM_SPINLOCK [task_queue_sem], nolocklabel=0b
 
