@@ -924,6 +924,8 @@ class_deleteinstance:
 	mov	edi, [class_instances]
 	mov	ecx, [edi + array_index]
 	shr	ecx, 2
+	jz	92f
+	sub	[edi + array_index], dword ptr 4
 	repnz	scasd
 	jnz	91f
 
@@ -945,6 +947,9 @@ class_deleteinstance:
 	pop_	ecx edi esi ebp
 	ret
 91:	printlnc 4, "warning: deleting unknown object"
+	jmp	0b
+92:	printlnc 4, "warning: class_deleteinstance: no instances"
+	stc
 	jmp	0b
 
 
@@ -1217,7 +1222,9 @@ cmd_objects:
 	push	edx
 	mov	edx, eax
 	call	printhex8
+	or	eax, eax
 	pop	edx
+	jz	3f
 	call	printspace
 	mov	ebx, [eax + obj_class]
 	mov	esi, [ebx + class_name]
@@ -1232,8 +1239,8 @@ cmd_objects:
 	mov	esi, [ebx + class_name]
 	call	print
 	jmp	0b
-2:	call	newline
-	popcolor
+2:	popcolor
+3:	call	newline
 ########
 1:	PTR_ARRAY_ITER_NEXT edi, ecx, eax
 0:	ret
