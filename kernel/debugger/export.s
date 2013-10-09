@@ -238,6 +238,19 @@ DEBUG_DWORD \r
 	.endif
 .endm
 
+.macro STACKTRACE stackret=a, check_cf=1
+	.ifc \stackret,a
+	.error "STACKTRACE needs stack depth for method return"
+	.else
+	.if \check_cf
+	jnc	9000f
+	.endif
+	pushd	\stackret
+	call	stacktrace
+9000:
+	.endif
+.endm
+
 __DEBUG_DECLARED=1
 .endif
 
@@ -482,5 +495,27 @@ debug_assert_array_index:
 	call	newline
 	int	3
 	jmp	0b
-.endif
 
+
+.global stacktrace
+# in: [esp] = stack depth until return eip
+stacktrace:
+	push	edx
+	mov	edx, [esp + 8]
+	mov	edx, [esp + 12 + edx]
+	pushf
+	printc 14, " at "
+	pushcolor 8
+	call	printhex8
+	popcolor
+	call	printspace
+	call	debug_printsymbol
+	jnc	1f
+	printc 12, " - not code?"
+1:	call	newline
+	popf
+	pop	edx
+	ret	4
+
+
+.endif	# DEFINE

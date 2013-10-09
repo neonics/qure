@@ -5,7 +5,7 @@
 
 
 OOFS_VERBOSE = 1
-OOFS_DEBUG = 1
+OOFS_DEBUG = 0
 OOFS_DEBUG_ATA = 0
 
 
@@ -19,7 +19,8 @@ OOFS_MAGIC = ( 'O' | 'O' << 8 | 'F' << 16 | 'S' << 24)
 
 DECLARE_CLASS_BEGIN fs_oofs, fs
 .global oofs_root
-oofs_root:	.long 0	# ptr to root object
+oofs_root:	.long 0	# ptr to oofs root object
+oofs_lookup_table: .long 0 # ptr to oofs_table
 
 # static
 DECLARE_CLASS_METHOD fs_api_mkfs,	fs_oofs_mkfs, OVERRIDE,STATIC
@@ -58,10 +59,8 @@ fs_oofs_init$:
 	mov	[eax + fs_obj_p_size_sectors], edx
 
 	mov	edx, eax
-	mov	eax, offset class_oofs
-	push	edx
+	mov	eax, offset class_oofs_vol
 	call	class_newinstance
-	pop	edx
 	jc	94f
 	mov	[edx + oofs_root], eax
 	mov	[eax + oofs_parent], edx
@@ -106,29 +105,35 @@ fs_oofs_free$:
 	ret
 
 fs_oofs_mkfs:
+	pushd 0
+	call stacktrace
 	push_	eax ecx edx
+		printlnc 9, "fs_oofs_mkfs"
 	call	fs_oofs_init$	# out: eax=oofs, edx=fs_oofs
 	jc	91f
 	mov	ecx, [edx + fs_obj_p_size_sectors]
 	call	[eax + oofs_api_init]
+	jc	94f
 	# allocate a new array in the next sector
 	push_	edx
 	mov	ecx, 512
 	mov	edx, offset class_oofs_table #[eax + obj_class]
-	call	[eax + oofs_api_add]	# out: eax = instance
+	call	[eax + oofs_vol_api_add]	# out: eax = instance
 	pop_	edx
 	jc	92f
 	push	edx	# preserve oofs root object for fs_oofs_free$
-	call	[eax + oofs_api_save]
+	call	[eax + oofs_persistent_api_save]
 	pop	edx
 	jc	93f
 	OK
-1:	call	fs_oofs_free$
+	call	fs_oofs_free$
 9:	pop_	edx ecx eax
 	ret
 91:	PUSHSTRING "class instantiation error"
 	jmp	0f
 92:	PUSHSTRING "table add error"
+	jmp	0f
+94:	PUSHSTRING "object init error"
 	jmp	0f
 93:	PUSHSTRING "table save error"
 0:	printc 4, "fs_oofs_mkfs: "
@@ -137,29 +142,79 @@ fs_oofs_mkfs:
 	jmp	9b
 
 fs_oofs_mount:
+	.if OOFS_DEBUG
+		call	newline
+	.endif
 	push_	eax edx ecx
 	call	fs_oofs_init$
 	jc	9f
+
 	mov	ecx, [edx + fs_obj_p_size_sectors]
 	call	[eax + oofs_api_init]
 	jc	91f
-	call	[eax + oofs_api_load]	# out: eax = instance
+	.if OOFS_DEBUG
+		printlnc 9, "fs_oofs_mount: load"
+	.endif
+	call	[eax + oofs_persistent_api_load]	# out: eax = instance
 	jc	91f	# eax destroyed
 	mov	[edx + oofs_root], eax	# may be mreallocced
 	mov	edi, edx
 	# tell oofs the class for the first entry
 	mov	edx, offset class_oofs_table
-	mov	ecx, 1	# first entry
-	call	[eax + oofs_api_load_entry]	# out: eax
+	mov	ecx, 1	# first entry (after root entry)
+
+	.if OOFS_DEBUG
+		printc 9, "fs_oofs_mount: load oofs_table: "
+		DEBUG_METHOD oofs_vol_api_load_entry
+		call	newline
+	.endif
+
+	call	[eax + oofs_vol_api_load_entry]	# out: eax
 	mov	edx, edi
 	jc	91f
+
+	mov	[edi + oofs_lookup_table], eax
+
+	.if 0
+		push	ebx
+		mov	edx, offset class_oofs_alloc_tbl
+		xor	ebx, ebx
+		# lookup in oofs_table: out: ecx=entry index
+		printc 9, "lookup oofs_alloc_tbl"
+		call	[eax + oofs_table_api_lookup]	# out:ecx
+		jnc	1f
+		printlnc 4, "fs_oofs_mount: adding oofs_alloc_tbl"
+		# edx=class_
+		mov	eax, [edi + oofs_lookup_table]
+		mov	ecx, 512 * 257
+		call	[eax + oofs_vol_api_add]
+		jc	93f
+		printlnc 9, "added oofs_alloc_tbl to oofs"
+	1:;	DEBUG_DWORD ecx, "entry"
+		mov	eax, [edi + oofs_root]
+		printc 9, "oofs_alloc_tbl: oofs.load_entry "
+		# in: ecx = entry nr
+		# in: edx = classdef ptr
+		call	[eax + oofs_vol_api_load_entry] #in:eax,ecx,edx
+		jc	94f
+
+	1:	pop	ebx
+	.endif
+
+	.if OOFS_DEBUG
 	OK
 	clc
+	.endif
 9:	pop_	ecx edx eax
 	ret
-91:	call	fs_oofs_free$
+91:	call	fs_oofs_free$	# in: edx = fs_oofs
 	stc
 	jmp	9b
+
+93:	printlnc 4, "fs_oofs_mount: failed to register oofs_alloc_tbl"
+	jmp	1b
+94:	printlnc 4, "fs_oofs_mount: failed to load oofs_alloc_tbl"
+	jmp	1b
 
 
 fs_oofs_umount:
@@ -175,31 +230,215 @@ fs_oofs_move:
 	stc
 	ret
 
-
 ############################################################################
-__FOO:
-SHELL_COMMAND oofs, cmd_oofs
+#SHELL_COMMAND "oofs", cmd_oofs # see shell.s
 .text32
 cmd_oofs:
-	ARRAY_LOOP [mtab], MTAB_ENTRY_SIZE, ebx, edx, 9f
-	pushad
-		DEBUGS	[ebx + edx + mtab_mountpoint]
-		mov	eax, [ebx + edx + mtab_fs_instance]
-		mov esi, [eax+obj_class]
-		DEBUGS [esi+class_name]
-		call newline
+	lodsd
+	lodsd
+	xor	edi, edi	# mountpoint
+	or	eax, eax
+	jz	1f	# default: list
 
+	cmp	byte ptr [eax], '/'
+	jnz	91f
+	mov	edi, eax	# expect mountpoint
+
+
+1:	ARRAY_LOOP [mtab], MTAB_ENTRY_SIZE, ebx, edx, 9f
+	pushad
+		mov	eax, [ebx + edx + mtab_fs_instance]
+		#DEBUG_CLASS
+		#DEBUGS	[ebx + edx + mtab_mountpoint]
+		#call	newline
 
 		cmp	[eax + obj_class], dword ptr offset class_fs_oofs
 		jnz	1f
-		printc 9, "OOFS mounted at "
-		mov	esi, [ebx + edx + mtab_mountpoint]
-		call	println
+		or	edi, edi
+		jz	2f
+
+		push_	eax edx
+		mov	eax, [ebx + edx + mtab_mountpoint]
+		mov	edx, edi
+		call	strcmp
+		pop_	edx eax
+		jnz	1f
+
+	2:	printc 9, "OOFS mounted at "
+		pushd	[ebx + edx + mtab_mountpoint]
+		call	_s_println
 		mov	eax, [eax + oofs_root]
 		call	[eax + oofs_api_print]
 		call	newline
+
+		or	edi, edi
+		jz	1f
+		DEBUG "match"
+		# we have a match. Check command
+		mov	ebx, eax	# done with iteration: remember root
+		lodsd
+		or	eax, eax
+		jz	2f
+
+		# we have command
+		CMD_ISARG "save"
+		jz	oofs_save$
+
+		# other commands have common argument: class
+		mov	ecx, eax	# backup
+		lodsd
+		or	eax, eax
+		jz	94f
+
+		call	htoi
+		jc	3f
+		xor	edx, edx	# class null
+		xchg	eax, ecx	# ecx=lba start, eax=restore
+		jmp	4f
+
+
+	3:	call	class_get_by_name
+		jc	92f
+		mov	edx, offset class_oofs
+			DEBUGS [eax + class_name]
+			DEBUGS [edx + class_name]
+		call	class_extends
+		jc	93f
+
+		mov	edx, eax	# argument for stuff below
+
+		mov	eax, ecx	# restore
+	4:	CMD_ISARG "drop"
+		jz	oofs_drop$
+		CMD_ISARG "add"
+		jz	oofs_add$
+		CMD_ISARG "resize"
+		jz	oofs_resize$
+		call	91f
+	2:	popad
+		ret
+
 1:	popad
 	ARRAY_ENDL
 9:	ret
 
+91:	printlnc 4, "usage: oofs [mountpoint [command class [args]]]"
+	printlnc 4, "  commands: add drop resize save"
+	ret
+
+92:	printc 4, "not a class: "
+	mov	esi, eax
+	call	println
+####### fallthrough
+
+66:
+1:	popad
+	ret
+
+93:	printc 4, "class not subclass of oofs: "
+	pushd	[eax + class_name]
+	call	_s_println
+	printlnc 4, "run 'classes oofs' to see a complete list"
+	jmp	66b
+
+94:	call	91b
+	jmp	66b
+
+# in: ebx = root oofs instance
+oofs_save$:
+	mov	eax, ebx
+	call	[eax + oofs_persistent_api_save]
+	# lookup table:
+	push_	edx ebx
+	mov	edx, offset class_oofs_table
+	xor	ebx, ebx
+	call	[eax + oofs_vol_api_lookup]	# lookup the lookup table
+	pop_	ebx edx
+	jc	92f
+	call	[eax + oofs_persistent_api_save]
+	jmp	66b
+
+# in: ebx = root oofs instance
+# in: edx = subclass of oofs or 0
+# in: ecx = start lba of entry (of edx == 0)
+oofs_drop$:
+	mov	eax, ebx
+	DEBUG_CLASS
+
+	or	edx, edx
+	jnz	2f
+	# find entry with start lba
+	push	ebx
+	mov	ebx, ecx	# in: ebx = start lba
+	call	oofs_get_by_lba	# out: ebx = entry index
+	mov	edx, ebx
+	pop	ebx
+	jc	93f
+	printc 15, "FOUND: entry "
+	call	printhex8
+
+	push	ebx
+	mov	ebx, edx
+	call	[eax + oofs_vol_api_delete]
+	pop	ebx
+
+	call	newline
+	jmp	3f
+
+2:	push	ebx
+	xor	ebx, ebx	# iteration arg
+	call	[eax + oofs_vol_api_lookup]	# in: eax,ebx,edx; out: eax=inst,ebx
+	mov	edx, ebx	# done with edx: set to idx +1
+	pop	ebx
+	jc	91f
+	DEBUG "found:";
+	DEBUG_CLASS
+
+	push	ebx
+	mov	edx, eax	# the instance to drop
+	mov	eax, ebx	# root oofs obj
+	DEBUG "delete from oofs:"
+	DEBUG_CLASS
+	mov	ebx, edx
+	call	[eax + oofs_vol_api_delete]	# in: eax,ebx=index
+	pop	ebx
+
+	mov	esi, [edx + obj_class]
+	mov	esi, [esi + class_name]
+
+3:	DEBUG "delete from table:"
+	# lookup table:
+	push_	edx ebx
+	mov	edx, offset class_oofs_table
+	xor	ebx, ebx
+	call	[eax + oofs_table_api_lookup]	# lookup the lookup table
+	pop_	ebx edx
+	jc	92f
+
+	# eax is now the lookup table instance
+	push	edx
+	mov	edx, esi
+	call	[eax + oofs_table_api_delete] 	# in: eax,edx=name
+	pop	edx
+
+#	call	[eax + oofs_persistent_api_save]
+
+	printlnc 4, "drop not implemented"
+	jmp	66b
+91:	printlnc 4, "drop: no such entry"
+	jmp	66b
+92:	printlnc 4, "drop: can't lookup oofs_table"
+	jmp	66b
+93:	printc 4, "drop: no entry with start lba "
+	push	ebx
+	call	_s_printhex8
+	jmp	66b
+
+oofs_add$:
+	printlnc 4, "add not implemented"
+	jmp	66b
+
+oofs_resize$:
+	printlnc 4, "resize not implemented"
+	jmp	66b
 .endif

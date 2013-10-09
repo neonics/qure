@@ -53,13 +53,14 @@ CLASS_METHOD_STRUCT_SIZE = 12
 
 ###################################
 # GLOBALS / export
-# code
+# code (args: eax[, edx] unless otherwise specified)
 .global class_newinstance
 .global class_deleteinstance
 .global class_instance_resize
 .global class_instanceof
 .global class_extends
 .global class_is_class
+.global class_print_classname	# stackarg
 # debug
 .global _obj_print_methods$
 .global _obj_print_vptr$
@@ -152,7 +153,13 @@ class_resolve:
 	xor	ebx, ebx
 	call	class_resolve_internal$
 	pop	ebx
-9:	ret
+	ret
+9:	printc 4, "class_resolve: not a classdef ptr: "
+	push	eax
+	call	_s_printhex8
+	stc
+	STACKTRACE 0, 0
+	ret
 
 # in: eax = classdef ptr to be checked
 class_is_class:
@@ -163,14 +170,13 @@ class_is_class:
 	add	edx, [edx + class_def_size]
 	cmp	edx, offset data_classdef_end
 	jb	0b
-	printc 4, "class_resolve: not classdef ptr: "
-	mov	edx, eax
-	call	printhex8
-	call	newline
+#	printc 4, "class_resolve: not classdef ptr: "
+#	mov	edx, eax
+#	call	printhex8
+#	call	newline
 	stc
 1:	pop	edx
 	ret
-
 
 
 # in: eax = classdef ptr
@@ -415,14 +421,20 @@ class_resolve_overrides$:
 1:	ret
 
 # override idx (edx) > vptr.size (ebx)
-94:	pushcolor 4
+94:	push	eax
+	mov	eax, [esp + 8]	# get orig eax=class
+	mov	eax, [eax + class_name]
+	pushcolor 4
 	pushd	ebx
 	pushd	edx
-	pushstring "class_resolve_overrides$: idx (%08x) out of vptr bounds (%08x)\n"
+	pushd	eax
+	pushstring "class_resolve_overrides$(%s): idx (%08x) out of vptr bounds (%08x)\n"
 	call	printf
 	add	esp, 12
 	popcolor
+	pop	eax
 	stc
+	STACKTRACE 12	# should be 8!
 	int 3
 	jmp	949b
 
@@ -956,11 +968,14 @@ class_deleteinstance:
 # in: eax = object ptr
 # in: edx = class ptr
 # out: ZF = 1 if eax's class or superclass is the class in edx
+# out: CF = !ZF (i.e.: jz=jc)
 class_instanceof:
 	or	eax, eax
 	jz	9f
 	push	eax
 	mov	eax, [eax + obj_class]
+	call	class_is_class
+	jc	91f
 0:	cmp	eax, edx
 	jz	1f
 	mov	eax, [eax + class_super]
@@ -973,6 +988,13 @@ class_instanceof:
 9:	or	esp, esp
 	stc
 	ret
+91:	printc 4, "class_is_class: not an object: "
+	push	eax
+	call	_s_printhex8
+	stc
+	STACKTRACE 4
+	jmp	1b
+
 
 # in: eax = class def ptr to be checked (subclass)
 # in: edx = class def ptr to be checked against (superclass)
@@ -1362,6 +1384,25 @@ _print_methods$:
 1:	pop	ecx
 	ret
 
+
+
+# in: [esp] = classdef ptr
+class_print_classname:
+	push	eax
+	mov	eax, [esp + 8]
+	call	class_is_class
+	jc	91f
+	pushd	[eax + class_name]
+	call	_s_print
+	pop	eax
+	ret	4
+91:	printc 4, "<not a class:"
+	push	eax
+	call	_s_printhex8
+	printc 4, ">"
+	pop	eax
+	ret	4
+
 .endif	# DEFINE==1
 
 .ifndef __OO_DECLARED
@@ -1625,22 +1666,22 @@ OBJ_STRUCT_SIZE = .
 .endm
 
 
-
-.macro DEBUG_CLASS
-	push	esi
-	mov	esi, [eax + obj_class]
-	mov	esi, [esi + class_name]
-	call	print
-	pop	esi
+.macro PRINT_CLASS this=eax
+	pushd	[\this + obj_class]
+	call	class_print_classname
 .endm
 
-.macro DEBUG_METHOD m
+.macro DEBUG_CLASS this=eax
+	PRINT_CLASS \this
+.endm
+
+.macro DEBUG_METHOD m, this=eax
 	push	edx
-	mov	edx, [eax + obj_class]
+	mov	edx, [\this + obj_class]
 	pushd	[edx + class_name]
 	call	_s_print
 	print ".\m: "
-	mov	edx, [eax + \m]
+	mov	edx, [\this + \m]
 	call	debug_printsymbol
 	pop	edx
 .endm

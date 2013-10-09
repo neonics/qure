@@ -124,7 +124,7 @@ buf_new_:
 9:	pop	eax
 	ret
 
-
+.global buf_free
 buf_free:
 	sub	eax, 8
 	call	mfree
@@ -255,14 +255,14 @@ array_newentry:
 .ifndef __HASH_DECLARED
 .macro ARRAY_ITER_START base, index
 	xor	\index, \index
-	jmp	91f
-90:	
+	jmp	1091f
+1090:
 .endm
 
 .macro ARRAY_ITER_NEXT base, index, size
 	add	\index, \size
-91:	cmp	\index, [\base + array_index]
-	jb	90b
+1091:	cmp	\index, [\base + array_index]
+	jb	1090b
 .endm
 .endif
 
@@ -298,14 +298,14 @@ ptr_array_newentry:
 .ifndef __HASH_DECLARED
 .macro PTR_ARRAY_ITER_START base, index, ref
 	xor	\index, \index
-	jmp	91f
-90:	mov	\ref, [\base + \index]
+	jmp	1091f
+1090:	mov	\ref, [\base + \index]
 .endm
 
 .macro PTR_ARRAY_ITER_NEXT base, index, ref
 	add	\index, 4
-91:	cmp	\index, [\base + array_index]
-	jb	90b
+1091:	cmp	\index, [\base + array_index]
+	jb	1090b
 .endm
 .endif
 
@@ -363,11 +363,11 @@ __HASH_DECLARED=1
 		mov	ecx, \entsize
 		mov	eax, \arrayref
 		or	eax, eax
-		jnz	66f
+		jnz	1066f
 		mov	eax, \initcapacity
 		call	array_new
 		jc	\errlabel
-	66:	call	array_newentry
+	1066:	call	array_newentry
 		jc	\errlabel
 		mov	\arrayref, eax
 	.endm
@@ -376,11 +376,11 @@ __HASH_DECLARED=1
 	.macro PTR_ARRAY_NEWENTRY arrayref, initcapacity, errlabel
 		mov	eax, \arrayref
 		or	eax, eax
-		jnz	66f
+		jnz	1066f
 		mov	eax, \initcapacity
 		call	ptr_array_new
 		jc	\errlabel
-	66:	call	ptr_array_newentry
+	1066:	call	ptr_array_newentry
 		jc	\errlabel
 		mov	\arrayref, eax
 	.endm

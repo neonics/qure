@@ -49,6 +49,8 @@
 # in: eax = mem address
 KAPI_DECLARE breakpoint_memwrite_dword
 breakpoint_enable_memwrite_dword:
+.global breakpoint_memwrite_dword
+breakpoint_memwrite_dword:
 enable_breakpoint_memwrite_dword:
 	#DEBUG "Set breakpoint: addr:"
 	#DEBUG_DWORD eax

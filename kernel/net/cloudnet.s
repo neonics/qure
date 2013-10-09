@@ -226,7 +226,6 @@ cloud_packet_send:
 		call	print_ip$
 		call	printspace
 		call	cloudnet_packet_print
-		call	newline
 	.endif
 
 	NET_BUFFER_GET		# cached buffers
@@ -369,7 +368,7 @@ cluster_add_node:
 	jz	2f
 	ARRAY_ENDL
 	jmp	1f
-2:	printc 13, " update node"
+2:	printlnc 13, " update node"
 	jmp	2f
 
 	.else
@@ -413,7 +412,8 @@ cluster_add_node:
 	print " krev "
 	mov	edx, [esi + pkt_kernel_revision]
 	call	printdec32
-	print " n "
+	call	newline
+	print "                  n "
 	mov	edx, [esi + pkt_node_birthdate]
 	call	print_datetime
 	print " c "
@@ -467,7 +467,7 @@ CL_PAYLOAD_START = 18	# sock readpeer: src.ip,src.port,dst.ip,dst.port,src.mac
 
 # in: esi,ecx = packet
 cloudnet_handle_packet:
-	printc 11, "rx "
+	printc 11, " rx "
 
 .if 1	# SOCK_READPEER (getsockflag;jz/jc?)
 	# readpeer:
@@ -478,6 +478,7 @@ cloudnet_handle_packet:
 
 	add	esi, 12	# mac
 	pushcolor 8
+	call	printspace
 	call	net_print_mac
 	popcolor
 	sub	esi, 12
@@ -488,7 +489,8 @@ cloudnet_handle_packet:
 	mov	dx, word ptr [esi + 10]	# peer port
 	xchg	dl, dh
 	call	print_addr$
-	call	printspace
+	call	newline
+	print "    "
 .endif
 	push	esi
 	lea	edi, [esi + 12]	# mac
@@ -532,7 +534,7 @@ cloudnet_handle_packet:
 
 	# adopt cluster information
 	.if CLUSTER_DEBUG
-		DEBUG "adopt?"
+		printc 13, " analyzing: "
 	.endif
 	mov	edx, [esi + CL_PAYLOAD_START + 6 + pkt_cluster_era]
 	cmp	edx, [eax + cluster_era]
@@ -545,12 +547,14 @@ cloudnet_handle_packet:
 		pop	edx
 		jae	53f
 	# local node out of date.
-	printc 13, " adopting new cluster era: "
-	pushd	[eax + cluster_era]
-	call	_s_printdec32
-	printc 13, "->"
-	call	printdec32
-	call	newline
+	.if CLUSTER_DEBUG
+		printc 14, "adopt new cluster era: "
+		pushd	[eax + cluster_era]
+		call	_s_printdec32
+		printc 13, "->"
+		call	printdec32
+		call	newline
+	.endif
 	mov	[eax + cluster_era], edx
 	mov	edx, [esi + CL_PAYLOAD_START + 6 + pkt_cluster_birthdate]
 	mov	[eax + cluster_birthdate], eax
@@ -560,7 +564,7 @@ cloudnet_handle_packet:
 
 1:	# same era: check date
 	.if CLUSTER_DEBUG
-		DEBUG "same era"
+		printlnc 10, "no; same era"
 	.endif
 	mov	edx, [esi + CL_PAYLOAD_START + 6 + pkt_cluster_birthdate]
 	or	edx, edx
@@ -572,15 +576,16 @@ cloudnet_handle_packet:
 	ja	52f	# remote has newer date: out of date. respond?
 	# jb: remote has older birthdate, update local.
 1:	mov	[eax + cluster_birthdate], edx	# record cluster birthdate
-	printc 13, " update cluster birthdate "
+	printc 14, " adopt cluster birthdate "
 	call	print_datetime
-	printc 13, " for era "
+	printc 14, " for era "
 	mov	edx, [eax + cluster_era]
 	call	printdec32
 	call	newline
 
 3:	# persist
-	call	[eax + oofs_api_save]
+	call	[eax + oofs_persistent_api_save]
+	# update array
 	lea	esi, [eax + cluster_node_persistent]
 	mov	eax, [lan_ip]
 	mov	edi, [cloud_nic]
@@ -589,20 +594,23 @@ cloudnet_handle_packet:
 	mov	eax, [cluster_node]
 	jmp	4f
 ####################
-51: 
+51:
 	.if CLUSTER_DEBUG
-		DEBUG "OOD:"
+		printc 12, "no; remote era out of date "
 		DEBUG_DWORD edx,"r era"
 		DEBUG_DWORD [eax+cluster_era],"l.era"
+		call	newline
 	.endif
 	jmp 4f
 52:
 	.if CLUSTER_DEBUG
-		DEBUG "OOD: r.c.b"
+		printc 12, "no; remote cluster date too old "
+		printc 8, "(time remote: "
 		call	print_datetime
-		DEBUG "l.c.d"
+		printc 8, " local: "
 		mov	edx,[eax+cluster_birthdate]
 		call	print_datetime
+		printlnc 8, ")"
 	.endif
 	jmp	4f
 53:	printc 12, "cluster age difference too high, ignoring"
@@ -664,9 +672,11 @@ cloudnet_packet_print:
 	loop	0b
 	jmp	2f
 0:	lodsb
+.if CLOUD_PACKET_DEBUG
 	mov	dl, al
 	call	printhex2
 	call	printspace
+.endif
 1:	loop	0b
 2:	mov	esi, edi
 
@@ -679,6 +689,7 @@ cloudnet_packet_print:
 	call	printspace
 	color 8
 	call	printhex8
+	call	newline
 #######
 9:	popcolor
 	pop_	eax ecx edx edi esi
@@ -716,7 +727,7 @@ cmd_cloud:
 	jc	9f
 	mov	[cluster_node], eax
 9:	ret
-2:	call	[eax + oofs_api_load]
+2:	call	[eax + oofs_persistent_api_load]
 	ret
 
 1:	printlnc 4, "usage: cloud <command> [args]"
@@ -886,29 +897,12 @@ _print_time$:
 ###############################################################################
 # NETOBJ & persistence: OOFS extension
 #
+OO_DEBUG = 0
 
 .include "fs/oofs/export.h"
 
-.global netobj
-
-.if 0
-###################################
-DECLARE_CLASS_BEGIN persistent
-	persistence:	.long 0 # fs_oofs instance field oofs_root: class oofs
-
-DECLARE_CLASS_METHOD persistence_init, netobj_persistence_init
-DECLARE_CLASS_END persistent
-.text32
-# in: eax = this netobj
-# in: edx = instance of net/fs/oofs
-netobj_persistence_init:
-	mov	[eax + persistence], edx
-	ret
-###################################
-.endif
-
 # base class network object
-DECLARE_CLASS_BEGIN netobj, oofs, offs=oofs_persistent
+DECLARE_CLASS_BEGIN netobj, oofs_persistent#, offs=oofs_persistent
 netobj_packet:
 	# can't declare class data here: struct!
 	#.ascii "NOBJ"
@@ -947,49 +941,48 @@ cluster_node_volatile:
 
 DECLARE_CLASS_METHOD send, cluster_node_send, OVERRIDE
 
-
 DECLARE_CLASS_METHOD oofs_api_init, cluster_node_init, OVERRIDE
-DECLARE_CLASS_METHOD oofs_api_load, cluster_node_load$, OVERRIDE
-DECLARE_CLASS_METHOD oofs_api_add, cluster_node_add$, OVERRIDE
-DECLARE_CLASS_METHOD oofs_api_save, cluster_node_save$, OVERRIDE
-DECLARE_CLASS_METHOD oofs_api_onload, cluster_node_onload, OVERRIDE
-DECLARE_CLASS_METHOD oofs_api_get_obj, cluster_node_get_obj$, OVERRIDE
-DECLARE_CLASS_METHOD oofs_api_print, cluster_node_print$, OVERRIDE
-DECLARE_CLASS_METHOD oofs_api_lookup, cluster_node_lookup$, OVERRIDE
+DECLARE_CLASS_METHOD oofs_api_print, cluster_node_print, OVERRIDE
+
+DECLARE_CLASS_METHOD oofs_persistent_api_load, cluster_node_load, OVERRIDE
+DECLARE_CLASS_METHOD oofs_persistent_api_save, cluster_node_save, OVERRIDE
+DECLARE_CLASS_METHOD oofs_persistent_api_onload, cluster_node_onload, OVERRIDE
 
 DECLARE_CLASS_END cluster_node
 .text32
 
 # preload
 cluster_node_init:
-	printc 4, "cluster_node.oofs_api_init"
-	mov	[eax + oofs_parent], edx
-	mov	[eax + oofs_lba], ebx
-	mov	[eax + oofs_size], ecx
-	pushd	[edx + oofs_persistence]
-	popd	[eax + oofs_persistence]
+	call	oofs_persistent_init	# super.init()
+
+	.if OO_DEBUG
+		DEBUG_CLASS
+		printlnc 14, ".cluster_node_init"
+	.endif
+
 	mov	[eax + cluster_node_pkt], dword ptr 'h'|'e'<<8|'l'<<16|'l'<<24
 	mov	[eax + cluster_node_pkt+4], word ptr 'o'
 	clc
 	ret
 
-cluster_node_load$:
+# in: eax
+# out: eax
+cluster_node_load:
 	push_	ebx ecx edi edx esi
+	.if OO_DEBUG
+		DEBUG_CLASS
+		printlnc 14, ".cluster_node_load"
+	.endif
 	lea	edi, [eax + cluster_node_persistent]
-	mov	ebx, [eax + oofs_lba]	# 0
+	mov	edx, offset cluster_node_persistent
 	mov	ecx, 512
-	# TODO: class_instance_resize if edi + ecx > obj_size
-	mov	edx, eax
 
-	push	eax
-	mov	edx, [eax + obj_class]
-	mov	eax, [eax + oofs_persistence]
-	call	[eax + fs_obj_api_read]
-	pop	eax
+	call	[eax + oofs_persistent_api_read]
 	jc	9f
-	call	[eax + oofs_api_onload]
+	call	[eax + oofs_persistent_api_onload]
 
 0:	pop_	esi edx edi ecx ebx
+	STACKTRACE 0
 	ret
 9:	printc 4, "cluster_node_load: read error"
 	stc
@@ -1012,7 +1005,9 @@ cluster_node_onload:
 	#mov	edx, [eax + node_birthdate]
 	#mov	[eax + cluster_birthdate], edx
 
+	.if OO_DEBUG
 	call	[eax + oofs_api_print]
+	.endif
 
 #	mov	edx, [eax + cluster_era]
 #	cmp	edx, KERNEL_REVISION
@@ -1029,16 +1024,14 @@ cluster_node_onload:
 
 
 
-cluster_node_add$: printlnc 4, "oofs_api_add: N/A @ cluster_node";stc;ret
-cluster_node_get_obj$: printlnc 4, "oofs_api_get_obj: N/A @ cluster_node";stc;ret
-cluster_node_lookup$: printlnc 4, "oofs_api_lookup: N/A @ cluster_node";stc;ret
-cluster_node_print$:
+cluster_node_print:
+	call	oofs_print	# super.super.super.print();
 	printc 11, "cluster_node: "
 
 	pushd	[eax + node_age]
 	pushd	[eax + cluster_era]
 	pushd	[eax + kernel_revision]
-	pushstring "krev %d era %3d age %3d n.date \n";
+	pushstring "krev %d era %3d age %3d\n  n.date ";
 	call	printf
 	add	esp, 4<<2
 
@@ -1052,30 +1045,37 @@ cluster_node_print$:
 	call	newline
 	ret
 
-cluster_node_save$:
-	printc 9, "cluster_node.oofs_api_save: "
+cluster_node_save:
+	.if OO_DEBUG
+		DEBUG_CLASS
+		printlnc 14, ".cluster_node_save"
+	.endif
 	push_	ecx esi edx ebx eax
 	mov	ecx, 512
 	lea	esi, [eax + cluster_node_persistent]
-	mov	ebx, [eax + oofs_lba]
-	mov	edx, [eax + obj_class]
-	mov	eax, [eax + oofs_persistence]
-	call	[eax + fs_obj_api_write]
+	mov	edx, offset cluster_node_persistent
+	call	[eax + oofs_persistent_api_write]
+	.if OO_DEBUG
+	pushf
+	call	[eax + oofs_api_print]
+	popf
+	.endif
 	pop_	eax ebx edx esi ecx
+	STACKTRACE 0
 	ret
 
-
-# out: eax = instance
+# in: eax = cluster_node instance: XXX shouldn't be necessary! TODO mfree
+# out: eax = cluster_node_instance (as loaded from disk)
 cluster_node_factory:
 	push_	esi edx ecx ebx eax
 	LOAD_TXT "/net"
-	call	mtab_get_fs	# out: edx
-	.if NET_AUTOMOUNT
+	call	mtab_get_fs	# out: edx = fs instance
+.if NET_AUTOMOUNT
 	jnc	1f
 
 	pushad
 	mov	ebp, esp
-	printc 9, "cluster_node: auto-mounting /net: "
+	printc 13, " auto-mounting /net: "
 	pushd	0
 	pushstring "/net"
 	pushstring "hda0"
@@ -1085,48 +1085,47 @@ cluster_node_factory:
 	mov	esp, ebp
 	popad
 	jc	9f
-	printlnc 11, " mounted."
 	call	mtab_get_fs
-	.endif
+.endif
 	jc	9f
 1:
 
-	printc 11, "cluster_node: opened "
+	printc 13, " open "
 	call	print
 	print ", class="
+	PRINT_CLASS edx
+	call	newline
 
-	mov	esi, [edx + obj_class]
-	pushd [esi + class_name]
-	call _s_println
+	mov	esi, eax	# backup cluster_node instance (XXX)
 
-	mov	esi, eax	# backup
 	mov	eax, edx
 	mov	edx, offset class_fs_oofs
 	call	class_instanceof
 	jnz	91f
 	mov	[esi + net_fs], eax	# fs_oofs
+
 	mov	eax, [eax + oofs_root]
-	mov	edx, offset class_oofs
+	mov	edx, offset class_oofs_vol
 	call	class_instanceof
 	jnz	91f
 	mov	[esi + net_persistence], eax
 
-	mov	edx, eax	# oofs
-	mov	eax, esi	# this
+#	mov	edx, eax	# oofs subclass (oofs_vol)
+#	mov	eax, esi	# cluster_node
 #	call	[eax + persistence_init]	# super constructor
 #	mov	[eax + persistence], edx
+#	mov	eax, edx	# eax = oofs_vol
 
-	mov	eax, edx
 	mov	edx, offset class_oofs_table
 	xor	ebx, ebx	# iteration arg
-	call	[eax + oofs_api_lookup]	# out: eax
+	call	[eax + oofs_vol_api_lookup]	# out: eax
 	jc	92f
 
 ##################################################################
 1:	printc 10, " * got table: "
-	mov	edx, [eax + obj_class]
-	mov	esi, [edx + class_name]
-	call	println
+	PRINT_CLASS
+	call	newline
+
 .data SECTION_DATA_BSS
 table:.long 0
 .text32
@@ -1135,25 +1134,29 @@ table:.long 0
 	# find cluster node
 	mov	edx, offset class_cluster_node
 	xor	ebx, ebx
-	printlnc 9, "lookup cluster_node"
-	call	[eax + oofs_api_lookup]	#out:ecx
+
+	printc 13, " lookup cluster_node"
+
+	call	[eax + oofs_table_api_lookup]	# out: ecx=index
 	jnc	1f
-	printlnc 4, "cluster_node_init: oofs_table: cluster node not found"
+	printc 4, " not found"
+
 	# edx=class_cluster_node
 	mov	eax, [table]
 	mov	ecx, 512
-	call	[eax + oofs_api_add]
+	call	[eax + oofs_table_api_add]	# edx=class -> eax=instance
 	jc	93f
-	printlnc 9, "added cluster_node to oofs"
+	printc 9, " - added cluster_node to oofs"
 	jmp	2f
 
 ##################################################################
-1:	# table lookup: edx= entry nr
-	mov	eax, [esp] #get this
+# in: ecx = oofs_vol entry number
+1:	call	newline
+	mov	eax, [esp]	# oofs_vol
 	mov	eax, [eax + net_persistence]	# 'root': oofs
-	printc 9, "cluster_node: oofs.load_entry "
-	xchg ecx,edx;call printdec32;xchg edx,ecx
-	call	[eax+oofs_api_load_entry]
+	#printc 9, "cluster_node: oofs.load_entry "
+	#xchg ecx,edx;call printdec32;xchg edx,ecx
+	call	[eax + oofs_vol_api_load_entry]	# in: ecx = index; out: eax
 	jc	94f
 
 ##################################################################
@@ -1164,14 +1167,14 @@ table:.long 0
 #mov [eax+cluster_era], dword ptr 0
 #mov [eax + cluster_birthdate], dword ptr 0x365b77dc
 
-	call	[eax + oofs_api_save]
-
 	pushd	[eax + node_age]
 	pushd	[eax + cluster_era]
 	pushstring "cluster era: %d  node age: %d\n"
 	call	printf
 	add	esp, 12
 	mov	[esp], eax
+
+	call	[eax + oofs_persistent_api_save]
 
 	clc
 0:	pop_	eax ebx ecx edx esi

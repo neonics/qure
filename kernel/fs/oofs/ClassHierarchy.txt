@@ -1,0 +1,21 @@
+
+	oofs			abstract
+	| 
+	| [f] parent
+	|
+	| [m] init
+	| [m] print
+	|
+	+- oofs_persistent	abstract
+	   |
+	   | [f] persistence
+	   | [f] lba
+	   | [f] size
+	   |
+	   | [m] save
+	   | [m] load
+	   | [m] onload
+	   |
+	   +- oofs_vol		Volume Descriptor: first (few) sector(s)
+	      |
+	      | 

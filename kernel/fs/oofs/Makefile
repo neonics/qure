@@ -11,6 +11,8 @@ DEPS = ../fs_oofs.s ../../fs.s ../../oo.s ../../lib/hash.s \
 	../../debugger/export.s \
 	../../print.s ../../macros.s ../../defines.s extern.h
 
+
+# note: only .s files included in oofs.s will be part of oofs.o
 oofs.o: oofs.s oofs_*.s $(DEPS) Makefile
 	@echo "  AS    $@"
 	@$(AS) -o $@ $<

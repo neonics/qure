@@ -50,11 +50,12 @@ SCREEN_BUFFER	= 1
 .endif
 
 ################# Colors ###############
+COLOR_STACK_SIZE = 4
 
 # private use
 .macro _PUSHCOLOR c
+	IS_REG8 _ISREG, \c
 	.if COLOR_STACK_SIZE == 2
-		IS_REG8 _ISREG, \c
 		.if _ISREG
 			push	word ptr 0
 			mov	[esp], \c
@@ -62,7 +63,16 @@ SCREEN_BUFFER	= 1
 			push	word ptr \c
 		.endif
 	.else
-		.error "COLOR_STACK_SIZE unsupported value"
+	.if COLOR_STACK_SIZE == 4
+		.if _ISREG
+			pushd	0
+			mov	[esp], \c
+		.else
+			pushd	\c
+		.endif
+	.else
+		.error "PUSHCOLOR: COLOR_STACK_SIZE unsupported value"
+	.endif
 	.endif
 .endm
 
@@ -75,7 +85,6 @@ SCREEN_BUFFER	= 1
 	.endif
 .endm
 
-COLOR_STACK_SIZE = 2
 
 .macro PUSHCOLOR c
 	.if VIRTUAL_CONSOLES
@@ -95,7 +104,15 @@ COLOR_STACK_SIZE = 2
 			pop	word ptr [screen_color]
 		.endif
 	.else
-		.error "COLOR_STACK_SIZE unknown value"
+	.if COLOR_STACK_SIZE == 4
+		.if VIRTUAL_CONSOLES
+			call	_s_setcolor
+		.else
+			popd	[screen_color]
+		.endif
+	.else
+		.error "POPCOLOR: COLOR_STACK_SIZE unknown value"
+	.endif
 	.endif
 .endm
 
@@ -490,10 +507,17 @@ COLOR_STACK_SIZE = 2
 		PUSH_TXT "\str"
 	.endif
 
-	.if COLOR_STACK_SIZE == 2
-	push	word ptr \color
+	.if 1
+	_PUSHCOLOR \color
 	.else
-	.error "COLOR_STACK_SIZE unknown value"
+
+		.if COLOR_STACK_SIZE == 2
+		push	word ptr \color
+		.elsif COLOR_STACK_SIZE == 4
+		pushd	\color
+		.else
+		.error "COLOR_STACK_SIZE unknown value"
+		.endif
 	.endif
 
 	call	_s_printc
@@ -512,10 +536,17 @@ COLOR_STACK_SIZE = 2
 		PUSH_TXT "\str"
 	.endif
 
-	.if COLOR_STACK_SIZE == 2
-	push	word ptr \color
+	.if 1
+		_PUSHCOLOR \color
 	.else
-	.error "COLOR_STACK_SIZE unknown value"
+
+		.if COLOR_STACK_SIZE == 2
+		push	word ptr \color
+		.elsif COLOR_STACK_SIZE == 4
+		pushd	\color
+		.else
+		.error "COLOR_STACK_SIZE unknown value"
+		.endif
 	.endif
 
 	call	_s_printlnc
@@ -631,6 +662,7 @@ COLOR_STACK_SIZE = 2
 .global printdec16
 .global printdec32
 .global _s_printdec32
+.global _s_printhex8
 .global sprintdec32
 .global sprintdec8
 
@@ -1241,7 +1273,7 @@ _s_print:
 	ret	4
 
 # in: [esp + COLOR_STACK_SIZE] = offset
-# in: [esp] = color (word)
+# in: [esp] = color
 # out: clear stack arguments
 _s_printc:
 	push	esi

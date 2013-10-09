@@ -144,6 +144,7 @@ SHELL_COMMAND "umount",		cmd_umount$
 SHELL_COMMAND "listfs"		fs_list_filesystems
 SHELL_COMMAND "lsof",		fs_list_openfiles
 SHELL_COMMAND "fat_handles"	cmd_fat_handles
+SHELL_COMMAND "oofs"		cmd_oofs
 # memory
 SHELL_COMMAND_CATEGORY "memory"
 SHELL_COMMAND "mem",		cmd_mem$	# aka 'free'

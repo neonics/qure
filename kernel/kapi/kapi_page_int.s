@@ -286,12 +286,18 @@ DEBUG_DWORD [ebp+16], "A3"; add ebp, 4
 	mov edx, cr2
 	DEBUG_DWORD edx, "cr2"
 		call	newline
-		DEBUG_DWORD [ebp+4], "error"
+		DEBUG_DWORD [ebp+4], "err"
 		DEBUG_DWORD [ebp+8], "eip"
 		DEBUG_DWORD [ebp+12], "cs"
 		DEBUG_DWORD [ebp+16], "eflags"
 		DEBUG_DWORD [ebp+20], "esp"
 		DEBUG_DWORD [ebp+24], "ss"
+		call	newline
+		push	edx
+		mov	edx, [ebp + 8]
+		printc 14, " at "
+		call	debug_printsymbol
+		pop	edx
 		call	newline
 	int 3
 	jmp	halt

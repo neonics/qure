@@ -354,7 +354,7 @@ cmd_mount$:
 		pop	edx
 	.endif
 
-	call	newline
+	OK
 	ret
 
 7:	printlnc 12, "memory error"
@@ -560,7 +560,7 @@ DECLARE_CLASS_END fs
 ###################################################
 .text32
 # protected methods:
-FS_OBJ_DEBUG_RW=0	# 0=none; 1=print; 2=enter before disk access
+FS_OBJ_DEBUG_RW=0	# 0=none; 1,2=print; 3=enter before disk access
 # in: eax = fs_obj/class_fs instance
 # in: ecx = size
 # in: ebx = sectors
@@ -589,22 +589,37 @@ fs_obj_read:
 	.if FS_OBJ_DEBUG_RW
 		call newline
 		DEBUG_CLASS
-		DEBUG "fs_obj_read", 0x4f
-		DEBUGS [edx+class_name]
-		DEBUG_DWORD ecx
-		DEBUG_DWORD ebx
+		printc 14, ".fs_obj_read"
+		printc 9, " class="
+		DEBUG_CLASS edx
 	.endif
 	call	fs_obj_rw_init$
 	.if FS_OBJ_DEBUG_RW
-		DEBUG_DWORD ebx
-		call newline
+		printc 9, " LBA="; push ebx; call _s_printhex8
+		printc 9, " size="; push ecx; call _s_printhex8
 	.endif
 	.if FS_OBJ_DEBUG_RW > 1
 		call more
 	.endif
+
 	call	disk_read
+
 	LOAD_TXT "disk_read error", edx
 	jc	9f
+
+	.if FS_OBJ_DEBUG_RW
+	OK
+	.if FS_OBJ_DEBUG_RW > 1
+		push_ esi ecx eax edx
+		mov ecx, 80 / 3
+		mov esi, edi
+		0: lodsb; mov dl, al; call printhex2; call printspace; loop 0b
+		call newline
+		pop_ edx eax ecx esi
+		clc
+	.endif
+	.endif
+
 0:	pop_	edx ecx ebx eax
 	ret
 9:	printc 4, "fs_obj_read: "
@@ -613,34 +628,54 @@ fs_obj_read:
 	stc
 	jmp	0b
 
+FS_OBJ_DEBUG_RW=1
 
 # in: eax = sfs instance
 # in: ebx = partition-relative LBA
 # in: esi = buffer
 # in: ecx = bytes	# writes at least 1 sector
-#[in: edx = class being saved]
+#[in: edx = instance being saved]
 fs_obj_write:
 	push_	edx ecx ebx eax
 	.if FS_OBJ_DEBUG_RW
-		call newline
+		#call newline
 		DEBUG_CLASS
-		DEBUG "fs_obj_write", 0x4f
-		DEBUGS [edx+class_name]
-		DEBUG_DWORD ecx
-		DEBUG_DWORD ebx
+		printc 14, ".fs_obj_write"
+		printc 9, " class="
+		DEBUG_CLASS edx
 	.endif
 	call	fs_obj_rw_init$
 	jc	9f
 	.if FS_OBJ_DEBUG_RW
-		DEBUG_DWORD ebx
-		call newline
+		printc 9, " LBA="; push ebx; call _s_printhex8
+		printc 9, " size="; push ecx; call _s_printhex8
 	.endif
 	.if FS_OBJ_DEBUG_RW > 1
 		call more
 	.endif
-	call	disk_write
+
+
+	# mbr check
+	or	ebx, ebx
+	jnz	1f
+	printc 14, "Overwrite boot sector!"
+	int 3
+
+1:	call	disk_write
 	LOAD_TXT "disk_write error", edx
 	jc	9f
+
+	.if FS_OBJ_DEBUG_RW
+	OK
+	.if FS_OBJ_DEBUG_RW > 1
+		push_ esi ecx eax edx
+		mov ecx, 80 / 3
+		0: lodsb; mov dl, al; call printhex2; call printspace; loop 0b
+		call newline
+		pop_ edx eax ecx esi
+	.endif
+	.endif
+
 0:	pop_	eax ebx ecx edx
 	ret
 9:	printc 4, "fs_obj_write: "

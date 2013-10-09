@@ -63,11 +63,12 @@ atoi_:
 
 
 # in: eax = pointer to radix 16 (hex) string
-# out: eax = number on CF = 0; CF=1: error
+# out: eax = number on CF = 0; CF=1: error, eax preserved
 htoi:
-	push	esi
+	push_	esi edi
 	push	ebx
 	mov	esi, eax
+	mov	edi, eax	# to restore if error
 	xor	ebx, ebx
 
 	mov	ah, 9
@@ -103,11 +104,12 @@ htoi:
 	stc
 
 0:	mov	eax, ebx
-	pop	ebx
-	pop	esi
+2:	pop	ebx
+	pop_	edi esi
 	ret
 1:	stc
-	jmp	0b
+	mov	eax, edi	# restore
+	jmp	2b
 
 
 # in: eax = pointer to radix 16 (hex) string
@@ -329,10 +331,11 @@ strcmp:
 	mov	esi, edx
 	call	strlen_	# esi->ecx
 	cmp	eax, ecx
-	jb	0f
+	jnz	1f
+#	jb	0f
 	mov	ecx, eax
 0:	rep	cmpsb
-	pop	eax
+1:	pop	eax
 	pop	ecx
 	pop	edi
 	pop	esi

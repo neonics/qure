@@ -513,7 +513,7 @@ memory_map_print_type$:
 	jmp	2f
 
 1:	push	edx
-	pushw	15
+	pushcolor 15
 	call	_s_printc
 2:	ret
 #

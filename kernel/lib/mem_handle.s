@@ -40,6 +40,10 @@ handle_flags: .byte 0	# 25
 handle_caller: .long 0# 32
 
 HANDLE_STRUCT_SIZE = 32
+
+
+.if DEFINE
+
 .macro HITO r	# handle_index_to_offset
 	shl	\r, 5
 .endm
@@ -509,6 +513,7 @@ get_handle$:
 # in: eax = handle_base (allocated mem ptr)
 # out: ebx = handle struct ptr
 # out: edx = handle number (decimal count)
+.global mem_find_handle$
 mem_find_handle$:
 	push	ecx
 	mov	ebx, [mem_handles]
@@ -1436,3 +1441,4 @@ MERGE_RECURSE = 0
 #
 ###########################################################################
 
+.endif

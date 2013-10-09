@@ -912,7 +912,7 @@ disk_br_verify$:
 	# check for bootsector
 	cmp	word ptr [esi + 512 - 2], 0xaa55
 	je	1f
-DEBUG "wrong bootsig"
+DEBUG_WORD [esi+512-2], "wrong bootsig"
 	stc
 	ret
 
