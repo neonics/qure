@@ -118,6 +118,7 @@ net_ipv4_tcp_print:
 
 ############################################
 # TCP Connection management
+TCP_MTU = 1500 - ETH_HEADER_SIZE - IPV4_HEADER_SIZE - TCP_HEADER_SIZE
 #
 TCP_CONN_REUSE_TIMEOUT	= 30 * 1000	# 30 seconds
 TCP_CONN_CLEAN_TIMEOUT	= 5 * 60 * 1000	# 5 minutes
@@ -1326,10 +1327,10 @@ net_tcp_sendbuf_flush_partial$:
 	add	esi, [ebx + tcp_conn_send_buf_start]
 
 	mov	ecx, [ebx + tcp_conn_send_buf_len]
-	sub	ecx, 1420
+	sub	ecx, TCP_MTU
 	js	1f
 	mov	[ebx + tcp_conn_send_buf_len], ecx
-	mov	ecx, 1420
+	mov	ecx, TCP_MTU
 	jz	3f
 	add	[ebx + tcp_conn_send_buf_start], ecx
 	jmp	2f
@@ -1383,11 +1384,11 @@ net_tcp_sendbuf_flush:
 	add	esi, [ebx + tcp_conn_send_buf_start]
 	xor	ecx, ecx
 	xchg	ecx, [ebx + tcp_conn_send_buf_len]
-	cmp	ecx, 1420
+	cmp	ecx, TCP_MTU
 	jbe	1f
-	sub	ecx, 1420
+	sub	ecx, TCP_MTU
 	mov	[ebx + tcp_conn_send_buf_len], ecx
-	mov	ecx, 1420
+	mov	ecx, TCP_MTU
 	add	[ebx + tcp_conn_send_buf_start], ecx
 	jmp	2f
 1:	mov	[ebx + tcp_conn_send_buf_start], dword ptr 0
