@@ -403,12 +403,23 @@ FS_DIRENT_ATTR_DIR=0x10
 #	DEBUG "have INM:" ; DEBUGS [ebp-HTTP_STACKARGS + HTTP_STACK_HDR_INM]
 	push_ eax edx
 	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_HDR_INM]
+	# format: "YYMMDDhhmmss00-00000000"  (last dword=kernel rev)
+	cmp	byte ptr [eax + 16], '-'
+	stc
+	jnz	91f
+	mov	byte ptr [eax + 16], 0	# for htoid
 	call	htoid	# out: edx:eax
 	jc	91f	# wrong format
 	cmp	edx, [esi]
 	jnz	91f
 	cmp	eax, [esi + 4]
 	jnz	91f
+	# check kernel revision
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_HDR_INM]
+	add	eax, 16+1	# skip mtime and '-'
+	call	htoi
+	jc	91f
+	cmp	eax, KERNEL_REVISION
 91:	pop_ edx eax
 	jc	1f
 	jnz	1f
@@ -488,12 +499,15 @@ FS_DIRENT_ATTR_DIR=0x10
 	KAPI_CALL socket_write
 
 	push_	edi eax
-	LOAD_TXT "\r\nETag: \"YYMMDDhhmmsszz00\""
+	LOAD_TXT "\r\nETag: \"YYMMDDhhmmsszz00-KERNELRV\""
 	lea	edi, [esi + 9]
-	mov	eax, [ebp -8]
-	mov	edx, [eax - 8]
+	mov	eax, [ebp - 8]	# orig file buf
+	mov	edx, [eax - 8]	# mtime in file buf
 	call	sprinthex8
-	mov	edx, [eax - 4]
+	mov	edx, [eax - 4]	# mtime 2nd dword
+	call	sprinthex8
+	inc	edi	# skip '-'
+	mov	edx, KERNEL_REVISION
 	call	sprinthex8
 	pop_	eax edi
 	call	strlen_
