@@ -924,8 +924,8 @@ STRINGPTR "mem.heap.allocated";	.byte 3,1;.long mem_get_used
 STRINGPTR "mem.heap.reserved";	.byte 3,1;.long mem_get_reserved
 STRINGPTR "mem.heap.free";	.byte 3,1;.long mem_get_free
 STRINGPTR "cluster.kernel.revision";	.byte 3,2;.long cluster_get_kernel_revision
-STRINGPTR "cluster.status";	.byte 3,2;.long cluster_get_status
-STRINGPTR "cluster.status.list";.byte 3,2;.long cluster_get_status_list
+STRINGPTR "cluster.status";	.byte 3,0;.long cluster_get_status
+STRINGPTR "cluster.status.list";.byte 3,0;.long cluster_get_status_list
 99:
 www_expr_handlers:
 	.long expr_h_unknown

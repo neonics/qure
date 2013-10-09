@@ -1242,8 +1242,9 @@ cluster_get_kernel_revision:
 	ret
 
 # called from httpd:
-# in: edi, ecx = buffer
-# out: ecx = len
+# in: [ebp] = socket (write content directly)
+#[in: edi, ecx = buffer]
+#[out: ecx = len]
 cluster_get_status:
 	push	edx
 	mov	edx, 1
@@ -1258,24 +1259,32 @@ cluster_get_status_list:
 	ret
 # Produces html
 # in: edx = flags
+# in: [ebp] = socket (writes directly)
 # in: edi, ecx = buffer
-# out: ecx = len
+#[out: ecx = len]
 cluster_get_status_:
 
 	.macro APPEND_STRING str, nofit=91f
 		push	esi
-		mov	edx, ecx
+		push	ecx
+		mov	edx, [ebp + 4]	# bufsize
+		add	edx, edi	# add offs
+		sub	edx, [ebp + 4]	# correct buf start
+
 		LOAD_TXT "\str", esi, ecx, 1
 		sub	edx, ecx
 		jle	\nofit
 		rep	movsb
-		mov	ecx, edx
+		pop	ecx
 		pop	esi
 	.endm
 
 
 	push_	edx ebx esi edi ecx ebp
 	lea	ebp, [esp + 4]
+	# [[ebp-4]] = socket
+	# [ebp+0] = buffer size
+	# [ebp+4] = buffer
 
 	APPEND_STRING "<b>nodes:</b> "
 
@@ -1407,7 +1416,21 @@ cluster_get_status_:
 
 	APPEND_STRING "</td></tr>\n"
 
-0:	ARRAY_ENDL
+0:
+	# write socket
+	push	esi
+	mov	ecx, edi
+	mov	esi, [ebp + 4]	# buffer start
+	sub	ecx, esi
+	mov	eax, [ebp - 4]	# socket ptr
+	mov	eax, [eax]	# socket
+	KAPI_CALL socket_write
+	pop	esi
+	# reset buffer
+	mov	edi, [ebp + 4]
+	mov	ecx, [ebp + 0]
+
+	ARRAY_ENDL
 
 	testb	[ebp + 16], 2
 	jnz	1f
@@ -1420,11 +1443,25 @@ cluster_get_status_:
 1:	LOAD_TXT "</table>\n", esi, ecx, 1
 	rep	movsb
 
-9:	mov	ecx, edi
+9:
+	# write socket
+	mov	ecx, edi
+	mov	esi, [ebp + 4]	# buffer start
+	sub	ecx, esi
+	mov	eax, [ebp - 4]	# socket ptr
+	mov	eax, [eax]	# socket
+	KAPI_CALL socket_write
+	# reset buffer
+	mov	edi, [ebp + 4]
+	mov	ecx, [ebp + 0]
+
+	# update buffer pointers - not needed due to socket write..
+	mov	ecx, edi
 	sub	ecx, [ebp + 4]
 	mov	[ebp], ecx
 	pop_	ebp ecx edi esi ebx edx
 	ret
-91:	# doesn't fit
+91:	# doesn't fit (but should); for now, no flush
+	DEBUG "<NOFIT>"
 	pop	esi
 	jmp	0b
