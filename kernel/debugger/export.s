@@ -41,6 +41,7 @@ _DBG_PRINT_ENABLED = 1	# legacy behaviour
 
 .macro OK
 	PRINTLNc 0x0a, " Ok"
+	clc
 .endm
 
 .macro I m

@@ -210,6 +210,7 @@ SHELL_COMMAND "vmcheck"		cmd_vmcheck
 SHELL_COMMAND "vmx"		cmd_vmx
 SHELL_COMMAND "ramdisk"		cmd_ramdisk
 SHELL_COMMAND "inspect_str"	cmd_inspect_str
+SHELL_COMMAND "keycode"		cmd_keycode
 .if VIRTUAL_CONSOLES
 SHELL_COMMAND "consoles"	cmd_consoles
 .endif
@@ -2812,5 +2813,18 @@ cmd_inspect_str:
 	call	nprintln
 9:	ret
 91:	printlnc 4, "usage: t <hex_addr> <hex_len>"
+	ret
+
+cmd_keycode:
+	printlnc 15, "Press any key; ESC to quit"
+0:	xor	ah, ah
+	call	keyboard
+	mov	edx, eax
+	call	printhex8
+	call	printspace
+	call	printchar
+	call	newline
+	cmp	ax, K_ESC
+	jnz	0b
 	ret
 .endif

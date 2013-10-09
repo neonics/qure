@@ -346,7 +346,7 @@ disk_print_chs$:
 		call printchar
 	.endif
 
-	mov	dl, [esi + 1]	# 2 bits of cyl, 6 bits sector
+	movzx	edx, byte ptr [esi + 1]	# 2 bits of cyl, 6 bits sector
 	shl	edx, 2
 	mov	dl, [esi + 2]	# 8 bits of cyl
 	call	printdec32
@@ -383,10 +383,34 @@ disk_print_chs$:
 	ret
 
 
+# in: eax = 00xxxxxx CHS info as per partition table
+disk_print_chs2$:
+
+	movzx	edx, ah
+	and	dl, 0b111111
+	push	edx	# sectors
+
+	movzx	edx, al
+	push	edx	# heads
+
+	and	eax, 0x00ffffff
+	mov	edx, eax
+	shr	edx, 8
+	xchg	dl, dh
+	shr	dh, 6
+	push	edx	# cylinders
+
+	pushstring "%4d/%3d/%2d"
+
+	call	printf
+	add	esp, 4+3*4
+	ret
+
+
+
 # in: esi = offset to partition table information
 # in: ecx = maxcylinders << 16 | maxheads
-# in: ebx = bl = number of 4-partion-groups to print. This is so it can
-#   be used for the disk_ptables array aswell as for an MBR or EBR.
+# in: ebx = bl = number of partitions to print (usually 4)
 disk_ptables_print$:
 	PUSHCOLOR 7
 	push	esi
@@ -515,6 +539,8 @@ fdisk_print_usage$:
 	printlnc 12, "               partition."
 	printlnc 12, "             args:  -t [nr]   : set partition type (hex, 00..ff)"
 	call	newline
+	printlnc 12, "        verify - interactive partition table verification and correction"
+	call	newline
 	printlnc 12, "  drive: hdX with X lowercase alpha (hda, hdb, ...)"
 	printlnc 12, "         Run 'disks' to see available disks."
 	ret
@@ -556,6 +582,10 @@ fdisk_print_usage$:
 
 	CMD_ISARG "init"
 	mov	ebx, offset fdisk_cmd_init$
+	jz	1f
+
+	CMD_ISARG "verify"
+	mov	ebx, offset fdisk_cmd_verify$
 	jz	1f
 
 	# check for command
@@ -894,6 +924,368 @@ reallysure:
 0:	pop	eax
 	pop	ecx
 	ret
+
+
+# in: al = drive
+fdisk_cmd_verify$:
+	printlnc 15, "Verifying partition table"
+	xor	ebx, ebx	# LBA 0
+	call	ata_get_hs_geometry		# out: ecx
+	call	disk_load_partition_table$	# out: esi = ptable in MBR/EBR
+	jc	91f
+	mov	ebx, 4	# 4 partition entries
+
+	call	disk_ptables_edit$
+
+	ret
+
+
+91:	printlnc 4, "Error loading partition table"
+	stc
+	ret
+
+# in: esi = offset to partition table information
+# in: esi - 446 = bootsector (use disk_LOAD_partition_table$!)
+# in: al = drive
+# in: ecx = maxcylinders << 16 | maxheads
+# in: ebx = bl = number of partitions to print (usually 4)
+disk_ptables_edit$:
+	push	edi
+	.rept 7
+	call	newline
+	.endr
+
+	push	eax	# [ebp + 8] = drive
+	PUSH_SCREENPOS
+	push	ebp
+	mov	ebp, esp
+	sub	esp, 8 + 16 * 4	# 8: 2 vars; 16*4: ptable backup
+	mov	edi, [ebp + 4]	# screenpos bottom
+	sub	edi, 7 * 160
+	mov	[ebp - 4], edi	# screenpos top
+	add	edi, 6 * 160
+	mov	[ebp - 8], edi	# screenpos menu
+
+	# backup partition table for save check
+	mov	edi, esp
+	push	ecx
+	mov	ecx, 16
+	rep	movsd
+	pop	ecx
+	sub	esi, 16 * 4
+
+########
+	mov	ebx, 4
+	push_	eax edx
+	xor	edx, edx
+
+0:	mov	edi, [ebp - 4]
+	SET_SCREENPOS edi
+
+	call	disk_ptables_edit_print$
+
+	# EBX format:
+	# | MM | CC | RR | NN | (4 bytes)
+	#   MM: cell modification: +1 or -1
+	#   CC: column nr (0..7)
+	#   RR: row nr (0..7)
+	#   NN: nr of rows (4)
+
+	mov	edi, [ebp - 8]
+	SET_SCREENPOS edi
+
+	printc 15, "Menu [q=quit r=restore W=write <>^v=cell +-=mod]> "
+	DEBUG_DWORD ebx
+	and	ebx, 0x00ffffff	# mask out modification value
+	xor	eax, eax
+	call	keyboard
+
+	cmp	ax, K_DOWN
+	jnz	1f
+	inc	bh
+	and	bh, 3
+	jmp	0b
+
+1:	cmp	ax, K_UP
+	jnz	1f
+	dec	bh
+	and	bh, 3	# may not be accurate
+	jmp	0b
+
+1:	cmp	ax, K_LEFT
+	jnz	1f
+	ror	ebx, 16
+	dec	bl
+	and	bl, 7
+	ror	ebx, 16
+	jmp	0b
+
+1:	cmp	ax, K_RIGHT
+	jnz	1f
+	ror	ebx, 16
+	inc	bl
+	and	bl, 7
+	ror	ebx, 16
+	jmp	0b
+
+1:	cmp	ax, K_GREY_PLUS
+	jnz	1f
+2:	rol	ebx, 8
+	mov	bl, 1
+	ror	ebx, 8
+	jmp	0b
+1:	cmp	al, '+'
+	jz	2b
+
+	cmp	ax, K_GREY_MINUS
+	jnz	1f
+2:	rol	ebx, 8
+	mov	bl, -1
+	ror	ebx, 8
+	jmp	0b
+1:	cmp	al, '-'
+	jz	2b
+
+1:	cmp	al, 'r'	# restore / 're-read ptable'
+	jnz	1f
+	printc 15, "Restore"
+	mov	edi, esi
+	lea	esi, [ebp - 8 - 16 * 4]
+	push	ecx
+	mov	ecx, 16
+	rep	movsd
+	pop	ecx
+	sub	esi, 16 * 4
+	jmp	0b
+
+1:	cmp	al, 'W'
+	jnz	1f
+	push_	esi ecx
+	lea	edi, [ebp - 8 - 16 * 4]
+	mov	ecx, 16
+	repz	cmpsd
+	pop_	ecx esi
+	jnz	2f
+	printc 13, "No change"
+	jmp	0b
+2:	printlnc 12, "Writing partition table"
+	call	reallysure
+	sub	esi, 446
+	mov	eax, [ebp + 8]	# drive
+	mov	ecx, 1	# sectors
+	xor	ebx, ebx	# LBA
+	call	ata_write
+	jmp	9f
+
+1:	cmp	al, 'q'
+	jnz	0b
+9:
+
+	pop_	edx eax
+########
+	mov	esp, ebp
+	pop	ebp
+	POP_SCREENPOS
+	pop	eax
+
+	pop	edi
+	ret
+
+# expects 6 lines of screen cleared
+# in: [ebp - 4] = screenpos top
+# in: ecx = drive geometry (cyl << 16 | heads)
+# in: bl = nr of partition entries to print
+# in: bh = selected partition (row)
+# in: (ebx >> 16 & 7) : column
+# in: ebx >> 24 : increment, decrement selected cell
+disk_ptables_edit_print$:
+	PUSHCOLOR 15
+	push_	edi eax ebx ecx edx esi
+	pushd	0	# sl: partition number; sh: counter
+	mov	[esp + 1], bl
+
+	PRINTLN	" # | St | Tp | LBA Strt | Sectors  | C/H/S Start | C/H/S End   | LBA end "
+	COLOR 7
+
+		# clear status line
+		mov	edi, [ebp - 4]	# get original screenpos
+		add	edi, 5 * 160
+		PUSH_SCREENPOS edi
+		call	newline
+		POP_SCREENPOS
+
+
+0:
+	mov	edx, [esp]	# partition number
+	inc	byte ptr [esp]
+
+	# set row bg color
+		mov	bh, [esp + 16 + 1]	# ebx +1
+		cmp	bh, dl
+		mov	bh, 0x07
+		jnz	1f
+		mov	bh, 0x67
+	1:	COLOR	bh
+		or	bh, 15	# set fg color
+
+	_COLUMN_NR = 0
+	.macro CELL
+		mov	byte ptr [esp + 2], 0	# mark cell not selected
+		mov	dh, bh
+		and	dh, 0xf7
+		COLOR dh
+		cmp	bh, 0x6f	# check if row selected
+		jnz	11f
+		ror	ebx, 16
+		cmp	bl, _COLUMN_NR
+		jnz	10f
+		COLOR 0x5e
+		or	byte ptr [esp + 2], 1	# mark cell selected
+	10:	ror	ebx, 16
+	11:
+		.if _COLUMN_NR > 0
+		PRINTc  bh, " | "
+		.endif
+		_COLUMN_NR = _COLUMN_NR + 1
+	.endm
+
+	.macro CELL_MODd ref
+		test	byte ptr [esp + 2], 1
+		jz	10f	# cell not selected
+		cmp	byte ptr [esp + 16 + 3], 0 # check mod val
+		jz	10f
+		movsx	eax, byte ptr [esp + 16 + 3]
+		add	[\ref], eax
+	10:
+	.endm
+
+	CELL
+
+	call	printspace
+	call	printhex1	# partition number
+
+	CELL
+
+	mov	dl, [esi + PT_STATUS]
+	PUSHCOLOR
+	test	dl, 0x80
+	jz	1f
+	mov	dh, bh
+	and	dh, 0xf0
+	or	dh, 10
+	COLOR	dh
+1:	call	printhex2
+	POPCOLOR
+
+	CELL
+
+	mov	dl, [esi + PT_TYPE]
+	call	printhex2
+
+	CELL
+
+	CELL_MODd [esi + PT_LBA_START]
+	mov	edx, [esi + PT_LBA_START]
+	call	printhex8
+
+	CELL
+
+	CELL_MODd [esi + PT_SECTORS]
+	mov	edx, [esi + PT_SECTORS]
+	call	printhex8
+
+	CELL
+
+	mov	eax, [esi + PT_CHS_START]
+	call	disk_print_chs2$
+
+	CELL
+
+	mov	eax, [esi + PT_CHS_END]
+	call	disk_print_chs2$
+
+	CELL
+
+	mov	eax, [esi + PT_CHS_END] # CHS end; calc LBA end
+	and	eax, 0x00ffffff
+
+	call	chs_to_lba	# in: ecx=C H
+	mov	edx, eax
+	call	printhex8
+
+	CELL
+
+	add	esi, 16		# next entry
+#
+
+	# verify LBA start
+	mov	eax, [esi - 16 + PT_CHS_START]	# +1
+	and	eax, 0x00ffffff
+	call	chs_to_lba	# eax->eax
+	mov	edx, eax
+	mov	eax, [esi - 16 + PT_LBA_START]	# +8
+	cmp	edx, eax
+	jz	1f
+
+	printcharc 0x4f, '!'
+
+		mov	edi, [ebp - 4]	# get original screenpos
+		add	edi, 5 * 160
+		PUSH_SCREENPOS edi
+
+		PRINTc 4, "> ERROR: CHS/LBA start mismatch: expect "
+		call	printhex8
+		PRINTc 4, ", got "
+		mov	edx, eax
+		call	printhex8
+
+		POP_SCREENPOS
+1:
+	# if sectorcount zero, dont perform check
+	cmp	dword ptr [esi -16 + PT_SECTORS], 0	# esi-4
+	jz	1f
+
+	# verify num sectors:
+	mov	eax, [esi - 16 + PT_CHS_END] # +5; chs end
+	and	eax, 0x00ffffff
+	call	chs_to_lba
+
+	# subtract LBA start
+	sub	edx, eax	# lba start - lba end
+	neg	edx
+	mov	eax, [esi - 16 + PT_SECTORS] # +0xc load num sectors
+	cmp	eax, edx
+	jz	1f
+
+	printcharc 0x4f, '!'
+
+		mov	edi, [ebp - 4]
+		add	edi, 5 * 160
+		PUSH_SCREENPOS edi
+		#PUSH_SCREENPOS
+		#SET_SCREENPOS edi
+
+	PRINTc 4, "ERROR: CHS/LBA numsectors mismatch: expect "
+	#call	printdec32
+	call	printhex8	# end-start
+	PRINTc 4, ", got "
+	mov	edx, eax
+	call	printhex8
+
+		POP_SCREENPOS
+
+1:	call	newline
+
+	decb	[esp + 1]
+	ja	0b
+
+	# carry clear here (jc == jb)
+
+	pop_	esi	# pushd 0: part nr
+	pop_	esi edx ecx ebx eax edi
+	POPCOLOR
+	ret
+
 
 # This method includes the verification from disk_br_verify.
 #

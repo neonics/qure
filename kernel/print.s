@@ -86,13 +86,23 @@ COLOR_STACK_SIZE = 4
 .endm
 
 
-.macro PUSHCOLOR c
+.macro PUSHCOLOR c=NONE
 	.if VIRTUAL_CONSOLES
-		_PUSHCOLOR \c
-		call	_s_pushcolor
+		.ifnc \c,NONE
+			_PUSHCOLOR \c
+			call	_s_pushcolor
+		.else
+			.if COLOR_STACK_SIZE == 4
+			call	pushcolor
+			.else
+			.error "PUSHCOLOR with no args requires COLOR_STACK_SIZE=4"
+			.endif
+		.endif
 	.else
-		push	word ptr [screen_color]
+		_PUSHCOLOR [screen_color]
+		.ifnc \c,NONE
 		mov	word ptr [screen_color], \c
+		.endif
 	.endif
 .endm
 
@@ -134,7 +144,7 @@ COLOR_STACK_SIZE = 4
 		push	edx
 		push	eax
 		call	console_get
-		.ifnc -1,\newval
+		.ifnc \newval,-1
 		mov	edx, \newval
 		xchg	edx, [eax + console_screen_pos]
 		.else
@@ -1310,6 +1320,31 @@ _s_pushcolor:
 	mov	[esp + 12], bl
 	pop_	eax ebx
 	ret
+
+.if COLOR_STACK_SIZE == 4
+# NOTE: this method increases the stack!
+# Usage:
+#
+#	PUSHCOLOR
+#	POPCOLOR
+#
+# or:
+#
+#	call pushcolor
+#	add esp, 4
+#
+# out: [esp] = color
+.global pushcolor
+pushcolor:
+	pushd	[esp]	# copy return
+	push	eax
+	call    console_get
+	movzx	eax, byte ptr [eax + console_screen_color]
+	mov	[esp + 8], eax
+	pop	eax
+	ret
+.endif
+
 .endif
 
 printcharc:
