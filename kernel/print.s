@@ -167,34 +167,23 @@ COLOR_STACK_SIZE = 4
 
 # Sets the screen position
 # in: pos = 2 * ( x + 80 * y )
-# in: pos==edi : edi is taken as offset into the screen buffer, if one is used.
-#   in this case the start of the current screen buffer's drawing area is
-#   subtracted from pos to obtain a zero-relative coordinate.
 .macro SET_SCREENPOS pos
-	_HANDLED = 0
-
-	.if SCREEN_BUFFER_FIRST
-	.ifc edi,\pos
+	.if VIRTUAL_CONSOLES
+		_REG = \pos
+		.ifc \pos,eax
+		_REG = edi
 		push	edi
-			.if VIRTUAL_CONSOLES
-				push	eax
-				call	console_get
-				sub	edi, [eax + console_screen_buf]
-				sub	edi, SCREEN_BUF_SIZE - 160*25
-				mov	dword ptr [eax + console_screen_pos], edi
-				pop	eax
-			.else
-				sub	edi, [screen_buf]
-				sub	edi, SCREEN_BUF_SIZE - 160*25
-				mov	dword ptr [screen_pos], edi
-			.endif
-		_HANDLED = 1
+		mov	edi, \pos
+		.endif
+		push	eax
+		call	console_get
+		mov	dword ptr [eax + console_screen_pos], _REG
+		pop	eax
+		.ifc \pos,eax
 		pop	edi
-	.endif
-	.endif
-
-	.if !_HANDLED
-	mov	dword ptr [screen_pos], \pos
+		.endif
+	.else
+		mov	dword ptr [screen_pos], edi
 	.endif
 .endm
 
