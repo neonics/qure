@@ -1,11 +1,14 @@
 all: kernel.bin Makefile
 
 clean:
-	rm -f kernel.bin kernel.obj kernel.stabs kernel.sym kernel.dep \
+	@echo "  CLEAN"
+	@rm -f kernel.bin kernel.obj kernel.stabs kernel.sym kernel.dep \
 		kernel.obj.r kernel.obj.reloc.txt kernel.obj.map \
-		kernel.o ring2.o \
+		kernel.obj.obj0.map kernel.obj0 kernel.obj0.r \
+		kernel.o ring2.o export.h kapi/export.h \
 		|| true
-	@make -C fs/oofs $@
+	@echo "  CLEAN fs/oofs"
+	@make -s -C fs/oofs $@
 
 # attempt to link multiple object files
 KERNEL_SPLIT_RINGS=1
@@ -136,7 +139,9 @@ NIC_SRC = nic/rtl8139.s nic/i8254.s nic/am79c971.s
 
 NET_SRC = net/*.s
 
-FS_SRC = fs.s partition.s fs/iso9660.s fs/fat.s fs/sfs.s fs/fs_oofs.s
+FS_API_SRC = fs.s partition.s
+
+FS_IMPL_SRC = fs/iso9660.s fs/fat.s fs/sfs.s fs/fs_oofs.s
 
 GFX_SRC = gfx.s ../fonts/courier56.s
 
@@ -159,7 +164,8 @@ ring2.o: ring2.s defines.s macros.s $(DBG_SRC) print.s \
 		kapi/export.h \
 		dev.s \
 		pci.s pic.s dma.s ata.s \
-		shell.s keycodes.s fs.s partition.s \
+		shell.s keycodes.s \
+		$(FS_IMPL_SRC) $(FS_API_SRC) \
 		$(SOUND_SRC) \
 		$(VMWARE_SRC) $(VBOX_SRC) \
 		$(BRIDGE_SRC) \
@@ -176,16 +182,14 @@ ring3.o: ring3.s
 	@$(call FIXUP,$@)
 
 kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
-		$(FS_SRC) $(NET_SRC) $(GFX_SRC) \
+		$(FS_API_SRC) $(NET_SRC) $(GFX_SRC) \
 		$(LIB_SRC) \
 		shell.s Makefile
 	@echo "  AS    $@"
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
 
-fs/fs_oofs.o: fs/oofs/export.h
-
-fs/oofs/oofs.o: FORCE kapi/export.h export.h
+fs/oofs/oofs.o fs/oofs/export.h: FORCE export.h kapi/export.h
 	@echo "  M     $@"
 	@make -s -C fs/oofs
 
@@ -195,14 +199,19 @@ export.h: kernel.o Makefile ../.git
 	@echo "  H     $@"
 	@grep -e "^\.equ SEL_" gdt.s \
 	| perl -pe 's/^\.equ SEL_(\S+),(.*)/SEL_\1=\2/' \
-	> export.h
+	> $@
 	@echo "BRANCH=`git branch | grep -e ^\* | cut -b3-`" \
-	>> export.h
+	>> $@
 	@echo "KERNEL_REVISION=$(KERNEL_REVISION)" \
-	>> export.h
+	>> $@
 	@echo ".macro LOAD_KERNEL_VERSION_TXT reg:vararg;LOAD_TXT \"$(BRANCH)-$(KERNEL_REVISION)\",\reg;.endm" \
-	>> export.h
-
+	>> $@
+	@# create file with constants: list absolute symbols.
+	@#  (-g: only global/external symbols - speed)
+	@nm -f bsd -g --defined-only $< \
+	| grep ' A ' \
+	| perl -ne 's/(\S+) . (\S+)/\2=0x\1/; print' \
+	>> $@
 
 kapi/export.h: kernel.o Makefile
 	@echo ".include \"kapi/kapi.s\"" > $@

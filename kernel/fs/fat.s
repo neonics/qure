@@ -602,6 +602,7 @@ fat_freehandle:
 	pop	eax
 	ret
 
+.global cmd_fat_handles
 cmd_fat_handles:
 	printlnc 15, " handle | parent |cluster | buf    |bufsize |name"
 	ARRAY_LOOP [fat_handles], FAT_HANDLE_STRUCT_SIZE, eax, ebx, 9f
@@ -1290,6 +1291,7 @@ fs_fat16_print_directory$:
 ############################################################################
 
 # in: esi points to partition table entry
+.global fs_fat_partinfo
 fs_fat_partinfo:
 	push	esi	# save partition table ptr
 	sub	esp, 512

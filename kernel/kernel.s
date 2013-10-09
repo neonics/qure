@@ -103,11 +103,11 @@ include "dma.s", dma
 #include "ata.s", ata
 #include "debugger.s", debugger
 #include "partition.s", partition
-include "fs.s", fs
-include "fs/fat.s", fat
-include "fs/sfs.s", sfs
-include "fs/fs_oofs.s", oofs
-include "fs/iso9660.s", iso9660
+#include "fs.s", fs
+#include "fs/fat.s", fat
+#include "fs/sfs.s", sfs
+#include "fs/fs_oofs.s", oofs
+#include "fs/iso9660.s", iso9660
 
 
 .if KERNEL_SPLIT_RINGS
@@ -282,12 +282,6 @@ include "fs/iso9660.s", iso9660
 	.global DEV_PCI_CLASS_BRIDGE_PCI2PCI_STS
 	.global DEV_PCI_CLASS_STORAGE_IDE
 
-	# ata
-	.global ata_print_capacity
-	#disks
-	.global cmd_disks_print$
-
-
 	# shell
 	.global cmdline_print_args$
 	.global getopt
@@ -305,12 +299,6 @@ include "fs/iso9660.s", iso9660
 
 	# debugger
 	.global debug_printsymbol
-
-	# fs
-	.global fs_update_path
-	.global FS_DIRENT_ATTR_DIR
-	.global fs_fat_partinfo
-
 
 	## ../lib ##
 	# sha1
@@ -334,9 +322,6 @@ include "fs/iso9660.s", iso9660
 
 	# realmode/pmode stuff
 	.global boot_drive
-
-	#partition.s
-	.global disk_print_label
 
 	# dma
 	.global dma_buffersize

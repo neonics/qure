@@ -60,7 +60,11 @@ CLASS_METHOD_STRUCT_SIZE = 12
 .global class_instanceof
 .global class_extends
 .global class_is_class
+.global class_get_by_name
 .global class_print_classname	# stackarg
+.global class_invoke_static
+.global class_iterate_classes
+.global class_ref_inc
 # debug
 .global _obj_print_methods$
 .global _obj_print_vptr$
@@ -1576,6 +1580,7 @@ OBJ_STRUCT_SIZE = .
 			\name: .long 0
 		.endif
 		_DECL_CLASS_DECL_MCOUNT = _DECL_CLASS_DECL_MCOUNT + 1
+		.global \name
 	.endif
 #	.endif
 .endm

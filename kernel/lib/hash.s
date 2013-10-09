@@ -316,6 +316,7 @@ ptr_array_newentry:
 # in: eax = base ptr
 # in: ecx = entry size / size of memory to remove
 # in: edx = entry to release
+.global array_remove
 array_remove:
 	push_	edx edi esi
 	add	edx, ecx

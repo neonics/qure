@@ -87,6 +87,7 @@ MAX_PATH_LEN = 1024
 	#
 
 .if DEFINE
+.global class_fs
 .global fs_obj_p_size_sectors
 .global fs_obj_api_read
 .global fs_obj_api_write
@@ -95,6 +96,16 @@ MAX_PATH_LEN = 1024
 .global mtab_fs_instance
 .global mtab_mountpoint
 .global mtab_get_fs
+
+.global fs_update_path
+.global fs_list_filesystems
+.global fs_list_openfiles
+.global fs_posix_perm_print
+.global fs_posix_time_print
+.global cmd_mkfs
+.global cmd_mount$
+.global cmd_umount$
+.global mount_init$
 .text32
 
 
@@ -522,6 +533,13 @@ cmd_umount$:
 # in: ebx = fs-specific handle from previous call or -1 for root directory
 ###################################################
 .struct 0
+.global fs_obj_disk
+.global fs_obj_partition
+.global fs_obj_sector_size
+.global fs_obj_p_start_lba
+.global fs_obj_p_size_sectors
+.global fs_obj_p_end_lba
+.global fs_obj_label
 ###################################################
 DECLARE_CLASS_BEGIN fs
 fs_obj_disk:		.byte 0
@@ -985,6 +1003,19 @@ fs_root_read$:
 
 # Directory Entry
 .struct 0
+.global FS_DIRENT_MAX_NAME_LEN
+.global fs_dirent_name
+.global fs_dirent_attr
+.global FS_DIRENT_ATTR_DIR
+.global fs_dirent_size
+.global fs_dirent_posix_perm
+.global fs_dirent_posix_uid
+.global fs_dirent_posix_gid
+.global fs_dirent_posix_ctime
+.global fs_dirent_posix_mtime
+.global fs_dirent_posix_atime
+.global FS_DIRENT_STRUCT_SIZE
+
 FS_DIRENT_MAX_NAME_LEN = 255
 fs_dirent_name: .space FS_DIRENT_MAX_NAME_LEN
 fs_dirent_attr:	.byte 0		# RHSVDA78
@@ -998,8 +1029,6 @@ fs_dirent_posix_mtime:	.long 0,0
 fs_dirent_posix_atime:	.long 0,0
 # some other times - ignored.
 FS_DIRENT_STRUCT_SIZE = .
-
-.global fs_dirent_posix_mtime
 
 .text32
 
@@ -1247,7 +1276,7 @@ fs_nextentry:
 # out: esi = buffer
 # out: ecx = buffer size
 KAPI_DECLARE fs_handle_read
-fs_handle_read:
+fs_handle_read__:
 	LOCK_READ [fs_handles_sem]
 	push	eax
 	push	ebx
@@ -2008,6 +2037,7 @@ fs_update_path:
 	pop	ebp
 	ret
 
+.endif
 #####################################################################
 # POSIX file attributes and permissions
 
@@ -2031,6 +2061,7 @@ POSIX_PERM_R	= 4
 POSIX_PERM_W	= 2
 POSIX_PERM_X	= 1
 
+.if DEFINE
 # in: eax = posix bits: 6 octals (18 bits)
 # octal values: 000000:  TTAugo
 # TT=type: 0TT0000

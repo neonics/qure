@@ -23,6 +23,7 @@ DEFINE=0
 .include "pic.s"	# for PIC_ENABLE_IRQ (ata.s)
 
 .include "keycodes.s"	# sb.s keyboard check
+
 .endif
 DEFINE=1
 
@@ -36,6 +37,12 @@ include "dev.s" dev
 include "pci.s", pci
 include "ata.s", ata
 include "partition.s", partition
+include "fs.s", fs
+include "fs/fat.s", fat
+include "fs/sfs.s", sfs
+include "fs/fs_oofs.s", oofs
+include "fs/iso9660.s", iso9660
+
 
 code_nic_start:
 include "nic.s"

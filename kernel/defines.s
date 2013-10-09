@@ -23,11 +23,13 @@ SECTION_CODE_TEXT32	= 3
 .macro INCLUDE file, name=0
 .ifnc 0,\name
 .text32
+.global code_\name\()_start
 code_\name\()_start:
 .endif
 .include "\file"
 .ifnc 0,\name
 .text32
+.global code_\name\()_end
 code_\name\()_end:
 .endif
 .endm

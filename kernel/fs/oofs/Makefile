@@ -1,7 +1,7 @@
 all: oofs.o export.h
 
 clean:
-	rm -f *.o .dep || true
+	rm -f *.o .dep export.h || true
 
 INC = -I ../../
 

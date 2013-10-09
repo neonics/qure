@@ -5,6 +5,52 @@
 
 .if DEFINE
 
+# globals
+# structure:
+#ata_driveinfo_sectorsize:	.long 0
+#ata_driveinfo_max_lba:		.long 0, 0
+#ata_driveinfo_lba28_sectors:	.long 0
+#ata_driveinfo_capacity:		.long 0, 0	# calculated from lba28*512
+#ata_driveinfo_cmd_packet_size:	.byte 0
+.global ata_driveinfo_c
+.global ata_driveinfo_h
+.global ata_driveinfo_s
+#ata_driveinfo_cap_in_s:		.long 0	# capacity in sectors
+#ata_driveinfo_num_cylinders:	.word 0 # 0x6220
+#ata_driveinfo_num_:		.word 0 # 0x6f6f (RESERVED1)
+#ata_driveinfo_num_heads:	.word 0 # 0x6974
+#ata_driveinfo_bpt:		.word 0 # 0x6763
+#ata_driveinfo_bps:		.word 0 # 0x5600
+
+.global ata_find_first_drive
+.global ata_is_disk_known
+.global ata_get_drive_info
+.global ata_get_capacity
+.global ata_get_geometry
+.global ata_get_hs_geometry
+.global ata_list_drives
+.global ata_irq
+.global ata_isr1
+.global ata_isr2
+.global ata_list_drive
+.global ata_software_reset
+.global ata_read
+.global ata_write
+.global atapi_get_capacity
+.global atapi_read_capacity
+.global atapi_sem
+.global atapi_packet
+.global atapi_packet_command
+.global atapi_cur
+.global ata_wait_irq
+.global ata_get_numdrives
+.global ata_print_capacity
+.global ata_print_size
+
+
+################
+
+
 ATA_DEBUG = 0		# 0..4
 ATAPI_DEBUG = 0		# 0..3
 

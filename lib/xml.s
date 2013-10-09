@@ -923,9 +923,9 @@ ret
 1:
 	.endif
 
-	call	fs_openfile
+	KAPI_CALL fs_openfile
 	jc	9f
-	call	fs_handle_read
+	KAPI_CALL fs_handle_read
 	jc	8f
 	push	eax
 	call	xml_parse
@@ -936,7 +936,7 @@ ret
 	pop	eax
 	call	mfree
 1:	pop	eax
-8:	call	fs_close
+8:	KAPI_CALL fs_close
 9:	ret
 10:	printlnc 12, "usage:  xml <filename>"
 	ret

@@ -233,6 +233,7 @@ fs_oofs_move:
 ############################################################################
 #SHELL_COMMAND "oofs", cmd_oofs # see shell.s
 .text32
+.global cmd_oofs
 cmd_oofs:
 	lodsd
 	lodsd

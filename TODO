@@ -762,3 +762,6 @@ DONE: cluster send kernel revision
 FIXED: fix HTTPD memleak: 20 bytes per request, only with Firefox (not with netcat).
 
 TODO: DNS: lowercase query support (62.152.117.90: cLouD.nEoNiCS.Com)
+
+TODO: kernel/mem.s: update 'mem -s -c': fix order.
+

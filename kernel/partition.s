@@ -12,6 +12,21 @@ PT_CHS_END: .byte 0,0,0
 PT_LBA_START: .long 0
 PT_SECTORS: .long 0
 
+.if DEFINE
+# globals
+.global disk_read
+.global disk_write
+.global disk_read_partition_tables
+.global disk_load_partition_table$
+.global disk_err_unknown_disk$
+.global disk_get_partition
+.global disk_get_capacity
+.global disk_parse_drivename
+.global disk_parse_label
+.global disk_parse_partition_label
+.global disk_print_label
+
+
 # Partition types:
 # 0x00	Empty
 # 0x01	FAT12 max 32Mb
@@ -1464,4 +1479,4 @@ pop edx
 	pop	ebx
 	pop	edx
 	ret
-
+.endif

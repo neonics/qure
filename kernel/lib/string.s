@@ -212,6 +212,7 @@ strncmp:push	edi
 	ret
 
 # in: esi, edi
+.global strcopy
 strcopy:
 	push_	esi edi ecx eax
 	call	strlen_
@@ -271,6 +272,7 @@ strdupn:
 
 # in: eax, ecx
 # out: eax
+.global strndup
 strndup:
 	push	ebp
 	lea	ebp, [esp + 4]
@@ -296,6 +298,7 @@ strndup:
 # in: ecx = size of current token (use 0 for first call)
 # out: ecx = length of next token (0 for token sep)
 # out: CF = 1: match  0: end of string reached
+.global strtok
 strtok:
 	add	esi, ecx
 	cmp	[esi], al

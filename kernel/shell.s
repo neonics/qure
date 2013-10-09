@@ -1559,7 +1559,7 @@ cmd_touch$:
 	jc	8f
 
 	mov	eax, esp
-	call	fs_create	# in: eax=name, edx=POSIX flags
+	KAPI_CALL fs_create	# in: eax=name, edx=POSIX flags
 ########
 8:	mov	esp, ebp
 	pop	ebp
