@@ -63,6 +63,8 @@ DECLARE_CLASS_METHOD oofs_api_child_moved, oofs_child_moved
 DECLARE_CLASS_END oofs
 #################################################
 .text32
+.global code_oofs_start
+code_oofs_start:
 # in: eax = instance
 # in: edx = parent
 oofs_init:
@@ -116,3 +118,5 @@ oofs_child_moved:
 .include "oofs_table.s"
 .include "oofs_alloc.s"
 ###############################################################################
+.global code_oofs_end
+code_oofs_end:

@@ -75,11 +75,13 @@ SECTIONS
 
 
 	/* -- SHELL */
+		data_shell_cmds_start = .;
 	*.o(.shellcmd)
 /*	kernel.o(.shellcmd)
 	ring2.o(.shellcmd)*/
 	SHELL_CMD_END = . ;
 	LONG(0);	/* shell_command_code: end of list */
+		data_shell_cmds_end = .;
 
 	KERNEL_DATA_END = . ;
 	KERNEL_DATA_SIZE = ABSOLUTE(KERNEL_DATA_END - KERNEL_DATA_START);

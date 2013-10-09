@@ -2072,35 +2072,58 @@ cmd_mem$:
 	jz	2f
 
 	mov	ecx, offset code_print_start
-	.irp _, print,debug,pmode,paging,pit,keyboard,console,hash,mem,buffer,string,scheduler,tokenizer,oo,dev,pci,bios,cmos,dma,ata,debugger,fs,partition,fat,sfs,iso9660,nic,net,vid,usb,southbridge,gfx,hwdebug,vmware,vbox,sound,shell,kernel
+	printlnc 14, "RING0"
+	.irp _, print,debug,pmode,paging,kapi,pit,keyboard,console,hash,mem,buffer,string,scheduler,tokenizer,oo,bios,cmos,dma,gfx,vmware,shell,debugger,kernel
 	PRINT_MEMRANGE code_\_\(), indent="  "
 	.endr
 
-2:	PRINT_MEMRANGE data_0
+	printlnc 14, "RING2"
+	# new object, align:
+	add	cl, 3
+	and	cl, ~3
+	PRINT_MEMRANGE code_oofs, indent="  "
+	# new object, align:
+	add	cl, 3
+	and	cl, ~3
+	.irp _,ring2_inc,dev,pci,ata,partition,fs,fs_fat,fs_iso9660,fs_sfs,fs_oofs,nic,net,vid,usb,southbridge,vbox,sound
+	PRINT_MEMRANGE code_\_\(), indent="  "
+	.endr
+
+2:	# data section: align
+#	add	cl, 3
+#	and	cl, ~3
+	PRINT_MEMRANGE data_0
 	PRINT_MEMRANGE data_sem
 	PRINT_MEMRANGE data_tls
 	PRINT_MEMRANGE data_concat
 	#PRINT_MEMRANGE data_concat within data0's range
 	PRINT_MEMRANGE data_str
-#	PRINT_MEMRANGE data_shell_cmds
-	PRINT_MEMRANGE data_classes
-	PRINT_MEMRANGE data_pci_driverinfo
 	PRINT_MEMRANGE data_fonts
+	PRINT_MEMRANGE data_stats
+	PRINT_MEMRANGE data_bss
+	printlnc 14, "RING2"
+	PRINT_MEMRANGE data_ring2
+	PRINT_MEMRANGE data_ring2_strings
+	PRINT_MEMRANGE data_pci_driverinfo
+	PRINT_MEMRANGE data_ring2_bss
+
+	# new obj, align
+	add	cl, 3
+	and	cl, ~3
+
+	PRINT_MEMRANGE data_classes
 	PRINT_MEMRANGE data_kapi
-	.if SECTION_DATA_SIGNATURE < SECTION_DATA_BSS
-	PRINT_MEMRANGE data_signature
-	PRINT_MEMRANGE data_bss
-	.else
-	PRINT_MEMRANGE data_bss
-	PRINT_MEMRANGE "signature", kernel_signature, 4
-	.endif
-	mov	edi, [kernel_load_end_flat]
-	PRINT_MEMRANGE "<slack>", ecx, edi
+	PRINT_MEMRANGE data_shell_cmds
+
+	PRINT_MEMRANGE "signature", (offset kernel_signature), (offset kernel_signature+4)
+
+	PRINT_MEMRANGE "stack", cs:[kernel_stack_bottom], cs:[kernel_stack_top]
+	#mov	edi, [kernel_load_end_flat]
+	#PRINT_MEMRANGE "<slack>", ecx, edi
 	PRINT_MEMRANGE "<free>", ecx, [kernel_reloc]
 	PRINT_MEMRANGE "relocation table", [kernel_reloc], [kernel_reloc_size], sz=1
 	PRINT_MEMRANGE "symbol table", [kernel_symtab], [kernel_symtab_size], sz=1
 	PRINT_MEMRANGE "stabs", [kernel_stabs], [kernel_stabs_size], sz=1
-	PRINT_MEMRANGE "stack", cs:[ramdisk_load_end], cs:[kernel_stack_top]
 	mov	edi, [mem_heap_high_start_phys]
 	sub	edi, [database]
 	PRINT_MEMRANGE "<free>", ecx, edi

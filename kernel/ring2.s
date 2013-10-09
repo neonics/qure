@@ -4,6 +4,9 @@
 .include "defines.s"
 .include "macros.s"
 
+.text32
+.global code_ring2_inc_start
+code_ring2_inc_start:
 DEFINE=0
 .include "debugger/export.s"
 .include "print.s"
@@ -24,24 +27,31 @@ DEFINE=0
 
 .include "keycodes.s"	# sb.s keyboard check
 
+.global code_ring2_inc_end
+code_ring2_inc_end:
 .endif
 DEFINE=1
 
 
 #############################################
+.data SECTION_DATA
+data_ring2_start:; .global data_ring2_start
+.data SECTION_DATA_STRINGS
+data_ring2_strings_start:; .global data_ring2_strings_start
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_start: # .word vendorId, deviceId
-
+.data SECTION_DATA_BSS
+data_ring2_bss_start:; .global data_ring2_bss_start
 #############################################
 include "dev.s" dev
 include "pci.s", pci
 include "ata.s", ata
 include "partition.s", partition
 include "fs.s", fs
-include "fs/fat.s", fat
-include "fs/sfs.s", sfs
-include "fs/fs_oofs.s", oofs
-include "fs/iso9660.s", iso9660
+include "fs/fat.s", fs_fat
+include "fs/iso9660.s", fs_iso9660
+include "fs/sfs.s", fs_sfs
+include "fs/fs_oofs.s", fs_oofs
 
 
 code_nic_start:
@@ -192,6 +202,12 @@ code_sound_end:
 .endif
 
 #############################################
+.data SECTION_DATA_STRINGS -1
+data_ring2_end:; .global data_ring2_end
+.data SECTION_DATA_STRINGS
+data_ring2_strings_end:; .global data_ring2_strings_end
 .data SECTION_DATA_PCI_DRIVERINFO
-data_pci_driverinfo_end:
+data_pci_driverinfo_end:; 
+.data SECTION_DATA_BSS
+data_ring2_bss_end:; .global data_ring2_bss_end
 #############################################

@@ -51,6 +51,8 @@ data_pci_driverinfo_start:
 .endif
 .data SECTION_DATA_FONTS
 data_fonts_start:
+.data SECTION_DATA_STATS
+data_stats_start:
 .data SECTION_DATA_SIGNATURE # SECTION_DATA_BSS - 1
 data_signature_start:
 .data SECTION_DATA_BSS
@@ -347,8 +349,10 @@ include "vmware/vmware.s", vmware
 #code_sound_end:
 include "shell.s", shell
 
-include "debugger/debugger.s", debugger
-include "debugger/hwdebug.s", hwdebug
+code_debugger_start:
+include "debugger/debugger.s"
+include "debugger/hwdebug.s"
+code_debugger_end:
 ###################################
 
 .text32
@@ -762,6 +766,8 @@ data_pci_driverinfo_end:
 .endif
 .data SECTION_DATA_FONTS
 data_fonts_end:
+.data SECTION_DATA_STATS
+data_stats_end:
 .data SECTION_DATA_BSS
 data_bss_end:
 .data 99
