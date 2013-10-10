@@ -10,6 +10,7 @@ ISO_ARGS += -boot-load-size $(SECTORS)
 #ISO_ARGS += -no-emul-boot
 #ISO_ARGS += -hard-disk-boot
 
+
 KERNEL_OBJ = kernel/kernel.obj
 
 
@@ -19,14 +20,16 @@ define MAKE
 endef
 
 
-.PHONY: all clean init build-deps
+.PHONY: all clean init build-deps site
 
 all: os.iso
 
+ISO_DEPS = $(shell find root/ -type f|grep -v www/download/os.iso.gz) \
+	root/boot/boot.img
+
 os.iso: SECTORS = $(call CALC_SECTORS,build/boot.img)
-os.iso: init build/boot.img site
-	@#echo "Sectors: $(SECTORS)"
-	@cp --sparse=always build/boot.img root/boot/boot.img
+os.iso: $(ISO_DEPS) root/www/download/os.iso.gz | init site
+	@#cp --sparse=always build/boot.img root/boot/boot.img
 	@echo "  ISO   $@"
 	@genisoimage -P Neonics -quiet -input-charset utf-8 -o os.iso.tmp \
 		-r -b boot/boot.img \
@@ -47,7 +50,7 @@ build-deps:
 	@convert > /dev/null || (echo "missing imagemagic" && false)
 	@genisoimage --version > /dev/null || (echo "missing genisoimage" && false)
 
-clean:
+clean: site-clean
 	@echo "  CLEAN"
 	@[ -d build ] && rm -rf build || true
 	@[ -f os.iso ] && rm os.iso || true
@@ -56,9 +59,17 @@ clean:
 	$(call MAKE,kernel,clean)
 	$(call MAKE,fonts,clean)
 
-build/boot.img: build/boot.bin kernel build/write.exe
+root/boot/boot.img: build/boot.img
+	@echo "  COPY  $< $@"
+	@cp --sparse=always build/boot.img root/boot/boot.img
+
+BOOT_DEPS = build/boot.bin build/kernel.bin build/kernel.reloc \
+	build/kernel.sym build/kernel.stabs
+
+build/boot.img: $(BOOT_DEPS) build/write.exe
+	@echo "  BOOT  $@"
 	@build/write.exe -o $@ \
-		-b bootloader/boot.bin \
+		-b build/boot.bin \
 		-rd \
 		-b build/kernel.bin \
 		-b build/kernel.reloc \
@@ -66,17 +77,13 @@ build/boot.img: build/boot.bin kernel build/write.exe
 		-b build/kernel.stabs \
 	&& chmod 644 $@
 
-.PHONY: bootloader
-bootloader: build/boot.bin
+# bootloader
+build/boot.bin: FORCE | init
+	$(call MAKE,bootloader) && cp -u bootloader/boot.bin $@
 
-build/boot.bin:
-	$(call MAKE,bootloader)
-
-.PHONY: kernel
-kernel: build/kernel.bin build/kernel.reloc build/kernel.sym build/kernel.stabs
-
-build/kernel.bin: fonts build/coff.exe
-	$(call MAKE,kernel) && mv kernel/kernel.bin $@
+# kernel
+build/kernel.bin: FORCE fonts build/coff.exe
+	$(call MAKE,kernel) && cp -u kernel/kernel.bin $@
 
 build/kernel.reloc: $(KERNEL_OBJ) util/reloc.pl Makefile
 	@# -C -R # 32 bit alpha unsupported.
@@ -118,24 +125,27 @@ build/coff.exe: util/coff.cpp
 
 ##########################################################################
 
-site:	site-init site-download site-doc www-neonics
+#	root/www/download/os.iso.gz
+
+.PHONY: site-init site www-neonics
+
+site:	site-init site-doc www-neonics
+
 
 site-init:
-	@[ -d root/www/download ] || mkdir -p root/www/download
-	@[ -f root/www/download/boot.img.gz ] && rm root/www/download/boot.img.gz || true
-	@[ -f root/www/download/os.iso.gz ] && rm root/www/download/os.iso.gz || true
+	@[ -d root/www/download ] || mkdir -p root/www/download || true
+	@#[ -f root/www/download/boot.img.gz ] && rm root/www/download/boot.img.gz || true
+	@#[ -f root/www/download/os.iso.gz ] && rm root/www/download/os.iso.gz || true
 
-site-download: os.iso.tmp.gz
-	@mv os.iso.tmp.gz root/www/download/os.iso.gz
-
-os.iso.tmp.gz: site-init
+root/www/download/os.iso.gz: $(ISO_DEPS) | site-init
 	@echo "  ISO   $@"
-	@cp --sparse=always build/boot.img root/boot/boot.img
+	@[ -f root/www/download/os.iso.gz ] && rm root/www/download/os.iso.gz || true
 	@#gzip build/boot.img -c > root/www/download/boot.img.gz
-	@genisoimage -P Neonics -quiet -input-charset utf-8 -o os.iso.tmp \
+	@genisoimage -P Neonics -quiet -input-charset utf-8 -o os.iso.site \
 		-r -b boot/boot.img \
 		$(ISO_ARGS) \
-		root/ && gzip -9 os.iso.tmp
+		root/ && gzip -9 os.iso.site \
+		&& mv os.iso.site.gz root/www/download/os.iso.gz
 
 site-src:
 	#[ -d root/src/kernel ] || mkdir -p root/src/kernel
@@ -148,7 +158,8 @@ DOC=Bootsector Cluster NetFork CloudNet LiquidChristalProcessor CircularBuffer \
 DOC_SRC=$(addprefix DOC/, $(addsuffix .txt,${WWW_DOC}))
 WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${DOC}))
 
-root/www/doc/%.html: DOC/%.txt util/txt2html.pl Makefile
+root/www/doc/%.html: DOC/%.txt util/txt2html.pl
+	#Makefile
 	@[ -d root/www/doc ] || mkdir root/www/doc
 	@echo "  HTML  $@"
 	@#util/txt2html.pl -t web/doc.htmlt $< | xmllint - > $@
@@ -178,4 +189,7 @@ www-neonics: $(WWW_N_SRC)
 
 
 site-clean:
-	rm -rf root/www/screenshots root/www/download root/src/
+	@rm -rf root/www/screenshots root/www/download root/src/
+
+.PHONY: FORCE
+FORCE: ;
