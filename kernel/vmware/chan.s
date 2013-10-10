@@ -170,7 +170,7 @@ vmware_chan_send:
 		#mov edx, [esp + 4]
 		#call	debug_printsymbol
 		#pop edx
-		DEBUG_DWORD eax
+		#DEBUG_DWORD eax
 		call	vmware_chan_print_label$
 		printc 14, " TX '"
 		call	nprint

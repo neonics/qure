@@ -250,6 +250,14 @@ sub reset   { my $self = shift; $self->_vmcmd( "reset", @_ ); }
 sub suspend { my $self = shift; $self->_vmcmd( "suspend", @_ ); }
 sub pause   { my $self = shift; $self->_vmcmd( "pause", @_ ); }
 sub unpause { my $self = shift; $self->_vmcmd( "unpause", @_ ); }
+sub help    { my $self = shift; $self->manage( @_ ); }
+sub getip    { my $self = shift; $self->_vmcmd( "getGuestIPAddress", @_ ); }
+sub set     { my $self = shift;
+	my ($vmx, @l) = (@{ $_[0] });
+	# runtimeConfig|guestEnv|guestVar
+	# guestEnv requires credentials
+	$self->_vmcmd( "writeVariable", $vmx, "guestVar", @l );
+}
 
 sub _list
 {
@@ -389,6 +397,7 @@ print "\n";
 		my ($k,$v) = /^([^= ]+)\s*?=\s*?(.*?)\r?$/ or die "malformed vmx config: $_";
 
 		$k eq 'displayName' and $v = "\"qure-$nr\"";
+		$k eq 'guestinfo.hostname' and $v = "\"qure-$nr\"";
 
 		"$k = $v\n";
 		}

@@ -117,7 +117,7 @@ vmware_tclo_poll:
 	OK
 
 	print "received: "
-	DEBUG_DWORD ecx
+	#DEBUG_DWORD ecx
 	call nprint
 
 	clc
@@ -208,7 +208,12 @@ vmware_rpc_call:
 	printc 10, ": "
 3:	add	esi, 2
 	call	println
-9:	ret
+9:	
+	# return carry on no value/error
+	cmp	word ptr [esi - 2], 0x2031
+	jz	1f
+	stc
+1:	ret
 
 ##############################################################################
 # Commandline Interface
@@ -234,9 +239,11 @@ cmd_vmcheck:
 	jz	vmw_reset$
 	cmp	word ptr [eax], 'c'	# send caps
 	jz	vmw_caps$
+	cmp	word ptr [eax], 'h'
+	jz	vmw_hostname$
 	printlnc 12, "usage: vmcheck [r|c]"
 	printlnc 12, "  no args: check for messages"
-	printlnc 12, "  'r': reset channel; 'c': send capabilities"
+	printlnc 12, "  'r': reset channel; 'c': send capabilities; 'h': get hostname"
 	ret
 
 9:	printlnc 12, "open/close fail"
@@ -319,6 +326,30 @@ vmw_caps$:
 	call	vmware_rpc_call
 
 	ret
+
+######## get hostname
+# out: esi = hostname
+# out: CF
+vmw_hostname$:	
+	# first check if there is a message
+	call	vmware_tclo_poll
+	jc	1f
+	call	vmware_tclo_handle
+1:
+
+	mov	eax, offset vmware_chan_rpcout
+	call	vmware_chan_receive
+
+/*
+	# major << 10 + minor << 5 + base
+	# 8 4 2 -> 2052
+	LOAD_TXT "machine.id.get"
+	call	vmware_rpc_call
+*/
+	LOAD_TXT "info-get guestinfo.hostname"
+	call	vmware_rpc_call
+	ret
+
 
 # add message to host log
 # in: esi, ecx

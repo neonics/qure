@@ -377,7 +377,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	# no need to check escape from docroot.
 1:
 
-	.if NET_HTTP_DEBUG
+	.if NET_HTTP_DEBUG > 1
 		printc 13, "Serving file: '"
 		mov	esi, esp#offset www_file$
 		call	print
@@ -770,6 +770,7 @@ http_parse_header_line$:
 		mov	ecx, edi
 		sub	ecx, esi
 		call	nprint
+		call	printspace
 		jmp	4f
 	3:	printc 4, "referer: no eol"
 	4:	pop_	esi eax ecx

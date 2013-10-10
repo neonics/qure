@@ -1,3 +1,38 @@
+Adding a machine
+================
+
+The perl utility ''util/adm'' contains a virtual machine manager (''adm vm'').
+In the qure source directory, either run ''source .tcshrc'' (if that is your shell)
+or ''alias vm adm vm''. The steps below will assume this is done.
+
+To add a new machine, simply run
+
+	> vm add
+
+This will produce some output, ending with something like:
+
+	root> root::vm>
+	* base: C:/code/neonics/sandbox/trunk/qure/os/vm/vmware/
+
+		  VM = $BASE/../vm/vmware
+	    TEMPLATE = $VM/qure-template
+	     CLUSTER = $VM/cluster
+
+
+	 copy $VM/qure-template $VM/cluster/qure-7
+
+The number 7 here is the virtual machine number, which is to be used to manage individual
+machines. Starting, resetting, and stopping a machine can be done with:
+
+	> vm start 7
+	> vm reset 7
+	> vm stop 7
+
+Note that you will probably need to configure the script to tell it the path to ''vmrun'',
+which is a VMWare VIX utility bundled with VMWare Workstation. It is configured for Cygwin
+on Windows 7 at current. (''`cygpath -u "c:/Program Files (x86)/VMware/VMware VIX/vmrun.exe"`;'').
+
+
 Cluster initialization
 ======================
 
@@ -10,8 +45,8 @@ To have this work, follow these steps:
 Configure the virtual machine to have an empty disk (hda).
 Only disks <= 512Mb have been tested.
 
-> fdisk hda init
-> mkfs -t oofs hda0
+	> fdisk hda init
+	> mkfs -t oofs hda0
 
 The next time the machine boots it will automount and initialize cluster data,
 at current 1 sector. This sector contains the node age, which is incremented

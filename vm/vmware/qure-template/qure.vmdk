@@ -1,0 +1,21 @@
+# Disk DescriptorFile
+version=1
+encoding="windows-1252"
+CID=fffffffe
+parentCID=ffffffff
+isNativeSnapshot="no"
+createType="twoGbMaxExtentSparse"
+
+# Extent description
+RW 1048576 SPARSE "qure-s001.vmdk"
+
+# The Disk Data Base 
+#DDB
+
+ddb.virtualHWVersion = "9"
+ddb.longContentID = "d836ef86ed0974cd27ffca9dfffffffe"
+ddb.uuid = "60 00 C2 9b c6 78 4e a5-da 9c 75 7d 0d a1 9d c4"
+ddb.geometry.cylinders = "1040"
+ddb.geometry.heads = "16"
+ddb.geometry.sectors = "63"
+ddb.adapterType = "ide"

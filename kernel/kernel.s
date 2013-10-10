@@ -355,6 +355,10 @@ include "debugger/hwdebug.s"
 code_debugger_end:
 ###################################
 
+.data
+.global hostname
+hostname: .space 16
+
 .text32
 .code32
 code_kernel_start:
@@ -585,6 +589,21 @@ SCHEDULE_EARLY = 0
 	I "Enabling networking"
 	call	newline
 	call	nic_zeroconf
+
+	# get hostname, if running in vmware
+	pushd 0
+	pushstring "h"
+	pushstring "vmcheck"
+	mov	esi, esp
+	call	cmd_vmcheck
+	jc	1f
+	mov	edi, offset hostname
+	call	strlen_
+	cmp	ecx, 16
+	jb	2f
+	mov	ecx, 16
+2:	rep	movsb
+1:
 
 	call	cmd_dnsd
 	call	cmd_httpd

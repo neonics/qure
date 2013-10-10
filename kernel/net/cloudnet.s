@@ -9,7 +9,6 @@
 
 CLOUD_PACKET_DEBUG = 0
 
-
 CLOUD_LOCAL_ECHO = 1
 
 NET_AUTOMOUNT = 1
@@ -191,6 +190,7 @@ pkt_node_age:		.long 0
 pkt_kernel_revision:	.long 0
 pkt_node_birthdate:	.long 0
 pkt_cluster_birthdate:	.long 0	# birthdate of first cluster node
+pkt_node_hostname:	.space 16
 PKT_STRUCT_SIZE = .
 
 .text32
@@ -342,7 +342,9 @@ node_node_age:		.long 0
 node_kernel_revision:	.long 0
 node_node_birthdate:	.long 0
 node_cluster_birthdate:	.long 0	# birthdate of first cluster node
+node_node_hostname:	.space 16
 
+# local
 node_mac:	.space 6
 
 node_clock_met:	.long 0
@@ -401,6 +403,11 @@ cluster_add_node:
 	mov	[ebx + node_clock_met], eax
 
 	printc 13, " add cluster node "
+	push	esi
+	lea	esi, [esi + pkt_node_hostname]
+	call	print
+	call	printspace
+	pop	esi
 	mov	eax, ecx
 	call	print_ip$
 	print " era "
@@ -781,6 +788,14 @@ cmd_cloud_print$:
 	xor	al, al
 1:	call	printcharc
 	call	printspace
+
+	lea	eax, [ebx + ecx + node_node_hostname]
+	push	eax
+	pushstring "%8s"
+	call	printf
+
+	add	esp, 8
+	call	printspace
 	mov	eax, [ebx + ecx + node_addr]
 	call	print_ip$
 	call	printspace
@@ -929,6 +944,7 @@ cluster_node_persistent:
 	kernel_revision:.long 0	# detect commit
 	node_birthdate:	.long 0	# detect boot frequency
 	cluster_birthdate:.long 0 # cmos time
+	node_hostname:	.space 16
 cluster_node_packet_end:
 	# not on network
 	cluster_era_start:.long 0 # age when era incremented
@@ -1001,6 +1017,15 @@ cluster_node_onload:
 	mov	edx, [kernel_boot_time]
 	mov	[eax + node_birthdate], edx
 
+	push_	esi edi
+	lea	edi, [eax + node_hostname]
+	mov	esi, offset hostname
+	movsd
+	movsd
+	movsd
+	movsd
+	pop_	edi esi
+
 	## SEED
 	#mov	edx, [eax + node_birthdate]
 	#mov	[eax + cluster_birthdate], edx
@@ -1031,9 +1056,12 @@ cluster_node_print:
 	pushd	[eax + node_age]
 	pushd	[eax + cluster_era]
 	pushd	[eax + kernel_revision]
-	pushstring "krev %d era %3d age %3d\n  n.date ";
+	push	edx
+	lea	edx, [eax + node_hostname]
+	xchg	edx, [esp]
+	pushstring "%s krev %d era %3d age %3d\n  n.date ";
 	call	printf
-	add	esp, 4<<2
+	add	esp, 5<<2
 
 	push	edx
 	mov	edx, [eax + node_birthdate]
@@ -1286,7 +1314,12 @@ cluster_get_status_:
 	# [ebp+0] = buffer size
 	# [ebp+4] = buffer
 
-	APPEND_STRING "<b>nodes:</b> "
+	APPEND_STRING "<b>Host:</b> "
+	mov	esi, offset hostname
+	call	strlen_
+	rep	movsb
+
+	APPEND_STRING " <b>nodes:</b> "
 
 	xor	edx, edx
 	mov	ebx, [cluster_nodes]
@@ -1365,6 +1398,15 @@ cluster_get_status_:
 	mov	eax, '<'|('/'<<8)|('i'<<16)|'>'<<24
 	stosd
 	1:
+
+	push	esi
+	mov	al, ' '
+	stosb
+	lea	esi, [ebx + esi + node_node_hostname]
+	call	strlen_
+	rep	movsb
+	stosb
+	pop	esi
 
 	testb	[ebp + 16], 2
 	jnz	1f

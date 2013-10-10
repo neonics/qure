@@ -176,6 +176,7 @@ SHELL_COMMAND "arp"		cmd_arp
 SHELL_COMMAND "icmp"		net_icmp_list
 # utils
 SHELL_COMMAND_CATEGORY "misc"
+SHELL_COMMAND "hostname"	cmd_hostname
 SHELL_COMMAND "hs",		cmd_human_readable_size$
 #SHELL_COMMAND "regexp",		regexp_parse
 SHELL_COMMAND "obj"		pci_list_obj_counters
@@ -2827,4 +2828,11 @@ cmd_keycode:
 	cmp	ax, K_ESC
 	jnz	0b
 	ret
+
+cmd_hostname:
+	mov	esi, offset hostname
+	cmp	byte ptr [esi], 0
+	jz	9f
+	call	println
+9:	ret
 .endif

@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<Foundry>
+<VM>
+<VMId type="string">52 f2 14 d4 1c 96 19 f1-d3 06 18 87 f4 99 c9 64</VMId>
+<ClientMetaData>
+<clientMetaDataAttributes/>
+<HistoryEventList/></ClientMetaData>
+<vmxPathName type="string">qure.vmx</vmxPathName></VM></Foundry>
