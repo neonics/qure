@@ -413,6 +413,8 @@ net_arp_print:
 
 
 # As per RFC.
+# in: ebx = nic
+# in: esi, ecx = arp frame
 net_arp_handle:
 	push_	ebx edx
 
@@ -550,7 +552,10 @@ net_arp_handle:
 .if !NET_ARP_DEBUG
 91:; 92:; 93:; 94:; 95:; 96:
 .endif
-9:	pop_	edx ebx
+9:	
+	mov	dx, ETH_PROTO_ARP
+	call	net_sock_deliver_raw
+	pop_	edx ebx
 	ret
 
 .if NET_ARP_DEBUG

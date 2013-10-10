@@ -11,6 +11,10 @@ SOCKET_BUFSIZE	= 2048
 # socket options:
 SOCK_LISTEN	= 0x80000000
 SOCK_STREAM	= 0x40000000	# 1: continuous buffer; 0: packetized buffer
+# address family:
+SOCK_AF_MASK	= 0x0000000f
+SOCK_AF_IP	= 0x00000000	# backwards compat
+SOCK_AF_ETH	= 0x00000001	
 # NOTE: gnored: the above option is automatically determined based on IP_PROTOCOL_TCP.
 # options affecting socket packetized read/peek contents (i.e. deliver)
 # READPEER: the ordering will be as listed here:
@@ -26,7 +30,7 @@ SOCK_CLOSED	= 0x00100000
 .struct 0
 sock_addr:	.long 0
 sock_port:	.word 0
-sock_proto:	.word 0
+sock_proto:	.word 0 # flags & SOCK_AF_ETH ? ETH_PROTO_* : IP_PROTOCOL_*
 sock_flags:	.long 0
 sock_in_buffer:	.long 0	# buffer.s
 sock_cust:	.long 0	# custom data depending on socket (sock idx)
@@ -37,7 +41,7 @@ socket_array: .long 0
 .text32
 # in: eax = sock_addr (ip)
 # in: edx = sock_proto << 16 | sock_port
-# in: ebx = flags (SOCK_LISTEN)
+# in: ebx = flags (SOCK_LISTEN, SOCK_AF)
 # out: eax = socket index
 # out: CF
 KAPI_DECLARE socket_open
@@ -54,10 +58,14 @@ socket_open:
 	jz	1f
 	ARRAY_ENDL
 9:	ARRAY_NEWENTRY [socket_array], SOCK_STRUCT_SIZE, 4, 9f
-1:	mov	[eax + edx + sock_addr], esi
-	mov	[eax + edx + sock_port], edi
+1:	
+	mov	[eax + edx + sock_port], edi	# also sets proto
 	mov	[eax + edx + sock_flags], ebx
-	mov	edi, eax
+	mov	edi, ebx
+	and	edi, SOCK_AF_MASK
+	jnz	1f	# not SOCK_AF_IP, skip addr
+	mov	[eax + edx + sock_addr], esi
+1:	mov	edi, eax
 
 	.if NET_SOCKET_DEBUG
 		DEBUG_DWORD edx, "socket_open "
@@ -606,6 +614,28 @@ net_sock_deliver_icmp:
 	pop	eax
 	ret
 
+
+# in: dx = ETH_PROTO_*
+# in: esi, ecx: raw packet
+net_sock_deliver_raw:
+	push	eax
+	push	edx
+	MUTEX_SPINLOCK_ SOCK
+	# in: dx = proto
+	call	net_socket_find_af_eth_	# out: edx
+	jc	9f
+
+	mov	eax, edx	# in: eax = socket index
+	mov	ebx, -1		# in: ebx = ipv4 frame (N/A for ARP)
+	xor	edx, edx	# in: dx = [port] (N/A for ARP)
+	call	net_socket_in_append$ # in: esi = payload; ecx = payload len
+
+9:	MUTEX_UNLOCK_ SOCK
+	pop	edx
+	pop	eax
+	ret
+
+#
 # in: ebx = ipv4 frame
 # in: eax = ip
 # in: edx = [proto] [port]
@@ -671,10 +701,11 @@ net_socket_deliver_udp:
 
 # precondition: [socket_array] locked
 # in: eax = socket index
-# in: ebx = ipv4 frame (preceeded by ethernet frame)
-# in: edx = [dest port] [peer port]
 # in: esi = payload
 # in: ecx = payload len
+#OPTIONAL: only for IP sockets:
+# in: ebx = ipv4 frame (preceeded by ethernet frame)
+# in: edx = [dest port] [peer port]
 net_socket_in_append$:
 	.if NET_SOCKET_DEBUG
 		DEBUG_DWORD eax, "SOCK IN APPEND"
@@ -692,8 +723,15 @@ net_socket_in_append$:
 	test	edi, SOCK_STREAM
 	jnz	2f
 
+	# check if SOCK_READPEER makes sense (only for IP)
+	mov	edx, edi
+	and	dl, SOCK_AF_MASK
+	cmp	dl, SOCK_AF_IP
+
 	# write packetized len
 	mov	edx, ecx
+
+	jnz	3f	# not IP, don't write peer/ttl
 
 	test	edi, SOCK_READPEER
 	jz	1f
@@ -703,7 +741,7 @@ net_socket_in_append$:
 	add	edx, 6
 1:	bt	edi, SOCK_READTTL_SHIFT
 	adc	edx, 0
-	call	buffer_put_word
+3:	call	buffer_put_word
 
 	# write peer address
 	test	edi, SOCK_READPEER
@@ -754,6 +792,8 @@ net_socket_find:
 	MUTEX_UNLOCK_ SOCK
 	ret
 
+# precondition: MUTEX_SOCK locked
+#
 # in: eax = ip
 # in: edx = [proto] [port]
 # out: edx = socket idx
@@ -764,6 +804,8 @@ net_socket_find_:
 	push	ebp
 	mov	ebx, edx
 	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, edi, edx, 9f
+	test	byte ptr [edi + edx + sock_flags], SOCK_AF_MASK
+	jnz	3f	# address family not 0 (INET - IPV4)
 	mov	ebp, [edi + edx + sock_addr]
 	or	ebp, ebp
 	jz	1f
@@ -779,6 +821,31 @@ net_socket_find_:
 	pop	ebx
 	pop	edi
 	ret
+
+# precondition: MUTEX_SOCK locked
+#
+# in: dx = ETH_PROTO_*
+# out: edx = socket idx
+# out: CF = 0: found 1: not found
+net_socket_find_af_eth_:
+	push	edi
+	push	ebx
+	push	ebp
+	mov	ebx, edx
+	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, edi, edx, 9f
+	mov	ebp, [edi + edx + sock_flags]
+	and	ebp, SOCK_AF_MASK
+	cmp	ebp, SOCK_AF_ETH
+	jnz	3f
+	cmp	[edi + edx + sock_proto], bx
+	jz	1f
+3:	ARRAY_ENDL
+9:	stc
+1:	pop	ebp
+	pop	ebx
+	pop	edi
+	ret
+
 
 
 # These two are used for incoming data in TCP

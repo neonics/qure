@@ -36,6 +36,7 @@ cloud_nic:	.long 0
 cluster_ip:	.long 0
 lan_ip:		.long 0
 cloud_sock:	.long 0
+cloud_arp_sock:	.long 0
 cloud_flags:	.long 0
 	STOP$	= 1
 cluster_node:	.long 0
@@ -52,6 +53,8 @@ cloudnet_daemon:
 	call	cloud_socket_open
 	jc	9f
 	call	cloud_rx_start
+	jc	9f
+	call	cloud_arpwatch_start
 	jc	9f
 
 	mov	eax, offset class_cluster_node
@@ -167,6 +170,13 @@ cloud_socket_open:
 	printc 11, "CloudNet listening on "
 	KAPI_CALL socket_print
 	call	newline
+
+	# add arp watcher
+	mov	ebx, SOCK_AF_ETH	# flags
+	mov	edx, ETH_PROTO_ARP << 16
+	KAPI_CALL socket_open
+	jc	9f
+	mov	[cloud_arp_sock], eax
 
 	clc
 9:	ret
@@ -327,8 +337,54 @@ cloudnet_rx:
 	jmp	0b
 
 
-9:	printlnc 4, "cloudnet: cannot open socket, terminating"
+# start arpwatch listener thread/task
+cloud_arpwatch_start:
+	printc 13, " start arpwatch "
+	PUSH_TXT "cloudnet-arp"
+	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING_SERVICE
+	push	cs
+	push	dword ptr offset cloudnet_arpwatch
+	mov	eax, [cloud_arp_sock]
+	KAPI_CALL schedule_task
+	jc	9f
+	OK
+	clc
 	ret
+9:	printlnc 4, "fail"
+	stc
+	ret
+
+cloudnet_arpwatch:
+0:	mov	ecx, -1	# infinite wait
+	KAPI_CALL socket_read
+	jc	0b
+
+	# handle packet
+
+	push	eax
+
+	# filter
+	cmp	word ptr [esi + arp_hw_type], ARP_HW_ETHERNET
+	jnz	9f
+	cmp	dword ptr [esi + arp_proto], 0x04060008 # protosz 4,hw6,ipv4
+	jnz	9f
+
+	mov	dx, [esi + arp_opcode]
+	mov	al, '?'
+	cmp	dx, ARP_OPCODE_REQUEST
+	jz	1f
+	mov	al, '!'
+	cmp	dx, ARP_OPCODE_REPLY
+	jnz	9f
+
+1:	printc 12, " rx ARP "
+	call	printchar
+	mov	eax, [esi + arp_dst_ip]
+	call	net_print_ipv4
+	call	newline
+
+9:	pop	eax
+	jmp	0b
 
 
 ################################################

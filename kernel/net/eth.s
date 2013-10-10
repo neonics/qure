@@ -34,6 +34,8 @@ ETH_PROTO_IPV6 = 0x86dd
 # 0xcafe veritas low latency transport (LLT)
 ETH_HEADER_SIZE = .
 
+.if DEFINE
+
 .data
 mac_bcast: .byte -1, -1, -1, -1, -1, -1
 .text32
@@ -144,4 +146,4 @@ net_eth_protocol_get_handler$:
 1:	ret
 
 
-
+.endif
