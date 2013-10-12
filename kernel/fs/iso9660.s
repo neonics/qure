@@ -197,7 +197,7 @@ fs_iso9660_mount:
 	stc
 	ret
 
-1:	printlnc 12, "iso9660_mount: only ATAPI supported at this time"
+1:	#printlnc 12, "iso9660_mount: only ATAPI supported at this time"
 	stc
 	ret
 
