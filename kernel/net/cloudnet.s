@@ -612,7 +612,10 @@ cloudnet_handle_packet:
 		jz	\label
 	.endm
 
-	cmpd	[esi + CL_PAYLOAD_START + 0], 'h'|'e'<<8|'l'<<16|'l'<<24
+	#cmpd	[esi + CL_PAYLOAD_START + 0], 'h'|'e'<<8|'l'<<16|'l'<<24
+	mov	eax, [esi + CL_PAYLOAD_START + 0]
+	or	eax, 0x20202020
+	cmp	eax, 'h'|'e'<<8|'l'<<16|'l'<<24
 	jnz	91f
 	cmpw	[esi + CL_PAYLOAD_START + 4], 'o'
 	jnz	91f
@@ -716,11 +719,24 @@ cloudnet_handle_packet:
 	.endif
 ####################
 4:	# respond?
+.if CLOUD_MCAST
+	testb	[esi + CL_PAYLOAD_START], 0x20	# check capital letter
+	jz	9f	# zero - capital letter - no response
+	andb	[eax + cluster_node_pkt], ~0x20
+	mov	[eax + cluster_node_pkt], byte ptr 'H'
+.else
 	cmpd	[esi + 6], -1	# destination broadcast?
 	jnz	9f
-5:	printc 13, " respond "
+.endif
+	printc 13, " respond "
 	mov	edx, [esi]	# src ip
+	push eax
 	call	[eax + send]
+	pop eax
+.if CLOUD_MCAST
+	orb	[eax + cluster_node_pkt], 0x20
+	mov	[eax + cluster_node_pkt], byte ptr 'h'
+.endif
 	ret
 # pong
 9:	printlnc 13, " ignore"
