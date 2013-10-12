@@ -5,6 +5,7 @@
 .text32
 
 NET_HTTP_DEBUG = 1		# 1: log requests; 2: more verbose
+WWW_EXPR_DEBUG = 0
 
 
 cmd_httpd:
@@ -909,14 +910,15 @@ kernel_get_uptime:
 www_expr:
 
 # first byte: handler type:
-# 1 = const
-# 2 = mem
-# 3 = call
+WWW_EXPR_H_CONST= 1
+WWW_EXPR_H_MEM	= 2
+WWW_EXPR_H_CALL	= 3
 # Second byte: data type:
-# 0 = none - handler outputs to socket directly (maybe)
-# 1 = size   (out: edx:eax)
-# 2 = string (in: esi,ecx)
-# 3 = decimal32 (out: edx)
+WWW_EXPR_T_NONE	= 0 # 0 = none - handler outputs to socket directly (maybe)
+WWW_EXPR_T_SIZE	= 1 # 1 = size   (out: edx:eax)
+WWW_EXPR_T_STRING=2 # 2 = string (in: esi,ecx)
+WWW_EXPR_T_DEC32= 3 # 3 = decimal32 (out: edx)
+WWW_EXPR_T_HEX8	= 4 # 4 = hex8
 
 .long (99f - .)/10
 STRINGPTR "kernel.revision";	.byte 1,3;.long KERNEL_REVISION
@@ -1052,6 +1054,21 @@ expr_include:
 # in: ebp+4 = www_file (NOTE! LEA [ebp+4]!!)
 # free to use: edx, esi
 www_expr_handle:
+	.if WWW_EXPR_DEBUG
+		DEBUG "EXPR"
+		mov esi, edi
+		call nprint
+
+		pushad
+		LOAD_TXT "<!-- begin expr ", esi, ecx
+		KAPI_CALL socket_write
+		popad
+		pushad
+		KAPI_CALL socket_write # write the expr
+		LOAD_TXT "-->", esi, ecx
+		KAPI_CALL socket_write
+		popad
+	.endif
 	xor	esi,esi
 	push	esi
 	push	ebx
@@ -1102,59 +1119,60 @@ www_expr_handle:
 	# not found
 	jmp	9f
 
-1:	movzx	edx, byte ptr [ebx + 4]	# type
+######################################################
+# ebx = www_expr structure ptr
+1:	movzx	edx, byte ptr [ebx + 4]	# handler index
 	and	dl, 0x7f
 	cmp	dl, NUM_EXPR_HANDLERS
 	jae	9f
-	mov	al, byte ptr [ebx + 5]	# data type
-	cmp	al, 1
-	jz	1f	# size
-	cmp	al, 2	# buffer arg
-	jnz	1f
 
-1:	push	eax
-	mov	edi, offset _tmp_expr_buf$ # for stringput types
-	mov	ecx, (offset _tmp_expr_buf_end$-_tmp_expr_buf$)/4
-	xor	eax, eax
-	rep	stosd
-	mov	edi, offset _tmp_expr_buf$ # for stringput types
-	mov	ecx, offset _tmp_expr_buf_end$-_tmp_expr_buf$
-
+######## call handler
+	# check for types that need a buffer
+	#cmp	byte ptr [ebx + 5], WWW_EXPR_T_STRING	# buffer arg
+	#jnz	1f
+	call	expr_get_buffer$	# out: edi, ecx
+	#DEBUG "BUF"
+#1:
 	movzx	eax, dl
 	mov	edx, [ebx + 6]		# arg2
 
-	mov	ebx, [esp + 6*4]
+	push	ebx
+	mov	ebx, [esp + 6*4]	# filename ptr
 	push	ebp
-	lea	ebp, [esp + 8]	# [ebp] = socket
+	lea	ebp, [esp + 8]		# [ebp] = socket
 	call	www_expr_handlers[eax * 4]
 	pop	ebp
 	pop	ebx
-	cmp	bl, 2	# string
-	jnz	1f
+########
 	mov	edi, offset _tmp_fmt$
+
+	mov	bl, [ebx + 5]	# data type / format
+	cmp	bl, WWW_EXPR_T_STRING
+	jnz	1f
+	# verify buffer
 	mov	esi, offset _tmp_expr_buf$
 	cmp	ecx, (offset _tmp_expr_buf_end$-_tmp_expr_buf$)
-	jb	2f
+	jb	2f	# flush
 	mov	ecx, (offset _tmp_expr_buf_end$-_tmp_expr_buf$)-1
-	jmp	2f
+	jmp	2f	# flush
 
-
-1:	or	bl, bl
+1:	or	bl, bl	# WWW_EXPR_T_NONE
 	jz	9f	# handler took care of sending stuff
-	cmp	bl, 3	# decimal32
+
+	cmp	bl, WWW_EXPR_T_DEC32
 	jnz	1f
 	mov	edx, eax
 	call	sprintdec32
 	jmp	3f
 
-1:	cmp	bl, 4	# hex8
+1:	cmp	bl, WWW_EXPR_T_HEX8
 	jnz	1f
 	mov	edx, eax
 	call	sprinthex8
 	jmp	3f
 
-
-1:	# default: 1 = size
+1:	cmp	bl, WWW_EXPR_T_SIZE
+	jnz	9f	# unknown type
 	# data type: size: edx:eax
 	# todo: format
 	.data SECTION_DATA_BSS
@@ -1163,12 +1181,13 @@ www_expr_handle:
 	_tmp_expr_buf_end$:
 	.text32
 	call	sprint_size
+########
 3:	mov	ecx, edi
 	mov	esi, offset _tmp_fmt$
 	sub	ecx, esi
 
 2:
-	.if 0
+	.if WWW_EXPR_DEBUG
 		DEBUG "EXPR VAL:"
 		call nprint
 		call newline
@@ -1176,8 +1195,13 @@ www_expr_handle:
 
 	mov	eax, [esp]
 	KAPI_CALL socket_write
-
 9:
+	.if WWW_EXPR_DEBUG
+		mov eax, [esp]
+		LOAD_TXT "<!-- end of expr -->", esi, ecx
+		KAPI_CALL socket_write
+	.endif
+
 	pop	eax
 	pop	esi	# www_file
 	pop	edi
@@ -1185,6 +1209,20 @@ www_expr_handle:
 	pop	ebx
 	pop	esi
 	ret
+
+
+# out: edi, ecx
+expr_get_buffer$:
+	push	eax
+	mov	edi, offset _tmp_expr_buf$
+	mov	ecx, (offset _tmp_expr_buf_end$-_tmp_expr_buf$)/4
+	xor	eax, eax
+	rep	stosd
+	mov	edi, offset _tmp_expr_buf$
+	mov	ecx, offset _tmp_expr_buf_end$-_tmp_expr_buf$
+	pop	eax
+	ret
+
 
 .data SECTION_DATA_STRINGS
 www_h$:		.asciz "HTTP/1.1 "
