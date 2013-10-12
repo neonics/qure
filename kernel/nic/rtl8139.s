@@ -15,7 +15,7 @@ NIC_IRQ = 0x0b
 
 RTL8139_MAC	= 0	# size 6
 # 6,7 reserved
-RTL8139_MAR	= 8	# size 8	Multicast
+RTL8139_MAR	= 8	# size 8 Multicast CRC(MAC) flags; r=b/w/d; w=d
 RTL8139_TSD0	= 0x10	# size 4 descriptor 0 transmit status
 RTL8139_TSD1	= 0x14	# size 4 descriptor 1 transmit status
 RTL8139_TSD2	= 0x18	# size 4 descriptor 2 transmit status
@@ -223,9 +223,18 @@ rtl8139_init:
 	# enable receiving packets
 
 	#	RCR_RBLEN= 0b11 << 11	# rx buflen:16+(8k<<RBLEN)
+	# AB(roadcast) | AM(ulticast) | APM(physmac) | AAP(allphys) = promisc
 	mov	eax, RCR_AER | RCR_AR | RCR_AB | RCR_AM | RCR_APM | RCR_AAP
 	mov	dx, [ebp]
 	add	dx, RTL8139_RCR	# receive config
+	out	dx, eax
+
+	# set multicast bitmatch ( CRC32(MAC)>>(32-6) = accept)
+	# NOTE: not needed with AAP
+	add	dx, RTL8139_MAR - RTL8139_RCR
+	mov	eax, -1
+	out	dx, eax
+	add	dx, 4
 	out	dx, eax
 
 .if 0
@@ -280,10 +289,11 @@ rtl8139_init:
 	stosb
 	inc	dx
 	loop	0b
+.if 0
 #BREAKPOINT "read mcast"
 	# fill in the MCAST
 	mov	edi, ebx
-	add	edi, offset nic_mcast
+	add	edi, offset nic_mcast_filter # field not defined!
 
 	mov	dx, [ebp]
 	add	dx, RTL8139_MAR
@@ -293,6 +303,7 @@ rtl8139_init:
 	inc	dx
 	loop	0b
 #BREAKPOINT "mcast read."
+.endif
 	# hook the isr
 
 	mov	[rtl8139_isr_dev], ebx	# XX direct mem offset
@@ -569,6 +580,9 @@ rtl8139_isr:
 # in: ecx = packet size
 rtl8139_send:
 	pushad
+	incd	[ebx + nic_tx_count]
+	add	[ebx + nic_tx_bytes + 0], ecx
+	adcd	[ebx + nic_tx_bytes + 4], 0
 
 	.if RTL8139_DEBUG > 1
 		DEBUG "send"

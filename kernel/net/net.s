@@ -246,8 +246,9 @@ net_buffer_send:
 #
 .include "net/route.s"
 .include "net/socket.s"
-# socket-enabled protocols:
+# socket-enabled protocols: (arp also)
 .include "net/icmp.s"
+.include "net/igmp.s"	# no socket yet
 .include "net/udp.s"
 .include "net/tcp.s"
 
@@ -339,6 +340,37 @@ protocol_checksum:
 2:	mov	al, [esi + ecx * 2]
 	add	edx, eax
 	jmp	3b
+
+
+# in: esi = pointer to header to checksum
+# in: ecx = length in bytes
+# out: CF = !ZF (jnz=jc, jz=jnc)
+protocol_checksum_verify:
+	push_	eax ecx edx esi
+	xor	edx, edx
+	xor	eax, eax
+
+	shr	ecx, 1
+	jc	2f
+0:	lodsw
+	add	edx, eax
+	loop	0b
+
+	mov	ax, dx
+	shr	edx, 16
+	add	ax, dx
+	adc	ax, 1
+	stc
+	jnz	1f
+	clc
+
+1:	pop_	esi edx ecx eax
+	ret
+
+2:	mov	al, [esi + ecx * 2]
+	add	edx, eax
+	jmp	3b
+
 
 
 #############################################################################
@@ -532,10 +564,17 @@ net_handle_packet:
 	call	net_eth_protocol_get_handler$	# out: edi
 	jc	2f
 	# non-promiscuous mode: check target mac
+	.if 1
+	# check broad/multicast bit
+	test	[esi + eth_dst], byte ptr 1 # IG bit
+	jnz	0f
+	.else
+	# check broadcast mac (all -1)
 	cmp	[esi + eth_dst], dword ptr -1
 	jnz	2f
 	cmp	[esi + eth_dst + 4], word ptr -1
 	jz	0f
+	.endif
 2:	# verify nic mac
 	mov	eax, ebx
 	call	nic_get_by_mac # in: esi = mac ptr
@@ -621,6 +660,8 @@ net_print_protocol:
 .else
 	add	esi, 14
 .endif
+	sub	ecx, 14
+	jle	91f
 
 	# check whether to print this protocol
 	cmp	byte ptr [eth_proto_struct$ + proto_struct_flag + edi], 0
@@ -638,6 +679,8 @@ net_print_protocol:
 2:	popcolor
 	pop_	ecx esi edi
 	ret
+91:	printc 4, "  short packet"
+	jmp	2b
 
 ####################################
 cmd_host:
@@ -924,6 +967,11 @@ net_rx_packet:
 	push	eax
 	push	edx
 	push	esi
+
+	incd	[ebx + nic_rx_count]
+	add	[ebx + nic_rx_bytes + 0], ecx
+	adcd	[ebx + nic_rx_bytes + 4], 0
+
 cmp ecx, 2000
 jb 1f
 printc 4, "net_rx_packet: packet size too large: ";DEBUG_DWORD ecx
@@ -1218,6 +1266,16 @@ cmd_netstat:
 	call	socket_list
 	call	net_icmp_list
 	call	arp_table_print
+
+	xor	ecx, ecx
+0:	mov	eax, ecx
+	call	nic_getobject	# eax->eax+edx,ebx
+	jc	1f
+	call	net_igmp_print
+	inc	ecx
+	jmp	0b
+1:
+
 	.if NET_RX_QUEUE
 	call	net_rx_queue_print
 	.endif

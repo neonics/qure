@@ -11,6 +11,9 @@ CLOUD_PACKET_DEBUG = 0
 
 CLOUD_LOCAL_ECHO = 1
 
+CLOUD_MCAST = 1	# 0: BCAST
+CLOUD_MCAST_IP = 224|123<<24	# 224.0.0.123  (unassigned: .115-.250)
+
 NET_AUTOMOUNT = 1
 
 # start daemon
@@ -50,6 +53,9 @@ cloudnet_daemon:
 	jc	9f
 	mov	[lan_ip], eax
 	mov	[cluster_ip], eax
+
+	call	cloud_mcast_init
+
 	call	cloud_socket_open
 	jc	9f
 	call	cloud_rx_start
@@ -153,6 +159,24 @@ cloud_init_ip:
 	stc
 	ret
 
+.macro IP_LONG reg, a,b,c,d
+	mov	\reg, \a|(\b<<8)|(\c<<16)|(\d<<24)
+.endm
+
+cloud_mcast_init:
+	printc 13, " multicast initialisation "
+
+	IP_LONG	eax, 224,0,0,1
+	mov	dl, IGMP_TYPE_QUERY
+	call	net_igmp_send
+	jc	9f
+
+	mov	eax, CLOUD_MCAST_IP
+	call	net_igmp_join
+
+	OK
+	ret
+
 
 # out: eax
 cloud_socket_open:
@@ -187,7 +211,11 @@ cloud_register:
 	mov	eax, [cluster_node]
 	or	eax, eax
 	jz	9f
+.if CLOUD_MCAST
+	mov	edx, CLOUD_MCAST_IP
+.else
 	mov	edx, -1	# BCAST
+.endif
 	call	[eax + send]
 	ret
 
@@ -379,7 +407,11 @@ cloudnet_arpwatch:
 
 1:	printc 12, " rx ARP "
 	call	printchar
+	call	printspace
 	mov	eax, [esi + arp_dst_ip]
+	call	net_print_ipv4
+	print " -> "
+	mov	eax, [esi + arp_src_ip]
 	call	net_print_ipv4
 	call	newline
 
@@ -780,6 +812,9 @@ cmd_cloud:
 	jnz	1f
 	ord	[cloud_flags], STOP$
 	ret
+
+1:	CMD_ISARG "register"
+	jz	cloud_register
 
 1:	CMD_ISARG "init"
 	jnz	1f

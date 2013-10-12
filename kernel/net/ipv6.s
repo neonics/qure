@@ -70,7 +70,8 @@ net_print_ipv6_smart:
 # in: esi = ipv6 frame
 # in: ecx = frame size
 net_ipv6_handle:
-	DEBUG "IPv6"
+	# disabled: packets arrive now due to multicast being enabled
+	#DEBUG "IPv6"
 	ret
 
 

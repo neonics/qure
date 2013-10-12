@@ -1,6 +1,7 @@
-
 ############################################################################
 # IPv4 Routing
+
+ROUTE_DEBUG = 0
 
 .struct 0
 net_route_gateway:	.long 0
@@ -105,7 +106,7 @@ net_route_print:
 	printc	15, " metric "
 	push	edx
 	movzx	edx, word ptr [ebx + edx + net_route_metric]
-	call	printdec32
+	call	printhex4
 	pop	edx
 	push	edx
 	printc	15, " flags "
@@ -149,6 +150,9 @@ net_route_print:
 # out: ebx = nic to use
 # out: edx = gateway ip
 net_route_get:
+	.if ROUTE_DEBUG
+		DEBUG "route"; call net_print_ip;call printspace;
+	.endif
 	push	ebp		# temp gateway
 	push	edi		# array base
 	push	ecx		# array index
@@ -161,16 +165,39 @@ net_route_get:
 	ja	0f
 	mov	edx, eax
 	and	edx, [edi + ecx + net_route_netmask]	# zf=1 for default gw
+	.if ROUTE_DEBUG
+		pushf
+		DEBUG "ip&mask"
+		xchg edx,eax;call net_print_ip;xchg edx,eax; call printspace
+		popf
+	.endif
 	jz	1f
 	cmp	edx, [edi + ecx + net_route_network]
 	jnz	0f
+	.if ROUTE_DEBUG
+		DEBUG "net match";
+		push eax; mov eax, edx; call net_print_ip;pop eax
+	.endif
 1:	mov	ebp, [edi + ecx + net_route_gateway]
+	.if ROUTE_DEBUG
+		DEBUG "gw";
+		push eax; mov eax, ebp; call net_print_ip;pop eax
+	.endif
 	or	ebp, ebp
 	jnz	1f
+	.if ROUTE_DEBUG
+		DEBUG "ignore,use:";
+		call net_print_ip
+	.endif
 	mov	ebp, eax
 1:	mov	ebx, [edi + ecx + net_route_nic]
 	mov	si, [edi + ecx + net_route_metric]
 0:	ARRAY_ENDL
+	.if ROUTE_DEBUG
+		DEBUG "target"
+		push eax; mov eax, ebp; call net_print_ip;pop eax
+		call newline
+	.endif
 	mov	edx, ebp
 	or	esi, esi
 	jnz	1f
@@ -280,7 +307,7 @@ cmd_route:
 	print	" metric "
 	push	edx
 	movzx	edx, bp
-	call	printdec32
+	call	printhex4
 	print	" flags "
 	mov	edx, ebp
 	shr	edx, 16

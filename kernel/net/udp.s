@@ -43,6 +43,7 @@ net_udp_header_put:
 # in: edx = dport << 16 | sport
 # in: ecx = udp payload size (without udp headers)
 # in: edi+ETH_HEADER_SIZE+IPV4_HEADER_SIZE+UDP_HEADER_SIZE = payload start
+# in: esi = dest MAC (if eax=-1/bcast)
 # out: ebx = nic
 # out: edi = end of headers
 # out: CF = 1: no MAC for dest ip/gateway
@@ -294,7 +295,8 @@ ph_ipv4_udp:
 	mov	esi, eax	# restore udp frame for error message below
 
 	LOAD_TXT "unknown port", eax
-9:	.if UDP_LOG
+9:
+.if UDP_LOG
 	printc 4, "ipv4_udp["
 	call	net_print_ip_pair
 	printc 4, "]: dropped packet: "
@@ -302,7 +304,7 @@ ph_ipv4_udp:
 	mov	esi, eax
 	call	println
 	pop	esi
-	.endif
+.endif
 1:	ret
 
 net_udp_port_get:

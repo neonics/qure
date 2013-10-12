@@ -21,6 +21,7 @@ ipv4_protocol: .byte 0	# .byte 1	# icmp
 #*0x01 ICMP internet control message
 	IP_PROTOCOL_ICMP = 0x01
 # 0x02 IGMP internet group management
+	IP_PROTOCOL_IGMP = 0x02
 # 0x03 GGP gateway-to-gateway
 # 0x04 ipv4 encapsulation
 # 0x05 ST stream protocol
@@ -59,7 +60,9 @@ IPV4_HEADER_SIZE = .
 
 # in: edi = out packet
 # in: dl = ipv4 sub-protocol
-# in: dh = bit 0: 0=use nic ip; 1=use 0 ip; bit 1: 1=edx>>16&255=ttl
+# in: dh = flags
+#	1<<0: 0=use nic ip; 1: 0.0.0.0
+#	1<<1: 1=(edx >> 16) & 255 = ttl
 # in: eax = destination ip
 # in: ecx = payload length (without ethernet/ip frame)
 # in: ebx = nic - ONLY if eax = -1!
@@ -103,11 +106,21 @@ net_ipv4_header_put:
 	mov	ecx, [ebx + nic_ip]
 1:	mov	[edi + ipv4_src], ecx
 
+	# esi free to use
+	# check Local network control block (224.0.0.0/24)
+	mov	esi, eax
+	and	esi, 0x00ffffff
+	cmp	esi, 224
+	jnz	1f
+	mov	dl, 1	# set TTL to 1
+	jmp	2f
+1:
+
 	# ttl
 	test	dh, 2
 	jz	1f
 	shr	edx, 16
-	mov	[edi + ipv4_ttl], dl
+2:	mov	[edi + ipv4_ttl], dl
 1:
 	# checksum
 	push	edi
@@ -181,6 +194,9 @@ net_ip_pseudo_checksum:
 
 ######
 
+# in: esi = ipv4 frame (esi-ETH_HEADER_SIZE(14)=eth frame)
+# in: ecx = max frame len (packet_len - 14: usually minimum 64-14, and thus
+#  can be larger than the actual size reported in the IP frame).
 net_ipv4_print:
 	printc 	COLOR_PROTO, "IPv4 "
 	mov	dl, [esi + ipv4_v_hlen]
@@ -194,10 +210,8 @@ net_ipv4_print:
 	call	ipv4_get_protocol_handler
 	jc	1f
 
-	push	esi
-	mov	esi, [ipv4_proto_struct$ + proto_struct_name + edi]
-	call	print
-	pop	esi
+	pushd	[ipv4_proto_struct$ + proto_struct_name + edi]
+	call	_s_print
 
 	jmp	2f
 
@@ -221,33 +235,46 @@ net_ipv4_print:
 	xchg	dl, dh
 	call	printhex4
 
-	call	newline
+	# set ecx to proper ipv4 frame size
+	cmp	edx, ecx
+	jbe	1f
+	pushcolor 4
+	pushd	ecx
+	pushd	edx
+	pushstring "ipv4: warning: frame length %x > remaining packet length %x"
+	call	printf
+	add	esp, 3*4
+	popcolor
+	jmp	2f	# keep smallest framelen
+1:	mov	ecx, edx
+2:	call	newline
 
-# check if ip matches
-mov	eax, [esi + ipv4_dst]
-cmp	eax, [ebx + nic_ip]
-jnz	1f
-.if NET_DEBUG
-PRINTc 11, "IP MATCH"
-.endif	# might move this after 1: as to skip handling packet
-1:
+	# subtract ipv4 header len from ipv4 frame len
+	movzx	edx, byte ptr [esi + ipv4_v_hlen]
+	and	dl, 0xf
+	shl	edx, 2
+	add	esi, edx
+	sub	ecx, edx
+	jle	91f
 	# call nested protocol handler
-	#add	esi, edx
-	add	esi, 20
 
 	or	edi, edi
 	js	1f
 	print	"    "
 	mov	edx, [ipv4_proto_struct$ + proto_struct_print_handler + edi]
 	add	edx, [realsegflat]
-	call	edx
+	call	edx	# XXX ph_* take edx as ipv4 frame - standardize?
 1:
+	ret
+
+91:	printlnc 4, "    short packet"
 	ret
 
 
 ###########################################################
 DECL_PROTO_STRUCT_START ipv4
 DECL_PROTO_STRUCT_B 0x01, "ICMP", net_ipv4_icmp_handle, net_ivp4_icmp_print,  0
+DECL_PROTO_STRUCT_B 0x02, "IGMP", ph_ipv4_igmp, net_ipv4_igmp_print,  0
 DECL_PROTO_STRUCT_B 0x06, "TCP",  net_ipv4_tcp_handle, net_ipv4_tcp_print,  0
 DECL_PROTO_STRUCT_B 0x11, "UDP",  ph_ipv4_udp, net_ipv4_udp_print,  0
 DECL_PROTO_STRUCT_END ipv4, IPV4	# declare IPV4_PROTO_LIST_SIZE
@@ -365,19 +392,14 @@ net_ipv4_handle:
 	# ebx is already known: check if all is ok:
 		mov	edx, ebx
 	call	nic_get_by_ipv4	# out: ebx
-	jc	0f	# not for us
-		cmp	edx, ebx
-		jz	1f
-		printc 4, "nic mismatch: "
-		DEBUG_DWORD edx
-		DEBUG_DWORD ebx
+	jc	92f	# not for us
+	cmp	edx, ebx	# verify the nic
+	jnz	93f
 1:
-
 	# forward to ipv4 sub-protocol handler
 	mov	al, [esi + ipv4_protocol]
 	call	ipv4_get_protocol_handler	# out: edi
-	LOAD_TXT "unknown protocol", edx
-	jc	9f
+	jc	91f
 
 	mov	edx, esi
 	add	esi, ebp	# payload offset
@@ -387,23 +409,30 @@ net_ipv4_handle:
 	or	eax, eax
 	jz	1f
 	add	eax, [realsegflat]
-#DEBUG "call"
-#DEBUG_DWORD eax
 	call	eax	# ebx=nic, edx=ipv4 frame, esi=payload, ecx=payload len
 
 	clc
 0:	pop	ebp
 	ret
 
-1:	printlnc 4, "ipv4: dropped packet: no handler"
-	jmp	1f
 9:	printc 4, "ipv4: malformed header: "
 	push	esi
 	mov	esi, edx
-	call	println
+	call	print
 	pop	esi
 1:	call	net_ipv4_print
+	call	newline
 	stc
 	jmp	0b
-	ret
+91:	LOAD_TXT "unknown protocol; ", edx
+	jmp	9b
+92:	printc 4, "ipv4: no nic for "
+	jmp	1b
+93:	printc 4, "ipv4: nic mismatch for "
+	call	net_print_ipv4
+	DEBUG_DWORD edx;PRINT_CLASS edx
+	DEBUG_DWORD ebx;PRINT_CLASS ebx
+	jmp	0b
+94:	printlnc 4, "ipv4: dropped packet: no handler"
+	jmp	1b
 

@@ -615,6 +615,10 @@ i8254_isr:
 # in: ecx
 i8254_send:
 	pushad
+	incd	[ebx + nic_tx_count]
+	add	[ebx + nic_tx_bytes + 0], ecx
+	adcd	[ebx + nic_tx_bytes + 4], 0
+
 	mov	dx, [ebx + dev_io]
 I8254_READ TDH
 DEBUG "TDH:"

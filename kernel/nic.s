@@ -7,14 +7,20 @@
 ############################################################################
 IFCONFIG_OLDSKOOL = 0
 
+NIC_MCAST_RX_MEMBER_ONLY = 0	# 1: only net_igmp_join-ed 224/3 IP's; 0=all
+
 NIC_DEBUG = 0
 ############################################################################
 DECLARE_CLASS_BEGIN nic, dev_pci
 nic_status:	.word 0
 	NIC_STATUS_UP = 1
 nic_mac:	.space 6
-nic_mcast:	.space 8
+nic_mcast_list:	.long 0	# ptr_array of mcast (224/3) addresses (igmp.s)
 nic_ip:		.long 0
+nic_netmask:	.long 0
+.if IFCONFIG_OLDSKOOL
+nic_network:	.long 0
+.endif
 nic_buf:	.long 0	# mallocced address
 nic_rx_buf:	.long 0
 nic_tx_buf:	.long 0
@@ -24,10 +30,10 @@ nic_rx_desc_t:	.long 0
 nic_tx_desc:	.long 0
 nic_tx_desc_h:	.long 0
 nic_tx_desc_t:	.long 0
-.if IFCONFIG_OLDSKOOL
-nic_netmask:	.long 0
-nic_network:	.long 0
-.endif
+nic_rx_count:	.long 0
+nic_tx_count:	.long 0
+nic_rx_bytes:	.long 0, 0
+nic_tx_bytes:	.long 0, 0
 # API - method pointers
 .align 4
 DECLARE_CLASS_METHODS
@@ -132,10 +138,10 @@ nic_get_by_network:
 	cmp	edi, [ebx + ecx + nic_network]
 	jz	0f
 	ARRAY_ITER_NEXT eax, edx, 4
-	stc	
+	stc
 	jmp	9f
 0:	add	ebx, ecx
-9:	
+9:
 	pop	edi
 	pop	esi
 	pop	edx
@@ -152,27 +158,54 @@ nic_get_ipv4:
 
 # in: eax = ip
 # out: ebx = nic
+# out: CF
+# does not preserve ebx on error/no match
 nic_get_by_ipv4:
-	push	esi
+	push_	eax esi
 	mov	esi, eax
 	call	nic_init	# out: eax = [nics], ebx = [devices]
 	jc	2f
 	xor	ebx, ebx	# used to be base addr for *[nic] ptr's
-	push	edx
-	push	ecx
+	push_	edx ecx
 	ARRAY_ITER_START eax, edx
 	mov	ecx, [eax + edx]	# nic device index
 	cmp	esi, [ebx + ecx + nic_ip]
 	jz	0f
+
+	# check if net broadcast
+	# NOTE: if there are multiple NICs on the same subnet, ...
+	push	eax
+	mov	eax, [ebx + ecx + nic_netmask]
+	not	eax
+	or	eax, [ebx + ecx + nic_ip]
+	cmp	esi, eax
+	mov	eax, esi
+	pop	eax
+	jz	0f
+
+	# check mcast membership
+	push_	ebx eax
+	mov	eax, esi
+	shr	al, 4
+	cmp	al, 0b1110	# 224.0.0.0/3
+.if NIC_MCAST_RX_MEMBER_ONLY
+	jnz	3f		# not multicast
+	mov	eax, esi
+	add	ebx, ecx
+	call	net_igmp_ismember
+3:
+.endif
+	pop_	eax ebx
+	jz	0f
+
 	add	edx, 4
 	ARRAY_ITER_NEXT eax, edx, 4
 	stc
 	jmp	1f
 0:	add	ebx, ecx
-1:	pop	ecx
-	pop	edx
+1:	pop_	ecx edx
 
-2:	pop	esi
+2:	pop_	esi eax
 	ret
 
 nic_get_by_ipv6:
@@ -353,7 +386,7 @@ cmd_nic_list:
 
 # in: ebx = device
 nic_print:
-	push_	eax esi
+	push_	eax edx esi
 	call	dev_print
 	call	printspace
 
@@ -364,27 +397,48 @@ nic_print:
 	lea	esi, [ebx + nic_mac]
 	call	net_print_mac
 
-	print	" IP "
+	call	newline
+
+	print	"  IP "
 	mov	eax, [ebx + nic_ip]
-	call	net_print_ip
-.if IFCONFIG_OLDSKOOL
-	print	" NETWORK "
-	mov	eax, [ebx + nic_network]
-	call	net_print_ip
-	printchar_ '/'
+	call	net_print_ipv4
+	print	" MASK "
+.if 1#IFCONFIG_OLDSKOOL
 	mov	eax, [ebx + nic_netmask]
-	call	net_print_ip
+	call	net_print_ipv4
+	print	" NET "
+	and	eax, [ebx + nic_ip]
+	call	net_print_ipv4
+	print " BCAST "
+	mov	eax, [ebx + nic_netmask]
+	not	eax
+	or	eax, [ebx + nic_ip]
+	call	net_print_ipv4
 .endif
 	call	newline
 
+	print	"  rx: "
+	mov	edx, [ebx + nic_rx_count]
+	call	printdec32
+	print " ("
+	mov	eax, [ebx + nic_rx_bytes + 0]
+	mov	edx, [ebx + nic_rx_bytes + 4]
+	call	print_size
+	print ") tx: "
+	mov	edx, [ebx + nic_tx_count]
+	call	printdec32
+	print " ("
+	mov	eax, [ebx + nic_tx_bytes + 0]
+	mov	edx, [ebx + nic_tx_bytes + 4]
+	call	print_size
+	println ")"
+
 	push	ecx
 	push	ebx
-	push	edx
 	call	[ebx + nic_api_print_status]
-	pop	edx
 	pop	ebx
 	pop	ecx
-	pop_	esi eax
+	pop_	esi edx eax
 	ret
 
 ############################################################################
@@ -420,7 +474,6 @@ cmd_ifconfig:
 	call	printspace
 	popcolor
 	pop	esi
-	# check for options
 	.if IFCONFIG_OLDSKOOL
 		xor	edi, edi
 		mov	eax, [ebx + nic_gateway]
@@ -431,10 +484,11 @@ cmd_ifconfig:
 		xor	ecx, ecx	# netmask
 	.endif
 
+	# check for options
 0:	lodsd
 	or	eax, eax
 	jz	0f
-	
+
 	mov	edx, [eax]
 	and	edx, 0x00ffffff
 	cmp	edx, 'u' | ('p'<<8)
@@ -456,7 +510,6 @@ cmd_ifconfig:
 	pop	esi
 	jmp	0b
 
-	.if IFCONFIG_OLDSKOOL
 	1:
 		CMD_ISARG "mask"
 		jnz	1f
@@ -466,14 +519,18 @@ cmd_ifconfig:
 		jc	9f
 		printc 11, " mask "
 		call	net_print_ip
-		mov	ecx, eax
+		mov	[ebx + nic_netmask], eax
 
-		and	eax, [ebx + nic_ip]
-		cmp	eax, [ebx + nic_ip]
-		LOAD_TXT "netmask does not include ip"
-		jnz	9f
+		#mov	ecx, eax
+
+		#and	eax, [ebx + nic_ip]
+		#cmp	eax, [ebx + nic_ip]
+		#LOAD_TXT "netmask does not include ip"
+		#jnz	9f
+
 		jmp	0b
 
+	.if IFCONFIG_OLDSKOOL
 	1:
 		CMD_ISARG "gw"
 		jnz	1f
@@ -573,6 +630,8 @@ nic_zeroconf:
 77:	STRINGPTR "ifconfig"
 	STRINGPTR "eth0"
 	STRINGPTR "192.168.1.11"
+	STRINGPTR "mask"
+	STRINGPTR "255.255.255.0"
 	STRINGPTR "up"
 	STRINGNULL
 	.text32
@@ -614,6 +673,23 @@ nic_zeroconf:
 	call	cmdline_print_args$
 	call	cmd_route
 	jc	0f
+	.data
+77:	STRINGPTR "route"
+	STRINGPTR "add"
+	STRINGPTR "net"
+	STRINGPTR "224.0.0.0"
+	STRINGPTR "mask"
+	STRINGPTR "240.0.0.0"
+	STRINGPTR "metric"
+	STRINGPTR "0x00000080"
+	STRINGNULL
+	.text32
+	mov	esi, offset 77b
+	mov	eax, esi
+	call	cmdline_print_args$
+	call	cmd_route
+	jc	0f
+
 .if 0
 	.data
 77:	STRINGPTR "ping"
@@ -626,7 +702,7 @@ nic_zeroconf:
 	call	cmd_ping
 	jc	0f
 .endif
-0:	
+0:
 	pop	eax
 	pop	esi
 	ret

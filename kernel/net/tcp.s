@@ -814,7 +814,12 @@ net_ipv4_tcp_handle:
 
 2:	#printc 4, "portscan detected: SYN+ACK"
 	ret
-3:	printc 4, "portscan detected: SYN, ack!=0"
+3:	printc 4, "portscan detected: SYN and ACK!=0 from "
+	push	eax
+	mov	eax, [edx + ipv4_src]
+	call	net_print_ipv4
+	pop	eax
+	call	newline
 	ret
 
 	#

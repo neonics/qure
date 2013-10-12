@@ -20,7 +20,7 @@ FLAG_SHIFT = 12 * (SWSTYLE&2)	# 0 for swtyle0, 24 for swstyle 2
 LOG2_RX_BUFFERS = 3
 LOG2_TX_BUFFERS = 2
 RX_BUFFERS = 1 << LOG2_RX_BUFFERS # 25
-TX_BUFFERS = 1 << LOG2_TX_BUFFERS # 15 
+TX_BUFFERS = 1 << LOG2_TX_BUFFERS # 15
 # End configuration
 
 
@@ -106,7 +106,13 @@ AM79C_REG_CSR5 = 5	# extended control and interrupt
 	AM79C_CSR5_SPND		= 1 << 0 # suspend mode; write 1, poll until 1
 AM79C_REG_CSR7 = 7	# extended control and interrupt 2
 	AM79C_CSR7_FASTSPND	= 1 << 15 # fast suspend
-# reg 8,9,10,11: LADR - multihash thingy
+# reg 8,9,10,11: LADR - logical address filter: 64 bit mask
+# CRC32(MAC) >> (32-6) = bit index (high 6 bits of CRC32 of target MAC)
+AM79C_REG_CSR_LADRF0 = 8	# word sized; specfied in INIT block; writable
+AM79C_REG_CSR_LADRF1 = 9	# only when STOP or SPND bit is set. unaffected
+AM79C_REG_CSR_LADRF2 = 10	# by H_RESET, S_RESET, or STOP.
+AM79C_REG_CSR_LADRF3 = 11
+# MAC registers
 AM79C_REG_CSR_PADRL = 12 # physical (MAC) address lo 2 bytes
 AM79C_REG_CSR_PADRM = 13 # physical (MAC) address lo 2 bytes
 AM79C_REG_CSR_PADRH = 14 # physical (MAC) address lo 2 bytes
@@ -121,7 +127,7 @@ AM79C_REG_CSR_MODE = 15	# default 0
 	AM79C_MODE_PORTSEL1	= 0x0100 # MII, media independent 0x0101
 	AM79C_MODE_PORTSEL0	= 0x0080 # 10 Base T
 #	AM79C_MODE_PORT_AUI	= 0x0000
-#	AM79C_MODE_PORT_10BT	= 0x0080	
+#	AM79C_MODE_PORT_10BT	= 0x0080
 	AM79C_MODE_INTLOOP	= 0x0040 # internal loopback
 	AM79C_MODE_DRTY		= 0x0020 # disable retry
 	AM79C_MODE_FCOLL	= 0x0010 # force collision (test)
@@ -372,7 +378,7 @@ am79c971_init:
 
 	# reset
 	mov	dx, [ebx + dev_io]
-	add	dx, AM79C_RESET32 
+	add	dx, AM79C_RESET32
 	in	eax, dx
 	xor	eax, eax
 	out	dx, eax
@@ -428,9 +434,9 @@ am79c971_init:
 
 	# initialize
 	I "Init AM79C971"
-	AM79C_WRITE_CSR CSR0, AM79C_CSR0_INIT 
+	AM79C_WRITE_CSR CSR0, AM79C_CSR0_INIT
 
-	# Wait for CSR0.IDON; 
+	# Wait for CSR0.IDON;
 	mov	ecx, 0x1000
 0:	AM79C_READ_CSR CSR0
 	test	eax, AM79C_CSR0_IDON
@@ -441,6 +447,7 @@ am79c971_init:
 	jz	0f
 	AM79C_WRITE_CSR CSR0, eax	# clear the IDON bit
 	AM79C_READ_CSR CSR_MODE
+	and	eax, 0xfff	# mask out non-mode bits
 	cmp	eax, AM79C_MODE_PORTSEL0
 	jnz	2f
 	OK
@@ -589,12 +596,12 @@ am79c_init_tlen: .byte 0	# transmit descriptor entries (log2)
 	# DESC_BITS = 32: 4 bits: min( 1 << [rt]len, 512) (eff max: 0b1001)
 am79c_init_padr: .space 6	# physical address
 		.word 0	# reserved
-am79c_init_ladr: .space 8	# logical address
+am79c_init_ladrf: .space 8	# logical address filter (mcast mac)
 am79c_init_rdra: .long 0	# receive descriptor ring address
 am79c_init_tdra: .long 0	# transmit descriptor ring address
 AM79C_INIT_BLOCK_SIZE = .	# 28 bytes
 .text32
-	
+
 	mov	eax, AM79C_INIT_BLOCK_SIZE
 	mov	edx, 4
 	call	mallocz_aligned
@@ -611,6 +618,7 @@ AM79C_INIT_BLOCK_SIZE = .	# 28 bytes
 	movsw
 	xor	eax, eax
 	stosw	# reserved word
+	mov	eax, -1	# accept all multicast packets
 	stosd	# am79c_init_ladr
 	stosd	# am79c_init_ladr + 4
 
@@ -639,10 +647,10 @@ AM79C_INIT_BLOCK_SIZE = .	# 28 bytes
 		print " padr: "
 		call	net_print_mac
 		pop	esi
-		print " ladr: "
-		mov	edx, [esi + am79c_init_ladr]
+		print " ladrf: "
+		mov	edx, [esi + am79c_init_ladrf]
 		call	printhex8
-		mov	edx, [esi + am79c_init_ladr + 4]
+		mov	edx, [esi + am79c_init_ladrf + 4]
 		call	printhex8
 		print " rx desc: "
 		mov	edx, [esi + am79c_init_rdra]
@@ -970,12 +978,12 @@ am79c_print_tx_desc:
 ################################################################
 
 # in: ebx = nic object
-am79c971_ifup:	
+am79c971_ifup:
 	AM79C_WRITE_CSR CSR0, AM79C_CSR0_IENA | AM79C_CSR0_STRT
 	ret
 
 # in: ebx = nic object
-am79c971_ifdown:	
+am79c971_ifdown:
 	AM79C_WRITE_CSR CSR0, AM79C_CSR0_STOP
 	ret
 
@@ -1012,7 +1020,7 @@ am79c971_isr:
 	mov	ecx, 100	# infinite loop bound
 
 	# check what interrupts
-0:		
+0:
 	AM79C_READ_CSR CSR0
 
 	.if AM79C_DEBUG
@@ -1104,7 +1112,7 @@ am79c971_isr:
 #	mov	[eax + 8], dword ptr 0 # clear packet size
 
 	jmp	3b	# check if more packets
-	
+
 2:	pop	eax
 	pop	ebx
 	pop	ecx
@@ -1150,6 +1158,9 @@ am79c971_isr:
 # in: ecx = packet size
 am79c971_send:
 	pushad
+	incd	[ebx + nic_tx_count]
+	add	[ebx + nic_tx_bytes + 0], ecx
+	adcd	[ebx + nic_tx_bytes + 4], 0
 
 	.if AM79C_DEBUG > 1
 		DEBUG "am79c_send"

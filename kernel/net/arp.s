@@ -61,6 +61,7 @@ arp_table_newentry_ipv4:
 # in: eax = protocol address
 # in: esi = hardware address pointer (mac, 6 bytes)
 # in: ebx = [bit: can add] [15 bits: proto addr size=4] [word eth protocol ID]
+# out: ecx + edx = entry
 arp_table_put_mac_ipv4:
 	.if NET_ARP_DEBUG
 		printc 11, "arp_table_put_mac_ipv4: "
@@ -69,8 +70,6 @@ arp_table_put_mac_ipv4:
 		call net_print_mac
 		call newline
 	.endif
-	push	edx
-	push	ecx
 	ARRAY_LOOP [arp_table], ARP_ENTRY_STRUCT_SIZE, ecx, edx, 0f
 .if ARP_TABLE_GENERIC
 	cmp	word ptr [ecx + edx + arp_entry_proto], ETH_PROTO_IPV4
@@ -83,25 +82,25 @@ arp_table_put_mac_ipv4:
 	test	ebx, 1 << 31
 	jz	91f	# do not add
 	call	arp_table_newentry_ipv4
-1:	add	ecx, edx
+1:	push_	ecx edx
+	add	ecx, edx
 	mov	[ecx + arp_entry_ip], eax
 	mov	edx, [esi]
 	mov	[ecx + arp_entry_mac], edx
 	mov	dx, [esi + 4]
 	mov	[ecx + arp_entry_mac + 4], dx
 	mov	byte ptr [ecx + arp_entry_status], ARP_STATUS_RESOLVED
+	pop_	edx ecx
 .if ARP_TABLE_DEBUG
 	mov	eax, [esp + 12]
-	mov	[ecx + arp_entry_caller], eax
+	mov	[ecx + edx + arp_entry_caller], eax
 .else
 91:
 .endif
-0:	pop	ecx
-	pop	edx
-	ret
+0:	ret
 .if ARP_TABLE_DEBUG
 91:	printlnc 4, "arp_table: not adding"
-	jmp	0b
+	ret#jmp	0b
 .endif
 
 ##########################################################################
@@ -198,6 +197,7 @@ arp_table_print:
 	push	edx
 	push	ecx
 	push	ebx
+	push	eax
 	pushcolor 7
 	mov	ebx, [arp_table]
 	or	ebx, ebx
@@ -262,15 +262,17 @@ arp_table_print:
 	jb	0b
 
 9:	popcolor
+	pop	eax
 	pop	ebx
 	pop	ecx
 	pop	edx
 	pop	esi
 	ret
 
-# in: eax
+# in: eax = ipv4
 # out: ecx + edx
 arp_table_getentry_by_ipv4:
+
 	ARRAY_LOOP [arp_table], ARP_ENTRY_STRUCT_SIZE, ecx, edx, 9f
 .if ARP_TABLE_GENERIC
 	cmp	word ptr [ecx + edx + arp_entry_proto], ETH_PROTO_IPV4
@@ -279,8 +281,44 @@ arp_table_getentry_by_ipv4:
 	cmp	eax, [ecx + edx + arp_entry_ip]
 	jz	0f
 1:	ARRAY_ENDL
-9:	stc
+########
+	# check mcast
+	mov	edx, eax
+	shr	dl, 4
+	cmp	dl, 0b1110
+	stc
+	#	jz 11f
+	#	DEBUG "ARP:not mcast"
+	#	jmp 10f
+	#	11:DEBUG "ARP:mcast"
+	#	10:
+	jnz	9f
+
+	# in: eax = protocol address
+	mov	edx, eax
+	# in: esi = hardware address pointer (mac, 6 bytes)
+	# mcast mac: 01:00:5e:[23 bits of dest ip]
+	bswap	edx
+	and	edx, (1<<24)-1	# low 23 bits
+	or	edx, 0x5e << 24
+	bswap	edx
+	push	esi
+	sub	esp, 6
+	mov	esi, esp
+	mov	[esi], word ptr 1	# 01:00
+	mov	[esi + 2], edx		# 5e:bb:cc:dd
+	push	ebx
+	# in: ebx = [bit: add] [15 bits: proto addr size=4] [word eth protocol ID]
+	mov	ebx, 1 << 31 | 4 << 16 | ETH_PROTO_IPV4
+	call	arp_table_put_mac_ipv4
+	pop	ebx
+	add	esp, 6
+	pop	esi
+	clc
+########
 0:	ret
+9:	stc
+	ret
 
 
 cmd_arp:
@@ -523,7 +561,9 @@ net_arp_handle:
 	jz	1f	# no ip, don't add to table
 	push	esi
 	lea	esi, [esi + arp_src_mac]
-	call	arp_table_put_mac_ipv4	# in: eax, esi, ebx
+	push_	ecx edx
+	call	arp_table_put_mac_ipv4	# in: eax, esi, ebx; out: ecx/edx
+	pop_	edx ecx
 	pop	esi
 1:
 	# check if it is a request directed at us. If it is not,
@@ -672,7 +712,7 @@ protocol_arp_response:
 ######################################
 # in: eax = ip
 # out: ebx = nic
-# out: esi = mac (either in local net, or mac of gateway)
+# out: esi = mac (either in local net/mcast, or mac of gateway)
 net_arp_resolve_ipv4:
 	push	ecx
 	push	edx
@@ -681,7 +721,7 @@ net_arp_resolve_ipv4:
 	# get the route entry
 	call	net_route_get	# in: eax=ip; out: edx=gw ip/eax, ebx=nic
 	jc	9f
-	mov	eax, edx
+	mov	eax, edx	# update dest ip
 	call	arp_table_getentry_by_ipv4 # in: eax; out: ecx + edx
 	jc	0f
 	cmp	byte ptr [ecx + edx + arp_entry_status], ARP_STATUS_RESOLVED

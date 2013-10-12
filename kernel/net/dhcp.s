@@ -264,8 +264,18 @@ DHCP_OPTIONS_SIZE = 32
 	mov	[edi + dhcp_options + 7], byte ptr 6	# dns
 
 	mov	[edi + dhcp_options + 8], byte ptr 12	# hostname
+	.if 0	# can't enable yet unless + x is changed!
+	push_	esi ecx edi
+	mov	esi, offset hostname
+	call	strlen_
+	mov	[edi + dhcp_options + 9], cl
+	lea	edi, [edi + dhcp_options + 10]
+	rep	movsb
+	pop_	edi esi ecx
+	.else
 	mov	[edi + dhcp_options + 9], byte ptr 4	# len
 	mov	[edi + dhcp_options + 10], dword ptr ('Q'|'u'<<8|'R'<<16|'e'<<24)
+	.endif
 
 	mov	[edi + dhcp_options + 14], byte ptr DHCP_OPT_CLIENT_ID
 	mov	[edi + dhcp_options + 15], byte ptr 7
@@ -405,10 +415,8 @@ ph_ipv4_udp_dhcp_s2c:
 	cmp	edi, 8
 	jae	17f
 	.if NET_DHCP_DEBUG
-		push	esi
-		mov	esi, [dhcp_message_type_labels$ + edi * 4]
-		call	print
-		pop	esi
+		pushd	[dhcp_message_type_labels$ + edi * 4]
+		call	_s_print
 	.endif
 
 
@@ -459,8 +467,8 @@ ph_ipv4_udp_dhcp_s2c:
 3:	# got ACK
 	mov	edi, eax	# remember txn obj
 
-	# configure nic
-	mov	eax, dword ptr [esi + dhcp_yiaddr]
+	# configure nic ip
+	mov	eax, [esi + dhcp_yiaddr]
 	mov	[ebx + nic_ip], eax
 
 	.if NET_DHCP_DEBUG
@@ -491,6 +499,8 @@ ph_ipv4_udp_dhcp_s2c:
 	jnz	15f
 	mov	edx, [edx]
 	mov	[edi + dhcp_txn_netmask], edx
+	# configure nic mask
+	mov	[ebx + nic_netmask], edx
 
 	.if NET_DHCP_DEBUG
 		print "netmask: "
