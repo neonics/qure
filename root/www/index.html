@@ -68,7 +68,9 @@
 		<div class="box" style="margin-right: 400px; font-size: smaller">
 			<b>Kernel revision:</b> ${kernel.revision}
 			<b>uptime:</b> ${kernel.uptime}
-			<b>Task Switches:</b> ${kernel.stats.ts}<br/>
+			<b>Task Switches:</b> ${kernel.stats.ts}
+			<b>Kernel Calls:</b> ${kernel.stats.kc}
+			<b>HTTP Requests:</b> ${httpd.stats.rq}<br/>
 			<a href="#cluster">Cluster status:</a> 
 			<div>
 			<b>Cluster Kernel Revision:</b> ${cluster.kernel.revision}<br/>

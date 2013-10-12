@@ -17,7 +17,15 @@ kapi_ptr:
 kapi_str:
 .section .kapi$arg
 kapi_arg:
+
+.data SECTION_DATA_STATS
+.global stats_kernel_calls
+stats_kernel_calls: .long 0
+.macro KAPI_STATS_INC
+	incd	[stats_kernel_calls]
+.endm
 .text32
+
 
 # defined in kernel.link
 #KAPI_NUM_METHODS = ( offset data_kapi_idx_end - offset kapi_idx ) / 4

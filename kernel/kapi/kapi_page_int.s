@@ -1,3 +1,11 @@
+##############################################################################
+# Kernel API using Page Faults
+#
+# This is the main API in use.
+#
+# It offers a memory region with one-byte granularity for kernel API numbers,
+# and thus allows 4096 API methods to be defined in a single nonexisting page.
+
 kapi_init_page_int:
 	mov	[IDT + EX_PF*8 + 2], word ptr SEL_compatCS
 	mov	[IDT + EX_PF*8 + 4], word ptr (ACC_PR|ACC_RING0|IDT_ACC_GATE_INT32)<<8
@@ -38,8 +46,11 @@ kapi_pf_isr:
 	cmp	ebx, offset KAPI_NUM_METHODS
 	jae	9f
 
+	KAPI_STATS_INC
+
 	mov	edx, [kapi_ptr + ebx * 4]
 	mov	ecx, [kapi_arg + ebx * 4]
+
 	.if KAPI_PF_DEBUG 
 		print "KAPI call!"
 		DEBUG_DWORD ebx

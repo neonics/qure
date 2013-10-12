@@ -2,6 +2,10 @@
 # HTTP Server
 #
 .intel_syntax noprefix
+
+.data SECTION_DATA_STATS
+.global stats_httpd_requests
+stats_httpd_requests: .long 0
 .text32
 
 NET_HTTP_DEBUG = 1		# 1: log requests; 2: more verbose
@@ -32,6 +36,8 @@ net_service_httpd_main:
 0:	mov	ecx, 10000
 	KAPI_CALL socket_accept
 	jc	0b
+
+	incd	[stats_httpd_requests]
 
 	push	eax
 	mov	eax, edx
@@ -924,6 +930,8 @@ WWW_EXPR_T_HEX8	= 4 # 4 = hex8
 STRINGPTR "kernel.revision";	.byte 1,3;.long KERNEL_REVISION
 STRINGPTR "kernel.uptime";	.byte 3,2;.long kernel_get_uptime
 STRINGPTR "kernel.stats.ts";	.byte 2,3;.long stats_task_switches
+STRINGPTR "kernel.stats.kc";	.byte 2,3;.long stats_kernel_calls
+STRINGPTR "httpd.stats.rq";	.byte 2,3;.long stats_httpd_requests
 STRINGPTR "include";		.byte 3,0;.long expr_include
 .if 1
 STRINGPTR "kernel.size";	.byte 3,1;.long expr_krnl_get_size

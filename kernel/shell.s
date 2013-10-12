@@ -2793,6 +2793,14 @@ cmd_stats:
 	printc 15, "Task Switches: "
 	mov	edx, [stats_task_switches]
 	call	printdec32
+	printc 15, " Kernel calls: "
+	mov	edx, [stats_kernel_calls]
+	call	printdec32
+	.if 1	# this may be dropped at some point
+	printc 15, " HTTP requests: "
+	mov	edx, [stats_httpd_requests]
+	call	printdec32
+	.endif
 	call	newline
 	ret
 
