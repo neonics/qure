@@ -1,38 +1,53 @@
+<!DOCTYPE html>
+<!--
 <?xml version="1.0"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html>
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
 	<head>
 		<title>QuRe - Intel Assembly Cloud Operating System</title>
 		${include style.css}
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+		<!-- non-html 5
 		<meta http-equiv="Cache-control" content="no-cache"/>
 		<meta http-equiv="Pragma" content="no-cache"/>
-		<meta http-equiv="Expires" content="-1"/>
+		<meta http-equiv="Expires" content="Sat, Oct 12, 2013 23:07:16 CEST"/>
+		-->
 
-		<link rel="stylesheet" type="text/css" href="../www.neonics.com/css/layout.css"/>
-		<link rel="stylesheet" type="text/css" href="../www.neonics.com/css/style.css"/>
+		<link rel="stylesheet" type="text/css" href="www.neonics.com/css/layout.css"/>
+		<link rel="stylesheet" type="text/css" href="www.neonics.com/css/style.css"/>
 		<style type="text/css">
 			/*ul { margin: 0; padding-bottom: 0 }*/
-			/* li { display: inline; padding: .2em; } */
+			ul.mainmenu li { display: inline; padding: .2em; }
 			td { vertical-align: top }
 			#link h1 { font-size: 15pt; font-weight: bold; padding: .2em .5em .2em 1em;}
 			.footer { clear: both; font-style: italic; font-size: 6pt; }
+			div#main > table { border-collapse: collapse; width: 100%; }
+		</style>
+		<!-- code -->
+		<style type="text/css">
+		.x1 {color: brown}
+		.x2 {color: green}
+		.x3 {color: blue}
+		.x4 {color: orange}
 		</style>
 	</head>
 	<body>
 		<div id="main">
-			<table width="100%" cellspacing="0" border="0" padding="0">
+			<table>
 				<tr>
-					<td colspan="3">
+					<td colspan="2">
 						<div class="logo">
-							<img src="../www.neonics.com/img/neonics.png"/><br/>
+							<img src="www.neonics.com/img/neonics.png" alt="logo"/><br/>
 							<span>Conscious Computing</span>
 						</div>
-						<ul class="menu mainmenu" id="menu"/>
+						<ul class="menu mainmenu" id="menu"><li></li></ul>
 					</td>
 				</tr>
 				<tr>
-					<td></td>
-					<td colspan="2">
+					<td>
+					</td>
+					<td>
 <!-- -->
 		<h1 style="text-align: center">QuRe
 			<span style="font-size: smaller; font-style: italic; color: #119">
@@ -42,7 +57,7 @@
 
 		<div style="float:right">
 			<canvas id="canvas" width="400" height="400"></canvas>
-			<div id="debug" style="display:visible"></div>
+			<div id="debug"></div>
 			<div id="link"></div>
 			<script type="text/javascript" src="scene_pack.js"></script>
 			<script type="text/javascript">init();render();</script>
@@ -66,8 +81,9 @@
 			<li><a href="#source">Source</a></li>
 			<li><a href="#download">Download</a></li>
 			<li><a href="#links">Links</a></li>
-			<li><a href="#docs">Docs</a></li>
+			<li><a href="#docs">Docs</a>
 				${include doc.inc}
+			</li>
 			<li><a href="#features">Features</a></li>
 			<li><a href="#cluster">Cluster (short explanation)</a></li>
 			<li><a href="#topics">Topics on this page</a>
@@ -82,22 +98,22 @@
 		</ul>
 
 
-		<h2><a name="source"/>Source / Issues / Wiki</h2>
+		<h2 id="source">Source / Issues / Wiki</h2>
 		<a href="https://github.com/neonics/qure">GitHub</a>
 
-		<h2><a name="download"/>Download</h2>
+		<h2 id="download">Download</h2>
 		<a href="download/os.iso.gz">GZipped ISO Image</a>
 
-		<h2><a name="links"/>Links</h2>
+		<h2 id="links">Links</h2>
 		<ul>
 			<li><a href="site.html">Download, installation (out of date)</a></li>
 			<li><a href="C">Live screenshot of console 0</a></li>
 		</ul>
 
-		<h2><a name="docs"/>Docs</h2>
+		<h2 id="docs">Docs</h2>
 		${include doc.inc}
 
-		<h2><a name="features"/>Feature overview</h2>
+		<h2 id="features">Feature overview</h2>
 
 		<ul>
 			<li>extremely small memory footprint: <i>(actual/realtime values)</i>
@@ -139,9 +155,10 @@
 			</li>
 			<li>Networking:
 				<ul>
-					<li>Ethernet</li>
+					<li>Ethernet (bcast,mcast)</li>
 					<li>ARP</li>
 					<li>ICMP</li>
+					<li>IGMP</li>
 					<li>IPv4</li>
 					<li>UDP</li>
 					<li>TCP</li>
@@ -150,15 +167,15 @@
 					<li>SMTP (daemon)</li>
 					<li>HTTP (daemon)</li>
 					<li>SIP responder</li>
-					<li>SSH - extremely experimental</li>
+					<li>SSH (daemon - extremely experimental)</li>
 					<li>CloudNet Cluster Protocol</li>
 				</ul>
 			</li>
 
 		</ul>
 
-		<h2><a name="cluster"/>Cluster</h2>
-		<p><i>0#17	445	birthdate 2013/09/12 06:50:05</i>
+		<h2 id="cluster">Cluster</h2>
+		<p><i>0#17	445	birthdate 2013/09/12 06:50:05</i></p>
 		<dl>
 			<dt>0#17</dt>
 			<dd>means cluster era 0, node age 17: A node ages each time it reboots, whereas
@@ -180,9 +197,8 @@
 			By that time, this code will hopefully be obsolete.
 			</dd>
 		</dl>
-		</p>
 
-		<h2><a name="topics"/>Topics</h2>
+		<h2 id="topics">Topics</h2>
 		<ul>
 			<li><a href="#nc-intro">Object Oriented Persistent Network Cluster</a></li>
 			<li><a href="#pnc">Persistent Network Objects</a></li>
@@ -191,7 +207,7 @@
 			<li>Clustered data sharing</li>
 		</ul>
 
-		<h3><a name="nc-intro"/>Object Oriented Persistent Network Cluster</h3>
+		<h3 id="nc-intro">Object Oriented Persistent Network Cluster</h3>
 		<p>
 		Or, OOPNC (I don't think so), applied to assembly, allows for a hardware-efficient
 		implementation, such as aligning sector boundaries to page boundaries, and being able
@@ -301,8 +317,7 @@
 		of the packet.
 		</p>
 
-		<a name="pnc"/>
-		<h3>Persistent Network Objects</h3>
+		<h3 id="pnc">Persistent Network Objects</h3>
 		<p>
 		Not all data on the network needs to be persisted on disk, and vice versa.
 		Persistent Network Objects (NOP [why not]), are Network Objects extending
@@ -317,6 +332,7 @@
 		the region, which allows to calculate the region's beginning address and
 		avoid persisting this. However, this space is reserved, making the volume
 		sector an array of { offset, length } structures:
+		</p>
 		<pre>
 		struct {
 			long count;
@@ -327,7 +343,6 @@
 			} array[];
 		}
 		</pre>
-		</p>
 		<p>
 		The lba field is merely a runtime cache, but can be used for other purposes
 		on disk. The object representing the region may remember a value in it's
@@ -379,6 +394,7 @@
 		</p>
 		<p>
 		An network object then consists of the following regions:
+		</p>
 		<pre>
 		volatile:
 		 A:
@@ -392,6 +408,7 @@
 		 E:
 		volatile_end:	# volatile: A E
 		</pre>
+		<p>
 		The above shows that the packet overlaps with the data.
 		Ofcourse, there are more combinations.
 		Linear extension would append a similar scheme to this to construct the
@@ -402,6 +419,7 @@
 		but not all of them can be optimized to remove copying (concatenating)
 		memory alltogether.<br/>
 		Example:
+		</p>
 		<pre>
 		class X {
 			volatile: 		.space A
@@ -422,11 +440,13 @@
 		<span class="x3">CD</span>	persistent
 		<span class="x1">E</span>	volatile
 		</pre>
+		<p>
 		Naturally, class Z does not need to specify both <code>packet_end</code>
 		and <code>persistent_end</code>,
 		and can choose to let itself be extended either way.<br/>
 		Another useful feature is that a subclass can indicate where to truncate the parent
 		class. Given the following:
+		</p>
 		<pre>
 		class X {
 			a: .space A
@@ -436,13 +456,16 @@
 			c: .space C
 		}
 		</pre>
+		<p>
 		class <code>Y</code> will have the object structure <code>A B C</code>.
 		Class <code>Y1</code> on the other hand:
+		</p>
 		<pre>
 		class Y1 extends X at b {
 			c: .space C
 		}
 		</pre>
+		<p>
 		will have the object structure <code>A C</code>.
 		</p>
 		<p>
@@ -452,7 +475,6 @@
 		c: .space C
 		DECLARE_CLASS_END Y1
 		</pre>
-		</p>
 		<p>
 		The above has dealt with aligning and extending network and persistent data in
 		a few levels of inheritance. Ofcourse, multiple persistent and/or network regions
@@ -465,8 +487,7 @@
 		although the granularity is poor (512 bytes) relative to network IO (1 byte).
 		</p>
 
-		<a name="oofs"/>
-		<h3>OOFS Object Oriented File System</h3>
+		<h3 id="oofs">OOFS Object Oriented File System</h3>
 		<p>
 		Having constructed the two regions: sector allocation table (SAT)
 		using fixed sized elements (2x32 bits), and string table (variable length),
@@ -500,12 +521,6 @@
 		</p>
 		<p>
 			Example:
-		<style>
-		.x1 {color: brown}
-		.x2 {color: green}
-		.x3 {color: blue}
-		.x4 {color: orange}
-		</style>
 			<pre>
 	<span class="x1">mov	eax, offset mountpoint		# string reference
 	call	mtab_get_fs			# eax &lt;- class_fs instance for mountpoint</span>
@@ -518,8 +533,7 @@
 	call	[eax + lookup]			# eax &lt;- persistent network object</span>
 	jc	exception3
 	<span class="x4">call	[eax + cluster_node_send]</span>
-			</pre>
-		</p>
+		</pre>
 		<p>
 		Or, in another expression:
 		<pre>try {
@@ -527,7 +541,7 @@
 	<span class="x3">-&gt;root_obj-&gt;lookup( class_cluster_node )</span>
 	<span class="x4">-&gt;send();</span>
 } </pre>
-		</p>
+
 		<h4>Next:</h4>
 		<ul>
 			<li>zero-configuration cluster discovery</li>
@@ -541,4 +555,3 @@
 		</div>
 	</body>
 </html>
-

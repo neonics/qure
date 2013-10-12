@@ -906,12 +906,17 @@ var unit;
 
 				foo = unit / r;	// alpha
 
-				var dx = x-lx; lx=x;
-				var dy = y-ly; ly=y;
+				if ( lx != null )
+				{
+					var dx = x-lx;
+					var dy = y-ly;
+				}
+				lx=x;
+				ly=y;
 				//debugEl("debug", "(" + dx + ", " + dy + ")");
 
-				mx = x-w/2;
-				my = y-h/2;
+				mx = _x;//x-w/2;
+				my = _y;//y-h/2;
 //				scaledelay=0;//5 * fps;
 				var dist = Math.sqrt(mx*mx+my*my);
 				if ( dist > 100 * canvasscale )
@@ -933,11 +938,11 @@ var unit;
 					impetus[1]+=dy/20.0;
 				}
 
-				if ( 0 )
+				if ( 0 )	// coordinate problem..
 				{
 					ctx.save();
 					ctx.fillStyle="black";
-					ctx.fillRect( x, y, 4, 4 );
+					ctx.fillRect( mx-2, my-2, 4, 4 );
 					ctx.restore();
 				}
 
