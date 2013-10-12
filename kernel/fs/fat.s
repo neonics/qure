@@ -961,7 +961,7 @@ fat16_load_root_directory:
 # out: edi = buffer [eax + fat_buf$]
 fat_load_directory$:
 	.if FS_FAT_DEBUG > 2
-		DEBUGc 12, "fat_load_directory"
+		DEBUG "fat_load_directory"
 		DEBUG_DWORD ebx
 	.endif
 	push	eax

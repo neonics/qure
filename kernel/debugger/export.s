@@ -87,12 +87,6 @@ DEBUG_COLOR3 = 0x1f
 	.endif
 .endm
 
-.macro DEBUGc c, str
-	pushf
-	printc (DEBUG_COLOR3 & 0xf0) | (\c & 0xf), "\str "
-	popf
-.endm
-
 .macro DEBUGS reg=esi, label=0, color=DEBUG_COLOR2
 	pushf
 	pushcolor DEBUG_COLOR1
@@ -116,6 +110,29 @@ DEBUG_COLOR3 = 0x1f
 	popf
 .endm
 
+.macro DEBUGz yes, no
+	jnz	9001f
+	DEBUG "\yes"
+	.ifc \no,
+9001:
+	.else
+	jmp	9009f
+9001:	DEBUG "\no"
+9009:
+	.endif
+.endm
+
+.macro DEBUGc yes, no
+	jnc	9001f
+	DEBUG "\yes"
+	.ifc \no,
+9001:
+	.else
+	jmp	9009f
+9001:	DEBUG "\no"
+9009:
+	.endif
+.endm
 
 
 .macro DEBUG_R8 r
