@@ -174,6 +174,7 @@ SHELL_COMMAND "traceroute"	cmd_traceroute
 SHELL_COMMAND "netstat"		cmd_netstat
 SHELL_COMMAND "arp"		cmd_arp
 SHELL_COMMAND "icmp"		net_icmp_list
+SHELL_COMMAND "iproute"		cmd_iproute
 # utils
 SHELL_COMMAND_CATEGORY "misc"
 SHELL_COMMAND "hostname"	cmd_hostname
@@ -2843,4 +2844,23 @@ cmd_hostname:
 	jz	9f
 	call	println
 9:	ret
+
+cmd_iproute:
+	lodsd
+	lodsd
+	or	eax,eax
+	jz	9f
+	call	net_parse_ip
+	jc	9f
+
+	call	net_route_get
+	print "route for "
+	call	net_print_ipv4
+	mov	eax, edx
+	print ": "
+	call	net_print_ipv4
+	call	newline
+	ret
+9:	printlnc 4, "usage: iproute <ipv4_addr>"
+	ret
 .endif

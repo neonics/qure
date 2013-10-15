@@ -376,6 +376,7 @@ protocol_checksum_verify:
 #############################################################################
 
 # in: eax
+.global net_print_ipv4
 net_print_ipv4:
 net_print_ip:
 	push	eax
@@ -401,6 +402,7 @@ net_print_ip:
 
 # in: eax = stringpointer
 # out: eax = ip
+.global net_parse_ip
 net_parse_ip:
 	push	ebx
 	mov	bl, 1
