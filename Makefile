@@ -184,6 +184,7 @@ WWW_N_SRC=$(patsubst %,web/www.neonics.com/%,\
 	$(shell [ -d web/www.neonics.com ] && cat web/www.neonics.com/.list | xargs ))
 
 www-neonics: $(WWW_N_SRC)
+	@echo "  SITE  www.neonics.com"
 	@[ -d web/www.neonics.com ] && ( \
 	cd web/www.neonics.com && cpio --quiet -W none -d -p < .list ../../$(WWW_N)/ >& /dev/null ) || true
 
