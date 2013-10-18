@@ -580,6 +580,9 @@ _mime_text_javascript$:	.asciz "text/javascript"
 _mime_image_jpeg$:	.asciz "image/jpeg"
 _mime_image_png$:	.asciz "image/png"
 _mime_image_gif$:	.asciz "image/gif"
+_mime_text_plain$:	.asciz "text/plain"
+#_mime_text_x_asm$:	.asciz "text/x-asm"
+_mime_text_x_java_source$:  .asciz "text/x-java-source"
 _mime_application_unknown$: .asciz "application/unknown"
 
 .data
@@ -593,6 +596,8 @@ mime_table:
 	STRINGPTR "jpg";	.long _mime_image_jpeg$
 	STRINGPTR "jpeg";	.long _mime_image_jpeg$
 	STRINGPTR "gif";	.long _mime_image_gif$
+#	STRINGPTR "s";		.long _mime_text_x_asm$
+	STRINGPTR "java";	.long _mime_text_plain$ #_mime_text_x_java_source$	# or text/plain
 	.long 0;		.long _mime_application_unknown$
 .text32
 
