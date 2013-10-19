@@ -388,19 +388,23 @@ COLOR_STACK_SIZE = 4
 	.endif
 .endm
 
-.macro PUSH_TXT txt
+.macro PUSH_TXT txt, len=-1
 	_CODE_OFFS = .
 	.data SECTION_DATA_STRINGS
 		199: .asciz "\txt"
+		198:
 	.section .strtab
 		.long 199b, _CODE_OFFS + 1
 	.text32
 	push	dword ptr offset 199b
+	.if \len!=-1
+	pushd	offset 198b-199b -\len	# see LOAD_TXT
+	.endif
 .endm
 
 # for printf
-.macro PUSHSTRING s
-	PUSH_TXT "\s"
+.macro PUSHSTRING s, l=-1
+	PUSH_TXT "\s", \l
 .endm
 
 

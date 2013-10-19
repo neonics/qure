@@ -1343,8 +1343,10 @@ cluster_node_send:
 ##############################################################
 # httpd interface
 
-# in: edi, ecx
-# out: ecx
+# stores the cluster kernel revision in the given buffer
+# in: edi = buffer
+# in: ecx = buffer size, minimum: 4+version.length+1+era.length+age.length*2
+# out: ecx = bytes stored in buffer
 cluster_get_kernel_revision:
 	push_	eax esi edx ebx edi
 	LOAD_TXT "dev:", esi, ecx
@@ -1376,57 +1378,72 @@ cluster_get_kernel_revision:
 	pop_	edi ebx edx esi eax
 	ret
 
-# called from httpd:
-# in: [ebp] = socket (write content directly)
-#[in: edi, ecx = buffer]
-#[out: ecx = len]
-cluster_get_status:
-	push	edx
-	mov	edx, 1
-	call	cluster_get_status_
-	pop	edx
+# in: [esp + 0] = len
+# in: [esp + 4] = stringptr
+# in: [ebp + 0] = bufsize
+# in: [ebp + 4] = buffer
+# in: [[ebp-4]] = socket
+# in: edi = buf pos to append to
+# out: edi updated
+# out: esp += 8 (pops stackargs)
+sockbuf_append_string$:
+	push_	esi ecx edx eax
+	mov	edx, edi
+	mov	ecx, [esp + 5*4 + 0]
+	sub	edx, [ebp + 4]	# edx = remaining buflen
+	sub	edx, ecx
+	jnle	1f
+	call	sockbuf_flush$	# resets edi, ecx
+1:	mov	esi, [esp + 5*4 + 4]
+	mov	al, cl
+	shr	ecx, 2
+	rep	movsd
+	mov	cl, al
+	and	cl, 3
+	rep	movsb
+	pop_	eax edx ecx esi
+	ret	8
+
+# in: [ebp + 0] = bufsize
+# in: [ebp + 4] = buffer
+# in: [[ebp-4]] = socket
+# in: edi = buf pos
+sockbuf_flush$:
+	push_	eax ecx esi
+	# write socket
+	mov	ecx, edi
+	mov	esi, [ebp + 4]	# buffer start
+	sub	ecx, esi	# buffer filled
+	mov	eax, [ebp - 4]	# socket ptr
+	mov	eax, [eax]	# socket
+	KAPI_CALL socket_write
+	# reset buffer
+	mov	edi, [ebp + 4]
+	#mov	ecx, [ebp + 0]
+	pop_	esi ecx eax
 	ret
-cluster_get_status_list:
-	push	edx
-	mov	edx, 3
-	call	cluster_get_status_
-	pop	edx
-	ret
-# Produces html
-# in: edx = flags
+
+
+.macro SOCKBUF_APPEND_STRING str
+	PUSH_TXT "\str", 1	# push len also, w/o trailing 0
+	call	sockbuf_append_string$
+.endm
+
 # in: [ebp] = socket (writes directly)
 # in: edi, ecx = buffer
-#[out: ecx = len]
-cluster_get_status_:
-
-	.macro APPEND_STRING str, nofit=91f
-		push	esi
-		push	ecx
-		mov	edx, [ebp + 4]	# bufsize
-		add	edx, edi	# add offs
-		sub	edx, [ebp + 4]	# correct buf start
-
-		LOAD_TXT "\str", esi, ecx, 1
-		sub	edx, ecx
-		jle	\nofit
-		rep	movsb
-		pop	ecx
-		pop	esi
-	.endm
-
-
+cluster_stream_cluster_status:
 	push_	edx ebx esi edi ecx ebp
 	lea	ebp, [esp + 4]
 	# [[ebp-4]] = socket
 	# [ebp+0] = buffer size
 	# [ebp+4] = buffer
 
-	APPEND_STRING "<b>Host:</b> "
+	SOCKBUF_APPEND_STRING "<b>Host:</b> "
 	mov	esi, offset hostname
 	call	strlen_
 	rep	movsb
 
-	APPEND_STRING " <b>nodes:</b> "
+	SOCKBUF_APPEND_STRING " <b>nodes:</b> "
 
 	xor	edx, edx
 	mov	ebx, [cluster_nodes]
@@ -1440,18 +1457,16 @@ cluster_get_status_:
 	mov	edx, eax
 
 1:	call	sprintdec32
-	or	ebx, ebx
-	jz	9f	# shouldn't happen
 
 	mov	eax, [cluster_node]
 	or	eax, eax
 	jz	1f
 
-	APPEND_STRING " <b>era:</b> "
+	SOCKBUF_APPEND_STRING " <b>era:</b> "
 	mov	edx, [eax + cluster_era]
 	call	sprintdec32
 
-	APPEND_STRING " <b>uptime:</b> "
+	SOCKBUF_APPEND_STRING " <b>uptime:</b> "
 	mov	edx, [eax + cluster_birthdate]
 	call	datetime_to_s
 	mov	eax, edx
@@ -1460,51 +1475,116 @@ cluster_get_status_:
 	mov	eax, edx
 	call	sprint_time_s
 
-1:	testb	[ebp + 16], 1
-	jz	9f
-
-	mov	word ptr [edi], ' '
-
-	testb	[ebp + 16], 2
-	jnz	1f
-	mov	eax, '<'|('u'<<8)|('l'<<16)|('>'<<24)
-	stosd
-	jmp	2f
-1:	APPEND_STRING "\n<table>"
-2:
-	ARRAY_LOOP [cluster_nodes], NODE_SIZE, ebx, esi
+1:	call	sockbuf_flush$
 	mov	ecx, edi
-	add	ecx, 64	# guestimate
 	sub	ecx, [ebp + 4]
-	jle	9f
+	mov	[ebp], ecx
+	pop_	ebp ecx edi esi ebx edx
+	ret
+
+91:	# doesn't fit (but should); for now, no flush
+	DEBUG "<NOFIT>"
+	pop_	ecx esi
+	jmp	0b
+
+
+# in: [ebp + 16] = flags
+#	2: table (<tr><td>), else <li>
+#	8: add " class='cur'"
+_html_item_open$:
+	movb	[edi], '\t'
+	inc	edi
+
+	mov	eax, '<' | 'l' << 8 | 'i' << 16 | '>' << 24
+	testb	[ebp + 16], 2
+	jz	1f
+	mov	eax, '<' | 't' << 8 | 'r' << 16 | '>' << 24
+1:	stosd
+
+	testb	[ebp + 16], 8
+	jz	1f
+
+	dec	edi
+	SOCKBUF_APPEND_STRING " class='cur'>"
+
+1:	testb	[ebp + 16], 2
+	jz	1f
+	mov	eax, '<' | 't' << 8 | 'd' << 16 | '>' << 24
+	stosd
+
+1:	ret
+
+_html_cell$:
+	testb	[ebp + 16], 2
+	jz	1f
+	SOCKBUF_APPEND_STRING "</td><td>"
+1:	ret
+
+_html_item_close$:
+	testb	[ebp + 16], 2
+	jz	1f
+	SOCKBUF_APPEND_STRING "</td></tr>\n"
+	ret
+1:	mov	eax, '<'|'/'<<8|'l'<<16|'i'<<24
+	stosd
+	mov	ax, '>' | '\n' << 8
+	stosw
+	ret
+
+
+# Produces html
+# in: [ebp] = socket (writes directly)
+# in: edi, ecx = buffer
+#[out: ecx = len]
+cluster_stream_nodes_table:
+	push	edx
+	mov	edx, 2
+	jmp	1f
+cluster_stream_nodes_list:
+	push	edx
+	xor	edx, edx
+
+# in: edx = flags
+#	bit 1: node list format: 0=ul, 1=table
+# in: [esp] = edx
+1:
+	push_	edx ebx esi edi ecx ebp
+	lea	ebp, [esp + 4]
+	# [[ebp-4]] = socket
+	# [ebp+0] = buffer size
+	# [ebp+4] = buffer
+
+	mov	ebx, [cluster_nodes]
+	or	ebx, ebx
+	jz	9f	# no cluster nodes (shouldn't happen)
+
+	# list / table header
 	testb	[ebp + 16], 2
 	jnz	1f
-	mov	eax, '<'|('l'<<8)|('i'<<16)|('>'<<24)
-	stosd
+	SOCKBUF_APPEND_STRING "\n<ul>\n"
 	jmp	2f
-1:	APPEND_STRING "\n\t<tr><td>"
+1:	SOCKBUF_APPEND_STRING "\n<table>\n\t<tr><th>name</th><th>age</th><th>krev</th><th>boot time</th><th>uptime</th><th>joined cluster</th><th>cluster uptime</th></tr>\n"
 2:
+
+	# iterate
+
+	ARRAY_LOOP [cluster_nodes], NODE_SIZE, ebx, esi
+
+	# use [ebp + 16] bit 3 to indicate current item = this node
 	mov	eax, [cloud_nic]
 	mov	eax, [eax + nic_ip]
 	cmp	eax, [ebx + esi + node_addr]
-	mov	ah, 0
+	mov	al, 0
 	jnz	1f
-	mov	eax, '<'|('i'<<8)|('>'<<16)
-	stosd
-	dec	edi
-	mov	ah, 1
-	1:
-	mov	edx, [ebx + esi + node_cluster_era]
-	call	sprintdec32
-	mov	al, '#'
-	stosb
-	mov	edx, [ebx + esi + node_node_age]
-	call	sprintdec32
-	cmp	ah, 1
-	jnz	1f
-	mov	eax, '<'|('/'<<8)|('i'<<16)|'>'<<24
-	stosd
-	1:
+	mov	al, 8
+1:	andb	[ebp + 16], ~8
+	orb	[ebp + 16], al
+
+	# element / row
+
+	call	_html_item_open$
+
+	# hostname
 
 	push	esi
 	mov	al, ' '
@@ -1515,8 +1595,21 @@ cluster_get_status_:
 	stosb
 	pop	esi
 
+	# cell
+
+	call	_html_cell$
+
+
+	mov	edx, [ebx + esi + node_cluster_era]
+	call	sprintdec32
+	mov	al, '#'
+	stosb
+	mov	edx, [ebx + esi + node_node_age]
+	call	sprintdec32
+
 	testb	[ebp + 16], 2
 	jnz	1f
+	sprintchar ' '
 	sprintchar '('
 	mov	edx, [ebx + esi + node_node_birthdate]
 	call	datetime_to_s
@@ -1527,21 +1620,22 @@ cluster_get_status_:
 	call	sprint_time_s
 	sprintchar ')'
 
-	mov	eax, '<'|'/'<<8|'l'<<16|'i'<<24
-	stosd
-	mov	al, '>'
-	stosb
 	jmp	0f
 
-1:	APPEND_STRING "</td><td>"
+1:
+	call	_html_cell$
+
 	movzx	edx, word ptr [ebx + esi + node_kernel_revision]
 	call	sprintdec32
 
-	APPEND_STRING "</td><td>birthdate "
+	call	_html_cell$
+
 	mov	edx, [ebx + esi + node_node_birthdate]
 	call	sprint_datetime
 
-	APPEND_STRING "</td><td>uptime "
+	call	_html_cell$
+
+	# uptime
 	mov	edx, [ebx + esi + node_node_birthdate]
 	call	datetime_to_s
 	mov	eax, edx
@@ -1550,11 +1644,13 @@ cluster_get_status_:
 	mov	eax, edx
 	call	sprint_time_s
 
-	APPEND_STRING "</td><td>cluster since "
+	call	_html_cell$
+
 	mov	edx, [ebx + esi + node_cluster_birthdate]
 	call	sprint_datetime
 
-	APPEND_STRING "</td><td>uptime "
+	call	_html_cell$
+
 	mov	edx, [ebx + esi + node_cluster_birthdate]
 	call	datetime_to_s
 	mov	eax, edx
@@ -1563,21 +1659,9 @@ cluster_get_status_:
 	mov	eax, edx
 	call	sprint_time_s
 
-	APPEND_STRING "</td></tr>\n"
+0:	call	_html_item_close$
 
-0:
-	# write socket
-	push	esi
-	mov	ecx, edi
-	mov	esi, [ebp + 4]	# buffer start
-	sub	ecx, esi
-	mov	eax, [ebp - 4]	# socket ptr
-	mov	eax, [eax]	# socket
-	KAPI_CALL socket_write
-	pop	esi
-	# reset buffer
-	mov	edi, [ebp + 4]
-	mov	ecx, [ebp + 0]
+	call	sockbuf_flush$
 
 	ARRAY_ENDL
 
@@ -1608,8 +1692,9 @@ cluster_get_status_:
 	mov	ecx, edi
 	sub	ecx, [ebp + 4]
 	mov	[ebp], ecx
-	pop_	ebp ecx edi esi ebx edx
+	pop_	ebp ecx edi esi ebx edx edx
 	ret
+
 91:	# doesn't fit (but should); for now, no flush
 	DEBUG "<NOFIT>"
 	pop	esi

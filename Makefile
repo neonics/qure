@@ -151,15 +151,18 @@ site-src:
 	#[ -d root/src/kernel ] || mkdir -p root/src/kernel
 	#cp -a TODO Makefile 16 bootloader kernel util fonts root/src/kernel
 
-DOC=Bootsector Cluster NetFork CloudNet LiquidChristalProcessor CircularBuffer \
-	HostMe Freedom Net TaskSwitching CallingConvention Filesystem \
-	EnclosedSource DNS2
+TXTDOC=Bootsector Cluster NetFork CloudNet LiquidChristalProcessor \
+	CircularBuffer HostMe Freedom Net TaskSwitching CallingConvention \
+	Filesystem EnclosedSource DNS2
+HTMLDOC=PersistentCluster
 
+WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${TXTDOC}))
 DOC_SRC=$(addprefix DOC/, $(addsuffix .txt,${WWW_DOC}))
-WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${DOC}))
+HTML_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${HTMLDOC}))
 
-root/www/doc/%.html: DOC/%.txt util/txt2html.pl
-	#Makefile
+HTMLDEPS = util/template.pl util/template.html Makefile
+
+root/www/doc/%.html: DOC/%.txt util/txt2html.pl $(HTMLDEPS)
 	@[ -d root/www/doc ] || mkdir root/www/doc
 	@echo "  HTML  $@"
 	@#util/txt2html.pl -t web/doc.htmlt $< | xmllint - > $@
@@ -168,13 +171,17 @@ root/www/doc/%.html: DOC/%.txt util/txt2html.pl
 	@util/template.pl -t util/template.html -p ../www.neonics.com/ $@.tmp > $@
 	@rm _tmp_template.html $@.tmp
 
+root/www/doc/%.html: DOC/%.html $(HTMLDEPS)
+	@echo "  HTML  $@"
+	@util/template.pl -t util/template.html -p ../www.neonics.com/ $< > $@
+
 site-doc: root/www/doc.inc
 	@#[ -d root/src/kernel/DOC ] || mkdir -p root/src/kernel/DOC
 	@#[ -d root/www/screenshots ] || mkdir -p root/www/screenshots
 	@#cp -a DOC/Screenshots/*.png root/www/screenshots/
 	@#cp DOC/* root/src/kernel/DOC/
 
-root/www/doc.inc: $(WWW_DOC)
+root/www/doc.inc: $(WWW_DOC) $(HTML_DOC)
 	@echo "  HTMLl $@"
 	@ls root/www/doc | util/genlinks.pl > root/www/doc.inc
 
@@ -186,6 +193,7 @@ WWW_N_SRC=$(patsubst %,web/www.neonics.com/%,\
 www-neonics: $(WWW_N_SRC)
 	@echo "  SITE  www.neonics.com"
 	@[ -d web/www.neonics.com ] && ( \
+	make -s --no-print-directory -C web/www.neonics.com ; \
 	cd web/www.neonics.com && cpio --quiet -W none -d -p < .list ../../$(WWW_N)/ >& /dev/null ) || true
 
 

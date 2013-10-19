@@ -1,0 +1,371 @@
+		<!-- code -->
+		<style type="text/css">
+		.x1 {color: brown}
+		.x2 {color: green}
+		.x3 {color: blue}
+		.x4 {color: orange}
+
+
+
+/*ul { margin: 0; padding-bottom: 0 }*/
+ul.mainmenu li { display: inline; padding: .2em; }
+td { vertical-align: top }
+#link h1 { font-size: 15pt; font-weight: bold; padding: .2em .5em .2em 1em;}
+.footer { clear: both; font-style: italic; font-size: 6pt; }
+div#main > table { border-collapse: collapse; width: 100%; }
+
+		</style>
+
+		${include ../style.css}
+
+		<h2 id="topics">Topics</h2>
+		<ul>
+			<li><a href="#nc-intro">Object Oriented Persistent Network Cluster</a></li>
+			<li><a href="#pnc">Persistent Network Objects</a></li>
+			<li><a href="#oofs">Object Oriented File System</a></li>
+			<li>zero-configuration cluster discovery</li>
+			<li>Clustered data sharing</li>
+		</ul>
+
+		<h3 id="nc-intro">Object Oriented Persistent Network Cluster</h3>
+		<p>
+		Or, OOPNC (I don't think so), applied to assembly, allows for a hardware-efficient
+		implementation, such as aligning sector boundaries to page boundaries, and being able
+		to load a sector from disc, send it over the network as-is, being mapped transparently
+		in the object's data.
+		</p>
+		<p>The current implementation does not yet do page aligning, but the memory allocator
+		already supporting this is used elsewhere and can be adjusted to allow for negative
+		offsets relative to an alignment.
+		</p>
+		<p>Objects can be compiled in two modes: interleaved and compact. These terms refer to
+		the spacing of the virtual method pointers, for which space is reserved in the object,
+		to eliminate dereferencing.
+		<code>
+			call	[eax + init]
+		</code>
+		or whatever alternate syntax for the same expression the assembler accepts,
+		is quite clear, and most efficient in a dynamic environment. Certainly, code references
+		to methods can be marked and relocated at runtime, to further optimize this. However,
+		removing a memory reference from an instruction means a loop making at least two
+		memory references will have to be run elsewhere. This loop would iterate over a
+		list extracted during the compilation, grouping all references to identical symbols.
+		Hence, it is best to not use a hardware instruction, but a macro, to invoke class
+		methods.
+		<br/>Virtual method pointers are calculated at runtime and cached in static memory,
+		in the class data - a singleton, taking the class definition address as it's object
+		pointer: static methods. The only difference between a class and an object is that
+		the address for the object is allocated at runtime - a variable - whereas the address
+		for a class is allocated (determined) at compiletime, and passed to an instruction
+		taking a memory reference:
+		<code>lea eax, [class]</code>
+		</p>
+		<h3>Object Oriented Assembly</h3>
+		<p>An object with virtual method pointers (VPTR) interleaved with data would
+		store memory pointers to disk, if persistent data crosses a class boundary,
+		such as when a superclass declares a header for the persistent data.
+		All data declared by superclasses is concatenated into the object address space.
+		Grouping the virtual pointers together, they can be placed at the beginning.
+		The pointer that the class methods take ('this') is offset by the size of the
+		VPTR table, thereby making method symbols consecutive integers. The first area
+		before the object's adjusted address (let's call it 0), will contain the method
+		pointers to the topmost class. Before them, it's subclass, and so on. This is mirrored
+		on the data side. This way, object data is split in two, one side being an array
+		of fixed size elements, and one side variable data.
+		</p>
+		<pre>
+		class base
+		{
+			<span class="b">long a;
+			long b;
+			method init;</span>
+		}
+
+			#.long init, a, b
+			# -4: init
+			#  0: a
+			#  4: b
+			 
+
+		class sub extends base
+		{
+			<span class="s">long c;
+			method foo;</span>
+		}
+
+			#.long <span class="s">foo,</span> <span class="b">init, a, b</span>, <span class="s">c</span>
+			#<span class="s">-8: foo</span>
+			#<span class="b">-4: init</span>
+			#<span class="b"> 0: a</span>
+			#<span class="b"> 4: b</span>
+			#<span class="s"> 8: c</span>
+		</pre>
+		<p>
+		So far, no dereferencing has to take place: both variable method pointers (VPTR) aswell
+		as variable data is adressable in an extensible way (inheritance). Certainly, code does
+		not need to use this addressing scheme, and can call the methods directly using their
+		static address. With purely top-down inheritance, such method access can be resolved
+		at compile time. However, when an object starts calling it's class's methods itself,
+		and thus accesses itself through it's virtual interface, it allows any subclass to
+		change the functionality of those methods. Other than that, there is no need for virtual
+		pointers. Code is written to interface with a class, and thus, at compile time,
+		the expected method is known. A caller, using a method reference, allows to substitute
+		for execution of any algoritm (such as upgrading the kernel and rebooting the machine).
+		Obviously, such an algorithm would be protected by the kernel, since only it knows
+		the exact conditions under which to access the routines.
+		</p>
+		<h3>NetOBJ: Networked Objects</h3>
+		<p>
+		A network address space is reserved. Generally speaking, IP addresses, protocol numbers,
+		port numbers, MAC addresses, all combined, is merely a bitstring. Calling the parts
+		by different names does not change their meaning. Reserving the address space
+		means to expect a certain protocol on that address. (At current this is UDP:999, which
+		at this time is not reserved by IANA).<br/>
+		To reduce overhead, a simple mechanism for determining whether a network packet is
+		indeed to be treated as the protocol is implemented. It first consists of IP filtering
+		(the private broadcast address: 255.255.255.255), UDP port filtering, and a signature
+		check at the beginning of the packet. The signature is at current <code>.asciz "hello"</code>.
+		A checksum as the first word, would provide a hint, although, this does not guarantee
+		a protocol, merely that at a specific location a checksum is present. The simplest
+		checksum - adding words - does not impose an order on the packet.
+		If the location of the checksum were overlapping with another protocol, say TCP,
+		packets could still be confused, if the protocol were determined by calculating
+		the checksum and scanning the payload to find the location of the checksum. Ofcourse,
+		in the case of UDP vs. TCP this cannot happen since the protocol number is stored
+		in the IP header. However, it is conceivable that other protocols extending UDP use
+		the same location for the checksum, which makes it insufficient to determine the protocol
+		of the packet.
+		</p>
+
+		<h3 id="pnc">Persistent Network Objects</h3>
+		<p>
+		Not all data on the network needs to be persisted on disk, and vice versa.
+		Persistent Network Objects (NOP [why not]), are Network Objects extending
+		from Persistent Objects. It could have been the other way around, but that's
+		not how this is implemented. Persistent objects can have the persistent part
+		of their data at any offset and length in their data. This allows complete
+		freedom to subclasses to organize their data. Networked objects extend this
+		behaviour by adding a network window. Two labels are defined, marking the
+		beginning and ending, which are passed as begin and length, to the IO method.
+		The base class implementing persistence, contains the region information,
+		which consists of an array of elements. Each element contains the size of
+		the region, which allows to calculate the region's beginning address and
+		avoid persisting this. However, this space is reserved, making the volume
+		sector an array of { offset, length } structures:
+		</p>
+		<pre>
+		struct {
+			long count;
+			struct
+			{
+				long lba;
+				long sectors;
+			} array[];
+		}
+		</pre>
+		<p>
+		The lba field is merely a runtime cache, but can be used for other purposes
+		on disk. The object representing the region may remember a value in it's
+		data, which is passed to it on load, and returned on save (of the outer struct,
+		the base class - the volume sector).
+		</p>
+		<p>
+		The root sector object simply loads one sector at the LBA given it by the
+		file system - the partition beginning. It checks a signature field (omitted),
+		calculates the size of the array (<code>count*8</code>), checks if it is more
+		than a sector, and if it correlates with the information passed by the filesystem,
+		before it proceeds to resize itself (<code>mreallocz</code>) and loading all the
+		sectors (1).<br/>
+		The LBA passed to it by the parent (not super!) is not persisted on 
+		disk, only the number of sectors - the partition size. The first entry on disk
+		would then be <code>(0, size)</code>, indicating free space, however, instead,
+		the maximum size of the array is stored there <code>(0, 1)</code>.
+		For convenience, it stores the remaining free space on disk as the last array entry:
+		<code>(1,size-1)</code>, although this can be calculated. This allows to check
+		whether the partition was resized.
+		</p>
+		<p>
+		The next defined class is a symbol table, implemented as a string (henceforth
+		array) where names are separated by 0.
+		To find the index of a string requires to scan the list
+		incrementally, which is slow, but, for a small number of strings, irrelevant.
+		The list can be scanned once, to compress the string sizes and construct
+		a sorted offset table (perhaps a tree). Yet, this is a caching extension,
+		proper for a subclass.
+		</p>
+		<p>
+		The symbol table consists of class names. The first entry correlates with the
+		first region - the root sector. Yet, it does not know about the symbol table
+		region, unless it is told by the file system / partition driver, which is
+		responsible for initializing the second region (the symbol table). Therefore,
+		the first two entries are as yet not dynamic, even though after they are loaded,
+		they can be reinstantiated using the classnames specified in the string table.<br/>
+		</p>
+		<p>The classname in the stringtable is correlated with a class definition by
+		traversing the class definition section (<code>.classdef</code>) in the kernel
+		library. Device drivers use OO, and need to be privileged to do IO, which is why
+		the class definitions for some base classes (<code>dev</code>) are present in the
+		kernel library itself.<br/>
+		The kernel itself does not declare any classes except the <code>class</code> class,
+		which is hardcoded. The dynamic data (from the perspective of the kernel),
+		being class definitions, are allocated in a different memory space (ring 2).
+		Code operating on this data then can be called by the kernel and run with
+		lesser privilege. Only device drivers and the shell use the OO system, at current.
+		</p>
+		<p>
+		An network object then consists of the following regions:
+		</p>
+		<pre>
+		volatile:
+		 A:
+		packet_start:
+		 B:
+		persistent:	# network data:   BC
+		 C:
+		packet_end:	# persistent data: CD
+		 D:
+		persistent_end:
+		 E:
+		volatile_end:	# volatile: A E
+		</pre>
+		<p>
+		The above shows that the packet overlaps with the data.
+		Ofcourse, there are more combinations.
+		Linear extension would append a similar scheme to this to construct the
+		subclass data. A choice then needs to be made whether to extend the
+		persistent data, or whether to extend the network data. This results
+		in two subclasses, a base for network extension, and a base for
+		persistence extension. Obviously, any kind of extension is possible,
+		but not all of them can be optimized to remove copying (concatenating)
+		memory alltogether.<br/>
+		Example:
+		</p>
+		<pre>
+		class X {
+			volatile: 		.space A
+			packet_start:		.space B1
+		}
+		class Y extends X {
+			packet_payload1:	.space B2
+			persistent:		.space C1
+		}
+		class Z ends Y {
+			persistent_packet_data:	.space C2
+			packet_end:		.space D
+			persistent_end:		.space E
+		}
+
+		<span class="x1">A</span>	volatile
+		<span class="x2">BC</span>	packet
+		<span class="x3">CD</span>	persistent
+		<span class="x1">E</span>	volatile
+		</pre>
+		<p>
+		Naturally, class Z does not need to specify both <code>packet_end</code>
+		and <code>persistent_end</code>,
+		and can choose to let itself be extended either way.<br/>
+		Another useful feature is that a subclass can indicate where to truncate the parent
+		class. Given the following:
+		</p>
+		<pre>
+		class X {
+			a: .space A
+			b: .space B
+		}
+		class Y extends X {
+			c: .space C
+		}
+		</pre>
+		<p>
+		class <code>Y</code> will have the object structure <code>A B C</code>.
+		Class <code>Y1</code> on the other hand:
+		</p>
+		<pre>
+		class Y1 extends X at b {
+			c: .space C
+		}
+		</pre>
+		<p>
+		will have the object structure <code>A C</code>.
+		</p>
+		<p>
+		At current, class <code>Y1</code> would be declared using macros as follows:
+		<pre>
+		DECLARE_CLASS_BEGIN Y1, X, offs=b
+		c: .space C
+		DECLARE_CLASS_END Y1
+		</pre>
+		<p>
+		The above has dealt with aligning and extending network and persistent data in
+		a few levels of inheritance. Ofcourse, multiple persistent and/or network regions
+		may be present in a class hierarchy.<br/>
+		Network cards often allow to specify multiple pointers in a queue structure,
+		where a field indicates whether to concatenate this memory region with the next
+		to construct a packet (<code>EOP</code> - end-of-packet).
+		[the data] A list of pointers [refers to] can then be concatenated in hardware,
+		constructing a packet. A similar scheme can be employed for disk access,
+		although the granularity is poor (512 bytes) relative to network IO (1 byte).
+		</p>
+
+		<h3 id="oofs">OOFS Object Oriented File System</h3>
+		<p>
+		Having constructed the two regions: sector allocation table (SAT)
+		using fixed sized elements (2x32 bits), and string table (variable length),
+		it then is possible to fetch the name for any region. When the name
+		is interpreted as a classname, it is possible to dynamically instantiate
+		objects for all known regions automatically, passing along the persisted
+		data and a means to overwrite it.
+		One extension could be to allow, after the signature, the count field to
+		specify how much sectors should be loaded into the object.
+		</p>
+		<p>
+		At current, the third entry is <code>cluster_node</code>, although which
+		region it is does not matter, as all names in the second region are scanned to yield
+		an index into the first region. <br/>
+		It is now even possible, to allocate partitions within the partition,
+		and store the name of the class implementing any filesystem.
+		</p>
+		<p>
+		The case where the data to be persisted exceeds the region space needs
+		to be handled by the first sector, in charge of sector allocation.
+		It could employ an allocation table approach, although efficiency
+		will be lost. Since at current the beginnings of all regions are
+		read consecutively, they are compact. It is faster to read 8 objects
+		in a single 4kb read, than to reserve space to prevent copying later.
+		The initial scheme will be to maintain compactness. If the last region
+		extends [it's size], nothing needs to be done except update the first sector
+		(which can hold reference to (512-8)/8 regions, theoretically twice
+		that many). Ofcourse, the first region is not expected to grow much,
+		leaving room for most of it's space to be allocated to a single
+		region implementing a complex system.
+		</p>
+		<p>
+			Example:
+			<pre>
+	<span class="x1">mov	eax, offset mountpoint		# string reference
+	call	mtab_get_fs			# eax &lt;- class_fs instance for mountpoint</span>
+	jc	exception1
+	<span class="x2">mov	edx, offset class_fs_oofs
+	call	class_instanceof</span>
+	jc	exception2
+	<span class="x3">mov	eax, [eax + root_obj]
+	mov	edx, offset class_cluster_node	# or any class definition
+	call	[eax + lookup]			# eax &lt;- persistent network object</span>
+	jc	exception3
+	<span class="x4">call	[eax + cluster_node_send]</span>
+		</pre>
+		<p>
+		Or, in another expression:
+		<pre>try {
+	<span class="x2">( (fs_oofs) <span class="x1">mtab_get_fs( mountpoint )</span> )</span>
+	<span class="x3">-&gt;root_obj-&gt;lookup( class_cluster_node )</span>
+	<span class="x4">-&gt;send();</span>
+} </pre>
+
+		<h4>Next:</h4>
+		<ul>
+			<li>zero-configuration cluster discovery</li>
+			<li>Clustered data sharing</li>
+		</ul>
+
+

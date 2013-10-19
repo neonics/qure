@@ -894,8 +894,8 @@ var unit;
 			{
 				if ( lock ) return;
 
-				var x = e.clientX - canvas.offsetLeft + document.body.scrollLeft;
-				var y = e.clientY - canvas.offsetTop + document.body.scrollTop;
+				var x = e.clientX - canvas.offsetLeft + document.documentElement.scrollLeft;
+				var y = e.clientY - canvas.offsetTop + document.documentElement.scrollTop;
 
 				mox=x;moy=y;
 

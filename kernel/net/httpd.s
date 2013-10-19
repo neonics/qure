@@ -931,7 +931,7 @@ WWW_EXPR_T_STRING=2 # 2 = string (in: esi,ecx)
 WWW_EXPR_T_DEC32= 3 # 3 = decimal32 (out: edx)
 WWW_EXPR_T_HEX8	= 4 # 4 = hex8
 
-.long (99f - .)/10
+.long (99f - .)/10	# number of expressions
 STRINGPTR "kernel.revision";	.byte 1,3;.long KERNEL_REVISION
 STRINGPTR "kernel.uptime";	.byte 3,2;.long kernel_get_uptime
 STRINGPTR "kernel.stats.ts";	.byte 2,3;.long stats_task_switches
@@ -954,8 +954,9 @@ STRINGPTR "mem.heap.allocated";	.byte 3,1;.long mem_get_used
 STRINGPTR "mem.heap.reserved";	.byte 3,1;.long mem_get_reserved
 STRINGPTR "mem.heap.free";	.byte 3,1;.long mem_get_free
 STRINGPTR "cluster.kernel.revision";	.byte 3,2;.long cluster_get_kernel_revision
-STRINGPTR "cluster.status";	.byte 3,0;.long cluster_get_status
-STRINGPTR "cluster.status.list";.byte 3,0;.long cluster_get_status_list
+STRINGPTR "cluster.status";	.byte 3,0;.long cluster_stream_cluster_status
+STRINGPTR "cluster.nodes.list";	.byte 3,0;.long cluster_stream_nodes_list
+STRINGPTR "cluster.nodes.table";.byte 3,0;.long cluster_stream_nodes_table
 99:
 www_expr_handlers:
 	.long expr_h_unknown
