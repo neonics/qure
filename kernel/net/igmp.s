@@ -48,9 +48,13 @@ igmp_type:	.byte 0	# lo 4 bits = version; hi 4 bits = type
 	IGMP_TYPE_REPORTv2	= 0x16
 	IGMP_TYPE_LEAVEv2	= 0x17
 	IGMP_TYPE_REPORTv3	= 0x22
-		.byte 0 # unused
+igmpv3_max_resp:.byte 0 # bit7=0: val * 1/10 s; 1: [1 | exp:3 | mant:4 ]: (mant | 0x10) << (exp + 3)
 igmp_checksum:	.word 0
 igmp_addr:	.long 0	# group address
+
+igmpv3_s_qrv:	.byte 0	# [RESV:4 | S:1 | QRV:3 ]; S=suppress router processing;QRV:querier robustness val
+igmpv3_qqic:	.byte 0	# querier query interval code; same semantics as max_resp except in seconds
+igmpv3_numsrc:	.word 0	# nr of source ipv4 addr to follow
 IGMP_HEADER_SIZE = .
 .text32
 
@@ -80,52 +84,95 @@ net_igmp_header_put:
 	ret
 
 
+# in: esi = igmp frame
+# in: ecx = igmp frame len
+# in: edx = ipv4 frame
 net_ipv4_igmp_print:
 	cmp	ecx, IGMP_HEADER_SIZE
-	jnz	9f
+	jb	91f
+
 	push_	eax edx
-	print	"IGMP v"
-	mov	dl, [esi + igmp_type]
-	mov	dh, dl
-	and	dl, 15
-	call	printhex1
-	call	printspace
-	# decode message type
-	mov	ax, 'Q' | '1' << 8
-	cmp	dh, IGMP_TYPE_QUERY 
-	jz	1f
-	mov	ax, 'R' | '1' << 8
-	cmp	dh, IGMP_TYPE_REPORTv1
-	mov	ah, '2'
-	cmp	dh, IGMP_TYPE_REPORTv2
-	mov	ah, '3'
-	cmp	dh, IGMP_TYPE_REPORTv3
-	mov	ax, 'L' | '2' << 8
-	cmp	dh, IGMP_TYPE_LEAVEv2
-	jz	1f
 
-	mov	ax, '?' | '?' << 8
+	printc 11, "IGMPv"
 
-1:	call	printchar
-	printchar_ 'v'
-	mov	al, ah
-	call	printchar
+	mov	ah, [esi + igmp_type]
+	mov	al, '1' # v1
+	cmp	ah, IGMP_TYPE_QUERY
+	jz	10f
+	cmp	ah, IGMP_TYPE_REPORTv1
+	jz	11f
+	inc	al # v2
+	cmp	ah, IGMP_TYPE_REPORTv2
+	jz	11f
+	cmp	ah, IGMP_TYPE_LEAVEv2
+	jz	12f
+	inc	al # v3
+	cmp	ah, IGMP_TYPE_REPORTv3
+	jz	11f
+
+	printc 4, "? unknown type: "
+	mov	dl, ah
+	call	printhex2
+	call	newline
+	jmp	9f
+
+# Leave
+12:	pushstring "Leave "
+	jmp	4f
+# Report
+11:	pushstring "Report"
+	jmp	4f
+# Query
+10:	pushstring "Query "
+	#jmp	4f
+
+########
+4:	call	printchar
 	call	printspace
+	call	_s_print
+	print " ("
+	mov	eax, [edx + ipv4_src]
+	call	net_print_ipv4
+	print "->"
+	mov	eax, [edx + ipv4_dst]
+	call	net_print_ipv4
+	print ") "
 	mov	eax, [esi + igmp_addr]
 	call	net_print_ipv4
 
 	print	" checksum "
 	mov	dx, [esi + igmp_checksum]
 	call	printhex4
+
+	# check if v3
+	cmpb	[esi + igmp_type], IGMP_TYPE_REPORTv3
+	jnz	2f
+
+	.if 0
+		# dump payload as IP's
+		push	ecx
+		sub	ecx, 8
+		shr	ecx, 3
+		jz	1f
+		mov	edx, 8
+	0:	mov	eax, [esi + edx]
+		call	printspace
+		call	net_print_ip
+		loop	0b
+	1:	pop	ecx
+	.endif
+
+2:
+
 	call	newline
 
-0:	pop_	edx eax
+9:	pop_	edx eax
 	ret
 
-9:	printc 4, "IGMP: wrong packet length: "
+91:	printc 4, "IGMP: short packet: "
 	push	ecx
 	call	_s_printdec32
-	printlnc 4, "; should be 8"
+	call	newline
 	STACKTRACE 0,0
 	ret
 
@@ -139,7 +186,7 @@ ph_ipv4_igmp:
 	# verify checksum
 	call	protocol_checksum_verify
 	jc	92f
-
+62:
 	push_	eax edx
 
 	mov	eax, [edx + ipv4_dst]
@@ -156,15 +203,24 @@ ph_ipv4_igmp:
 	jc	93f	# ret: no match
 
 1:	# done with ipv4 frame (edx available)
+
+	call	net_ipv4_igmp_print
+
+
 	mov	dl, [esi + igmp_type]
+	mov	dh, 1 # v1
+	cmp	dl, IGMP_TYPE_QUERY
+	jz	1f
 	cmp	dl, IGMP_TYPE_REPORTv1
 	jz	1f
+	inc	dh # v2
 	cmp	dl, IGMP_TYPE_REPORTv2
 	jz	1f
+	cmp	dl, IGMP_TYPE_LEAVEv2
+	jz	1f
+	inc	dh # v3
 	cmp	dl, IGMP_TYPE_REPORTv3
 	jz	1f
-	cmp	dl, IGMP_TYPE_QUERY
-	jz	2f
 
 .if IGMP_LOG
 	printc 4, "IGMP: unknown type: "
@@ -173,20 +229,10 @@ ph_ipv4_igmp:
 	call	net_ipv4_igmp_print
 .endif
 	jmp	9f
-1:	# report / join
-	printc 15, "IGMP report "
-	jmp	4f
-2:	# query
-	printc 15, "IGMP query "
-	jmp	4f
-3:	# leave
 
-4:	call	net_print_ipv4
-	call	printspace
-	mov	eax, [esp]
-	pushad
-	call	net_ipv4_igmp_print
-	popad
+
+1:	# one of the supported messages.
+	# TODO: handle.
 
 9:	pop_	edx eax
 	ret
@@ -215,6 +261,10 @@ net_igmp_send:
 	# in: eax = destination ip
 	# in: ecx = payload length (without ethernet/ip frame)
 	mov	ecx, IGMP_HEADER_SIZE
+	cmp	dl, IGMP_TYPE_REPORTv3
+	jnz	1f
+	add	ecx, 4
+1:
 	# in: ebx = nic - ONLY if eax = -1!
 	mov	ebx, [cloud_nic]
 	# out: edi = points to end of ethernet+ipv4 frames in packet
@@ -222,12 +272,16 @@ net_igmp_send:
 	# out: esi = destination mac [calculated from eax]
 	call	net_ipv4_header_put
 
-	mov	dl, [esp + 4] # IGMP_TYPE_REPORTv1
+	mov	dl, [esp + 4] # IGMP_TYPE
 	cmp	dl, IGMP_TYPE_QUERY
 	jnz	1f
-	xor	eax, eax	# query zeroed 
+	xor	eax, eax	# zero igmp_addr for query
 1:
-	# in: dl = proto
+	cmp	dl, IGMP_TYPE_REPORTv3
+	jnz	1f
+#	add	edi, 4
+1:
+	# in: dl = msg type
 	# in: eax = group address
 	call	net_igmp_header_put
 
@@ -288,8 +342,12 @@ net_igmp_join:
 
 62:	# report
 	# TODO: timer, repeat
+	mov	dl, IGMP_TYPE_REPORTv3
+	call	net_igmp_send	# in: eax, ebx, dl
 	mov	dl, IGMP_TYPE_REPORTv2
 	call	net_igmp_send	# in: eax, ebx, dl
+	#mov	dl, IGMP_TYPE_REPORTv1
+	#call	net_igmp_send	# in: eax, ebx, dl
 
 0:	pop_	edx ecx
 	ret
