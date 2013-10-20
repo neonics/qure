@@ -1557,7 +1557,7 @@ OBJ_STRUCT_SIZE = .
 		_DECL_CLASS_OVERRIDE_MCOUNT = _DECL_CLASS_OVERRIDE_MCOUNT + 1
 		# do not add new mptr
 	.else
-		.data SECTION_DATA_STRINGS
+		.section .strings
 		999:	.asciz "\name"
 		.section .classdef$md
 			mptr_\name\()_flags:	.word CLASS_METHOD_FLAG_DECLARE
@@ -1645,7 +1645,7 @@ OBJ_STRUCT_SIZE = .
 		.endif
 	.endif
 	#################################################
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	999:	.asciz "\name"
 	#.data SECTION_DATA_CLASSES
 	.section .classdef

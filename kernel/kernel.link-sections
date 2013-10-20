@@ -41,10 +41,11 @@ SECTIONS
 	{
 		KERNEL_DATA_START = . ;
 		*(.data)
-		/*
-		LONG(-1);	
-		*/
-		/* shell_command_code: end of list */
+	}
+
+	.strings :
+	{
+		*(.strings)
 	}
 
 	.classdef :
@@ -59,7 +60,6 @@ SECTIONS
 		*(.classdef$ms)
 		*(.classdef$*)
 		data_classes_end = .;
-
 	}
 
 	.kapi :

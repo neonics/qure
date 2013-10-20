@@ -93,6 +93,15 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 		-o $@.r
 	@#objdump -r -j .text $@.r > $@.reloc.txt
 
+	@# this one produces the .obj.1 using .obj.r
+	@ld $(LD_OPTS) \
+		--script kernel.link \
+		-Map $@.map \
+		--image-base 0 \
+		$@.r \
+		-o $@.1
+
+	@# this one produces the .obj using the original .o files
 	@ld $(LD_OPTS) \
 		--script kernel.link \
 		-Map $@.map \

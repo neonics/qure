@@ -36,7 +36,7 @@ DEFINE=1
 #############################################
 .data SECTION_DATA
 data_ring2_start:; .global data_ring2_start
-.data SECTION_DATA_STRINGS
+.section .strings
 data_ring2_strings_start:; .global data_ring2_strings_start
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_start: # .word vendorId, deviceId
@@ -202,9 +202,9 @@ code_sound_end:
 .endif
 
 #############################################
-.data SECTION_DATA_STRINGS -1
+.data SECTION_DATA_CONCAT # SECTION_DATA_STRINGS -1
 data_ring2_end:; .global data_ring2_end
-.data SECTION_DATA_STRINGS
+.section .strings
 data_ring2_strings_end:; .global data_ring2_strings_end
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_end:; 

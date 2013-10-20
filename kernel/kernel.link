@@ -46,6 +46,7 @@ SECTIONS
 	. = ALIGN(16);
 	KERNEL_DATA_START = . ;
 	*(.data)
+	*(.strings)
 
 	/* -- classdef */
 	data_classes_start = .;

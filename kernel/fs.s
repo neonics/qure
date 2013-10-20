@@ -2085,7 +2085,7 @@ fs_posix_perm_print:
 	movzx	eax, bl
 	rol	ebx, 3
 	and	al, 077
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	posix_file_type_labels$:
 	.byte '0'	# 000
 	.byte 'f'	# 001 fifo

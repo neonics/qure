@@ -287,7 +287,7 @@ net_service_tcp_http:
 1:	# serve custom file:
 	sub	esp, ~3&(MAX_PATH_LEN+3)
 
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	www_docroot$: .asciz "/c/www/"
 	WWW_DOCROOT_STR_LEN = . - www_docroot$
 	.data SECTION_DATA_BSS
@@ -572,7 +572,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	pop	ebp
 	ret
 
-.data SECTION_DATA_STRINGS
+.section .strings
 _mime_text_xml$:	.asciz "text/xml"
 _mime_text_html$:	.asciz "text/html"
 _mime_text_css$:	.asciz "text/css"
@@ -1238,7 +1238,7 @@ expr_get_buffer$:
 	ret
 
 
-.data SECTION_DATA_STRINGS
+.section .strings
 www_h$:		.asciz "HTTP/1.1 "
 www_h2$:	.ascii "\r\nContent-Type: text/html; charset=UTF-8\r\n"
 		.asciz "Connection: Close\r\n\r\n"
@@ -1300,7 +1300,7 @@ www_send_screen:
 	call	strlen_
 	KAPI_CALL socket_write
 
-.data SECTION_DATA_STRINGS
+.section .strings
 _color_css$:
 .ascii "<html><head><style type='text/css'>"
 .ascii "pre {background-color: black}\n"

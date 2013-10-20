@@ -376,7 +376,7 @@ COLOR_STACK_SIZE = 4
 ###### Load String Pointer
 .macro LOAD_TXT txt, reg=esi, lenreg=0, incz=0
 	_CODE_OFFS = .
-	.data SECTION_DATA_STRINGS
+	.section .strings
 		199: .asciz "\txt"
 		198:
 	.section .strtab	# record string reference
@@ -390,7 +390,7 @@ COLOR_STACK_SIZE = 4
 
 .macro PUSH_TXT txt, len=-1
 	_CODE_OFFS = .
-	.data SECTION_DATA_STRINGS
+	.section .strings
 		199: .asciz "\txt"
 		198:
 	.section .strtab
@@ -410,7 +410,7 @@ COLOR_STACK_SIZE = 4
 
 # call from .data
 .macro STRINGPTR n
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	199: .asciz "\n"
 	.section .strtab
 		.long 199b, 198f

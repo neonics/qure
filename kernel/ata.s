@@ -1197,10 +1197,8 @@ ata_print_status$:
 	popcolor
 	pop	dx
 ata_print_status1$:
-	.data SECTION_DATA_STRINGS
-	9:	.ascii "BSY\0 DRDY\0DF\0  DSC\0 DRQ\0 CORR\0IDX\0 ERR\0\0"
-	.text32
 	push	esi
+	LOAD_TXT "BSY\0 DRDY\0DF\0  DSC\0 DRQ\0 CORR\0IDX\0 ERR\0"	# .asciz
 	mov	esi, offset 9b
 #	pushcolor 8
 	call	ata_print_bits$
@@ -1209,9 +1207,6 @@ ata_print_status1$:
 	ret
 
 ata_print_error$:
-	.data SECTION_DATA_STRINGS
-	9: .ascii "BBK\0 UNC\0 MC\0  IDNF\0MCR\0 ABRT\0T0NF\0AMNF\0"
-	.text32
 	push	dx
 	pushcolor 8
 	mov	dl, al
@@ -1220,7 +1215,7 @@ ata_print_error$:
 	pop	dx
 
 	push	esi
-	mov	esi, offset 9b
+	LOAD_TXT "BBK\0 UNC\0 MC\0  IDNF\0MCR\0 ABRT\0T0NF\0AMNF\0"	# .asciz
 	pushcolor 4
 	call	ata_print_bits$
 	popcolor
@@ -2166,7 +2161,7 @@ cmd_disks_print$:
 	or	ah, ah
 	jz	1f
 
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	99:	.asciz ", ", "hd", " (", "ATA", "PI", "UNKNOWN", ")"
 	.text32
 	mov	esi, offset 99b

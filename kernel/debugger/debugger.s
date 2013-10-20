@@ -519,7 +519,7 @@ debug_printsymbol:
 
 
 
-.data SECTION_DATA_STRINGS
+.section .strings
 regnames$:
 .ascii "cs"	# 0
 .ascii "ds"	# 2

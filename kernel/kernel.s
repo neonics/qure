@@ -38,7 +38,7 @@ data_sem_start:
 data_tls_start:
 .data SECTION_DATA_CONCAT
 data_concat_start:
-.data SECTION_DATA_STRINGS
+.section .strings
 data_str_start:
 .if KERNEL_SPLIT_RINGS
 .else
@@ -777,7 +777,7 @@ tls_size: .long _TLS_SIZE
 data_tls_end:
 .data SECTION_DATA_CONCAT
 data_concat_end:
-.data SECTION_DATA_STRINGS
+.section .strings
 data_str_end:
 .if !KERNEL_SPLIT_RINGS
 .data SECTION_DATA_PCI_DRIVERINFO

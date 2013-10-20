@@ -69,7 +69,7 @@ PROTO_STRUCT_SIZE = .
 .text32
 
 .macro DECL_PROTO_STRUCT name, handler1, handler2, flag
-	.data SECTION_DATA_STRINGS # was 2
+	.section .strings
 	99: .asciz "\name"
 	.data SECTION_DATA_CONCAT
 	.long 99b

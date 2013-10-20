@@ -94,7 +94,7 @@ PCI_STATUS_RXD_MASTER_ABORT		= 0b0010000000000000
 PCI_STATUS_TXD_SYSTEM_ERROR		= 0b0100000000000000
 PCI_STATUS_PARITY_ERROR			= 0b1000000000000000
 
-.data SECTION_DATA_STRINGS
+.section .strings
 dc00$: .asciz "Ancient"
 dc01$: .asciz "Mass Storage Controller"
 dc02$: .asciz "Network Controller"
@@ -119,7 +119,7 @@ dc11$: .asciz "Data Acquisition and Signal Processing Controller"
 PCI_MAX_KNOWN_DEVICE_CLASS = 0x11
 
 .macro SUBCLASS subclass, prog_if, devname="", name
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	99: .asciz "\name"
 	88: .asciz "\devname"
 	.data
@@ -397,7 +397,7 @@ _PCI_DECLARATION_NR=0
 	.long 1198f	# longname
 	.long class_\base
 
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	1199:	.asciz "\shortname"
 	1198:	.asciz "\longname"
 	.text32

@@ -115,7 +115,7 @@ DNS_HEADER_SIZE = .
 # .data contains offsets relative to the start of of the stringtable
 # NOTE: the number of strings (max idx) is not recorded!
 .macro STRINGREF8_INIT label
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	\label\()_str$:
 		STRINGREF8_STR_BASE = .
 
@@ -125,7 +125,7 @@ DNS_HEADER_SIZE = .
 .endm
 
 .macro STRINGREF8 string
-	.data SECTION_DATA_STRINGS
+	.section .strings
 		STRINGREF8_STR_OFFS = . - STRINGREF8_STR_BASE
 		.if STRINGREF8_STR_OFFS > 255
 			.error "STRINGREF8: exceed byte limit"
@@ -165,7 +165,7 @@ STRINGREF8 "OPT"	# 41
 
 DNS_TYPE_LABEL_MAX = . - STRINGREF8_IDX_BASE
 
-.data SECTION_DATA_STRINGS
+.section .strings
 dns_type_label_str_end$: 
 .data
 dns_type_label_idx_end$:

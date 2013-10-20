@@ -2460,7 +2460,7 @@ cmd_tasks:
 
 
 task_print_h$:
-.data SECTION_DATA_STRINGS	# a little kludge to keep the string from wrappi
+.section .strings # a little kludge to keep the string from wrapping
 200:
 .ascii "idx pid P addr.... stack... flags... "
 .if TASK_PRINT_2

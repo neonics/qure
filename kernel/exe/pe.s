@@ -1015,7 +1015,7 @@ coff_symtab_print_sc$:
 
 1:	cmp	al, 18
 	ja	9f
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	99: .asciz "NULL", "STCK", "EXT ", "STAT", "REG ","EXTD", "CODE","UNDF"
 	.asciz "SMEM", "ARG ", "STAG", "UMEM", "UTAG", "TDEF", "STTD", "ETAG"
 	.asciz "EMEM", "REGP", "BITF"

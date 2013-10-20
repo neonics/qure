@@ -24,7 +24,7 @@ SHELL_DEBUG_FS = 0
 ############################################################################
 
 .macro CMD_ISARG str
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	79: .asciz "\str"
 	78: 
 	.text32
@@ -53,7 +53,7 @@ shell_command_length: .word 0
 SHELL_COMMAND_STRUCT_SIZE = .
 
 .macro SHELL_COMMAND string, addr
-	.data SECTION_DATA_STRINGS
+	.section .strings
 		9: .asciz "\string"
 		8:
 	.section .shellcmd
@@ -1030,7 +1030,7 @@ cmd_pwd$:
 	call	println
 	ret
 
-.data SECTION_DATA_STRINGS
+.section .strings
 cmd_help_intro$:
 .ascii "For usage, run a command with -? or --help; -h works too except for"
 .asciz "commands\nfor which it is a valid argument.\n"
@@ -2005,7 +2005,7 @@ cmd_pic:
 	mov	dx, ax
 	call	printbin16
 	call	newline
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	1: .asciz "TIMR","KEYB","CASC","COM2","COM1","LPT2","FPLY","LPT1"
 	.asciz "RTC\0", "FRE1", "FRE2","FRE3","PS2M","FPU\0", "ATA0","ATA1"
 	.text32

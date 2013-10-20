@@ -143,7 +143,7 @@ cmos_list:
 	PRINTCHAR ' '
 	xor	eax, eax
 	CMOS_READ 6
-	.data SECTION_DATA_STRINGS
+	.section .strings
 	day_of_week$: .ascii "Sun\0Mon\0Tue\0Wed\0Thu\0Fri\0Sat\0"
 	.text32
 	lea	esi, [day_of_week$ + eax*4 - 4]
