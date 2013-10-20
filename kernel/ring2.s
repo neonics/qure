@@ -1,5 +1,3 @@
-.ifdef RING2_INCLUDED
-.else
 
 .include "defines.s"
 .include "macros.s"
@@ -7,6 +5,7 @@
 .text32
 .global code_ring2_inc_start
 code_ring2_inc_start:
+
 DEFINE=0
 .include "debugger/export.s"
 .include "print.s"
@@ -29,7 +28,8 @@ DEFINE=0
 
 .global code_ring2_inc_end
 code_ring2_inc_end:
-.endif
+
+
 DEFINE=1
 
 
@@ -85,10 +85,6 @@ include "sound/es1371.s", es1371
 include "sound/sb.s", sb
 code_sound_end:
 
-
-
-.ifdef RING2_INCLUDED
-.else
 ############# exports
 .global cmd_gfx
 .global gfx_mode
@@ -199,13 +195,9 @@ code_sound_end:
 .global data_pci_driverinfo_start
 .global data_pci_driverinfo_end
 
-.endif
-
 #############################################
 .data SECTION_DATA_CONCAT # SECTION_DATA_STRINGS -1
 data_ring2_end:; .global data_ring2_end
-.section .strings
-data_ring2_strings_end:; .global data_ring2_strings_end
 .data SECTION_DATA_PCI_DRIVERINFO
 data_pci_driverinfo_end:; 
 .data SECTION_DATA_BSS

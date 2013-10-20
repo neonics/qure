@@ -46,6 +46,7 @@ SECTIONS
 	.strings :
 	{
 		*(.strings)
+		data_ring2_strings_end = .;
 	}
 
 	.classdef :

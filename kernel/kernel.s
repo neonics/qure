@@ -2,14 +2,6 @@
 
 KERNEL_MIN_STACK_SIZE	= 0x1000	# needs to be power of 2!
 
-KERNEL_SPLIT_RINGS = __KERNEL_SPLIT_RINGS # compiler argument --defsym __K...=1
-
-.if KERNEL_SPLIT_RINGS
-#.print "Kernel: multiple object files"
-.else
-#.print "Kernel: single object file"
-.endif
-
 .include "defines.s"
 .include "macros.s"
 
@@ -29,6 +21,9 @@ kernel_code_start:
 kernel_rm_code_start:
 .data16
 data16_start:
+data16_data_start:
+.data16 1
+data16_str_start:
 .data
 kernel_data_start:
 data_0_start:
@@ -40,15 +35,6 @@ data_tls_start:
 data_concat_start:
 .section .strings
 data_str_start:
-.if KERNEL_SPLIT_RINGS
-.else
-.data SECTION_DATA_PCI_DRIVERINFO
-data_pci_driverinfo_start:
-# .word vendorId, deviceId
-# .long driver_constructor
-# .long name
-# .long 0	# alignment - total size: 16 bytes
-.endif
 .data SECTION_DATA_FONTS
 data_fonts_start:
 .data SECTION_DATA_STATS
@@ -112,7 +98,6 @@ include "dma.s", dma
 #include "fs/iso9660.s", iso9660
 
 
-.if KERNEL_SPLIT_RINGS
 	.global pci_get_device_subclass_info
 
 	# idt
@@ -334,11 +319,6 @@ include "dma.s", dma
 
 
 	##########
-.else
-	.print "<< ring2 included >>"
-	RING2_INCLUDED=1
-	.include "ring2.s"
-.endif
 
 include "gfx.s", gfx
 include "vmware/vmware.s", vmware
@@ -765,6 +745,10 @@ kernel_pm_code_end:
 .text16
 kernel_rm_code_end:
 .data16
+data16_data_end:
+.data16 1
+data16_str_end:
+.data16 99
 data16_end:
 .data
 data_0_end:
@@ -779,10 +763,6 @@ data_tls_end:
 data_concat_end:
 .section .strings
 data_str_end:
-.if !KERNEL_SPLIT_RINGS
-.data SECTION_DATA_PCI_DRIVERINFO
-data_pci_driverinfo_end:
-.endif
 .data SECTION_DATA_FONTS
 data_fonts_end:
 .data SECTION_DATA_STATS

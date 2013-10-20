@@ -47,6 +47,7 @@ SECTIONS
 	KERNEL_DATA_START = . ;
 	*(.data)
 	*(.strings)
+	data_ring2_strings_end = .;
 
 	/* -- classdef */
 	data_classes_start = .;

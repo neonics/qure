@@ -15,7 +15,7 @@ KERNEL_SPLIT_RINGS=1
 
 GIT = /usr/bin/git	# i have a wrapper script in my path
 
-AS_DEFS = --defsym __KERNEL_SPLIT_RINGS=$(KERNEL_SPLIT_RINGS)
+AS_DEFS = # --defsym __KERNEL_SPLIT_RINGS=$(KERNEL_SPLIT_RINGS)
 
 # i486 due to bswap (and cmpxchg)
 AS = as --32 -march=i486 -n --warn --fatal-warnings --gstabs --MD kernel.dep $(AS_DEFS)
@@ -39,15 +39,7 @@ LD_OPTS = -nostartfiles -nodefaultlibs -nostdlib --exclude-libs ALL \
 	--no-leading-underscore --no-undefined --no-demangle --no-define-common \
 	--warn-section-align
 
-KERNEL_OBJECTS = kernel.o fs/oofs/oofs.o
-
-ifeq ($(KERNEL_SPLIT_RINGS),1)
-KERNEL_OBJECTS += ring2.o
-LD = ld $(LD_OPTS) #-r
-else
-#LD = cp $< $@
-LD = ld $(LD_OPTS) #-r
-endif
+KERNEL_OBJECTS = kernel.o ring2.o
 
 # a fixup routine that adjusts the size for the section headers of structures.
 # I have not found a way to specify section padding to AS, nor to change it
@@ -166,11 +158,12 @@ ring1.o: ring1.s
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
 
-ring2.o: ring2.s defines.s macros.s $(DBG_SRC) print.s \
+ring2_.o: ring2.s defines.s macros.s $(DBG_SRC) print.s \
 		gdt.s mutex.s oo.s schedule.s \
 		lib/hash.s \
 		export.h \
 		kapi/export.h \
+		fs/oofs/export.h \
 		dev.s \
 		pci.s pic.s dma.s ata.s \
 		shell.s keycodes.s \
@@ -183,6 +176,10 @@ ring2.o: ring2.s defines.s macros.s $(DBG_SRC) print.s \
 		$(NET_SRC)
 	@echo "  AS    $@"
 	@$(AS) -o $@ $<
+	@$(call FIXUP,$@)
+
+ring2.o: ring2_.o fs/oofs/oofs.o
+	@ld -r -o $@ $^
 	@$(call FIXUP,$@)
 
 ring3.o: ring3.s

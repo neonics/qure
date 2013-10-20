@@ -2063,54 +2063,64 @@ cmd_mem$:
 		call	print_memrange$
 	.endm
 
-	mov	ecx, offset .text	# relocation; end addr of prev entry
+	mov	ecx, [reloc$] 	# relocation; end addr of prev entry
+				# can't use .text as it will use ring2 text start
 	PRINT_MEMRANGE KERNEL_CODE16 uc=1#kernel_rm_code
-	PRINT_MEMRANGE data16
+	PRINT_MEMRANGE data16_data
+	PRINT_MEMRANGE data16_str
+	# align4 new section
+	add	ecx, 3
+	and	cl, ~3
 	PRINT_MEMRANGE KERNEL_CODE32 uc=1#kernel_pm_code
 
 	test	dword ptr [ebp], CMD_MEM_OPT_CODESIZES
 	jz	2f
 
 	mov	ecx, offset code_print_start
-	printlnc 14, "RING0"
+	printlnc 14, "RING0 code"
 	.irp _, print,debug,pmode,paging,kapi,pit,keyboard,console,hash,mem,buffer,string,scheduler,tokenizer,oo,bios,cmos,dma,gfx,vmware,shell,debugger,kernel
 	PRINT_MEMRANGE code_\_\(), indent="  "
 	.endr
 
-	printlnc 14, "RING2"
-	# new object, align:
-	add	cl, 3
-	and	cl, ~3
-	PRINT_MEMRANGE code_oofs, indent="  "
+	printlnc 14, "RING2 code"
 	# new object, align:
 	add	cl, 3
 	and	cl, ~3
 	.irp _,ring2_inc,dev,pci,ata,partition,fs,fs_fat,fs_iso9660,fs_sfs,fs_oofs,nic,net,vid,usb,southbridge,vbox,sound
 	PRINT_MEMRANGE code_\_\(), indent="  "
 	.endr
+	# new object, align:
+	add	cl, 3
+	and	cl, ~3
+	PRINT_MEMRANGE code_oofs, indent="  "
 
-2:	# data section: align
-#	add	cl, 3
-#	and	cl, ~3
+2:	printlnc 14, "RING0 data"
+	# data section: align 16
+	add	ecx, 15
+	and	cl, ~15
 	PRINT_MEMRANGE data_0
 	PRINT_MEMRANGE data_sem
 	PRINT_MEMRANGE data_tls
 	PRINT_MEMRANGE data_concat
 	#PRINT_MEMRANGE data_concat within data0's range
-	PRINT_MEMRANGE data_str
 	PRINT_MEMRANGE data_fonts
 	PRINT_MEMRANGE data_stats
+	# bss section
 	PRINT_MEMRANGE data_bss
-	printlnc 14, "RING2"
+	printlnc 14, "RING2 data"
 	PRINT_MEMRANGE data_ring2
-	PRINT_MEMRANGE data_ring2_strings
 	PRINT_MEMRANGE data_pci_driverinfo
 	PRINT_MEMRANGE data_ring2_bss
 
-	# new obj, align
-	add	cl, 3
+	printlnc 14, "CORE"
+	add	ecx, 4
 	and	cl, ~3
+	PRINT_MEMRANGE data_str
+	PRINT_MEMRANGE data_ring2_strings
 
+	# new obj, align
+	add	ecx, 3
+	and	cl, ~3
 	PRINT_MEMRANGE data_classes
 	PRINT_MEMRANGE data_kapi
 	PRINT_MEMRANGE data_shell_cmds
