@@ -765,3 +765,5 @@ TODO: DNS: lowercase query support (62.152.117.90: cLouD.nEoNiCS.Com)
 
 TODO: kernel/mem.s: update 'mem -s -c': fix order.
 
+
+TODO: sometimes calling host <ip> prints HTTP response/requests.

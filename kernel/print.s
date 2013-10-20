@@ -1841,11 +1841,17 @@ sprint_size_:
 
 ##############################################################################
 # Printing Time-periods
+.global print_time_s_sparse
+print_time_s_sparse:
+	pushd	1	# short flag
+	jmp	1f
+# KEEP-WITH-NEXT 1f
 
 .global print_time_s
 # in: eax = seconds (edx ignored)
 print_time_s:
-	push_	ebx edx eax
+	pushd	0	# long flag
+1:	push_	ebx edx eax
 ######################################
 	# years
 	cmp	eax, 52*7*24*60*60
@@ -1867,6 +1873,12 @@ print_time_s:
 	xchg	eax, edx
 	cmp	dl, 10
 	jae	3f
+		testb	[esp + 12], 1	# long flag
+		jz	4f		# no skip
+		or	edx, edx
+		jz	2f		# no print if 0
+		jmp	3f
+	4:
 	printchar '0'
 3:	call	printdec32
 	printcharc 8,'w'
@@ -1879,6 +1891,11 @@ print_time_s:
 	mov	ebx, 24*60*60
 	idiv	ebx
 	xchg	eax, edx
+		testb	[esp + 12], 1	# long flag
+		jz	4f		# no skip
+		or	edx, edx
+		jz	2f		# no print if 0
+	4:
 	call	printdec32
 	printcharc 8, 'd'
 	jmp	2f
@@ -1892,6 +1909,12 @@ print_time_s:
 	xchg	eax, edx
 	cmp	dl, 10
 	jae	3f
+		testb	[esp + 12], 1	# long flag
+		jz	4f		# no skip
+		or	edx, edx
+		jz	2f		# no print if 0
+		jmp	3f
+	4:
 	printchar '0'
 3:	call	printdec32
 	printcharc 8, 'h'
@@ -1906,16 +1929,28 @@ print_time_s:
 	xchg	eax, edx
 	cmp	dl, 10
 	jae	3f
+		testb	[esp + 12], 1	# long flag
+		jz	4f		# no skip
+		or	edx, edx
+		jz	1f		# no print if 0
+		jmp	3f
+	4:
 	printchar '0'
 3:	call	printdec32
 	printcharc 8, 'm'
 ######################################
 1:	# seconds
 	mov	edx, eax
+		testb	[esp + 12], 1	# long flag
+		jz	4f		# no skip
+		or	edx, edx
+		jz	9f		# no print if 0
+	4:
 	call	printdec32
 	printcharc 8, 's'
 ######################################
 9:	pop_	eax edx ebx
+	add	esp, 4
 	ret
 
 

@@ -426,25 +426,99 @@ dns_print_answer$:
 	mov	edx, eax
 	call	printdec32
 
-	print " addr "
+	# get type/class again for formatting data
+	mov	edx, [esi - 8]
+	bswap	edx
+
+	# data len follows:
 	xor	eax, eax
 	lodsw
 	xchg	al, ah
+
+# eax = data len
+# edx = DNS_TYPE << 16 | DNS_CLASS
+	cmp	edx, DNS_TYPE_A << 16 | DNS_CLASS_IN
+	jz	1f
+
+	cmp	edx, DNS_TYPE_SOA << 16 | DNS_CLASS_IN
+	jz	2f
+	print " unimplemented"
+	jmp	9f
+
+# SOA
+2:	print " SOA "
+	mov	ecx, eax	# data len
+	# fields follow:
+	# - byte len; char[len] primary_name_server; byte 0;		# .byte 9;.asciz "localhost"
+	# - byte len; char[len] responsible_authoritys_mailbox;.byte 0	# .byte 4;.asciz "root"
+	# - .long serial nr		# 1
+	# - .long refresh_interval	# 0x00093a80 (7 days: 7*24*3600)
+	# - .long retry_interval	# 1 day
+	# - .long expiration_limit	# 28 days
+	# - .long min_ttl		# 7 days
+
+	# print mailbox@nameserver
+	xor	eax, eax
+	lodsb			# len byte
+	push	esi		# primary name server
+	add	esi, eax
+	inc	esi		# skip zero
+
+	xor	eax, eax
+	lodsb			# len byte
+	push	esi		# mailbox
+	add	esi, eax
+	inc	esi		# skip zero
+
+	call	_s_print	# mailbox
+	printchar_ '@'
+	call	_s_print
+
+	print " serial "
+	lodsd
+	bswap	eax
+	mov	edx, eax
+	call	printdec32	# sometimes dates encoded in decimal
+
+	print " refresh "
+	lodsd
+	bswap	eax
+	call	print_time_s_sparse
+	print " retry "
+	lodsd
+	bswap	eax
+	call	print_time_s_sparse
+	print " expiration "
+	lodsd
+	bswap	eax
+	call	print_time_s_sparse
+	print " min_ttl "
+	lodsd
+	bswap	eax
+	call	print_time_s_sparse
+
+	jmp	9f
+
+
+# network address
+1:	print " addr "
 	cmp	ax, 4	# ipv4
 	jnz	1f
+# ipv4 address
 	lodsd
 	call	net_print_ip
-	call	newline
-	ret
-
+	jmp	9f
+# non-ipv4 address
 1:	mov	ecx, eax
+	# TODO: check ecx size fits ipv6
 0:	lodsb
 	movzx	edx, al
 	call	printdec32
 	mov	al, ':'
 	call	printchar
 	loop	0b
-	call	newline
+
+9:	call	newline
 	ret
 
 # in: edi = dns frame
@@ -1087,8 +1161,9 @@ dns_resolve$:
 		mov	ax, [esi + dns_flags]
 		xchg	al, ah
 		and	ax, DNS_FLAG_QR | DNS_RCODE_MASK
-		cmp	ax, DNS_FLAG_QR
-		jnz	1f
+		cmp	ax, DNS_FLAG_QR	# and RCODE==0
+		stc
+		jnz	91f	# 
 		.if NET_DNS_DEBUG > 1
 			DEBUG "flags"
 		.endif
@@ -1101,7 +1176,6 @@ dns_resolve$:
 		shr	ebx, 16
 		cmp	ebx, 1
 		jnz	1f
-
 		.if NET_DNS_DEBUG > 1
 			DEBUG "q/a"
 		.endif
@@ -1262,7 +1336,9 @@ dns_resolve$:
 7:
 	pop	eax
 
-0:	KAPI_CALL socket_close
+0:	pushf	# preserve CF
+	KAPI_CALL socket_close
+	popf
 	mov	eax, edx
 	.if NET_DNS_DEBUG > 1
 		DEBUG_DWORD eax, "resolve: ip"
@@ -1272,6 +1348,10 @@ dns_resolve$:
 	pop	edx
 	pop	edi
 	ret
+
+91:	xor	edx, edx	# response error
+	stc
+	jmp	7b
 
 8:	printlnc 4, "socket read timeout"
 	xor	edx, edx

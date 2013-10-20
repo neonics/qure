@@ -703,7 +703,7 @@ cmd_host:
 	jc	1f
 
 	call	dns_resolve_ptr	# out: eax = mallocced stringbuf
-	jc	0f
+	jc	91f
 	mov	esi, eax
 	call	println
 	call	mfree
@@ -718,8 +718,8 @@ cmd_host:
 9:	printlnc 12, "usage: host <hostname>"
 	stc
 	jmp	0b
+91:	printlnc 12, "host not found "
 	ret
-
 ##############################################################################
 
 NET_RX_QUEUE = 1
