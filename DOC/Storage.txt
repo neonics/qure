@@ -1,0 +1,57 @@
+Storage
+=======
+
+	dev
+	+ dev_blk
+	  + partition
+
+Devices
+-------
+
+Block devices: disk
+Character devices: memory, network, keyboard
+
+Persistence
+-----------
+A persistence object provides device IO using an addressing scheme.
+
+	read( offset, size, buffer )
+	write( offset, size, buffe )
+
+Partition extends Device implements Persistence
+----------
+
+A partition object extends a block device and stores a region (LBA, sectors).
+Anything wanting to read or write must go through the partition which verifies
+the range, and passes the request to the device, adjusting the LBA.
+
+
+Filesystems
+-----------
+
+A filesystem may extend a partition, but does not have to.
+A filesystem may be mounted using a device or file.
+
+A filesystem defines a field for a persistence provider.
+The persistence provider provides read/write support based on addressing.
+
+	fs_read( handle, offset, size, buffer)
+	fs_write( handle, offset, size, buffer)
+
+File implements Persistence
+---------------------------
+
+	new( handle ) { this.handle = handle; }
+	read( offset, size, buffer) { fs_read( handle, @* ); }
+	write( offset, size, buffer) { fs_write( handle, @* ); }
+
+
+Mounting
+--------
+Using something like the above strategy, a 'mount -o loop mountpoint file' can
+be implemented easily, using the syntax 'mount mountpoint file'.
+
+The root filesystem is consulted to locate file. If it is a device or partition,
+mounting proceeds as usual.
+If it is a file element of a filesystem, a File_Persistence proxy is instantiated
+with the file handle.

@@ -1,0 +1,161 @@
+GitFS
+=====
+
+Objects
+-------
+
+Objects are key/value pairs.
+Each object's key is a 20 byte SHA1 hash, calculated over the value.
+
+The value or object payload is prepended with the object type and payload size.
+
+In Git, this is efficient, however, in GitFS, type and payload size are stored
+in the hash table.
+
+20 byte array index:
+
+	lea	eax, [eax * 4]
+	lea	eax, [eax * 4 + eax]
+
+40 byte:
+	lea	eax, [eax * 8]
+	lea	eax, [eax * 4 + eax]
+
+Object type can be limited to a single byte - only 3 or so bits are needed.
+Object size is reserved to be 8 bytes. This brings a total of 29 bytes.
+
+The value is the file content, and is referenced by a byte offset into the
+filesystem/parition.
+Keys are stored together, aswell as values.
+
+Hash Table
+----------
+	// kilo mega giga tera peta exa
+	struct key {
+		sha1: .space 20
+		lba:  .qword 0	# 2^64/1024^6 = 16 exabytes
+		size: .qword 0
+		reserved: .space 4
+	} // structure size: 36+4 bytes.
+
+
+The hash table consists of 40byte entries starting with a 20 byte SHA1 hash.
+
+This leaves 32 bytes in each 512 byte sector storing 20 entries.
+
+This allows for two 16 byte entries, each of which consisting of lba and size,
+pointing to the next and previous sectors.
+
+
+Linked Hash Table
+-----------------
+Ideally all hashes are sorted for quick searches.
+
+	struct hash {
+		struct key keys[12];	// 480
+		next: .qword 0		// 8
+		prev: .qword 0		// 8
+		# 2 qwords (16 bytes) left
+	}
+
+Each time a sector contains more than 12 entries, is is split.
+The second half of the entries are moved to a second sector thus freeing up
+space in both sectors.
+Both sectors refer to each other in their next/prev fields respectively.
+
+
+
+Sectors
+=======
+
+The Volume sector (0) is reserved and contains pointers to critical regions:
+	- the hash table
+
+
+
+Blob Object
+-----------
+A blob object is a file. 
+
+---------------------------------------------------
+AGAIN
+---------------------------------------------------
+Limiting disk size to 2Tb and object size to 4Gb:
+
+	struct key {
+		sha1: .space 20
+		lba: .long 0
+		size: .long 0
+		type: .long 0
+	} // struct size: 32 bytes: 32 * 16 = 512
+
+	struct key {
+		sha1: .space 20
+		lba: .long 0
+		size: .long 0
+	} // struct size: 28 bytes: 18 * 28 + 8 = 512
+
+
+	struct key {
+		sha1: .space 20
+		lba: .long 0
+	} // struct size: 24 bytes: 21 * 24 + 8 = 512
+
+ALL references are SHA1 hashes.
+
+Compact Hash Table
+------------------
+
+	struct hash {
+		sha1 list[20];
+		// 12 bytes left in sector
+	}
+
+
+	struct info {
+		offset, size
+	}
+
+
+	struct index2 {
+		start: 	.word 0	# first 4 bytes of SHA1
+		end:   	.word 0	# first 4 bytes of SHA1
+		lba:	.long 0
+	}
+
+The hash structure contains a sorted hash list. The zero hash means the rest of the
+sector has no more hashes.
+
+The info array is maintained parallel and not kept in memory, but loaded as needed.
+The index in the SHA1 array is the index in the info array.
+
+The index2 structure is maintained as a list indicating which sectors contain
+which hashes.
+
+When there is only one hash sector, there will be one index2 structure, where
+start = 0000 and end = ffff.
+
+
+	findhash(h)
+	{
+		foreach ( index in indexes )
+		{
+			if index.start <= h[0,2] && index.end >= h[0,2]
+			{
+				hashsector = load( index.lba, 1 );
+				i = findhash( h, hashsector );
+			}
+		}
+		return -1;
+	}
+
+	findhash(h, hashsector)
+	{
+		for ( i = 0..19 )
+			if ( sha1[i] == h )
+				return i;
+		return -1;
+	}
+
+This however poses a problem with the info array.
+
