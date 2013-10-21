@@ -96,6 +96,7 @@ MAX_PATH_LEN = 1024
 .global mtab_fs_instance
 .global mtab_mountpoint
 .global mtab_get_fs
+.global mtab_get_mountpoint
 
 .global fs_update_path
 .global fs_list_filesystems
@@ -229,6 +230,21 @@ mtab_get_fs:
 	call	class_ref_inc
 	clc
 0:	pop_	ecx esi edi ecx ebx	# yes, ecx
+	ret
+
+# in: eax = mounted class_fs instance
+# out: esi = mountpoint or -1 when CF
+# out: CF
+mtab_get_mountpoint:
+	push_	ebx edx
+	ARRAY_LOOP [mtab], MTAB_ENTRY_SIZE, ebx, edx, 9f
+	mov	esi, [ebx + edx + mtab_mountpoint]
+	cmp	eax, [ebx + edx + mtab_fs_instance]
+	jz	9f
+	ARRAY_ENDL
+	mov	esi, -1
+	stc
+9:	pop_	edx ebx
 	ret
 
 

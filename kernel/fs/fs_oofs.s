@@ -285,7 +285,7 @@ cmd_oofs:
 		CMD_ISARG "save"
 		jz	oofs_save$
 
-		# other commands have common argument: class
+		# other commands have common argument: class or index
 		mov	ecx, eax	# backup
 		lodsd
 		or	eax, eax
@@ -294,7 +294,7 @@ cmd_oofs:
 		call	htoi
 		jc	3f
 		xor	edx, edx	# class null
-		xchg	eax, ecx	# ecx=lba start, eax=restore
+		xchg	eax, ecx	# ecx=entry index, eax=restore
 		jmp	4f
 
 
@@ -323,8 +323,24 @@ cmd_oofs:
 	ARRAY_ENDL
 9:	ret
 
-91:	printlnc 4, "usage: oofs [mountpoint [command class [args]]]"
-	printlnc 4, "  commands: add drop resize save"
+91:	pushcolor 12
+	.section .strings
+	10:
+	.ascii "usage: oofs [mountpoint [command class [args]]]\n"
+	.ascii "  commands: add drop resize save\n"
+	.ascii "\n\\c\x0f  save\n"
+	.ascii "\t\\c\x07persists oofs_vol and oofs_table\n"
+	.ascii "\n\\c\x0f  drop (class|index_hex)\n"
+	.ascii "\t\\c\x07unloads object if loaded, removes classname from oofs_table,\n"
+	.ascii "\tand merges the entry with free space if it is the last.\n"
+	.byte 0
+	.text32
+
+	pushd	offset 10b
+	call	printf
+	add	esp, 4
+	call	newline
+	popcolor
 	ret
 
 92:	printc 4, "not a class: "
@@ -361,27 +377,16 @@ oofs_save$:
 
 # in: ebx = root oofs instance
 # in: edx = subclass of oofs or 0
-# in: ecx = start lba of entry (of edx == 0)
+# in: ecx = entry index (if edx==0)
 oofs_drop$:
 	mov	eax, ebx
-	DEBUG_CLASS
 
 	or	edx, edx
 	jnz	2f
 	# find entry with start lba
-	push	ebx
 	mov	ebx, ecx	# in: ebx = start lba
-	call	oofs_get_by_lba	# out: ebx = entry index
-	mov	edx, ebx
-	pop	ebx
-	jc	93f
-	printc 15, "FOUND: entry "
-	call	printhex8
-
-	push	ebx
-	mov	ebx, edx
 	call	[eax + oofs_vol_api_delete]
-	pop	ebx
+	jc	91f
 
 	call	newline
 	jmp	3f
@@ -436,8 +441,48 @@ oofs_drop$:
 	jmp	66b
 
 oofs_add$:
-	printlnc 4, "add not implemented"
+	printc 11, "ADD "
+	pushd	[edx + class_name]
+	call	_s_print
+
+	# check args
+	mov	ecx, eax	# backup this
+	lodsd
+	or	eax, eax
+	jz	1f
+	call	atoi
+	jc	91f
+	cmpd	[esi], 0	# end of args
+	jnz	92f
+
+1:	xchg	eax, ecx	# eax = this, ecx = numsect
+	or	ecx, ecx
+	jnz	1f
+	inc	ecx
+1:
+	printc 11, " numsect "
+	mov	edx, ecx
+	call	printdec32
+	call	newline
+
 	jmp	66b
+
+91:	printc 12, "expect decimal number: "
+	pushd	[esi - 4]
+	call	newline
+	jmp	66b
+92:	printc 4, "trailing arguments: "
+	lodsd
+1:	push	eax
+	call	_s_print
+	call	printspace
+	lodsd
+	or	eax, eax
+	jnz	1b
+	call	newline
+	jmp	66b
+
+
 
 oofs_resize$:
 	printlnc 4, "resize not implemented"

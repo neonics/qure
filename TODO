@@ -739,7 +739,7 @@ TODO: upgrader [depends installer]
 
 TODO: dynamic load balanced name/uptime service
 
-	1) local discovery: LAN broadcasts to detect other instances
+	1) [DONE] local discovery: LAN broadcasts/multicasts to detect other instances
 	2) public legacy DNS lookup, register with/as NS, xfer
 
 
@@ -763,7 +763,9 @@ FIXED: fix HTTPD memleak: 20 bytes per request, only with Firefox (not with netc
 
 TODO: DNS: lowercase query support (62.152.117.90: cLouD.nEoNiCS.Com)
 
-TODO: kernel/mem.s: update 'mem -s -c': fix order.
-
-
 TODO: sometimes calling host <ip> prints HTTP response/requests.
+
+TODO: timing: cloudnet: hosts that have been suspended have incorrect time,
+	showing up as uptime of other (just booted) nodes as negative,
+	wrapping to 136y. cmd_date is accurate, but PIT time + boot_time is not.
+
