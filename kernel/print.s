@@ -2262,6 +2262,47 @@ sprint_time_ms_40_24:
 ############################ PRINT FORMATTED STRING ###########
 PRINTF_DEBUG = 0
 
+##############
+# printf format strings:
+#
+#  %%	% character
+#
+#  %[modifiers][width-specifier][type]
+#
+#  modifiers: '-', '+', '#', '0', and ' ' (ignored at current).
+#  width-specifier: decimal number (/\d+/) or stack ref '*'
+#
+#  Examples:
+#
+#	%+2d
+#	%-2d
+#	%03d
+#	%*d	# * takes width specifier from stack
+#
+# types:
+#
+#  s	string pointer
+#  d	long integer
+#  h	long hex
+#  l	lowercase long hex
+#  L	uppercase
+#
+#
+#  Special characters:
+#
+#  \n	newline
+#  \r	ignored
+#  \t	prints 8 spaces
+#
+#  Escapes:
+#
+#  \cX	i.e., .ascii "\\cX", a 3 byte sequence of \, c and X, sets the color
+#       to X. Typically to produce X you would write "\xf4" which creates byte
+#       0xf4, setting background color to 15 (white) and foreground to 4 (red).
+#
+# 	NOTE that X=0 (black on black) is treated as the end of the string.
+#
+
 # in: stack
 printf:
 	push	ebp
@@ -2474,23 +2515,41 @@ printf:
 	or	al, al
 	jz	2f
 	cmp	al, 'n'
-	je	1f
-	call	newline
+	jz	11f
+	cmp	al, 'r'	# ignore
+	jz	2b
+	cmp	al, 'c'
+	jz	12f
+
+	# print unsupported escape
+11:	call	newline
 	jmp	2b
 
-1:	cmp	al, 'r'	# ignore
-	jne	1f
+12:	lodsb	# load color value
+	or	al, al
+	jz	2f
+	COLOR al
+	jmp	2b
 
-1:	# print unsupported escape 
 
+##########################
 0:	# the compiler already escapes \ characters, so we'll check
 	# for the literal:
 	cmp	al, '\n'
 	jne	1f
 	call	newline
 	jmp	2b
-1:
-
+1:	cmp	al, '\r'
+	jz	2b	# ignore
+	cmp	al, '\t'
+	jnz	0f
+	# for now just print 8 spaces as we haven't kept track
+	push_	ecx
+	mov	ecx, 8
+	10: call printspace
+	loop 10b
+	pop_	ecx
+	jmp	2b
 
 0:
 	.if 0
