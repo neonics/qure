@@ -3,13 +3,7 @@
 
 OOFS_HASH_DEBUG = 1
 
-.global class_oofs_table
-.global oofs_hashidx_size	# for debug
-
-.global oofs_hashidx_api_add
-.global oofs_hashidx_api_delete
 .global oofs_hashidx_api_lookup
-.global oofs_hashidx_api_get_obj
 
 .struct 0
 hashidx_start: .word 0
@@ -19,7 +13,6 @@ hashidx_lba: .long 0
 DECLARE_CLASS_BEGIN oofs_hashidx, oofs_array
 
 DECLARE_CLASS_METHOD oofs_api_init, oofs_hashidx_init, OVERRIDE
-DECLARE_CLASS_METHOD oofs_api_print, oofs_hashidx_print, OVERRIDE
 
 DECLARE_CLASS_METHOD oofs_persistent_api_load, oofs_hashidx_load, OVERRIDE
 DECLARE_CLASS_METHOD oofs_array_api_print_el, oofs_hashidx_print_el, OVERRIDE
@@ -48,7 +41,7 @@ oofs_hashidx_init:
 
 oofs_hashidx_verify$:
 1:	push_	esi eax edx
-	lea	esi, [eax + oofs_hashidx_list]
+	lea	esi, [eax + oofs_array_list]
 	xor	dx, dx
 0:	lodsw
 		DEBUG_WORD ax, "from"
@@ -98,10 +91,10 @@ oofs_hashidx_load:
 oofs_hashidx_lookup:
 	push_	edi esi
 	mov	esi, edx
-	lea	edi, [eax + oofs_hashidx_list]
+	lea	edi, [eax + oofs_array_list]
 
 	push_	edx eax
-	mov	ecx, [eax + oofs_hashidx_size]
+	mov	ecx, [eax + oofs_array_count]
 	mov	eax, [esi]	# get start of hash
 0:	mov	edx, [edi]
 	cmp	ax, dx	#[edi + hashidx_start]
@@ -135,7 +128,7 @@ oofs_hashidx_lookup:
 	mov	eax, offset class_oofs_hash
 	call	class_newinstance
 	jc	0b
-	call	[eax + oofs_persistence_load]
+	call	[eax + oofs_persistent_api_load]
 	jc	91f
 	mov	esi, edx
 	call	[eax + oofs_hash_lookup]

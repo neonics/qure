@@ -15,7 +15,7 @@ oofs_array_shift:	.byte 0	# must be set by subclass before calling super().
 
 oofs_array_persistent:	# local separator, for subclasses to use.
 oofs_array_count:	.long 0
-oofs_array_header_end:
+oofs_array_persistent_header_end:
 
 oofs_array_list:
 
@@ -29,9 +29,7 @@ DECLARE_CLASS_METHOD oofs_persistent_api_load, oofs_array_load, OVERRIDE
 DECLARE_CLASS_METHOD oofs_persistent_api_save, oofs_array_save, OVERRIDE
 DECLARE_CLASS_METHOD oofs_persistent_api_onload, oofs_array_onload, OVERRIDE
 
-DECLARE_CLASS_METHOD oofs_array_api_add, oofs_array_add
-DECLARE_CLASS_METHOD oofs_array_api_delete, oofs_array_delete
-DECLARE_CLASS_METHOD oofs_array_api_lookup, oofs_array_lookup
+DECLARE_CLASS_METHOD oofs_array_api_iterate, oofs_array_iterate
 DECLARE_CLASS_METHOD oofs_array_api_print_el, 0	# abstract class
 DECLARE_CLASS_END oofs_array
 #################################################
@@ -66,9 +64,9 @@ oofs_array_save:
 	mov	cl, [eax + oofs_array_shift]
 	shl	esi, cl
 	mov	ecx, esi
-	add	ecx, offset oofs_array_header_end - offset oofs_array_persistent
+	add	ecx, offset oofs_array_persistent_header_end - offset oofs_array_persistent
 	lea	esi, [eax + oofs_array_persistent]
-	call	[eax + oofs_persistence_api_write]
+	call	[eax + oofs_persistent_api_write]
 	pop_	edx esi ecx
 	ret
 
@@ -104,7 +102,7 @@ oofs_array_load:
 	mov	edx, [eax + oofs_array_count]
 	mov	cl, [eax + oofs_array_shift]
 	shl	edx, cl
-	lea	ecx, [edx + offset oofs_array_strings - offset oofs_array_persistent]
+	lea	ecx, [edx + offset oofs_array_persistent_header_end - offset oofs_array_persistent]
 	lea	edi, [eax + oofs_array_persistent]
 	mov	edx, offset oofs_array_persistent
 	call	[eax + oofs_persistent_api_read]
@@ -115,6 +113,28 @@ oofs_array_load:
 	STACKTRACE 0
 	ret
 
+# in: eax = this
+# in: ebx = handler method:
+#     in: esi = current element ptr
+#     in: edx = current element index
+oofs_array_iterate:
+	push_	esi edx ecx edi
+	lea	esi, [eax + oofs_array_list]
+	mov	edi, 1
+	mov	cl, [eax + oofs_array_shift]
+	shl	edi, cl
+	mov	ecx, [eax + oofs_array_count]
+
+0:	mov	edx, [eax + oofs_array_count]
+	sub	edx, ecx
+	push_	edi esi ecx ebx eax
+	call	ebx
+	pop_	eax ebx ecx esi edi
+	add	esi, edi
+	loop	0b
+
+	pop_	edi ecx edx esi
+	ret
 
 oofs_array_print:
 	STACKTRACE 0,0
@@ -131,7 +151,7 @@ oofs_array_print:
 	printc 11, " element size: "
 	call	printdec32
 
-0:	call	[eax + oofs_array_print_el]
+0:	call	[eax + oofs_array_api_print_el]
 	add	esi, edx
 	loop	0b
 
