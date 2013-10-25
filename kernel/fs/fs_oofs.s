@@ -268,15 +268,16 @@ cmd_oofs:
 	2:	printc 9, "OOFS mounted at "
 		pushd	[ebx + edx + mtab_mountpoint]
 		call	_s_println
+		push	eax
 		mov	eax, [eax + oofs_root]
 		call	[eax + oofs_api_print]
+		pop	eax
 		call	newline
 
 		or	edi, edi
 		jz	1f
-		DEBUG "match"
 		# we have a match. Check command
-		mov	ebx, eax	# done with iteration: remember root
+		mov	ebx, eax	# done with iteration: remember fs
 		lodsd
 		or	eax, eax
 		jz	2f
@@ -286,7 +287,7 @@ cmd_oofs:
 		jz	oofs_save$
 
 		# other commands have common argument: class or index
-		mov	ecx, eax	# backup
+		mov	ecx, eax	# backup command
 		lodsd
 		or	eax, eax
 		jz	94f
@@ -294,7 +295,7 @@ cmd_oofs:
 		call	htoi
 		jc	3f
 		xor	edx, edx	# class null
-		xchg	eax, ecx	# ecx=entry index, eax=restore
+		xchg	eax, ecx	# ecx=entry index, eax=restore cmd
 		jmp	4f
 
 
@@ -309,30 +310,56 @@ cmd_oofs:
 		mov	edx, eax	# argument for stuff below
 
 		mov	eax, ecx	# restore
-	4:	CMD_ISARG "drop"
+	4:
+		# edx = classdef or 0
+		# ecx = entry when ecx = 0 or undefined
+
+		CMD_ISARG "drop"
 		jz	oofs_drop$
 		CMD_ISARG "add"
 		jz	oofs_add$
 		CMD_ISARG "resize"
 		jz	oofs_resize$
+		CMD_ISARG "load"
+		jz	oofs_load$
+		CMD_ISARG "show"
+		jz	oofs_show$
 		call	91f
 	2:	popad
 		ret
 
 1:	popad
 	ARRAY_ENDL
+	# check if there were arguments
+	or	edi, edi
+	jz	9f
+	printc 12, "oofs not mounted at "
+	mov	esi, edi
+	call	println
 9:	ret
 
 91:	pushcolor 12
 	.section .strings
 	10:
 	.ascii "usage: oofs [mountpoint [command class [args]]]\n"
-	.ascii "  commands: add drop resize save\n"
+	.ascii "  commands: add drop resize save show\n"
+
 	.ascii "\n\\c\x0f  save\n"
 	.ascii "\t\\c\x07persists oofs_vol and oofs_table\n"
+
 	.ascii "\n\\c\x0f  drop (class|index_hex)\n"
-	.ascii "\t\\c\x07unloads object if loaded, removes classname from oofs_table,\n"
-	.ascii "\tand merges the entry with free space if it is the last.\n"
+	.ascii "\t\\c\x07unloads object if loaded, removes classname from "
+	.ascii "oofs_table, and merges\n"
+	.ascii "\tthe entry with free space if it is the last.\n"
+
+	.ascii "\n\\c\x0f  add <class> <sectors_hex>\n"
+	.ascii "\\c\x07\tadds a region to oofs_vol and oofs_table.\n"
+
+	.ascii "\n\\c\x0f  load (class|index_hex)\n"
+	.ascii "\t\\c\x07loads the specified entry.\n"
+
+	.ascii "\n\\c\x0f  show (class|index_hex)\n"
+	.ascii "\t\\c\x07prints the contents of the specified object.\n"
 	.byte 0
 	.text32
 
@@ -361,116 +388,90 @@ cmd_oofs:
 94:	call	91b
 	jmp	66b
 
-# in: ebx = root oofs instance
+# in: ebx = class_oofs instance
 oofs_save$:
-	mov	eax, ebx
+	mov	eax, [ebx + oofs_lookup_table]
 	call	[eax + oofs_persistent_api_save]
-	# lookup table:
-	push_	edx ebx
-	mov	edx, offset class_oofs_table
-	xor	ebx, ebx
-	call	[eax + oofs_vol_api_lookup]	# lookup the lookup table
-	pop_	ebx edx
-	jc	92f
+	mov	eax, [ebx + oofs_root]
 	call	[eax + oofs_persistent_api_save]
 	jmp	66b
 
-# in: ebx = root oofs instance
+# in: ebx = class_oofs instance
 # in: edx = subclass of oofs or 0
 # in: ecx = entry index (if edx==0)
 oofs_drop$:
-	mov	eax, ebx
+	mov	eax, [ebx + oofs_root]
 
 	or	edx, edx
-	jnz	2f
-	# find entry with start lba
-	mov	ebx, ecx	# in: ebx = start lba
-	call	[eax + oofs_vol_api_delete]
-	jc	91f
-
-	call	newline
-	jmp	3f
-
-2:	push	ebx
-	xor	ebx, ebx	# iteration arg
-	call	[eax + oofs_vol_api_lookup]	# in: eax,ebx,edx; out: eax=inst,ebx
-	mov	edx, ebx	# done with edx: set to idx +1
+	jz	1f
+	# have class, look up index
+	push	ebx
+	mov	eax, [ebx + oofs_lookup_table]
+	call	[eax + oofs_table_api_lookup]	# out: ecx
 	pop	ebx
-	jc	91f
-	DEBUG "found:";
-	DEBUG_CLASS
+	jc	91f	# not found
+
+1:	# ecx = entry number
 
 	push	ebx
-	mov	edx, eax	# the instance to drop
-	mov	eax, ebx	# root oofs obj
-	DEBUG "delete from oofs:"
-	DEBUG_CLASS
-	mov	ebx, edx
-	call	[eax + oofs_vol_api_delete]	# in: eax,ebx=index
+	mov	eax, [ebx + oofs_lookup_table]
+	call	[eax + oofs_table_api_clear_entry]
 	pop	ebx
+	jc	91f
 
-	mov	esi, [edx + obj_class]
-	mov	esi, [esi + class_name]
-
-3:	DEBUG "delete from table:"
-	# lookup table:
-	push_	edx ebx
-	mov	edx, offset class_oofs_table
-	xor	ebx, ebx
-	call	[eax + oofs_table_api_lookup]	# lookup the lookup table
-	pop_	ebx edx
-	jc	92f
-
-	# eax is now the lookup table instance
-	push	edx
-	mov	edx, esi
-	call	[eax + oofs_table_api_delete] 	# in: eax,edx=name
-	pop	edx
+	push	ebx
+	mov	eax, [ebx + oofs_root]
+	mov	ebx, ecx	# in: ebx = entry index
+	call	[eax + oofs_vol_api_delete]
+	pop	ebx
+	jc	91f
 
 #	call	[eax + oofs_persistent_api_save]
 
-	printlnc 4, "drop not implemented"
 	jmp	66b
 91:	printlnc 4, "drop: no such entry"
-	jmp	66b
-92:	printlnc 4, "drop: can't lookup oofs_table"
 	jmp	66b
 93:	printc 4, "drop: no entry with start lba "
 	push	ebx
 	call	_s_printhex8
 	jmp	66b
 
+# in: edx = class to add
+# in: ebx = class_oofs instance
 oofs_add$:
-	printc 11, "ADD "
+	printc 11, "add "
 	pushd	[edx + class_name]
 	call	_s_print
 
 	# check args
-	mov	ecx, eax	# backup this
 	lodsd
 	or	eax, eax
 	jz	1f
-	call	atoi
+	call	htoi
 	jc	91f
 	cmpd	[esi], 0	# end of args
 	jnz	92f
 
-1:	xchg	eax, ecx	# eax = this, ecx = numsect
+1:	mov	ecx, eax	# ecx = numsect
 	or	ecx, ecx
 	jnz	1f
 	inc	ecx
 1:
 	printc 11, " numsect "
-	mov	edx, ecx
-	call	printdec32
+	push	ecx
+	call	_s_printhex8
 	call	newline
 
+	shl	ecx, 9
+	mov	eax, [ebx + oofs_lookup_table]
+	call	[eax + oofs_table_api_add]
 	jmp	66b
 
-91:	printc 12, "expect decimal number: "
+91:	printc 12, "expect hex number: "
 	pushd	[esi - 4]
 	call	newline
 	jmp	66b
+
 92:	printc 4, "trailing arguments: "
 	lodsd
 1:	push	eax
@@ -483,6 +484,83 @@ oofs_add$:
 	jmp	66b
 
 
+# in: ebx = class_oofs instance
+# in: edx = subclass of oofs or 0
+# in: ecx = entry index (if edx==0)
+oofs_load$:
+	or	edx, edx
+	jnz	1f
+
+	# find class by index
+	push	ebx
+	mov	eax, [ebx + oofs_lookup_table]
+	mov	ebx, ecx	# index
+	call	[eax + oofs_table_api_get] # in: ecx=index; out: edx=string
+	pop	ebx
+	jc	93f
+	push	eax
+	mov	eax, edx
+	call	class_get_by_name
+	mov	edx, eax
+	pop	eax
+	jc	92f
+	push	edx
+	call	class_print_classname
+	jmp	2f
+
+1:	push	ebx
+	mov	eax, [ebx + oofs_lookup_table]
+	call	[eax + oofs_table_api_lookup]	# in: edx=class; out: ecx=index
+	pop	ebx
+	jc	93f
+
+# load: edx = class, ecx = index
+2:	mov	eax, [ebx + oofs_root]
+	call	[eax + oofs_vol_api_load_entry]
+	jc	94f
+	mov	eax, [ebx + oofs_root]
+	call	[eax + oofs_api_print]
+	jmp	66b
+
+91:	printlnc 4, "instance already loaded"
+	jmp	66b
+92:	printlnc 4, "class not found"
+	jmp	66b
+93:	printlnc 4, "class not in table"
+	jmp	66b
+94:	printlnc 4, "error loading entry"
+	jmp	66b
+
+
+
+
+# in: ebx = class_oofs instance
+# in: edx = subclass of oofs or 0
+# in: ecx = entry index (if edx==0)
+oofs_show$:
+	mov	eax, [ebx + oofs_root]
+DEBUG_DWORD edx
+DEBUG_DWORD ecx
+	or	edx, edx
+	jz	2f
+
+	push	ebx
+	xor	ebx, ebx	# counter / index
+	call	[eax + oofs_vol_api_lookup]
+	pop	ebx
+	jc	91f
+
+1:	call	[eax + oofs_api_print]
+	jmp	66b
+
+2:	push	ebx
+	mov	ebx, ecx	# index
+	call	[eax + oofs_vol_api_get_obj]
+	pop	ebx
+	jnc	1b
+
+91:	printlnc 4, "instance not found"
+	jmp	66b
 
 oofs_resize$:
 	printlnc 4, "resize not implemented"

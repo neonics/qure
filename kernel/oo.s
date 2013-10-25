@@ -99,8 +99,15 @@ class_newinstance:
 
 	# quick hack: don't record the object instance.
 	push	esi
+	.if OO_DEBUG
+		DEBUG "class_newinstance"
+		DEBUGS [eax+class_name]
+	.endif
 	mov	esi, eax
 	mov	eax, [esi + class_object_size]
+	.if OO_DEBUG
+		DEBUG_DWORD eax,"size"
+	.endif
 	call	mallocz_	# register caller of current method
 	jc	9f
 .if OBJ_VPTR_COMPACT
@@ -552,20 +559,35 @@ class_clone:
 # in: edx = new size
 # out: eax = new instance
 class_instance_resize:
-	push_	edi ecx
+	push_	edi ecx ebx esi
 	# find instance
 	mov	edi, [class_instances]
 	mov	ecx, [edi + array_index]
 	shr	ecx, 2
 	repnz	scasd
 	jnz	91f
+	lea	ebx, [edi - 4]	# remember pointer offset
+
+	.if OO_DEBUG
+		DEBUG "class_instance_resize"
+		#DEBUG_DWORD eax,"obj"
+		pushd [eax+obj_class]; call class_print_classname
+	.endif
+
+	mov	edi, [eax + obj_size]
 
 	.if OBJ_VPTR_COMPACT
 	# add vptr size to obj size
-	mov	edi, [eax + obj_class]
-	mov	edi, [edi + class_decl_vptr_count]
-	shl	edi, 2
-	add	edx, edi
+	mov	esi, [eax + obj_class]
+	mov	esi, [esi + class_decl_vptr_count]
+	shl	esi, 2
+	add	edi, esi
+	add	edx, esi
+	.endif
+
+	.if OO_DEBUG
+		DEBUG_DWORD edi, "old size"
+		DEBUG_DWORD edx, "new size"
 	.endif
 
 	.if OBJ_VPTR_COMPACT
@@ -573,20 +595,42 @@ class_instance_resize:
 	add	eax, [ecx + class_object_vptr]
 	.endif
 	call	mreallocz
-	jc	9f	# malloc print errors
+	jc	9f	# malloc prints errors
+
 	.if OBJ_VPTR_COMPACT
 	sub	eax, [ecx + class_object_vptr]
 	.endif
 
+########
+.if 0
+	# clear the extra data (mreallocz should do this)
+	mov	ecx, edx
+	sub	ecx, edi
+	jle	1f
+	push	eax
+	lea	edi, [eax + edx]
+	mov	ah, cl
+	shr	ecx, 2
+	xor	al, al
+	rep	stosb
+	movzx	ecx, ah
+	and	cl, 3
+	xor	eax, eax
+	rep	stosd
+	pop	eax
+1:
+.endif
+########
+
 	.if OBJ_VPTR_COMPACT
-	sub	edx, edi
+	sub	edx, esi
 	.endif
 
 	mov	[eax + obj_size], edx
-	mov	[edi - 4], eax
+	mov	[ebx - 4], eax	# replace instance pointer
 	clc
 
-9:	pop_	ecx edi
+9:	pop_	esi ebx ecx edi
 	ret
 91:	printc 4, "class_instance_resize: unknown instance"
 	stc

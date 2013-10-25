@@ -195,7 +195,7 @@ kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
 
-fs/oofs/oofs.o fs/oofs/export.h: FORCE export.h kapi/export.h
+fs/oofs/oofs.o fs/oofs/export.h: FORCE export.h kapi/export.h export.h
 	@echo "  M     $@"
 	@make -s -C fs/oofs
 

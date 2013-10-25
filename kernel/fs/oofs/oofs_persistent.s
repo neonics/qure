@@ -65,20 +65,25 @@ oofs_persistent_init:
 ####### local initialisation
 
 	# verify edx is an instance of fs_obj
-	push_	eax edx
+	push	edx
+
+	push_	eax
 	mov	eax, edx
 	mov	edx, offset class_fs
 	call	class_instanceof
-	pop_	edx eax
+	pop_	eax
+	mov	edx, [esp]
 	jnc	1f
 
 	# check if instanceof oofs_persistent
-	push_	eax edx
+	push_	eax
 	mov	eax, edx
 	mov	edx, offset class_oofs_persistent
 	call	class_instanceof
-	pop_	edx eax
+	pop_	eax
 	jc	91f
+
+	mov	edx, [esp]
 
 	mov	edx, [edx + oofs_persistence]
 
@@ -92,12 +97,13 @@ oofs_persistent_init:
 		call newline
 	.endif
 	clc
+0:	pop	edx
+	STACKTRACE 0
 	ret
 
 91:	printlnc 4, "oofs_persistent_init: parent does not provide persistence"
 	stc
-	STACKTRACE 0
-	ret
+	jmp	0b
 
 # This method is given the start of an object's persistent data, and
 # the start and size of the data to save, making it possible to save
@@ -226,15 +232,16 @@ oofs_persistent_read:
 		call newline
 		.endif
 		pop_	edx eax
+		STACKTRACE 0,0
 	.endif
 
 	push_	ebx ecx edx esi edi	# same as oofs_write!
 	# verify edi
 	mov	edx, edi
 	sub	edx, eax	# edx = min obj size
-	jle	91b
+	jle	93f
 	cmp	edx, oofs_persistent_STRUCT_SIZE
-	jb	91b
+	jb	93f
 	add	edx, ecx
 	add	edx, 511
 	and	edx, ~511
@@ -277,17 +284,27 @@ oofs_persistent_read:
 0:	pop_	edi esi edx ecx ebx
 	STACKTRACE 0
 	ret
-91:	printlnc 4, "oofs_persistent_read: fs_obj_api_read error"
+
+90:	printc 4, "oofs_persistent_read: "
+	call	_s_println
 	stc
 	jmp	0b
-92:	printlnc 4, "oofs_persistent_read: resize error"
-	stc
+
+91:	PUSH_TXT "fs_obj_api_read error"
 	jmp	0b
+92:	PUSH_TXT "resize error"
+	jmp	0b
+93:	PUSH_TXT "persistent start overlaps with volatile data"
+	jmp	90b
 
 # in: eax = this
 # in: edx = new size
 # out: eax = this, reallocated
 oofs_persistent_resize:
+	.if OOFS_DEBUG
+		DEBUG "oofs_persistent_resize"
+		STACKTRACE 0,0
+	.endif
 	push_	ebx edx
 	mov	ebx, eax
 	call	class_instance_resize	# out: eax
@@ -322,11 +339,7 @@ oofs_load:
 
 oofs_save:
 	printc 0xf4, "WARNING: oofs_save not implemented for "
-1:	push	esi
-	mov	esi, [eax + obj_class]
-	mov	esi, [esi + class_name]
-	call	println
-	pop	esi
+1:	PRINT_CLASS
 	stc
 	ret
 

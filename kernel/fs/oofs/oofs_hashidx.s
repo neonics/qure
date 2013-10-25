@@ -12,6 +12,9 @@ hashidx_lba: .long 0
 
 DECLARE_CLASS_BEGIN oofs_hashidx, oofs_array
 
+oofs_hashidx_array:	# label passed to super
+	.long 0	# count
+
 DECLARE_CLASS_METHOD oofs_api_init, oofs_hashidx_init, OVERRIDE
 
 DECLARE_CLASS_METHOD oofs_persistent_api_load, oofs_hashidx_load, OVERRIDE
@@ -26,8 +29,6 @@ DECLARE_CLASS_END oofs_hashidx
 # in: ebx = LBA
 # in: ecx = reserved size
 oofs_hashidx_init:
-	movb	[eax + oofs_array_shift], 3	# 8 bytes/entry
-	call	oofs_array_init	# super.init()
 
 	.if OOFS_DEBUG
 		PRINT_CLASS
@@ -37,12 +38,27 @@ oofs_hashidx_init:
 		printc 9, " parent="; PRINT_CLASS edx
 		call	newline
 	.endif
+	movb	[eax + oofs_array_shift], 3	# 8 bytes/entry
+	mov	[eax + oofs_array_start], dword ptr offset oofs_hashidx_array
+	mov	[eax + oofs_array_persistent_start], dword ptr offset oofs_hashidx_array
+	call	oofs_array_init	# super.init()
 	ret
 
 oofs_hashidx_verify$:
-1:	push_	esi eax edx
-	lea	esi, [eax + oofs_array_list]
-	xor	dx, dx
+	push_	esi eax ecx edx
+	lea	esi, [eax + oofs_hashidx_array]
+	mov	ecx, [esi]
+	add	esi, 4
+	or	ecx, ecx
+	jnz	1f
+	# empty
+	incd	[esi - 4]	# add 1 entry
+	mov	dword ptr [esi], 0xffff0000	# from 0000 to ffff
+	# TODO: allocate oofs_hash sector
+	mov	dword ptr [esi+4], -1	# lba.
+	jmp	9f
+
+1:	xor	dx, dx
 0:	lodsw
 		DEBUG_WORD ax, "from"
 	cmp	ax, dx
@@ -58,10 +74,9 @@ oofs_hashidx_verify$:
 		DEBUG_DWORD eax, "lba"
 		call	newline
 	loop	0b
-	pop_	edx eax esi
 
 	clc
-9:	pop	ecx
+9:	pop_	edx ecx eax esi
 	STACKTRACE 0
 	ret
 
@@ -76,9 +91,12 @@ oofs_hashidx_load:
 		DEBUG_CLASS
 		printlnc 14, ".oofs_hashidx_load"
 	.endif
+	DEBUG "loading hashidx"
 	call	oofs_array_load	# explicit superclass call
 	jc	9f
+	DEBUG "verifying hashidx"
 	call	oofs_hashidx_verify$
+	DEBUG "verify done"
 
 9:	STACKTRACE 0
 	ret
@@ -91,10 +109,12 @@ oofs_hashidx_load:
 oofs_hashidx_lookup:
 	push_	edi esi
 	mov	esi, edx
-	lea	edi, [eax + oofs_array_list]
+	lea	edi, [eax + oofs_hashidx_array]
 
 	push_	edx eax
-	mov	ecx, [eax + oofs_array_count]
+	mov	ecx, [eax + oofs_array_start]
+	mov	ecx, [eax + ecx]
+	jecxz	0f
 	mov	eax, [esi]	# get start of hash
 0:	mov	edx, [edi]
 	cmp	ax, dx	#[edi + hashidx_start]
@@ -144,4 +164,16 @@ oofs_hashidx_lookup:
 	
 
 oofs_hashidx_print_el:
+	push	edx
+	mov	edx, [esi]
+	print "from "
+	call	printhex4
+	print " to "
+	shr	edx, 16
+	call	printhex4
+	print " lba "
+	mov	edx, [esi + 4]
+	call	printhex8
+	call	newline
+	pop	edx
 	ret

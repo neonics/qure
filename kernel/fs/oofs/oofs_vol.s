@@ -50,8 +50,8 @@ DECLARE_CLASS_BEGIN oofs_vol, oofs_persistent
 oofs_children:	.long 0	# ptr array
 
 oofs_vol_persistent:
-oofs_magic:	.long 0
-oofs_count:	.long 0
+oofs_vol_magic:	.long 0
+oofs_vol_count:	.long 0
 oofs_vol_array:	# {oofs_el_obj, oofs_el_sectors}[]
 # direct access to first entry: special semantics: free space
 
@@ -94,10 +94,10 @@ oofs_vol_init:
 	jc	91f
 	mov	[ebx + oofs_children], eax
 
-	mov	[ebx + oofs_magic], dword ptr OOFS_MAGIC
+	mov	[ebx + oofs_vol_magic], dword ptr OOFS_MAGIC
 	mov	[ebx + oofs_lba], dword ptr 0	# first sector
 
-	mov	[ebx + oofs_count], dword ptr 1
+	mov	[ebx + oofs_vol_count], dword ptr 1
 	# first array element: self-referential entry recording the vol sector
 	mov	[ebx + oofs_vol_array + 0 + oofs_el_sectors], dword ptr 1
 	mov	[ebx + oofs_vol_array + 0 + oofs_el_lba], dword ptr 0
@@ -126,7 +126,7 @@ oofs_vol_save:
 		pushd	[eax + oofs_lba]
 		call	_s_printhex8
 		printc 9, " array.count="
-		pushd	[eax + oofs_count]
+		pushd	[eax + oofs_vol_count]
 		call	_s_printhex8
 		call	newline
 	.endif
@@ -135,7 +135,7 @@ oofs_vol_save:
 	push_	ecx edx esi
 	mov	edx, offset oofs_vol_persistent
 	lea	esi, [eax + oofs_vol_persistent]
-	mov	ecx, [eax + oofs_count]
+	mov	ecx, [eax + oofs_vol_count]
 	inc	ecx
 	OOFS_IDX_TO_EL ecx
 	add	ecx, offset oofs_vol_array - offset oofs_vol_persistent
@@ -144,7 +144,7 @@ oofs_vol_save:
 .else
 	push_	eax ebx ecx esi edx
 	mov	ebx, [eax + oofs_lba]
-	mov	ecx, [eax + oofs_count]
+	mov	ecx, [eax + oofs_vol_count]
 	inc	ecx	# add the final free space entry
 	OOFS_IDX_TO_EL ecx
 	lea	ecx, [ecx + oofs_vol_array - oofs_vol_persistent]
@@ -189,17 +189,17 @@ oofs_vol_onload:
 		printc 14, ".oofs_vol_onload"
 	.endif
 
-	cmp	[eax + oofs_magic], dword ptr OOFS_MAGIC
+	cmp	[eax + oofs_vol_magic], dword ptr OOFS_MAGIC
 	jnz	91f
 
 	.if OOFS_DEBUG
 		printc 10, " (sig ok)";
 		printc 10, " count="
-		pushd	[eax + oofs_count]
+		pushd	[eax + oofs_vol_count]
 		call	_s_printhex8
 	.endif
 
-	mov	ecx, [eax + oofs_count]
+	mov	ecx, [eax + oofs_vol_count]
 	OOFS_IDX_TO_EL ecx
 	lea	ecx, [ecx + oofs_vol_persistent]
 	cmp	ecx, 512
@@ -246,7 +246,7 @@ oofs_vol_onload:
 1:	mov	ecx, [eax + oofs_children]
 
 	push	eax
-	mov	eax, [eax + oofs_count]
+	mov	eax, [eax + oofs_vol_count]
 	inc	eax	# reserve one place for the free space entry
 	call	ptr_array_new
 	mov	edx, eax
@@ -272,7 +272,7 @@ oofs_vol_onload:
 		printc 15, "Verify"
 	.endif
 	push_	esi eax
-	mov	ecx, [eax + oofs_count]
+	mov	ecx, [eax + oofs_vol_count]
 	.if OOFS_DEBUG
 		DEBUG_DWORD ecx, "entries"
 	.endif
@@ -324,7 +324,7 @@ oofs_vol_onload:
 	dec	ecx
 	jz	1f
 77:	mov	eax, [esp]
-	sub	[eax + oofs_count], ecx
+	sub	[eax + oofs_vol_count], ecx
 	printlnc 14, "truncating entries:"
 	10:	lodsd; DEBUG_DWORD eax, "sectors"
 		lodsd; DEBUG_DWORD eax, "lba"
@@ -351,7 +351,7 @@ oofs_vol_onload:
 
 	# edx = free sectors
 	# ebx = start lba
-	mov	ecx, [eax + oofs_count]
+	mov	ecx, [eax + oofs_vol_count]
 	inc	ecx
 	mov	[eax + oofs_vol_array + ecx * 8 + oofs_el_lba], ebx
 	mov	[eax + oofs_vol_array + ecx * 8 + oofs_el_sectors], edx
@@ -404,6 +404,7 @@ oofs_vol_onload:
 # in: ecx = bytes to reserve
 # in: edx = class def ptr
 # out: eax = instance
+# out: ecx = entry number
 oofs_vol_add:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
@@ -412,7 +413,7 @@ oofs_vol_add:
 		printc 9, " size="
 		push ecx; call _s_printhex8
 		printc 9, " array.count="
-		pushd [eax + oofs_count]
+		pushd [eax + oofs_vol_count]
 		call _s_printhex8
 		call	newline
 	.endif
@@ -431,7 +432,7 @@ oofs_vol_add:
 	# pop eax
 	push_	ebx eax edx ebp
 	lea	ebp, [esp + 4]
-	mov	edx, [eax + oofs_count]
+	mov	edx, [eax + oofs_vol_count]
 #	or	edx, edx
 #	jz	2f
 	and	edx, 511
@@ -441,7 +442,7 @@ oofs_vol_add:
 	jbe	2f
 
 1:	# grow
-	mov	edx, [eax + oofs_count]
+	mov	edx, [eax + oofs_vol_count]
 	inc	edx	# add the free size entry
 	OOFS_IDX_TO_EL edx
 	lea	edx, [edx + oofs_vol_array - oofs_vol_persistent + 512]
@@ -453,14 +454,14 @@ oofs_vol_add:
 	add	ecx, 511
 	shr	ecx, 9	# convert to sectors
 
-	mov	ebx, [eax + oofs_count]
+	mov	ebx, [eax + oofs_vol_count]
 	inc	ebx	# add the free size entry
 	OOFS_IDX_TO_EL ebx
 	lea	ebx, [eax + oofs_vol_array + ebx]
 
 	# tail = free space
 	# append adjusted tail
-	inc	dword ptr [eax + oofs_count]
+	inc	dword ptr [eax + oofs_vol_count]
 	mov	edx, [ebx - OOFS_EL_STRUCT_SIZE + oofs_el_sectors] # get free space
 	sub	edx, ecx	# edx = remaining free space
 	jle	92f
@@ -474,7 +475,10 @@ oofs_vol_add:
 	mov	[ebx + oofs_el_lba], ecx # new free start
 
 	pop_	ecx ebx
-	call	[eax + oofs_persistent_api_save]
+
+
+	# DISABLE saving - consistent with the rest.
+	#call	[eax + oofs_persistent_api_save]
 	#orb	[eax + oofs_flags], OOFS_FLAG_DIRTY
 
 	# instantiate array element
@@ -484,7 +488,7 @@ oofs_vol_add:
 	jc	9f
 	push_	ebx ecx
 	mov	ebx, [ebp+4]	# this
-	mov	ecx, [ebx + oofs_count]
+	mov	ecx, [ebx + oofs_vol_count]
 	dec	ecx
 #	sub	ecx, 2	# -1:count->idx; -1: one-before-last
 	OOFS_IDX_TO_EL ecx
@@ -499,7 +503,7 @@ oofs_vol_add:
 
 	# record object instance
 0:	mov	eax, [ebp+4]	# this
-	mov	edx, [eax + oofs_count]
+	mov	edx, [eax + oofs_vol_count]
 	dec	edx
 	shl	edx, 2
 	mov	eax, [eax + oofs_children]
@@ -510,6 +514,9 @@ oofs_vol_add:
 	jmp	0b
 2:
 	mov	[eax + edx], ebx
+
+	mov	ecx, edx	# return index
+	shr	ecx, 2
 
 	.if OOFS_DEBUG
 		OK
@@ -574,13 +581,13 @@ oofs_vol_delete:
 1:
 	# mark region free if last
 	inc	ebx	# index->count
-	cmp	ebx, [eax + oofs_count]
+	cmp	ebx, [eax + oofs_vol_count]
 	stc
 	jnz	0f
 	# merge
 	mov	esi, [eax + oofs_vol_array + ebx * 8 + oofs_el_sectors]
 	add	[eax + oofs_vol_array + ebx * 8 - 8 + oofs_el_sectors], esi
-	decd	[eax + oofs_count]
+	decd	[eax + oofs_vol_count]
 
 0:	pop_	eax esi ebx
 	ret
@@ -608,6 +615,7 @@ oofs_unload:
 # in: eax = this
 # in: edx = classdef ptr
 # in: ecx = index
+# out: eax = loaded entry object instance
 oofs_vol_load_entry:
 	# instantiate array element
 	push_	edi esi ecx ebx edx eax ebp
@@ -621,7 +629,7 @@ oofs_vol_load_entry:
 		call	_s_printhex8
 
 		printc 9, " array.count="
-		pushd	[eax + oofs_count]
+		pushd	[eax + oofs_vol_count]
 		call	_s_printhex8
 
 		printc 9, " LBA="
@@ -636,7 +644,7 @@ oofs_vol_load_entry:
 		call	_s_println
 	.endif
 
-	cmp	ecx, [eax + oofs_count]
+	cmp	ecx, [eax + oofs_vol_count]
 	jae	91f
 	xchg	eax, edx	# eax=classdef; edx=this
 	call	class_newinstance
@@ -646,31 +654,34 @@ oofs_vol_load_entry:
 	mov	edi, ecx
 	mov	ebx, [edx + oofs_vol_array + ecx * 8 + oofs_el_lba]
 	mov	ecx, [edx + oofs_vol_array + ecx * 8 + oofs_el_sectors]
-	#DEBUG_DWORD ebx,"lba"
-	#DEBUG_DWORD ecx, "size"
 	call	[eax + oofs_api_init]
 	jc	93f
-	mov	ebx, eax
-	lea	edx, [edi * 4]
-	# record object instance
-0:	mov	eax, [ebp]	# this
-	mov	edi, eax	# backup for entries_print
-	mov	eax, [eax + oofs_children]
-	cmp	edx, [eax + array_index]
-	jb	1f
-	push	edx
-	call	ptr_array_newentry	# out: eax + edx
-	pop	edx
-	jc	94f
-	jmp	0b	# check again
-1:	mov	[eax + edx], ebx	# update instance array
-	mov	[ebp], ebx
 
-	mov	eax, ebx
+
+	# record object instance
+	# check array size
+	lea	edx, [edi * 4]
+	mov	edi, eax	# remember instance
+	mov	eax, [ebp]	# this
+	mov	eax, [eax + oofs_children]
+	cmp	edx, [eax + array_capacity]
+	jb	1f
+	add	edx, 4
+	call	buf_resize
+	jc	94f
+	sub	edx, 4
+	mov	ebx, [ebp]
+	mov	[ebx + oofs_children], eax
+1:	mov	[eax + edx], edi	# set instance
+	add	edx, 4
+	mov	[eax + array_index], edx
+	mov	[ebp], edi
+
+	mov	eax, edi
 	call	[eax + oofs_persistent_api_load]
 	# child_moved handles instance array update
 	jc	95f
-	xchg	eax, [ebp]	# eax:=this; [ebp]:=entry instance return value eax
+	xchg	eax, [ebp]	# eax:=this; [ebp]:=return eax entry instance
 	.if OOFS_DEBUG > 1
 	call	[eax + oofs_api_print]
 	clc
@@ -682,7 +693,7 @@ oofs_vol_load_entry:
 
 91:	LOAD_TXT "index>count"
 	DEBUG_CLASS
-	DEBUG_DWORD ecx;DEBUG_DWORD [eax+oofs_count]
+	DEBUG_DWORD ecx;DEBUG_DWORD [eax+oofs_vol_count]
 	jmp	9f
 92:	LOAD_TXT "newinstance fail"
 	jmp	9f
@@ -690,9 +701,8 @@ oofs_vol_load_entry:
 93:	LOAD_TXT "entry init fail"
 	jmp	90f
 95:	LOAD_TXT "entry load fail"
-	DEBUG_METHOD oofs_persistent_api_load
 	jmp	90f
-94:	mov	eax, ebx
+94:	mov	eax, edi
 	LOAD_TXT "ptr_array_newentry fail"
 90:	call	class_deleteinstance
 9:	printc 4, "oofs_load_entry: "
@@ -751,7 +761,7 @@ oofs_get_by_lba:
 0:	cmp	ebx, [eax + oofs_vol_array + edx * 8 + oofs_el_lba]
 	jz	2f
 	inc	edx
-1:	cmp	edx, [eax + oofs_count]
+1:	cmp	edx, [eax + oofs_vol_count]
 	jb	0b
 	stc
 0:	pop	edx
@@ -778,7 +788,7 @@ oofs_vol_get_obj:
 	push_	ebx edx
 
 	# check if we have that many persistent entries
-	cmp	ebx, [eax + oofs_count]
+	cmp	ebx, [eax + oofs_vol_count]
 	ja	9f
 	# check if we have that many loaded
 	mov	edx, [eax + oofs_children]
@@ -842,7 +852,7 @@ oofs_vol_print:
 	push_	edi esi edx ecx ebx
 
 	printc 11, " Entries: "
-	mov	edx, [eax + oofs_count]
+	mov	edx, [eax + oofs_vol_count]
 	call	printdec32
 	call	newline
 
@@ -855,7 +865,7 @@ oofs_vol_print:
 	xor	edi, edi	# index
 	inc	ecx	# also print the final entry
 0:
-	mov	edx, [eax + oofs_count]
+	mov	edx, [eax + oofs_vol_count]
 	inc	edx
 	sub	edx, ecx
 	pushcolor 8

@@ -116,9 +116,9 @@ oofs_child_moved:
 .include "oofs_persistent.s"
 .include "oofs_vol.s"
 .include "oofs_table.s"
+.include "oofs_array.s"
 .include "oofs_alloc.s"
 
-.include "oofs_array.s"
 .include "oofs_hash.s"
 .include "oofs_hashidx.s"
 ###############################################################################

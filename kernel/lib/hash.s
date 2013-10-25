@@ -140,6 +140,7 @@ buf_grow:
 # in: eax = buf base pointer
 # in: edx = new size
 # out: eax = pointer to new buffer
+.global buf_resize
 buf_resize:
 	push	ebp
 	lea	ebp, [esp + 4]

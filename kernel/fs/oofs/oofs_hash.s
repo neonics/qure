@@ -11,6 +11,8 @@ hash_lba:  .long 0
 
 DECLARE_CLASS_BEGIN oofs_hash, oofs_array
 
+oofs_hash_array:	# passed to super
+
 DECLARE_CLASS_METHOD oofs_api_init, oofs_hash_init, OVERRIDE
 DECLARE_CLASS_METHOD oofs_array_api_print_el, oofs_hash_print_el, OVERRIDE
 
@@ -25,6 +27,8 @@ DECLARE_CLASS_END oofs_hash
 # in: ecx = reserved size
 oofs_hash_init:
 	movb	[eax + oofs_array_shift], 5
+	mov	[eax + oofs_array_start], dword ptr offset oofs_hash_array
+	mov	[eax + oofs_array_persistent_start], dword ptr offset oofs_hash_array
 	call	oofs_persistent_init	# super.init()
 
 	.if OOFS_DEBUG

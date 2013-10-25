@@ -1485,14 +1485,48 @@ mreallocz_:
 	push	edi
 	push	esi
 	push	ecx
+	push	edx
 	####################
 	push	eax
-	mov	eax, edx
+		#DEBUG "mreallocz", 0xe0
+		#DEBUG_DWORD edx, "new size", 0xe0
+	xchg	eax, edx	# eax=new size; edx=old ptr
 	call	mallocz_
 	jc	9f
+#	DEBUG "mreallocz";DEBUG_DWORD esi;DEBUG_DWORD edi;DEBUG_DWORD edx
+# XXX get old size: copied from mfree_; TODO: refactor;
+
+		mov	ecx, [mem_numhandles]
+		jecxz	1f
+		mov	esi, [mem_handles]
+		mov	edi, [handle_fa_last]
+
+	0:	cmp	edi, -1
+		jz	1f
+		cmp	edx, [esi + edi + handle_base]
+		jz	2f
+		mov	edi, [esi + edi + handle_fa_prev]
+		loop	0b
+	1:	# not found
+		DEBUG "WARN: mfree cannot find old size", 0xf4
+		# legacy: use new size.
+		mov	edx, [esp + 4]	# restore edx = new size
+		jmp	3f
+
+	2:	# found
+		#DEBUG_DWORD [esi + edi + handle_size],"old size", 0xe0
+		#mov edx, [ebp]
+		#call	debug_printsymbol
+
+		# take the smallest size to copy
+		cmp	edx, [esp + 4]	# old size <> new size
+		jb	3f		# old size < new size
+		mov	edx, [esi + edi + handle_size]
+	3:
+
 	mov	esi, [esp]
 	mov	edi, eax
-#	DEBUG "mreallocz";DEBUG_DWORD esi;DEBUG_DWORD edi;DEBUG_DWORD edx
+
 	movzx	ecx, dl
 	and	cl, 3
 	rep	movsb
@@ -1504,7 +1538,8 @@ mreallocz_:
 	pop	eax
 	clc
 	####################
-0:	pop	ecx
+0:	pop	edx
+	pop	ecx
 	pop	esi
 	pop	edi
 	ret
@@ -1606,6 +1641,7 @@ mfree_:
 	call	newline
 	pop	edx
 	popcolor
+	int 3
 	stc
 	jmp	2b
 

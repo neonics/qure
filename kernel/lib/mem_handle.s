@@ -40,6 +40,9 @@ handle_flags: .byte 0	# 25
 handle_caller: .long 0# 32
 
 HANDLE_STRUCT_SIZE = 32
+.if . != HANDLE_STRUCT_SIZE
+.error "HANDLE_STRUCT_SIZE must be 32"
+.endif
 
 
 .if DEFINE
