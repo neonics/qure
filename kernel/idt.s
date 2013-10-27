@@ -138,7 +138,7 @@ MAX_IRQ_HANDLERS_PER_IRQ = 1 << MAX_IRQ_HANDLERS_PER_IRQ_SHIFT
 # in: cx = code segment of handler
 # in: ebx = offset of handler
 add_irq_handler:
-	push_	ecx edx esi
+	push_	eax ecx edx esi
 	mov	esi, [irq_handlers]
 	or	esi, esi
 	jnz	1f
@@ -165,7 +165,7 @@ add_irq_handler:
 1:	mov	[esi-4], ebx
 
 	clc
-9:	pop_	esi edx ecx
+9:	pop_	eax esi edx ecx
 	#call print_irq_handlers
 	ret
 91:	printlnc 4, "add_irq_handler: mallocz fail"
