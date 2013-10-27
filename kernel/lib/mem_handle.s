@@ -48,7 +48,7 @@ HANDLE_STRUCT_SIZE = 32
 handles_ptr:	.long 0
 handles_num:	.long 0
 handles_max:	.long 0
-handles_idx:	.long 0		# the handle for the handles mem region
+handles_idx:	.long 0	# handles handle; set, but unused
 handles_ll_fa:	.long 0,0
 handles_ll_fs:	.long 0,0
 handles_ll_fh:	.long 0,0
@@ -78,7 +78,7 @@ ALLOC_HANDLES = 32 # 1024
 mem_handles: .long 0
 mem_numhandles: .long 0
 mem_maxhandles: .long 0
-mem_handles_handle: .long 0
+mem_handles_handle: .long 0	# unused
 # substructs: pairs of _first and _last need to be in this order!
 # free-by-address
 mem_handle_ll_fa:
@@ -99,6 +99,14 @@ mem_handle_ll_fh:
 
 
 mem_print_handles:
+	push	esi
+	lea	esi, [mem_handles]
+	call	handles_print
+	pop	esi
+	ret
+
+# in: esi = handles struct ptr
+handles_print:
 	push	eax
 	push	ebx
 	push	ecx
@@ -108,50 +116,51 @@ mem_print_handles:
 ######### print handles..
 
 	print "handles: "
-	mov	edx, [mem_numhandles]
+	mov	edx, [esi + handles_num]
 	mov	ecx, edx
 	call	printdec32
 	printchar '/'
-	mov	edx, [mem_maxhandles]
+	mov	edx, [esi + handles_max]
 	call	printdec32
 	print " addr: "
-	mov	edx, [mem_handles]
+	mov	edx, [esi + handles_ptr]
 	call	printhex8
-	print " handle: "
-	mov	edx, [mem_handles_handle]
-	HOTOI	edx
-	call	printdec32
 	print " U["
-	mov	edx, [mem_handle_ll_fh + ll_first]
+	mov	edx, [esi + handles_ll_fh + ll_first]
 	HOTOI	edx
 	call	printdec32
 	printchar ' '
-	mov	edx, [mem_handle_ll_fh + ll_last]
+	mov	edx, [esi + handles_ll_fh + ll_last]
 	HOTOI	edx
 	call	printdec32
 	print "] A["
-	mov	edx, [mem_handle_ll_fa + ll_first]
+	mov	edx, [esi + handles_ll_fa + ll_first]
 	HOTOI	edx
 	call	printdec32
 	printchar ' '
-	mov	edx, [mem_handle_ll_fa + ll_last]
+	mov	edx, [esi + handles_ll_fa + ll_last]
 	HOTOI	edx
 	call	printdec32
 	print	"] S["
-	mov	edx, [mem_handle_ll_fs + ll_first]
+	mov	edx, [esi + handles_ll_fs + ll_first]
 	HOTOI	edx
 	call	printdec32
 	printchar ' '
-	mov	edx, [mem_handle_ll_fs + ll_last]
+	mov	edx, [esi + handles_ll_fs + ll_last]
 	HOTOI	edx
 	call	printdec32
 	print	"]"
 	call	newline
-
 #	jecxz	1f
 	or	ecx, ecx
 	jz	6f
 
+	#DEBUG_DWORD [mem_handle_ll_fa+ll_first],"fa.first"
+	#DEBUG_DWORD [mem_handle_ll_fa+ll_last],"fa.last"
+	#DEBUG_DWORD [mem_handle_ll_fs+ll_first],"fs.first"
+	#DEBUG_DWORD [mem_handle_ll_fs+ll_last],"fs.last"
+	#DEBUG_DWORD [mem_handle_ll_fh+ll_first],"fh.first"
+	#DEBUG_DWORD [mem_handle_ll_fh+ll_last],"fh.last"
 
 	.macro PRINT_LL_FIRSTLAST listname=""
 	.if MEM_DEBUG
@@ -170,27 +179,26 @@ mem_print_handles:
 	.endm
 
 	.macro LL_PRINT firstlast, prevnext
-		push	edi
-		mov	edi, offset \firstlast
+		push_	ecx edi esi
+		lea	edi, [esi + \firstlast]
 		PRINT_LL_FIRSTLAST
-		pop	edi
-		push	ecx
-		mov	esi, [mem_handles]
-		add	esi, \prevnext
-		mov	ebx, [\firstlast + ll_first]
+		mov	esi, [esi + handles_ptr]
+		#mov	edi, esi
+		add	esi, offset \prevnext
+		mov	ebx, [edi + ll_first]
 		# check first
 		or	ebx, ebx
 		jns	1f
 
 		# the first is -1, so check if last is -1
-		cmp	[\firstlast + ll_last], ebx
+		cmp	[edi + ll_last], ebx
 		jz	2f
 		printc 4, " first "
 		mov	edx, ebx
 		HOTOI	edx
 		call	printdec32
 		printc 4, " != last "
-		mov	edx, [\firstlast + ll_last]
+		mov	edx, [edi + ll_last]
 		HOTOI	edx
 		call	printdec32
 		jmp	2f
@@ -228,7 +236,7 @@ mem_print_handles:
 
 	.if 0
 		# check the last
-		mov	edx, [\firstlast + ll_last]
+		mov	edx, [edi + ll_last]
 		cmp	edx, ebx
 		jz	0f
 		pushcolor 4
@@ -243,13 +251,13 @@ mem_print_handles:
 	0:
 	.endif
 	2:
-		pop	ecx
+		pop_	esi edi ecx
 	.endm
 
 	.macro LL_PRINTARRAY mask, cmp
 		printc 8, "    ["
-		push	ecx
-		mov	esi, [mem_handles]
+		push_	ecx esi
+		mov	esi, [esi + handles_ptr]
 		xor	ebx, ebx
 	0:	mov	al, [esi + ebx + handle_flags]
 		and	al, \mask
@@ -261,31 +269,31 @@ mem_print_handles:
 		printcharc 8, ','
 	1:	add	ebx, HANDLE_STRUCT_SIZE
 		loop	0b
-		pop	ecx
+		pop_	esi ecx
 		printc	8,"]"
 	.endm
 
 	print	"U: "
-	LL_PRINT mem_handle_ll_fh + ll_first, handle_ll_el_addr #, MEM_FLAG_REUSABLE
+	LL_PRINT handles_ll_fh, handle_ll_el_addr #, MEM_FLAG_REUSABLE
 	LL_PRINTARRAY MEM_FLAG_REUSABLE, MEM_FLAG_REUSABLE
 	call	newline
 
 	PRINT	"A: "
-	LL_PRINT mem_handle_ll_fa + ll_first, handle_ll_el_addr
+	LL_PRINT handles_ll_fa, handle_ll_el_addr
 	LL_PRINTARRAY MEM_FLAG_REUSABLE, 0
 	call	newline
 	PRINT	"S: "
-	LL_PRINT mem_handle_ll_fs + ll_first, handle_ll_el_size
+	LL_PRINT handles_ll_fs, handle_ll_el_size
 	LL_PRINTARRAY (MEM_FLAG_ALLOCATED|MEM_FLAG_REUSABLE), 0
 	call	newline
 
 	.if MEM_PRINT_HANDLES == 2
 	call	mem_print_handle_2h$
-	.else
 	.endif
 
-	mov	ebx, [mem_handles]
-0:	mov	edx, [mem_numhandles]
+	mov	esi, [esp]
+	mov	ebx, [esi + handles_ptr]
+0:	mov	edx, [esi + handles_num]
 	sub	edx, ecx
 
 	.if MEM_PRINT_HANDLES == 2
@@ -295,11 +303,8 @@ mem_print_handles:
 	.endif
 	add	ebx, HANDLE_STRUCT_SIZE
 
-	#loop	0b
-	dec	ecx
-	jnz	0b
+	loop	0b
 6:
-
 	pop	esi
 	pop	edx
 	pop	ecx
@@ -330,7 +335,9 @@ mem_print_handle_2$:
 	sar	ecx, 1
 	mov	eax, 6
 	add	ecx, eax
-	js	1f
+	jg	0f
+	neg	ecx
+	jz	1f
 0:	call	printspace
 	loop	0b
 1:	pop	ecx
@@ -908,79 +915,18 @@ mem_split_handle_tail$:
 ###################################
 
 
-# in: eax = size
-# out: ebx = handle that can accommodate it
-# out: ZF on none found
-# Returns a handle pointing to pre-allocated free memory that fits the request.
-find_handle_linear$:
-	.if MEM_DEBUG > 1
-		pushcolor 3
-		print "find handle size "
-		push	edx
-		mov	edx, eax
-		call	printhex8
-		pop	edx
-		call	mem_print_handles
-		popcolor
-	.endif
-	push	ecx
-
-	mov	ecx, [mem_numhandles]
-	jecxz	1f
-
-	mov	ebx, [mem_handles]
-0:
-		pushcolor 2
-		push	edx
-		mov	edx, ebx
-		call	printhex8
-		printchar ' '
-		movzx	edx, byte ptr [ebx + handle_flags]
-		call	printdec32
-		printchar ' '
-		pop	edx
-		popcolor
-
-	test	[ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
-	jnz	2f
-	cmp	[ebx + handle_size], eax
-	jae	3f
-2:	add	ebx, HANDLE_STRUCT_SIZE
-	loop	0b
-
-	# when storing in non-record form - each field in its own array -,
-	# a repne scasb will more quickly find a free handle.
-
-1:	or	ecx, ecx
-	pop	ecx
-	ret
-
-3:	or	[ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
-	push	esi
-	mov	esi, [mem_handles]
-	sub	ebx, esi
-	push	edi
-	mov	edi, offset mem_handle_ll_fs
-	add	esi, offset handle_ll_el_size
-	call	ll_unlink$
-	sub	esi, offset handle_ll_el_size
-	pop	edi
-	clc
-	pop	esi
-	jmp	1b
-
 # in: esi = handles struct ptr
 # updates [esi + handles_ptr]
 alloc_handles$:
 	push_	eax ebx esi
 	mov	eax, ALLOC_HANDLES
-	add	eax, [mem_maxhandles]
+	add	eax, [esi + handles_max]
 	HITO	eax
 	push	eax	# save size for later
 	call	malloc_internal$
 
 	# bootstrap realloc
-	cmp	dword ptr [mem_handles], 0
+	cmpd	[esi + handles_ptr], 0
 	jz	1f
 
 	push_	edi ecx
@@ -998,10 +944,6 @@ alloc_handles$:
 	pop_	ecx edi
 
 1:
-	#mov	esi, eax
-	#xchg	eax, [mem_handles]
-	#add	[mem_maxhandles], dword ptr ALLOC_HANDLES
-
 	mov	esi, [esp + 4]	# restore handles struct ptr
 	xchg	eax, [esi + handles_ptr]	# eax = old ptr, to free later
 	addd	[esi + handles_max], ALLOC_HANDLES
@@ -1009,8 +951,7 @@ alloc_handles$:
 	# reserve a handle
 	call	handle_get # in: esi; out: ebx; potential recursion
 	# jc?
-	#mov	[mem_handles_handle], ebx
-	mov	[esi + handles_idx], ebx
+	mov	[esi + handles_idx], ebx	# otherwise unused
 	mov	esi, [esi + handles_ptr]
 	pop	dword ptr [esi + ebx + handle_size]	# the saved size
 	mov	[esi + ebx + handle_base], esi

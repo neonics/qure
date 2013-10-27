@@ -1046,7 +1046,7 @@ malloc_aligned:
 # in: ebp = caller return stack ptr
 # in: edx = physical alignment (power of 2)
 malloc_aligned_:
-	MUTEX_SPINLOCK MEM
+	MUTEX_SPINLOCK_ MEM
 	push_	ebx esi
 
 	lea	esi, [mem_handles]
@@ -1085,7 +1085,8 @@ malloc:
 # out: CF = out of mem
 malloc_:
 #DEBUG_REGSTORE
-	MUTEX_SPINLOCK MEM
+	MUTEX_SPINLOCK_ MEM
+
 	.if MEM_DEBUG2
 		DEBUG_DWORD eax,"malloc("
 	.endif
@@ -1094,7 +1095,6 @@ malloc_:
 	lea	esi, [mem_handles]
 	call	handle_find	# in: esi; out: ebx
 	jc	2f
-	# jz	2f	# for find_handle_linear$
 1:
 	mov	esi, [esi + handles_ptr]
 		.if MEM_DEBUG
@@ -1215,7 +1215,7 @@ malloc_:
 ########
 	push	ebp
 	lea	ebp, [esp + 4]
-	MUTEX_LOCK MEM locklabel=1f
+1:	MUTEX_LOCK MEM locklabel=1f
 	DEBUG "MREALLOC mutex fail"
 	pushad
 	mov	edx, [esp + 32]
@@ -1449,6 +1449,7 @@ mreallocz_:
 #	DEBUG "mreallocz";DEBUG_DWORD esi;DEBUG_DWORD edi;DEBUG_DWORD edx
 # XXX get old size: copied from mfree_; TODO: refactor;
 
+	MUTEX_SPINLOCK_ MEM
 		mov	ecx, [mem_numhandles]
 		jecxz	1f
 		mov	esi, [mem_handles]
@@ -1462,6 +1463,7 @@ mreallocz_:
 		loop	0b
 	1:	# not found
 		DEBUG "WARN: mfree cannot find old size", 0xf4
+		int 3
 		# legacy: use new size.
 		mov	edx, [esp + 4]	# restore edx = new size
 		jmp	3f
@@ -1476,6 +1478,7 @@ mreallocz_:
 		jb	3f		# old size < new size
 		mov	edx, [esi + edi + handle_size]
 	3:
+	MUTEX_UNLOCK_ MEM
 
 	mov	esi, [esp]
 	mov	edi, eax
