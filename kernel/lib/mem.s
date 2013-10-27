@@ -11,10 +11,10 @@
 # list. When it doesnt reference memory, it indicates the list
 # of free handles.
 # so the size list will also serve double duty.
-# handle_fa_first/last: base, non-zero-length memory blocks (allocated&free)
-# handle_fh_first/last: base, null memory blocks - available handles.
-# handle_fs_first/last: size, available/free pre-allocated memory blocks (malloc)
-# handle_??_first/last: size, unavailable/allocated memory blocks (for mfree)
+# mem_handle_ll_fa + ll_first/last: base, non-zero-length memory blocks (allocated&free)
+# mem_handle_ll_fh + ll_first/last: base, null memory blocks - available handles.
+# mem_handle_ll_fs + ll_first/last: size, available/free pre-allocated memory blocks (malloc)
+# mem_handle_ll_?? + ll_first/last: size, unavailable/allocated memory blocks (for mfree)
 
 .intel_syntax noprefix
 
@@ -35,8 +35,9 @@ mem_heap_alloc_start: .long 0
 mem_heap_high_end_phys:	.long 0, 0
 mem_heap_high_start_phys:.long 0, 0
 
+mem_phys_total:	.long 0, 0	# total physical memory size
+
 .text32
-.code32
 
 # The 'handle' class is written with optimization of speed and size.
 #
@@ -797,7 +798,7 @@ malloc_test$:
 	call	more
 
 	mov	esi, [mem_handles]
-	mov	ebx, [handle_fa_last]
+	mov	ebx, [mem_handle_ll_fa + ll_last]
 	mov	ecx, [mem_numhandles]
 0:	test	byte ptr [esi + ebx + handle_flags], 1 << 7
 	jnz	1f
@@ -871,11 +872,11 @@ malloc_internal_aligned$:	# can only be called from malloc_aligned!
 	pop	dword ptr [esi + ebx + handle_base]
 	# insert the handle in the FS list.
 	push	edi
-	mov	edi, offset handle_ll_fa
+	mov	edi, offset mem_handle_ll_fa
 	add	esi, offset handle_ll_el_addr
 	call	ll_append$
 	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
-	mov	edi, offset handle_ll_fs
+	mov	edi, offset mem_handle_ll_fs
 	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$	# insert
 	pop	edi
@@ -945,7 +946,7 @@ malloc_internal$:
 mem_get_used:
 	push	ebx
 	mov	ebx, [mem_handles]
-	mov	edx, [handle_fa_first]
+	mov	edx, [mem_handle_ll_fa + ll_first]
 	xor	eax, eax
 0:	test	[ebx + edx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	jz	1f
@@ -1073,7 +1074,7 @@ malloc_aligned_:
 	mov	[esi + ebx + handle_base], eax
 
 	push	edi
-	mov	edi, offset handle_ll_fa
+	mov	edi, offset mem_handle_ll_fa
 	add	esi, offset handle_ll_el_addr
 	push	ecx
 	mov	ecx, [mem_maxhandles]
@@ -1182,7 +1183,7 @@ malloc_:
 	mov	[esi + ebx + handle_base], eax
 
 	push	edi
-	mov	edi, offset handle_ll_fa
+	mov	edi, offset mem_handle_ll_fa
 	add	esi, offset handle_ll_el_addr
 	push	ecx
 	mov	ecx, [mem_maxhandles]
@@ -1380,13 +1381,13 @@ mov edx, [ebp]
 	# handle_fs - free-by-size
 	# Clear them both out.
 	mov	ebx, edi
-	mov	edi, offset handle_ll_fs
+	mov	edi, offset mem_handle_ll_fs
 	add	esi, offset handle_ll_el_size
 	call	ll_unlink$
-	mov	edi, offset handle_ll_fa
+	mov	edi, offset mem_handle_ll_fa
 	add	esi, offset handle_ll_el_addr - offset handle_ll_el_size
 	call	ll_unlink$
-	mov	edi, offset handle_ll_fh
+	mov	edi, offset mem_handle_ll_fh
 	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$
 
@@ -1499,7 +1500,7 @@ mreallocz_:
 		mov	ecx, [mem_numhandles]
 		jecxz	1f
 		mov	esi, [mem_handles]
-		mov	edi, [handle_fa_last]
+		mov	edi, [mem_handle_ll_fa + ll_last]
 
 	0:	cmp	edi, -1
 		jz	1f
@@ -1580,7 +1581,7 @@ mfree_:
 	jz	1f
 	#jecxz	1f
 	mov	esi, [mem_handles]
-	mov	ebx, [handle_fa_last]
+	mov	ebx, [mem_handle_ll_fa + ll_last]
 
 0:	#or	ebx, ebx
 	#js	1f
@@ -2031,13 +2032,13 @@ cmd_mem$:
 	jmp	2f
 1:	test	dword ptr [ebp], CMD_MEM_OPT_HANDLES_A
 	jz	1f
-	mov	ebx, offset handle_ll_fa
+	mov	ebx, offset mem_handle_ll_fa
 	mov	edi, offset handle_ll_el_addr
 	call	mem_print_ll_handles$
 	jmp	2f
 1:	test	dword ptr [ebp], CMD_MEM_OPT_HANDLES_S
 	jz	1f
-	mov	ebx, offset handle_ll_fs
+	mov	ebx, offset mem_handle_ll_fs
 	mov	edi, offset handle_ll_el_size
 	call	mem_print_ll_handles$
 2:

@@ -3,7 +3,6 @@
 MEM_HANDLE_ALIGN_DEBUG = 0
 MEM_HANDLE_SPLIT_DEBUG = 0
 
-
 .struct 0
 # substruct ll_info: [base, prev, next] for fa
 # NOTICE!!!!! handle_base is dependent to be 0 for optimization! Search for OPT
@@ -61,24 +60,22 @@ HANDLE_STRUCT_SIZE = 32
 
 ALLOC_HANDLES = 32 # 1024
 
-.data
 
+.data
 # free-by-address
-handle_ll_fa:
-handle_fa_first: .long -1	# offset into [mem_handles]
-handle_fa_last: .long -1	# offset into [mem_handles]
+mem_handle_ll_fa:
+.long -1#handle_fa_first: .long -1	# offset into [mem_handles]
+.long -1#handle_fa_last: .long -1	# offset into [mem_handles]
 # free-by-size
-handle_ll_fs:
-handle_fs_first: .long -1	# offset into [mem_handles]
-handle_fs_last: .long -1	# offset into [mem_handles]
+mem_handle_ll_fs:
+.long -1#handle_fs_first: .long -1	# offset into [mem_handles]
+.long -1#handle_fs_last: .long -1	# offset into [mem_handles]
 # free handles
-handle_ll_fh:
-handle_fh_first: .long -1
-handle_fh_last: .long -1	# not really used...
+mem_handle_ll_fh:
+.long -1#handle_fh_first: .long -1
+.long -1#handle_fh_last: .long -1	# not really used...
 
-.text32
 .data
-mem_phys_total:	.long 0, 0	# total physical memory size
 mem_handles: .long 0
 mem_numhandles: .long 0
 mem_maxhandles: .long 0
@@ -113,27 +110,27 @@ mem_print_handles:
 	HOTOI	edx
 	call	printdec32
 	print " U["
-	mov	edx, [handle_fh_first]
+	mov	edx, [mem_handle_ll_fh + ll_first]
 	HOTOI	edx
 	call	printdec32
 	printchar ' '
-	mov	edx, [handle_fh_last]
+	mov	edx, [mem_handle_ll_fh + ll_last]
 	HOTOI	edx
 	call	printdec32
 	print "] A["
-	mov	edx, [handle_fa_first]
+	mov	edx, [mem_handle_ll_fa + ll_first]
 	HOTOI	edx
 	call	printdec32
 	printchar ' '
-	mov	edx, [handle_fa_last]
+	mov	edx, [mem_handle_ll_fa + ll_last]
 	HOTOI	edx
 	call	printdec32
 	print	"] S["
-	mov	edx, [handle_fs_first]
+	mov	edx, [mem_handle_ll_fs + ll_first]
 	HOTOI	edx
 	call	printdec32
 	printchar ' '
-	mov	edx, [handle_fs_last]
+	mov	edx, [mem_handle_ll_fs + ll_last]
 	HOTOI	edx
 	call	printdec32
 	print	"]"
@@ -257,16 +254,16 @@ mem_print_handles:
 	.endm
 
 	print	"U: "
-	LL_PRINT handle_fh_first, handle_ll_el_addr #, MEM_FLAG_REUSABLE
+	LL_PRINT mem_handle_ll_fh + ll_first, handle_ll_el_addr #, MEM_FLAG_REUSABLE
 	LL_PRINTARRAY MEM_FLAG_REUSABLE, MEM_FLAG_REUSABLE
 	call	newline
 
 	PRINT	"A: "
-	LL_PRINT handle_fa_first, handle_ll_el_addr
+	LL_PRINT mem_handle_ll_fa + ll_first, handle_ll_el_addr
 	LL_PRINTARRAY MEM_FLAG_REUSABLE, 0
 	call	newline
 	PRINT	"S: "
-	LL_PRINT handle_fs_first, handle_ll_el_size
+	LL_PRINT mem_handle_ll_fs + ll_first, handle_ll_el_size
 	LL_PRINTARRAY (MEM_FLAG_ALLOCATED|MEM_FLAG_REUSABLE), 0
 	call	newline
 
@@ -443,7 +440,7 @@ mem_print_handle$:
 
 
 # prints the handles from a linked list (free, allocated).
-# in: ebx = [handle_ll_fa] | handle_ll_fs
+# in: ebx = [mem_handle_ll_fa] | mem_handle_ll_fs
 # in: edi = offset handle_ll_el_addr | offset handle_ll_el_size
 mem_print_ll_handles$:
 
@@ -479,12 +476,12 @@ mem_print_ll_handles$:
 # out: ebx = handle index
 get_handle$:
 	# first check if we can reuse handles:
-	mov	ebx, [handle_fh_first]
+	mov	ebx, [mem_handle_ll_fh + ll_first]
 	cmp	ebx, -1
 	jz	0f
 
 	push	edi
-	mov	edi, offset handle_ll_fh
+	mov	edi, offset mem_handle_ll_fh
 	add	esi, offset handle_ll_el_addr # OPT
 	call	ll_unlink$
 	sub	esi, offset handle_ll_el_addr # OPT
@@ -632,7 +629,7 @@ align_handle$:
 # out: ebx = handle index that can accommodate it
 # out: CF on none found
 find_handle$:
-	mov	ebx, [handle_fs_first]
+	mov	ebx, [mem_handle_ll_fs + ll_first]
 	push	ecx
 	mov	ecx, [mem_numhandles]
 
@@ -661,7 +658,7 @@ find_handle$:
 	.endif
 3:	or	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	push	edi
-	mov	edi, offset handle_ll_fs
+	mov	edi, offset mem_handle_ll_fs
 	add	esi, offset handle_ll_el_size
 	call	ll_unlink$
 	sub	esi, offset handle_ll_el_size
@@ -729,7 +726,7 @@ mem_split_handle_head$:
 	# insert the new handle before the old handle in the address list
 	push_	edi eax
 	# prepend ebx to edx
-	mov	edi, offset handle_ll_fa
+	mov	edi, offset mem_handle_ll_fa
 	add	esi, offset handle_ll_el_addr
 	mov	eax, edx
 	call	ll_insert_before$
@@ -740,7 +737,7 @@ mem_split_handle_head$:
 	# use a specialized insert routine, that starts searching
 	# somewhere in the list (not necessarily at the beginning/ending).
 	# Since the handle has shrunk in size, only search left.
-	mov	edi, offset handle_ll_fs
+	mov	edi, offset mem_handle_ll_fs
 	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
 	# ebx is the new handle - ignore it (but save it)
 	push	ebx
@@ -837,7 +834,7 @@ mem_split_handle_tail$:
 
 	# insert the NEW handle AFTER the old handle
 	push_	edi
-	mov	edi, offset handle_ll_fa
+	mov	edi, offset mem_handle_ll_fa
 	add	esi, offset handle_ll_el_addr
 	mov	eax, edx
 	call	ll_insert_after$	# insert new ebx after old edx (eax)
@@ -851,7 +848,7 @@ mem_split_handle_tail$:
 	# whereas in the other, the new handle's base is shifted to SUCCEED.
 	# In both cases, the old handle remains FREE and the new ALLOCATED,
 	# and in both cases, the size of the old handle shrinks.
-	mov	edi, offset handle_ll_fs
+	mov	edi, offset mem_handle_ll_fs
 	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
 	# ebx is the new handle - ignore it (but save it)
 	push	ebx
@@ -914,7 +911,7 @@ mem_split_handle_tail$:
 	push	edi
 	push	eax
 	# prepend ebx to edx
-	mov	edi, offset handle_ll_fa
+	mov	edi, offset mem_handle_ll_fa
 	add	esi, offset handle_ll_el_addr
 	mov	eax, edx
 	call	ll_insert_before$
@@ -924,7 +921,7 @@ mem_split_handle_tail$:
 	# use a specialized insert routine, that starts searching
 	# somewhere in the list (not necessarily at the beginning/ending).
 	# Since the list has shrunk in size, only search left.
-	mov	edi, offset handle_ll_fs
+	mov	edi, offset mem_handle_ll_fs
 	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
 	# ebx is the new handle - ignore it (but save it)
 	push	ebx
@@ -962,7 +959,7 @@ mem_split_handle_tail$:
 		pop	edx
 		popcolor
 	push	edi
-	mov	edi, offset handle_ll_fa
+	mov	edi, offset mem_handle_ll_fa
 	add	esi, offset handle_ll_el_addr
 	xchg	eax, ebx
 	call	ll_insert$
@@ -993,7 +990,7 @@ mem_split_handle_tail$:
 3:	# prepend
 	printc 2, "prepend"
 	mov	[esi + ebx + handle_fs_prev], edx
-	mov	[handle_fs_first], edx
+	mov	[mem_handle_ll_fs + ll_first], edx
 	mov	[esi + ebx + handle_fs_next], ebx
 # sublevel 6: nop/append when last
 1:	# nop
@@ -1068,7 +1065,7 @@ find_handle_linear$:
 	mov	esi, [mem_handles]
 	sub	ebx, esi
 	push	edi
-	mov	edi, offset handle_ll_fs
+	mov	edi, offset mem_handle_ll_fs
 	add	esi, offset handle_ll_el_size
 	call	ll_unlink$
 	sub	esi, offset handle_ll_el_size
@@ -1122,7 +1119,7 @@ alloc_handles$:
 	mov	[esi + ebx + handle_caller], dword ptr offset alloc_handles$
 	or	[esi + ebx + handle_flags], byte ptr MEM_FLAG_HANDLE #1 << 7
 	push	edi
-	mov	edi, offset handle_ll_fa
+	mov	edi, offset mem_handle_ll_fa
 	add	esi, offset handle_ll_el_addr
 	push	ecx
 	mov	ecx, [mem_maxhandles]
@@ -1273,7 +1270,7 @@ get_handle_by_base$:
 	jecxz	2f
 ####
 	mov	esi, [mem_handles]
-	mov	ebx, [handle_fa_first]
+	mov	ebx, [mem_handle_ll_fa + ll_first]
 
 0:	or	ebx, ebx
 	js	2f
@@ -1341,11 +1338,11 @@ handle_merge_fa$:
 
 	# remove from the address list
 	mov	[esi + ebx + handle_base], dword ptr 0
-	mov	edi, offset handle_ll_fa
+	mov	edi, offset mem_handle_ll_fa
 	add	esi, offset handle_ll_el_addr
 	call	ll_unlink$
 	# add to the reusable handles list
-	mov	edi, offset handle_ll_fh
+	mov	edi, offset mem_handle_ll_fh
 	push	ecx
 	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$	# this does a loop on address, unneeded; call append instead?
@@ -1366,7 +1363,7 @@ MERGE_RECURSE = 0
 #DEBUG "!",0x8f
 	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
 .endif
-	mov	edi, offset handle_ll_fs
+	mov	edi, offset mem_handle_ll_fs
 	# remove and insert:
 	#call	ll_unlink$
 	#call	ll_insert_sorted$
@@ -1382,7 +1379,7 @@ MERGE_RECURSE = 0
 	cmp	edi, -1
 	je	3b
 .endif
-	mov	edi, offset handle_ll_fs
+	mov	edi, offset mem_handle_ll_fs
 	add	esi, offset handle_ll_el_size
 	push	ecx
 	mov	ecx, [mem_maxhandles]

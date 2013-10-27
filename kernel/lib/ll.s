@@ -215,9 +215,13 @@ ll_update_left$:
 
 #	call	ll_insert$ 
 	.if LL_DEBUG
-		push esi
-		sub	esi, [mem_handles]; DEBUG_DWORD esi, "upd L field"
-		mov	esi, [mem_handles]
+		#push esi
+		# debugs the offset into the array which can contain more than one
+		# linked list.
+		# Disabled, because this code is not exclusive to [mem_handles].
+		#sub	esi, [mem_handles]; DEBUG_DWORD esi, "upd L field"
+		#mov	esi, [mem_handles]
+
 		dbg_ll_upd_L:
 		mov	[esi + ebx + handle_caller], dword ptr offset .
 		mov	ecx, ebx
@@ -228,7 +232,7 @@ ll_update_left$:
 		add	ebx, esi
 		call	mem_print_handle_2$
 		pop	ebx
-		pop	esi
+		#pop	esi
 	.endif
 
 1:	pop	edx
@@ -237,7 +241,8 @@ ll_update_left$:
 	ret
 
 
-# in: esi, edi
+# in: esi = array base
+# in: edi = ll struct ptr
 # in: ebx: handle to place in the list, still part of it
 ll_update_right$:
 	push	eax
@@ -268,7 +273,7 @@ ll_update_right$:
 
 	.if LL_DEBUG
 		dbg_ll_upd_R:
-		mov	ecx, [mem_handles]
+		mov	ecx, esi # [mem_handles]
 		mov	[ecx + ebx + handle_caller], dword ptr offset .
 		mov	ecx, ebx
 		HOTOI ecx
