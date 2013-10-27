@@ -44,6 +44,17 @@ HANDLE_STRUCT_SIZE = 32
 .endif
 
 
+.struct 0	# handles struct
+handles_ptr:	.long 0
+handles_num:	.long 0
+handles_max:	.long 0
+handles_idx:	.long 0		# the handle for the handles mem region
+handles_ll_fa:	.long 0,0
+handles_ll_fs:	.long 0,0
+handles_ll_fh:	.long 0,0
+HANDLES_STRUCT_SIZE = .
+
+
 .if DEFINE
 
 .macro HITO r	# handle_index_to_offset
@@ -58,10 +69,17 @@ HANDLE_STRUCT_SIZE = 32
 	sar	\r, 5
 .endm
 
+# initial and incremental handle allocation
 ALLOC_HANDLES = 32 # 1024
 
 
 .data
+# handles struct
+mem_handles: .long 0
+mem_numhandles: .long 0
+mem_maxhandles: .long 0
+mem_handles_handle: .long 0
+# substructs: pairs of _first and _last need to be in this order!
 # free-by-address
 mem_handle_ll_fa:
 .long -1#handle_fa_first: .long -1	# offset into [mem_handles]
@@ -75,12 +93,6 @@ mem_handle_ll_fh:
 .long -1#handle_fh_first: .long -1
 .long -1#handle_fh_last: .long -1	# not really used...
 
-.data
-mem_handles: .long 0
-mem_numhandles: .long 0
-mem_maxhandles: .long 0
-mem_handles_handle: .long 0
-# substructs: pairs of _first and _last need to be in this order!
 
 
 .text32
@@ -471,17 +483,21 @@ mem_print_ll_handles$:
 
 
 # Returns a free handle, base and size to be filled in, marked nonfree.
-# in: esi = [mem_handles]
-# out: esi might be updated if handle array is reallocated
+#
+# in: esi = handles struct pointer
 # out: ebx = handle index
-get_handle$:
+# side-effect: [esi + handles_ptr] updated if handle array is reallocated
+# effect: [esi + handles_num] incremented
+handle_get:
+	push	esi
 	# first check if we can reuse handles:
-	mov	ebx, [mem_handle_ll_fh + ll_first]
+	mov	ebx, [esi + handles_ll_fh + ll_first] #mem_handle_ll_fh + ll_first]
 	cmp	ebx, -1
-	jz	0f
+	jz	1f
 
 	push	edi
-	mov	edi, offset mem_handle_ll_fh
+	lea	edi, [esi + handles_ll_fh]
+	mov	esi, [esi + handles_ptr]
 	add	esi, offset handle_ll_el_addr # OPT
 	call	ll_unlink$
 	sub	esi, offset handle_ll_el_addr # OPT
@@ -489,15 +505,17 @@ get_handle$:
 
 	and	[esi + ebx + handle_flags], byte ptr ~MEM_FLAG_REUSABLE
 	or	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
+9:	pop	esi
 	ret
 
-0:	mov	ebx, [mem_numhandles]
-	cmp	ebx, [mem_maxhandles]
-	jb	0f
+1:	mov	ebx, [esi + handles_num] # [mem_numhandles]
+	cmp	ebx, [esi + handles_max] # [mem_maxhandles]
+	jb	1f
 	call	alloc_handles$	# updates esi
-	# jc halt?
-0:	mov	ebx, [mem_numhandles]
+	jc	9b
 
+1:	mov	ebx, [esi + handles_num] # [mem_numhandles]
+	mov	esi, [esi + handles_ptr]
 	HITO	ebx
 	mov	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	mov	[esi + ebx + handle_base], dword ptr 0
@@ -506,8 +524,11 @@ get_handle$:
 	mov	[esi + ebx + handle_fs_prev], dword ptr -1
 	mov	[esi + ebx + handle_fa_next], dword ptr -1
 	mov	[esi + ebx + handle_fa_prev], dword ptr -1
-	inc	dword ptr [mem_numhandles]
+	pop	esi
+	incd	[esi + handles_num]
 	ret
+
+
 
 # meant for external callers
 # in: eax = handle_base (allocated mem ptr)
@@ -532,29 +553,36 @@ mem_find_handle$:
 	clc
 	ret
 
+# in: esi = handles struct ptr
 # in: eax = size
 # in: edx = physical address align
-# in: esi = [mem_handles]
 # out: ebx = handle index that can accommodate it
 # out: CF on none found
-find_handle_aligned$:
+handle_find_aligned:
 	# lame solution:
 	push	eax
 	add	eax, edx	# -1?
-	call	find_handle$
+	call	handle_find
 	pop	eax
 	jc	9f
+# KEEP-WITH-NEXT
 
+# (this method is not called; fallthrough)
+# in: esi = handles struct ptr
 # in: ebx = handle
+# out: ebx = handle
 align_handle$:
-	push_	edi edx ecx
+	push_	edi edx ecx esi
 
 	.if MEM_HANDLE_ALIGN_DEBUG > 1
 		DEBUG "align_handle"
 		DEBUG_DWORD eax,"size"
 		DEBUG_DWORD edx,"align"
+		push	esi
+		mov	esi, [esi + handles_ptr]
 		DEBUG_DWORD [esi+ebx+handle_base],"base"
 		DEBUG_DWORD [esi+ebx+handle_size],"size"
+		pop	esi
 		DEBUG "pre:"
 		pushad; call mem_print_handles; popad
 	.endif
@@ -563,6 +591,7 @@ align_handle$:
 
 	GDT_GET_BASE ecx, ds
 	mov	edi, ecx
+	mov	esi, [esi + handles_ptr]
 	mov	ecx, [esi + ebx + handle_base]
 	.if MEM_HANDLE_ALIGN_DEBUG > 1
 		DEBUG_DWORD ecx,"logical base"
@@ -592,6 +621,7 @@ align_handle$:
 	mov	eax, ecx	# new base
 	sub	eax, [esi + ebx + handle_base]	# eax = alignment slack
 	or	byte ptr [esi + ebx + handle_flags], MEM_FLAG_DBG_SLACK
+	mov	esi, [esp + 4]	# get handles struct ptr
 	call	mem_split_handle_tail$
 	pop	eax
 
@@ -605,15 +635,17 @@ align_handle$:
 	# than required.
 
 	# Do another split if this is so:
+	mov	esi, [esi + handles_ptr]
 	mov	ecx, [esi + ebx + handle_size]
 	sub	ecx, eax
 	cmp	ecx, MEM_SPLIT_THRESHOLD
 	jb	2f
 	# split it, this time preserving the head
+	mov	esi, [esp]
 	call	mem_split_handle_head$
 2:
 
-0:	pop_	ecx edx edi
+0:	pop_	esi ecx edx edi
 	clc
 9:	ret
 
@@ -624,14 +656,15 @@ align_handle$:
 
 
 
+# in: esi = handles struct ptr
 # in: eax = size
-# in: esi = [mem_handles]
 # out: ebx = handle index that can accommodate it
 # out: CF on none found
-find_handle$:
-	mov	ebx, [mem_handle_ll_fs + ll_first]
-	push	ecx
-	mov	ecx, [mem_numhandles]
+handle_find:
+	push_	ecx esi
+	mov	ebx, [esi + handles_ll_fs + ll_first] # [mem_handle_ll_fs + ll_first]
+	mov	ecx, [esi + handles_num] # [mem_numhandles]
+	mov	esi, [esi + handles_ptr]
 
 0:	cmp	ebx, -1
 	jz	1f
@@ -644,7 +677,7 @@ find_handle$:
 	loop	0b
 
 1:	stc
-2:	pop	ecx
+2:	pop_	esi ecx
 	ret
 
 # sublevel 1: whether to split
@@ -667,7 +700,9 @@ find_handle$:
 	jmp	2b
 
 # sublevel 2: split implementation
-1: 	call	mem_split_handle_head$
+1: 	mov	esi, [esp]	# handles struct ptr
+	call	mem_split_handle_head$
+	mov	esi, [esi + handles_ptr]
 	# its probably done now, can return: jmp 2b
 	jmp	3b
 
@@ -678,7 +713,7 @@ find_handle$:
 # Thus the OLD handle will be SHIFTED and SHRUNK and FREE.
 # The NEW handle will have the SAME BASE but SIZE eax and ALLOCATED.
 #
-# in: esi = [mem_handles]
+# in: esi = handles struct ptr
 # in: ebx = handle to split, still part of ll_fs, not allocated
 # in: eax = desired handle size
 # out: ebx = new handle of size eax preceeding the old handle in address.
@@ -687,17 +722,20 @@ find_handle$:
 # original handle is repositioned in the free by size list.
 # new handle is marked allocated (by get_handle)
 mem_split_handle_head$:
-	push_	edx ecx
+	push_	edx ecx esi
 
 	.if MEM_HANDLE_SPLIT_DEBUG
 		DEBUG "head: old, new";call newline;
+		mov	esi, [esi + handles_ptr]
 		add	ebx, esi;
 		call	mem_print_handle_2$
 		sub	ebx, esi
+		mov	esi, [esp]
 	.endif
 
 	mov	edx, ebx	# backup
-	call	get_handle$	# already marked MEM_FLAG_ALLOCATED
+	call	handle_get	# in: esi; out: ebx, already marked MEM_FLAG_ALLOCATED
+	mov	esi, [esi + handles_ptr]
 
 	.if MEM_HANDLE_SPLIT_DEBUG
 		add	ebx, esi
@@ -764,7 +802,7 @@ mem_split_handle_head$:
 
 	## return
 
-	pop_	ecx edx
+	pop_	esi ecx edx
 	clc
 	ret
 
@@ -785,7 +823,7 @@ mem_split_handle_head$:
 #
 # This method is intended for physical memory address alignment.
 #
-# in: esi = [mem_handles]
+# in: esi = handles struct ptr
 # in: ebx = handle to split
 # in: eax = size to shrink ebx to.
 # out: ebx = new handle with remaining size SUCCEEDING old handle in address.
@@ -794,12 +832,13 @@ mem_split_handle_head$:
 # original handle is repositioned in the free by size list.
 # new handle: base = old.base + eax, size = old.size - eax; ALLOCATED.
 mem_split_handle_tail$:
-	push_	edx ecx eax
+	push_	edx ecx eax esi
 	mov	edx, ebx	# backup
 	.if MEM_HANDLE_SPLIT_DEBUG
 		DEBUG_DWORD eax,"shrinkto"
 	.endif
-	call	get_handle$	# already marked MEM_FLAG_ALLOCATED
+	call	handle_get	# in: esi; out: ebx, already marked MEM_FLAG_ALLOCATED
+	mov	esi, [esi + handles_ptr]
 	# debug markings
 	or	byte ptr [esi + ebx + handle_flags], MEM_FLAG_DBG_SPLIT # 8
 	or	byte ptr [esi + edx + handle_flags], MEM_FLAG_DBG_SPLIT2 # 16
@@ -861,157 +900,13 @@ mem_split_handle_tail$:
 
 	## return
 
-	pop_	eax ecx edx
+	pop_	esi eax ecx edx
 	clc
 	ret
 
 
-
-
-
 ###################################
 
-
-.if MEM_DEBUG
-		printc 4, "Split "
-	.endif
-	push	edx
-# sublevel 3: set up new handle
-	mov	edx, ebx
-	call	get_handle$	# already marked MEM_FLAG_ALLOCATED
-	.if MEM_DEBUG
-		push edx
-		pushcolor 4
-		HOTOI edx
-		call	printdec32
-		print " -> new "
-		mov	edx, ebx
-		HOTOI edx
-		call	printdec32
-		printchar ' '
-		popcolor
-		pop edx
-	.endif
-	# debug markings
-	or	byte ptr [esi + ebx + handle_flags], MEM_FLAG_DBG_SPLIT # 8
-	or	byte ptr [esi + edx + handle_flags], MEM_FLAG_DBG_SPLIT2 # 16
-
-	# edx = handle to split, ebx = handle to return, eax = size
-	mov	ecx, [esi + edx + handle_base]
-	# donate the first eax bytes of edx to ebx, and shift the base of edx
-	add	[esi + edx + handle_base], eax
-	sub	[esi + edx + handle_size], eax
-	mov	[esi + ebx + handle_base], ecx
-	mov	[esi + ebx + handle_size], eax
-
-	# since both handles are within the range of the original,
-	# it's base (handle_fa_..) won't change.
-
-	# insert the new handle before the old handle
-	push	edi
-	push	eax
-	# prepend ebx to edx
-	mov	edi, offset mem_handle_ll_fa
-	add	esi, offset handle_ll_el_addr
-	mov	eax, edx
-	call	ll_insert_before$
-	# the size list for unallocated memory needs to continue
-	# to contain the original block with free memory, but
-	# it may need to shift in the list.
-	# use a specialized insert routine, that starts searching
-	# somewhere in the list (not necessarily at the beginning/ending).
-	# Since the list has shrunk in size, only search left.
-	mov	edi, offset mem_handle_ll_fs
-	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
-	# ebx is the new handle - ignore it (but save it)
-	push	ebx
-	mov	ebx, edx
-	call	ll_update_left$
-	pop	ebx
-
-	sub	esi, offset handle_ll_el_size
-
-	pop	eax
-	pop	edi
-
-	## return
-
-	pop	edx
-	clc
-	jmp	2b	# 'ret'
-
-
-
-.if 1
-.else
-# defunct code
-
-	# insert the new handle in the address list directly before edx
-	mov	eax, edx
-		pushcolor 4
-		push	edx
-		HOTOI edx
-		call	printdec32
-		print "<-"
-		mov	edx, ebx
-		HOTOI edx
-		call	printdec32
-		pop	edx
-		popcolor
-	push	edi
-	mov	edi, offset mem_handle_ll_fa
-	add	esi, offset handle_ll_el_addr
-	xchg	eax, ebx
-	call	ll_insert$
-	xchg	eax, ebx
-	sub	esi, offset handle_ll_el_addr
-	pop	edi
-# sublevel 4: update list ordering
-	# since edx has shrunk in size, see if we need to move it
-	push	ebx
-
-	mov	ebx, [esi + edx + handle_fs_prev]
-	or	ebx, ebx
-	js	1f	# is first, dont do anything
-	mov	eax, [esi + edx + handle_size]
-	cmp	eax, [esi + ebx + handle_size]
-	jae	1f	# same or larger size, dont change position (append)
-	printc 2, "loop"
-# sublevel 5: find new place in list
-	# walk to 'prev' to find find the first block that is smaller
-	mov	ecx, [mem_numhandles] # safety check
-0:	cmp	[esi + ebx + handle_fs_prev], dword ptr -1
-	jz	3f	# it is smaller than the first handle, so prepend
-	mov	ebx, [esi + ebx + handle_fs_prev]
-	cmp	eax, [esi + ebx + handle_size]
-	jae	0f	# insert (not append)
-	loop	0b
-# sublevel 6: prepend
-3:	# prepend
-	printc 2, "prepend"
-	mov	[esi + ebx + handle_fs_prev], edx
-	mov	[mem_handle_ll_fs + ll_first], edx
-	mov	[esi + ebx + handle_fs_next], ebx
-# sublevel 6: nop/append when last
-1:	# nop
-	printc 2, "nop"
-	pop	ebx
-	pop	edx
-	clc
-	jmp	2b	# 'ret'
-# sublevel 6: insert
-0:	# insert
-	printc 2, "insert"
-	mov	[esi + edx + handle_fs_prev], ebx
-	mov	eax, [esi + ebx + handle_fs_next]
-	mov	[esi + edx + handle_fs_next], eax
-	mov	[esi + ebx + handle_fs_next], edx
-	mov	[esi + eax + handle_fs_prev], edx
-	jmp	1b
-.endif
-
-# TODO: use [esi+ebx+handle_fs_next] to find smallest fit,
-# then, see if difference in size is large enough (threshold) to split
 
 # in: eax = size
 # out: ebx = handle that can accommodate it
@@ -1074,11 +969,10 @@ find_handle_linear$:
 	pop	esi
 	jmp	1b
 
-# out: esi = [mem_handles]
+# in: esi = handles struct ptr
+# updates [esi + handles_ptr]
 alloc_handles$:
-	push	eax
-	push	ebx
-
+	push_	eax ebx esi
 	mov	eax, ALLOC_HANDLES
 	add	eax, [mem_maxhandles]
 	HITO	eax
@@ -1089,11 +983,10 @@ alloc_handles$:
 	cmp	dword ptr [mem_handles], 0
 	jz	1f
 
-	push	edi
-	push	ecx
-	mov	esi, [mem_handles]
+	push_	edi ecx
 	mov	edi, eax
-	mov	ecx, [mem_maxhandles]
+	mov	ecx, [esi + handles_max]
+	mov	esi, [esi + handles_ptr]
 	HITDS	ecx
 	rep	movsd
 		## clear the rest:
@@ -1102,18 +995,23 @@ alloc_handles$:
 		#xor	eax, eax
 		#rep	stosd
 		#pop	eax
-	pop	ecx
-	pop	edi
-
+	pop_	ecx edi
 
 1:
-	mov	esi, eax
-	xchg	eax, [mem_handles]
-	add	[mem_maxhandles], dword ptr ALLOC_HANDLES
+	#mov	esi, eax
+	#xchg	eax, [mem_handles]
+	#add	[mem_maxhandles], dword ptr ALLOC_HANDLES
+
+	mov	esi, [esp + 4]	# restore handles struct ptr
+	xchg	eax, [esi + handles_ptr]	# eax = old ptr, to free later
+	addd	[esi + handles_max], ALLOC_HANDLES
 
 	# reserve a handle
-	call	get_handle$	# potential recursion
-	mov	[mem_handles_handle], ebx
+	call	handle_get # in: esi; out: ebx; potential recursion
+	# jc?
+	#mov	[mem_handles_handle], ebx
+	mov	[esi + handles_idx], ebx
+	mov	esi, [esi + handles_ptr]
 	pop	dword ptr [esi + ebx + handle_size]	# the saved size
 	mov	[esi + ebx + handle_base], esi
 	mov	[esi + ebx + handle_caller], dword ptr offset alloc_handles$
@@ -1156,8 +1054,7 @@ alloc_handles$:
 	# When we're here, the handles are set up properly, at least one
 	# allocated for the handle structures themselves.
 
-	pop	ebx
-	pop	eax
+	pop_	esi ebx eax
 	ret
 
 
@@ -1261,16 +1158,18 @@ _mem_validate_contiguous_address$:
 	jmp	9b
 
 
+
+# in: esi = handles struct ptr
 # in: eax = mem base ptr
 # out: ebx = handle ptr
-get_handle_by_base$:
-	push	esi
-	push	ecx
-	mov	ecx, [mem_numhandles]
+# out: CF
+handle_get_by_base:
+	push_	esi ecx
+	mov	ecx, [esi + handles_num]
 	jecxz	2f
 ####
-	mov	esi, [mem_handles]
-	mov	ebx, [mem_handle_ll_fa + ll_first]
+	mov	ebx, [esi + handles_ll_fa + ll_first] # [mem_handle_ll_fa + ll_first]
+	mov	esi, [esi + handles_ptr] #[mem_handles]
 
 0:	or	ebx, ebx
 	js	2f
@@ -1280,8 +1179,7 @@ get_handle_by_base$:
 	loop	0b
 ####
 2:	stc
-3:	pop	ecx
-	pop	esi
+3:	pop_	ecx esi
 	ret
 
 

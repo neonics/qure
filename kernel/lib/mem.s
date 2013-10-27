@@ -859,9 +859,10 @@ malloc_internal_aligned$:	# can only be called from malloc_aligned!
 
 	# register the slack as free space
 
-	mov	esi, [mem_handles]
-	call	get_handle$
+	lea	esi, [mem_handles]
+	call	handle_get	# in: esi; out: ebx
 	jc	4f
+	mov	esi, [esi + handles_ptr] # [mem_handles]
 
 	mov	[esi + ebx + handle_size], eax
 	and	byte ptr [esi + ebx + handle_flags], ~MEM_FLAG_ALLOCATED
@@ -1048,11 +1049,12 @@ malloc_aligned_:
 	MUTEX_SPINLOCK MEM
 	push_	ebx esi
 
-	mov	esi, [mem_handles]
-	call	find_handle_aligned$
+	lea	esi, [mem_handles]
+	call	handle_find_aligned
 	jnc	1f	# : mov eax, base; clc; ret
-	call	get_handle$
+	call	handle_get	# in: esi; out: ebx
 	jc	4f	# error: no more handles
+	mov	esi, [esi + handles_ptr] # [mem_handles]
 
 	mov	[esi + ebx + handle_size], eax
 	# register caller
@@ -1061,55 +1063,11 @@ malloc_aligned_:
 	mov	[esi + ebx + handle_caller], edx
 	pop	edx
 
-.if 0
-	push	ecx
-	mov	edi, eax	# backup size
-
-	add	eax, edx
-	mov	[esi + ebx + handle_size], eax
-	call	malloc_internal$	# out: eax
-	jc	3f	# can't use malloc's 3f due to ecx on stack
-
-	# success code from 3f:
-	mov	[esi + ebx + handle_base], eax
-
-	push	edi
-	mov	edi, offset mem_handle_ll_fa
-	add	esi, offset handle_ll_el_addr
-	push	ecx
-	mov	ecx, [mem_maxhandles]
-	call	ll_insert_sorted$
-	pop	ecx
-	sub	esi, offset handle_ll_el_addr
-	pop	edi
-
-	# it is done.
-
-	# now split the handle: pretend it was just found as free
-	# in find_handle_aligned, and execute tail part:
-	xchg	eax, ecx	# eax = size; ecx = remember ptr
-	call	align_handle$	# out: ebx
-	mov	eax, ecx	# restore ptr
-	clc
-
-1:	pop_	ecx esi ebx
-	MUTEX_UNLOCK_ MEM
-	ret
-
-
-3:	printlnc 4, "malloc_aligned: no more handles"
-	stc
-	jmp	1b
-
-.else
-# BUG
 	call	malloc_internal_aligned$
 	jnc	3f
 	DEBUG "malloc_internal_aligned error"
 	jmp	3f
-.endif
-
-
+# KEEP-WITH-NEXT malloc_
 
 # in: eax = size
 # out: eax = base pointer
@@ -1133,11 +1091,12 @@ malloc_:
 	.endif
 #call mem_debug
 	push_	ebx esi
-	mov	esi, [mem_handles]
-	call	find_handle$
+	lea	esi, [mem_handles]
+	call	handle_find	# in: esi; out: ebx
 	jc	2f
 	# jz	2f	# for find_handle_linear$
 1:
+	mov	esi, [esi + handles_ptr]
 		.if MEM_DEBUG
 		pushcolor 13
 		print " ReUse "
@@ -1154,8 +1113,9 @@ malloc_:
 	mov	eax, [esi + ebx + handle_base]
 	jmp	0f
 
-2:	call	get_handle$
+2:	call	handle_get	# in: esi; out: ebx
 	jc	4f
+	mov	esi, [esi + handles_ptr] # [mem_handles]
 
 	.if MEM_DEBUG
 		pushcolor 13
@@ -1193,17 +1153,9 @@ malloc_:
 	pop	edi
 
 	# register caller
-0:	push	edx
-#	mov	edx, offset _mallocz_malloc_ret$
-#	add	edx, [realsegflat]
-#	cmp	edx, [esp + 20]
-#	mov	edx, [esp + 24]
-#	jz	5f
-#	mov	edx, [esp + 20]	# edx+esi+ebx+ret
-#5:
-mov edx, [ebp]
-	mov	[esi + ebx + handle_caller], edx
-	pop	edx
+0:	add	esi, ebx
+	mov	ebx, [ebp]
+	mov	[esi + handle_caller], ebx
 
 	clc
 
@@ -1280,10 +1232,10 @@ mov edx, [ebp]
 	push	esi
 	push	edi
 
-	mov	esi, [mem_handles]
-
-	call	get_handle_by_base$
+	lea	esi, [mem_handles]
+	call	handle_get_by_base	# in: esi, eax; out: ebx
 	jc	0f
+	mov	esi, [esi + handles_ptr]
 
 	test	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	jnz	1f
