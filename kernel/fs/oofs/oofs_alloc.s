@@ -57,7 +57,8 @@ oofs_alloc_tbl_init:
 	call	oofs_persistent_init	# super.init()
 
 	# clear linked list
-	push_	edi eax ecx
+	push	edi
+	push_	eax ecx
 	lea	edi, [eax + oofs_alloc_tbl_ll]
 	mov	eax, -1
 	mov	ecx, 2 * 3
