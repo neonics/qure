@@ -37,6 +37,27 @@ mem_heap_high_start_phys:.long 0, 0
 
 mem_phys_total:	.long 0, 0	# total physical memory size
 
+.data
+# handles struct (from mem_handle.s)
+mem_handles: .long 0
+mem_numhandles: .long 0
+mem_maxhandles: .long 0
+mem_handles_handle: .long 0	# unused
+# substructs: pairs of _first and _last need to be in this order!
+# free-by-address
+mem_handle_ll_fa:
+.long -1#handle_fa_first: .long -1	# offset into [mem_handles]
+.long -1#handle_fa_last: .long -1	# offset into [mem_handles]
+# free-by-size
+mem_handle_ll_fs:
+.long -1#handle_fs_first: .long -1	# offset into [mem_handles]
+.long -1#handle_fs_last: .long -1	# offset into [mem_handles]
+# free handles
+mem_handle_ll_fh:
+.long -1#handle_fh_first: .long -1
+.long -1#handle_fh_last: .long -1	# not really used...
+
+
 .text32
 
 # The 'handle' class is written with optimization of speed and size.
@@ -995,7 +1016,7 @@ mallocz_:
 	call	malloc_
 _mallocz_malloc_ret$:	# debug symbol
 	.if MEM_DEBUG2
-		DEBUG_DWORD eax; pushf; call newline; popf
+		DEBUG_DWORD eax,"malloc";DEBUG_DWORD ecx; pushf; call newline; popf
 	.endif
 	jc	9f
 	push	edi
@@ -1525,87 +1546,17 @@ mfree_:
 		DEBUG ","
 	.endif
 	push	esi
-	push	ecx
-	push	ebx
-	mov	ecx, [mem_numhandles]
-	or	ecx, ecx
-	jz	1f
-	#jecxz	1f
-	mov	esi, [mem_handles]
-	mov	ebx, [mem_handle_ll_fa + ll_last]
-
-0:	#or	ebx, ebx
-	#js	1f
-	cmp	ebx, -1
-	jz	1f
-	cmp	eax, [esi + ebx + handle_base]
-	jz	3f
-	mov	ebx, [esi + ebx + handle_fa_prev]
-	loop	0b
-	jmp	1f
-
-3:	test	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
-	jz	1f
-	and	[esi + ebx + handle_flags], byte ptr ~MEM_FLAG_ALLOCATED
-	# alt:
-	# btc	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED_SHIFT
-	# jnc	1f
-
-##################
-	push	edi
-	push	edx
-	# this takes care of everything:
-	call	handle_merge_fa$
-	pop	edx
-	pop	edi
-
-	clc
-##################
-
-2:	pop	ebx
-	pop	ecx
+	lea	esi, [mem_handles]
+	call	handle_free_by_base
 	pop	esi
-	.if MEM_DEBUG2
+        .if MEM_DEBUG2
 		call mem_validate_handles
-		DEBUG "]"
-	.endif
+                DEBUG "]"
+        .endif
 	MUTEX_UNLOCK_ MEM
+	STACKTRACE ebp
 	ret
 
-1:	pushcolor 4
-	print	"free called for unknown pointer "
-	push	edx
-	mov	edx, eax
-	call	printhex8
-	print " called from "
-	mov	edx, [ebp] #[esp + 4*4 + COLOR_STACK_SIZE]
-	call	printhex8
-	call	printspace
-	call	debug_printsymbol
-		.if 0
-		print " ecx="
-		mov	edx, ecx
-		call	printhex8
-		print " ebx="
-		mov	edx, ebx
-		call	printhex8
-		.endif
-	call	newline
-	pop	edx
-	popcolor
-	int 3
-	stc
-	jmp	2b
-
-
-	.macro PRINT_LL_UNLINK listname
-		printc 4, "Unlink \listname "
-		push	edx
-		mov	edx, ebx
-		HOTOI	edx
-		call	printdec32
-		pop	edx
-	.endm
 
 ###########################################################################
 
@@ -1716,6 +1667,15 @@ mdup:	push	ebp
 
 9:	pop	eax
 	pop	ebp
+	ret
+
+
+##############################################################################
+mem_print_handles:
+	push	esi
+	lea	esi, [mem_handles]
+	call	handles_print
+	pop	esi
 	ret
 
 ##############################################################################
@@ -1983,15 +1943,17 @@ cmd_mem$:
 	jmp	2f
 1:	test	dword ptr [ebp], CMD_MEM_OPT_HANDLES_A
 	jz	1f
+	lea	esi, [mem_handles]
 	mov	ebx, offset mem_handle_ll_fa
 	mov	edi, offset handle_ll_el_addr
-	call	mem_print_ll_handles$
+	call	handles_print_ll
 	jmp	2f
 1:	test	dword ptr [ebp], CMD_MEM_OPT_HANDLES_S
 	jz	1f
+	lea	esi, [mem_handles]
 	mov	ebx, offset mem_handle_ll_fs
 	mov	edi, offset handle_ll_el_size
-	call	mem_print_ll_handles$
+	call	handles_print_ll
 2:
 ######## print memory map
 1:	test	dword ptr [ebp], CMD_MEM_OPT_KERNEL_MEMMAP
@@ -2309,6 +2271,13 @@ mallocz_aligned:
 9:	pop	ecx
 	ret
 
+
+mem_validate_handles:
+	push	esi
+	lea	esi, [mem_handles]
+	call	handles_validate_contiguous_address$
+	pop	esi
+	ret
 ############################################################
 #
 
@@ -2498,7 +2467,3 @@ page_phys_print_free$:
 	popf
 	ret
 .endif
-
-cmd_page_phys:
-	
-	ret

@@ -81,13 +81,20 @@
 # by simply subtracting 4 from esi before the call.
 .intel_syntax noprefix
 
-.struct 0	# The main entry to the list itself.
+
+.struct 0	# Offsets into the linked list: main entry points.
 ll_first: .long 0
 ll_last: .long 0
-.struct 0	# fields required in the struct participating in a list.
+
+# These fields are required to be present in a struct participating in a linked
+# list. A linked list does not need to consist of the same structures, nor is
+# this structure required to appear at a specific offset in it's embedding
+# structure, as long as the prev/next fields point to this particular structure.
+# The third field is required for sorted linked lists.
+.struct 0	# ll_info
 ll_prev: .long 0
 ll_next: .long 0
-ll_value: .long 0	# used by ll_insert_sorted
+ll_value: .long 0	# optional; used by ll_insert_sorted
 .text32
 
 ##################################################### LINKED LIST ############

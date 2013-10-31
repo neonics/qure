@@ -259,14 +259,19 @@ DEBUG_DWORD \r
 .macro STACKTRACE stackret=a, check_cf=1
 	.ifc \stackret,a
 	.error "STACKTRACE needs stack depth for method return"
-	.else
+	.endif
+
 	.if \check_cf
 	jnc	9000f
 	.endif
+
+	.ifc \stackret,ebp
+	call	stacktrace_ebp
+	.else
 	pushd	\stackret
 	call	stacktrace
-9000:
 	.endif
+9000:
 .endm
 
 __DEBUG_DECLARED=1
@@ -518,6 +523,13 @@ debug_assert_array_index:
 .global stacktrace
 # in: [esp] = stack depth until return eip
 stacktrace:
+.if 1 # experimental
+	push	ebp
+	mov	ebp, [esp + 8]
+	mov	ebp, [esp + 8 + ebp]
+	call	stacktrace_ebp
+	pop	ebp
+.else
 	push	edx
 	mov	edx, [esp + 8]
 	mov	edx, [esp + 12 + edx]
@@ -533,7 +545,29 @@ stacktrace:
 1:	call	newline
 	popf
 	pop	edx
+.endif
 	ret	4
+
+.global stacktrace_ebp
+# meant for mem.s etc, which have ebp point to eip ret.
+# in: [esp] = return eip
+stacktrace_ebp:
+	push	edx
+	mov	edx, [ebp]
+	pushf
+	printc 14, " at "
+	pushcolor 8
+	call	printhex8
+	popcolor
+	call	printspace
+	call	debug_printsymbol
+	jnc	1f
+	printc 12, " - not code?"
+1:	call	newline
+	popf
+	pop	edx
+	ret
+
 
 
 .endif	# DEFINE
