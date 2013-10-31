@@ -105,7 +105,7 @@ handles_print:
 	push	ebx
 	push	ecx
 	push	edx
-	push	esi
+	push	esi	# esi must be last
 
 ######### print handles..
 
@@ -274,7 +274,7 @@ handles_print:
 	call	newline
 
 	.if MEM_PRINT_HANDLES == 2
-	call	mem_print_handle_2h$
+	call	handle_print_2h$
 	.endif
 
 	mov	esi, [esp]
@@ -283,9 +283,9 @@ handles_print:
 	sub	edx, ecx
 
 	.if MEM_PRINT_HANDLES == 2
-	call	mem_print_handle_2$
+	call	handle_print_2$
 	.else
-	call	mem_print_handle_$
+	call	handle_print_$
 	.endif
 	add	ebx, HANDLE_STRUCT_SIZE
 
@@ -298,14 +298,14 @@ handles_print:
 	pop	eax
 	ret
 
-mem_print_handle_2h$:
+handle_print_2h$:
 	println "Handle hndlptr  base.... size.... flags... caller.. [<- A ->] [<- S ->]"
 	ret
 
 
 # in: ebx = abs handle pointer ([handles_ptr] already added)
 # in: edx = handle number (0,1,2,...)
-mem_print_handle_2$:
+handle_print_2$:
 	push_	eax edx
 	# if the screenis full, force a scroll, to get positive delta-screen_pos
 	call	printspace
@@ -398,7 +398,7 @@ mem_print_handle_2$:
 
 # in: ebx = abs handle ptr
 # in: edx = handle number (0,1,2,..)
-mem_print_handle_$:
+handle_print_$:
 	print "Handle "
 	call	printdec32
 	printchar ' '
@@ -442,7 +442,7 @@ mem_print_handle$:
 	mov	edx, ebx
 	HOTOI	edx
 	add	ebx, esi
-	call	mem_print_handle_$
+	call	handle_print_$
 	sub	ebx, esi
 	pop	edx
 	ret
@@ -455,7 +455,7 @@ mem_print_handle$:
 handles_print_ll:
 
 	.if MEM_PRINT_HANDLES == 2
-	call	mem_print_handle_2h$
+	call	handle_print_2h$
 	.else
 	.endif
 
@@ -467,9 +467,9 @@ handles_print_ll:
 0:	add	ebx, [esi + handles_ptr]
 
 	.if MEM_PRINT_HANDLES == 2
-	call	mem_print_handle_2$
+	call	handle_print_2$
 	.else
-	call	mem_print_handle_$
+	call	handle_print_$
 	.endif
 
 	mov	ebx, [ebx + edi + ll_next]
@@ -511,13 +511,13 @@ handle_get:
 9:	pop	esi
 	ret
 
-1:	mov	ebx, [esi + handles_num] # [mem_numhandles]
-	cmp	ebx, [esi + handles_max] # [mem_maxhandles]
+1:	mov	ebx, [esi + handles_num]
+	cmp	ebx, [esi + handles_max]
 	jb	1f
 	call	handles_alloc$	# updates esi
 	jc	9b
 
-1:	mov	ebx, [esi + handles_num] # [mem_numhandles]
+1:	mov	ebx, [esi + handles_num]
 	mov	esi, [esi + handles_ptr]
 	HITO	ebx
 	mov	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
@@ -551,20 +551,7 @@ handle_find_aligned:
 # in: ebx = handle
 # out: ebx = handle
 align_handle$:
-	push_	edi edx ecx esi
-
-	.if MEM_HANDLE_ALIGN_DEBUG > 1
-		DEBUG "align_handle"
-		DEBUG_DWORD eax,"size"
-		DEBUG_DWORD edx,"align"
-		push	esi
-		mov	esi, [esi + handles_ptr]
-		DEBUG_DWORD [esi+ebx+handle_base],"base"
-		DEBUG_DWORD [esi+ebx+handle_size],"size"
-		pop	esi
-		DEBUG "pre:"
-		pushad; call mem_print_handles; popad
-	.endif
+	push_	edi edx ecx esi	# esi must be last
 
 	# have ecx be the new base
 
@@ -607,7 +594,7 @@ align_handle$:
 	.if MEM_HANDLE_ALIGN_DEBUG > 1
 		DEBUG_DWORD eax
 		DEBUG "post split tail"
-		pushad; call mem_print_handles; popad
+		pushad; call handles_print; popad
 	.endif
 	# NOTE: depending on the handle's base address, the slack size
 	# varies. Therefore, the new handle will most likely be larger
@@ -640,7 +627,7 @@ align_handle$:
 # out: ebx = handle index that can accommodate it
 # out: CF on none found
 handle_find:
-	push_	ecx esi
+	push_	ecx esi	# esi must be last
 	mov	ebx, [esi + handles_ll_fs + ll_first]
 	mov	ecx, [esi + handles_num]
 	mov	esi, [esi + handles_ptr]
@@ -702,13 +689,13 @@ handle_find:
 # original handle is repositioned in the free by size list.
 # new handle is marked allocated (by get_handle)
 handle_split_head$:
-	push_	edx ecx esi
+	push_	edx ecx esi	# esi must be last
 
 	.if MEM_HANDLE_SPLIT_DEBUG
 		DEBUG "head: old, new";call newline;
 		mov	esi, [esi + handles_ptr]
 		add	ebx, esi;
-		call	mem_print_handle_2$
+		call	handle_print_2$
 		sub	ebx, esi
 		mov	esi, [esp]
 	.endif
@@ -719,9 +706,8 @@ handle_split_head$:
 
 	.if MEM_HANDLE_SPLIT_DEBUG
 		add	ebx, esi
-		call	mem_print_handle_2$
+		call	handle_print_2$
 		sub	ebx, esi
-			call	mem_print_handles
 	.endif
 
 	# debug markings
@@ -772,13 +758,12 @@ handle_split_head$:
 		DEBUG "updated: old, new";call newline;
 		push	ebx
 		lea	ebx, [edx + esi]
-		call	mem_print_handle_2$
+		call	handle_print_2$
 		mov	ebx, [esp]
 		add	ebx, esi
-		call	mem_print_handle_2$
+		call	handle_print_2$
 		call	newline
 		pop	ebx
-			call	mem_print_handles
 	.endif
 
 	## return
@@ -813,7 +798,7 @@ handle_split_head$:
 # original handle is repositioned in the free by size list.
 # new handle: base = old.base + eax, size = old.size - eax; ALLOCATED.
 handle_split_tail$:
-	push_	edx ecx eax esi
+	push_	edx ecx eax esi	# esi must be last
 	mov	edx, ebx	# backup
 	.if MEM_HANDLE_SPLIT_DEBUG
 		DEBUG_DWORD eax,"shrinkto"
@@ -893,7 +878,7 @@ handle_split_tail$:
 # in: esi = handles struct ptr
 # updates [esi + handles_ptr]
 handles_alloc$:
-	push_	eax ebx ecx edi esi
+	push_	eax ebx ecx edi esi	# esi must be last
 	mov	eax, ALLOC_HANDLES
 	add	eax, [esi + handles_max]
 	HITO	eax
@@ -943,25 +928,6 @@ handles_alloc$:
 	call	mfree	# see 1b for eax
 1:
 
-		.if MEM_DEBUG > 1
-		push	edx
-		print " newhandle "
-		mov	edx, ebx
-		call	printhex8
-		printchar ' '
-		mov	edx, [ebx + handle_base]
-		call	printhex8
-		call	newline
-		pop	edx
-
-		pushad
-		pushcolor 14
-		call	mem_print_handles
-		popcolor
-		MORE
-		popad
-		.endif
-
 	# When we're here, the handles are set up properly, at least one
 	# allocated for the handle structures themselves.
 
@@ -971,7 +937,7 @@ handles_alloc$:
 
 handles_validate_contiguous_address$:
 	pushf
-	pushad
+	push_	eax ebx ecx edx edi esi	# esi must be last
 	mov	ecx, [esi + handles_num]
 	or	ecx, ecx
 	jz	9f
@@ -1001,7 +967,7 @@ handles_validate_contiguous_address$:
 	add	ebx, HANDLE_STRUCT_SIZE
 	loop	0b
 
-9:	popad
+9:	pop_	esi edi edx ecx ebx eax
 	popf
 	ret
 
@@ -1026,14 +992,14 @@ handles_validate_contiguous_address$:
 		call	newline
 
 	add	ebx, esi
-	call	mem_print_handle_$
+	call	handle_print_$
 	lea	ebx, [esi + edi]
-	call	mem_print_handle_$
+	call	handle_print_$
 	printlnc 4,"-----------------------------";
-	call	mem_print_handles
-	int 1
+	mov	esi, [esp]
+	call	handles_print
+	int 3
 	sti
-
 	jmp	9b
 
 42:	cli
@@ -1056,14 +1022,14 @@ handles_validate_contiguous_address$:
 		call	newline
 
 	add	ebx, esi
-	call	mem_print_handle_$
+	call	handle_print_$
 	lea	ebx, [esi + edi]
-	call	mem_print_handle_$
+	call	handle_print_$
 	printlnc 4,"-----------------------------";
-	call	mem_print_handles
-	int 1
+	mov	esi, [esp]
+	call	handles_print
+	int 3
 	sti
-
 	jmp	9b
 
 
@@ -1123,7 +1089,7 @@ handle_get_by_base:
 # in: ebx = handle index
 # out: CF = 0: merged; ebx = new handle. CF=1: no merge, ebx is marked free.
 handle_merge_fa$:
-	push_	eax edx edi esi	# esi needs to be last
+	push_	eax edx edi esi	# esi must be last
 0:	xor	edi, edi
 
 	# Check if ebx.base follows the previous handle AND is also free
@@ -1149,16 +1115,13 @@ handle_merge_fa$:
 	mov	eax, [esi + ebx + handle_fa_next]
 	cmp	eax, -1
 	jz	1f
-#DEBUG "e",0x8f
 	test	byte ptr [esi + eax + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	jnz	1f
-#DEBUG "f",0x8f
 	mov	edx, [esi + ebx + handle_base]
 	add	edx, [esi + ebx + handle_size]
 	cmp	edx, [esi + eax + handle_base]
 	jnz	1f
 
-#DEBUG "g",0x8f
 	# ebx preceeds eax immediately.
 	# Prepend ebx's size to eax:
 	xor	edx, edx
@@ -1191,13 +1154,11 @@ MERGE_RECURSE = 0
 	# eax's size address might have changed:
 	mov	ebx, eax
 .if MERGE_RECURSE
-#DEBUG "R",0x8f
 	sub	esi, offset handle_ll_el_addr
 	mov	edi, -1	# loop
 	jmp	0b
 3:
 .else
-#DEBUG "!",0x8f
 	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
 .endif
 	mov	edi, [esp]
@@ -1232,7 +1193,7 @@ MERGE_RECURSE = 0
 # in: esi = handles struct ptr
 # in: eax = base pointer
 handle_free_by_base:
-	push_	ebx esi
+	push_	ebx esi	# esi must be last
 	call	handle_get_by_base
 	jc	91f
 
