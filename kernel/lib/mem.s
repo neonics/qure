@@ -1468,15 +1468,11 @@ mreallocz_:
 		mov	edx, [esp + 4]	# restore edx = new size
 		jmp	3f
 
-	2:	# found
-		#DEBUG_DWORD [esi + edi + handle_size],"old size", 0xe0
-		#mov edx, [ebp]
-		#call	debug_printsymbol
-
-		# take the smallest size to copy
-		cmp	edx, [esp + 4]	# old size <> new size
+	2:	mov	edx, [esi + edi + handle_size]
+		mov	esi, [esp + 4]	# less memory references
+		cmp	edx, esi	# old size <> new size
 		jb	3f		# old size < new size
-		mov	edx, [esi + edi + handle_size]
+		mov	edx, esi
 	3:
 	MUTEX_UNLOCK_ MEM
 
