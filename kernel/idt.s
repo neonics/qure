@@ -165,7 +165,7 @@ add_irq_handler:
 1:	mov	[esi-4], ebx
 
 	clc
-9:	pop_	eax esi edx ecx
+9:	pop_	esi edx ecx eax
 	#call print_irq_handlers
 	ret
 91:	printlnc 4, "add_irq_handler: mallocz fail"
