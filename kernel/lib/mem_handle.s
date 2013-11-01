@@ -437,7 +437,7 @@ handle_print_$:
 
 # in: ebx = handle index
 # in: esi = [handles_ptr]
-mem_print_handle$:
+handle_print$:
 	push	edx
 	mov	edx, ebx
 	HOTOI	edx
@@ -1080,7 +1080,7 @@ handle_get_by_base:
 		.if HANDLE_ASSERT
 		91:	printc 4, "corrupt handle"
 			# inspect ebx (rel handle ptr), edi = prev handle ptr
-			call	mem_print_handle$
+			call	handle_print$
 			int 3
 			jmp	2b
 		.endif
@@ -1138,13 +1138,13 @@ handle_merge_fa$:
 	# remove from the address list
 	mov	[esi + ebx + handle_base], dword ptr 0
 	mov	edi, [esp]	# handles struct ptr
+	push	ecx
+	mov	ecx, [edi + handles_max] # arg for insert_sorted
 	add	edi, offset handles_ll_fa
 	add	esi, offset handle_ll_el_addr
 	call	ll_unlink$
 	# add to the reusable handles list
 	add	edi, offset handles_ll_fh - offset handles_ll_fa
-	push	ecx
-	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$	# this does a loop on address, unneeded; call append instead?
 	pop	ecx
 	or	byte ptr [esi + ebx + handle_flags], MEM_FLAG_REUSABLE
@@ -1180,10 +1180,10 @@ MERGE_RECURSE = 0
 	je	3b
 .endif
 	mov	edi, [esp]
+	push	ecx
+	mov	ecx, [edi + handles_max]
 	add	edi, offset handles_ll_fs
 	add	esi, offset handle_ll_el_size
-	push	ecx
-	mov	ecx, [mem_maxhandles]
 	call	ll_insert_sorted$
 	pop	ecx
 	stc
