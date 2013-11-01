@@ -849,7 +849,7 @@ oofs_vol_lookup:
 oofs_vol_print:
 	STACKTRACE 0,0
 	call	oofs_persistent_print	# super.print()
-	push_	edi esi edx ecx ebx
+	push_	ebp edi esi edx ecx ebx
 
 	printc 11, " Entries: "
 	mov	edx, [eax + oofs_vol_count]
@@ -859,6 +859,18 @@ oofs_vol_print:
 	mov	ecx, edx
 	or	ecx, ecx
 	jz	9f
+
+	# lookup oofs_table
+	# XXX unclean oofs_table reference
+	xor	ebx, ebx	# start index
+	mov	edx, offset class_oofs_table
+	mov	ebp, eax	# backup
+	call	oofs_vol_lookup
+	xchg	ebp, eax	# restore
+	jnc	1f
+	xor	ebp, ebp	# null
+1:
+
 
 	lea	esi, [eax + oofs_vol_array]
 	xor	ebx, ebx	# lba sum
@@ -875,26 +887,26 @@ oofs_vol_print:
 	print " * pLBA "
 	mov	edx, [esi + oofs_el_lba]
 	call	printhex8
-	print " ("
-	pushcolor 7
+
 	cmp	edx, ebx
 	jz	2f
-	color 12
-2:	mov	edx, ebx
-	call	printhex8
-	popcolor
-	print "), "
+	printcharc 12, '*'
+	jmp	3f
+2:	call	printspace
+3:	call	printspace
+
 	mov	edx, [esi + oofs_el_sectors]
 	call	printhex8
 	print " sectors"
 
 	cmp	ecx, 1	# last entry has no objects: free space
 	#jz	1f
-	jnz	2f
+	jnz	3f
 	printc 15, " free space"
-	jmp	1f
-2:
+	jmp	2f
+3:
 
+####### print object or class
 	add	ebx, edx
 
 	mov	edx, [eax + oofs_children]
@@ -905,24 +917,35 @@ oofs_vol_print:
 	mov	edx, [edx + edi]
 	or	edx, edx
 	jz	1f
-	print " obj: "
+	print "   obj: "
+	PRINT_CLASS edx
+	pushcolor 8
+	print " ("
 	call	printhex8
-	call	printspace
-	mov	edx, [edx + obj_class]
-	call	printhex8
-	call	printspace
-	push	eax
-	mov	eax, edx
-	call	class_is_class
-	pop	eax
-	jc	91f
-	pushd	[edx + class_name]
+	printchar ')'
+	popcolor
+	jmp	2f
+######## print class
+1:	or	ebp, ebp
+	jz	2f	# no oofs_table
+	push	ecx
+	mov	ecx, edi
+	shr	ecx, 2
+	xchg	eax, ebp
+	call	[eax + oofs_table_api_get]	# in: eax,ecx; out: edx=string
+	xchg	eax, ebp
+	pop	ecx
+	jc	2f
+
+	print " class: "
+	push	edx
 	call	_s_print
-1:	call	newline
+########
+2:	call	newline
 	add	esi, OOFS_EL_STRUCT_SIZE
 	add	edi, 4
 	dec ecx;jnz 0b#loop	0b
-9:	pop_	ebx ecx edx esi edi
+9:	pop_	ebx ecx edx esi edi ebp
 	ret
 91:	printc 4, "invalid class"
 	jmp 1b
