@@ -523,29 +523,11 @@ debug_assert_array_index:
 .global stacktrace
 # in: [esp] = stack depth until return eip
 stacktrace:
-.if 1 # experimental
 	push	ebp
 	mov	ebp, [esp + 8]
-	mov	ebp, [esp + 8 + ebp]
+	lea	ebp, [esp + 12 + ebp]
 	call	stacktrace_ebp
 	pop	ebp
-.else
-	push	edx
-	mov	edx, [esp + 8]
-	mov	edx, [esp + 12 + edx]
-	pushf
-	printc 14, " at "
-	pushcolor 8
-	call	printhex8
-	popcolor
-	call	printspace
-	call	debug_printsymbol
-	jnc	1f
-	printc 12, " - not code?"
-1:	call	newline
-	popf
-	pop	edx
-.endif
 	ret	4
 
 .global stacktrace_ebp
