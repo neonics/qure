@@ -6,7 +6,7 @@ DEFINE = 0
 .include "../../debugger/export.s"
 .include "kapi/export.h"	# requires as -I ../..
 .include "../../lib/hash.s"	# OBJ_STRUCT_SIZE
-.include "../../lib/mem_handle.s"
+.include "../../lib/handles.s"
 .include "../../oo.s"
 .include "../../fs.s"
 .include "../fs_oofs.s"

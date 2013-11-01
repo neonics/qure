@@ -100,7 +100,7 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 		--image-base 0 \
 		-o $@ $(KERNEL_OBJECTS) #$^
 
-KLIB_SRC = lib/mem.s lib/mem_handle.s \
+KLIB_SRC = lib/mem.s lib/handles.s \
 		lib/ll.s lib/string.s lib/buffer.s lib/token.s
 
 EXE_SRC = exe/libc.s exe/elf.s exe/pe.s
