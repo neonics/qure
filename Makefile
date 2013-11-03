@@ -153,7 +153,7 @@ site-src:
 
 TXTDOC=Bootsector Cluster NetFork CloudNet LiquidChristalProcessor \
 	CircularBuffer HostMe Freedom Net TaskSwitching CallingConvention \
-	Filesystem EnclosedSource DNS2
+	Filesystem EnclosedSource DNS2 Gittorrent
 HTMLDOC=PersistentCluster
 
 WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${TXTDOC}))

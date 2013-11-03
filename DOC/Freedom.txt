@@ -1,3 +1,7 @@
+Basic Introduction to Code Execution
+====================================
+
+
 = Environment =
 
 * CPU
@@ -198,8 +202,8 @@ Not always is a execution control transfer required when values on the
 stack are manipulated, and thus, a separate set of instructions to do
 so are introduced:
 
-	PUSH:	mov	[esp], VALUE
-		sub	esp, sizeof VALUE
+	PUSH:	sub	esp, sizeof VALUE
+		mov	[esp], VALUE
 
 	POP:	mov	target, [esp]
 		add	esp, sizeof target

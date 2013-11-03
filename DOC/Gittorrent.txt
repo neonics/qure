@@ -1,0 +1,125 @@
+Gittorrent – Distributed Filesystem
+===================================
+2013-11-02
+
+Both the bittorrent protocol aswell as Git (and other VCS) use SHA1 hashes.
+In and of itself not significant, however, they would make for a good combination.
+
+Git is primarily a simple file database, with three kinds of nodes (blob, tree, and linearity) all using a hash of their type and content as their key.
+This means that a SHA1 hash can serve as a torrent key to obtain the data. This data can either be file content (blob) or a directory structure (leaving out the linearity or commit history for now).
+
+I am in the process of developing a kind of GitFS, a hash based filesystem. It does not use a directory structure to store files, but merely stores a reference to the data and the full path aswell as other attributes. A list of hashes with LBA addresses is kept to point to disk space.
+
+A reserved area of the filesystem will contain symbolic pointers. The first entry will be the root of the filesystem, which will be a hash. This hash can either point to blob data which will appear as a file – the entire partition itself for instance, or a file within the partition – or it can point to tree data, which will present a directory structure.
+
+Initially this directory structure will contain all directories and files on the filesystem in a flat array. When the filesystem grows, portions of it may be split off into subtrees and references included instead.
+
+Once this is operational, 'commit history' or versioning will be added. Multiple branches will be supported, each branch a linear history, delta encoded with the previous history upon any file change.
+
+Furthermore, the root of the filesystem when mounted will show all branches as directories. This makes it possible to mount any branch anywhere. 
+
+It is also possible to construct a branch hierarchy by recording not only the commit for a branch, but the name of the branch it was forked from. This would allow to present a tree structure on a per-project or context basis, such as the kernel and it's development branches, or a website and it's experimental branches.
+
+Networking
+----------
+
+Next, a bittorrent-like protocol must be added. Since I'm doing everything in assembly, I'll use a custom protocol for this, as simple as broadcasting a hash on the local cluster multicast address and receiving an answer indicating who has the data or who has a reference to it.
+
+Since all cluster nodes are backed by GitFS, they can compare their histories and merge their branches, producing any file system view available. Further, a 'time machine' or archive is built-in.
+
+A client then, connecting to a cluster node, will be able to access any branch depending on server configuration. Each branch for instance might be a different tree, a different website. This makes it possible to only expose parts of the filesystem to a service.
+
+Since a cluster is meant to share data, providing redundant backups, all nodes are aware of the entire cluster. A node can then relay requests to other nodes who have the data, or fetch the data from the node and passing it on to the client.
+
+DHT
+---
+
+This then will be an implementation of a DHT, where all cluster nodes together represent the entire hashtable. Remotes will be stored in the filesystem like any other hash, where the type of the hash will be a referral. Upon booting and introducing itself to the cluster, a node will broadcast it's filesystem revision number. This number is the hash of a commit. A special branch is maintained much like .git/log/ which will be updated when a commit is added. This then means that any change in any branch of the filesystem can be communicated. This mainline of history will be kept by all nodes. For now, looking at it as the HEAD of master, once a node receives such a new SHA hash for the filesystem, it will reply with it's own HEAD. The originator will then examine it's history to find that particular commit, and send the SHA's of the commits the outdated node is missing, which it will store as referrals.
+
+Once all nodes have updated their filesystem histories, the new data will not have propagated but only reside on the updated node. Since all revisions in between are also communicated, to preserve history, where each revision is represented as a delta, a node will have to receive all deltas in order to upgrade.
+
+A policy indicating the distribution level of the data, such as 100% for master kernels, and triple-backup for certain other data, is then executed. Since cluster nodes are ordered (by their LAN IP, MAC or generated static hash), the data can be propagated efficiently. The first node after the updated node will pull the first delta, the second the next and so on. The pull occurs by the nodes multicasting the hash and receiving responses as to who has the hash. The answers indicating where the data is located will also be multicasted, whereby all nodes have the same information. Since they can then determine that there is only one node that has all the deltas, the second and further nodes after the updated node will periodically keep requesting the first delta until they receive two answers. (or, a node that has completed transfer will broadcast it's posession of the data to update the cluster). Once it is known that two nodes posess one piece of information, their 'load' ratio is adjusted, since one node contains all deltas, one node only one delta, and the rest none. Therefore the first node is considered of higher value in being able to offer unique data, which will result in only non-distributed data being requested from that node. In the mean time, the node that has received the first delta begins sharing it.
+
+The propagation will then look like this,
+where the letters indicate nodes, and the numbers indicate the delta's that the node has. A1B means A transfers 1 to B.
+Note that a node here is restricted to communicating with one other node, i.e., when it is receiving, it is not sending, to minimize network congestion.
+
+	A	B	C	D	E	
+
+	123456	1				# A1B
+
+	123456	1	2	1		# A2C,B1D
+
+	123456	1	12	13	2	# A3D,B1C,C2E
+
+	123456	13	12	13	24	# A4E,    C3B
+
+
+If only A sends:
+
+	 					A	B	C	D	E
+	1 AB					123456	1
+	2 AC	B				123456	1	2	
+	3 AD	B	C			123456	1	2	3
+	4 AE	B	C	D		123456	1	2	3	4
+	5 AB	B	C	D	E	123456	15	2	3	4
+	6 AC	B	C	D	E	123456	15	26	3	4
+
+With B partipating:
+	 					A	B	C	D	E
+	1 AB					123456	1
+	2 AC	1 BD				123456	1	2	1
+	3 AD	1 BE				123456	1	2	13	1
+	4 AE	1 BC				123456	1	12	13	14
+	5 AB					123456	15	12	13	14
+	6 AC					123456	15	126	13	14
+
+With C partipating:
+	 					A	B	C	D	E
+	1 AB					123456	1
+	2 AC	1 BD				123456	1	2	1
+	3 AD	1 BE	2 CB			123456	12	2	13	1
+	4 AE	1 BC	2 CD			123456	12	12	123	14
+	5 AB		2 CE			123456	125	12	123	124
+	6 AC					123456	125	126	123	124
+
+
+With D partipating:
+	 					A	B	C	D	E
+	1 AB					123456	1
+	2 AC	1 BD				123456	1	2	1
+	3 AD	1 BE	2 CB	3 DB		123456	123	2	13	1
+	4 AE	1 BC	2 CD	3 DC		123456	123	123	123	14
+	5 AB		2 CE			123456	1235	123	123	124
+	6 AC			3 DE		123456	1235	1236	123	1234
+
+
+With E partipating:
+	Seed 					A	B	C	D	E
+	1 AB					123456	1
+	2 AC	1 BD				123456	1	2	1
+	3 AD	1 BE	2 CB	3 DB		123456	123	2	13	1
+	4 AE	2 BE	2 CD	3 DC	1 EC	123456	123	123	123	124	# 1,2 done
+	5 AB	5 BD	3 CE		4 EC	123456	1235	1234	1235	1234	# 3 done
+	6 AC	5 BE 	4 CB		4 ED	123456	12345	12346	12345	12345	# 4 done
+
+To complete:
+	6 AE	5 BC 	6 CD			123456	12345	123456	123456	123456
+	6 ?B					123456	123456	123456	123456	123456
+
+The above is constrained to a node being able to send and receive once per iteration. Thus it can be
+either originator or destination, neither, or both. Or, a node cannot receive from multiple nodes in one iteration.
+
+
+Upgrading, Releasing
+--------------------
+
+Propagating any update (say a kernel update, or website content) through the cluster can be done automatically, and requires only that a single node in the cluster be upgraded.
+The kernel itself will be provided in an ISO image, which will be merged in a new commit with the filesystem automatically. The kernel history is then present in the filesystem which allows automatic rollbacks on faulty kernels – though this will require a watchdog in the virtual machine.
+
+Updating a kernel requires rebooting. Once a kernel has rebooted it will broadcast it's kernel version and/or the hash of the filesystem root. Since the other nodes will not know about this hash, they can automatically pull the contents and create a branch. 
+
+A kernel may be rebooted many times while in development. Since the kernel version will not increase between commits, the other nodes will not notice the change. Once the changes have been tested and the kernel deemed stable, it is commited, rebuilt and rebooted to include the new version number. 
+
+Node Upgrade policies will include detect a kernel version change, along with the source branch, and determine whether to update their branches or not and whether to reboot or not. Rebooting may be automatic or triggered from the commandline of any node (or the seed node)
+.
