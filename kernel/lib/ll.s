@@ -81,6 +81,7 @@
 # by simply subtracting 4 from esi before the call.
 .intel_syntax noprefix
 
+.global ll_insert_sorted$
 
 .struct 0	# Offsets into the linked list: main entry points.
 ll_first: .long 0

@@ -40,6 +40,7 @@ mem_phys_total:	.long 0, 0	# total physical memory size
 .data
 # handles struct (from mem_handle.s)
 mem_handles: .long 0
+mem_handles_method_alloc: .long 0
 mem_numhandles: .long 0
 mem_maxhandles: .long 0
 mem_handles_handle: .long 0	# unused
@@ -301,6 +302,9 @@ mem_handle_ll_fh:
 # of physical memory generally. The first Mb is skipped, reserved for real-mode
 # kernel and legacy 16 bits apps and such.
 mem_init:
+	mov	[mem_handles_method_alloc], dword ptr offset handles_alloc$
+
+
 	PRINT " Start           | Size             | Type"
 
 	# ecx:ebx = size, edi=index (for max cmp)

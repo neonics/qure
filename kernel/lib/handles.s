@@ -19,6 +19,7 @@ HANDLE_ASSERT = 1	# data integrity assertions
 # The elements must contain the fields as defined in handle_ struct below.
 .struct 0	# handles struct
 handles_ptr:	.long 0	# base pointer to array of handle_ struct
+handles_method_alloc: .long 0	# method to reallocate the handles handle
 handles_num:	.long 0	# number of handles in array
 handles_max:	.long 0	# max handles that can fit in the array
 handles_idx:	.long 0	# handles handle; set, but unused
@@ -100,6 +101,7 @@ ALLOC_HANDLES = 32 # 1024
 # Handle list printing routines
 
 # in: esi = handles struct ptr
+.global handles_print
 handles_print:
 	push	eax
 	push	ebx
@@ -299,7 +301,7 @@ handles_print:
 	ret
 
 handle_print_2h$:
-	println "Handle hndlptr  base.... size.... flags... caller.. [<- A ->] [<- S ->]"
+	println "Handle base.... size.... flags... caller.. [<- A ->] [<- S ->]"
 	ret
 
 
@@ -329,7 +331,7 @@ handle_print_2$:
 	loop	0b
 1:	pop	ecx
 .endif
-	#mov	edx, ebx	# handle ptr
+	#mov	edx, ebx	# handle ptr (add to _2h$)
 	#call	printhex8
 	#call	printspace
 	mov	edx, [ebx + handle_base]
@@ -491,6 +493,7 @@ handles_print_ll:
 # out: ebx = handle index
 # side-effect: [esi + handles_ptr] updated if handle array is reallocated
 # effect: [esi + handles_num] incremented
+.global handle_get
 handle_get:
 	push	esi
 	# first check if we can reuse handles:
@@ -514,7 +517,7 @@ handle_get:
 1:	mov	ebx, [esi + handles_num]
 	cmp	ebx, [esi + handles_max]
 	jb	1f
-	call	handles_alloc$	# updates esi
+	call	[esi + handles_method_alloc] # handles_alloc$	# updates esi
 	jc	9b
 
 1:	mov	ebx, [esi + handles_num]
@@ -839,7 +842,7 @@ handle_split_tail$:
 
 	# insert the NEW handle AFTER the old handle
 	push_	edi
-	mov	edi, [esp + 4]
+	mov	edi, [esp + 4]	# arg esi: handles struct ptr
 	add	edi, offset handles_ll_fa
 	add	esi, offset handle_ll_el_addr
 	mov	eax, edx
