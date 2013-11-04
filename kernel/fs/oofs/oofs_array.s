@@ -15,7 +15,7 @@ DECLARE_CLASS_BEGIN oofs_array, oofs_persistent
 oofs_array_persistent_start: .long 0
 oofs_array_start:	.long 0	# offset of array start
 oofs_array_shift:	.byte 0
-
+.align 4
 
 DECLARE_CLASS_METHOD oofs_api_init, oofs_array_init, OVERRIDE
 DECLARE_CLASS_METHOD oofs_api_print, oofs_array_print, OVERRIDE
@@ -40,9 +40,12 @@ oofs_array_init:
 	push	edx
 	mov	edx, [eax + oofs_array_start]
 	add	edx, 4
+	DEBUG_DWORD edx
+	DEBUG_DWORD [eax+obj_size]
 	cmp	edx, [eax + obj_size]
 	jbe	1f
-	call	class_instance_resize
+	DEBUG "resize"
+	call	[eax + oofs_persistent_api_resize]#class_instance_resize
 	mov	edx, [eax + oofs_array_start]
 1:	pop	edx
 

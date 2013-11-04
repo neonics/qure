@@ -286,9 +286,9 @@ oofs_table_add:
 		call	newline
 	.endif
 
-	push	ecx
-	call	oofs_table_lookup
-	pop	ecx
+	#push	ecx
+	#call	oofs_table_lookup
+	#pop	ecx
 
 	# first add the string
 	pushd	[edx + class_name]

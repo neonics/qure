@@ -287,7 +287,8 @@ cmd_oofs:
 		jz	oofs_save$
 
 		# other commands have common argument: class or index
-		mov	ecx, eax	# backup command
+		mov	ecx, eax	# backup command str ptr
+
 		lodsd
 		or	eax, eax
 		jz	94f
@@ -344,8 +345,8 @@ cmd_oofs:
 	.ascii "usage: oofs [mountpoint [command class [args]]]\n"
 	.ascii "  commands: add drop resize save show\n"
 
-	.ascii "\n\\c\x0f  save\n"
-	.ascii "\t\\c\x07persists oofs_vol and oofs_table\n"
+	.ascii "\n\\c\x0f  save [class|index_hex]\n"
+	.ascii "\t\\c\x07persists oofs_vol and oofs_table OR the given entry\n"
 
 	.ascii "\n\\c\x0f  drop (class|index_hex)\n"
 	.ascii "\t\\c\x07unloads object if loaded, removes classname from "
@@ -388,13 +389,98 @@ cmd_oofs:
 94:	call	91b
 	jmp	66b
 
+
+# in: eax = argument string pointer: (class|hex_id)
+# out: edx = 0 or classdef ptr
+# out: ecx = entry index if edx = 0, undefined otherwise
+parse_entry_arg$:
+	call	htoi
+	jc	1f	# not hex
+	# is hex index
+	xor	edx, edx	# class null
+	mov	ecx, eax
+	DEBUG_DWORD ecx, "entry index"
+	# clc
+	ret
+
+1:	call	class_get_by_name	# eax->eax
+	jc	91f
+	mov	edx, offset class_oofs
+		DEBUGS [eax + class_name]
+		DEBUGS [edx + class_name]
+	call	class_extends
+	jc	92f
+
+9:	ret
+
+
+91:	printc 4, "not a class: "
+	push	eax
+	call	_s_println
+	stc
+	jmp	9b
+
+92:	printc 4, "class not subclass of oofs: "
+	pushd	[eax + class_name]
+	call	_s_println
+	printlnc 4, "run 'classes oofs' to see a complete list"
+	stc
+	jmp	9b
+
+
 # in: ebx = class_oofs instance
 oofs_save$:
+	lodsd
+	or	eax, eax
+	jz	1f	# save oofs_vol and oofs_table
+
+	DEBUGS eax
+
+	# save specific entry
+	call	parse_entry_arg$
+	jc	66b
+	DEBUG "arg:"
+	DEBUG_DWORD edx
+	DEBUG_DWORD ecx
+	or	edx, edx
+	jz	2f	# have entry nr
+
+	# lookup entry index for classdef
 	mov	eax, [ebx + oofs_lookup_table]
+	call	[eax + oofs_table_api_lookup]
+	jc	92f
+	DEBUG_DWORD ecx,"index"
+
+	# save by entry-index
+2:	mov	eax, [ebx + oofs_root]
+	xchg	ecx, ebx
+	call	[eax + oofs_vol_api_get_obj]
+	xchg	ecx, ebx
+	jc	91f
+	DEBUG_DWORD eax,"got obj"
+	call	[eax + oofs_persistent_api_save]
+	jmp	66b
+
+	# save vol and table
+1:	mov	eax, [ebx + oofs_lookup_table]
 	call	[eax + oofs_persistent_api_save]
 	mov	eax, [ebx + oofs_root]
 	call	[eax + oofs_persistent_api_save]
 	jmp	66b
+
+91:	printc 4, "no such entry: "
+	push	ecx
+	call	_s_printhex8
+	call	newline
+	stc
+	jmp	66b
+
+92:	printc 4, "no such entry: "
+	pushd	[edx + class_name]
+	call	_s_println
+	stc
+	jmp	66b
+
 
 # in: ebx = class_oofs instance
 # in: edx = subclass of oofs or 0

@@ -218,7 +218,7 @@ oofs_persistent_write:
 # in: ecx = bytes to load
 # out: eax = mreallocced instance if needed
 oofs_persistent_read:
-	.if OOFS_DEBUG
+	.if 1 #OOFS_DEBUG
 		push_	eax edx
 		DEBUG_CLASS
 		printc 14, ".oofs_persistent_read"
@@ -301,8 +301,11 @@ oofs_persistent_read:
 # in: edx = new size
 # out: eax = this, reallocated
 oofs_persistent_resize:
-	.if OOFS_DEBUG
-		DEBUG "oofs_persistent_resize"
+	.if 1 # OOFS_DEBUG
+		DEBUG_CLASS
+		printc 14, ".oofs_persistent_resize"
+		DEBUG_DWORD eax
+		DEBUG_DWORD edx
 		STACKTRACE 0,0
 	.endif
 	push_	ebx edx

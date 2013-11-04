@@ -613,6 +613,7 @@ fs_obj_rw_init$:
 9:	stc
 	ret
 
+FS_OBJ_DEBUG_RW=1
 # in: eax = instance
 # in: ebx = partition-relative LBA
 # in: edi = buffer
@@ -662,7 +663,6 @@ fs_obj_read:
 	stc
 	jmp	0b
 
-FS_OBJ_DEBUG_RW=1
 
 # in: eax = sfs instance
 # in: ebx = partition-relative LBA
