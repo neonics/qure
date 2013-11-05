@@ -373,7 +373,16 @@ oofs_table_clear_entry:
 # out: CF: counter invalid
 # out: edx = string (class name)
 oofs_table_get:
+	.if OOFS_DEBUG
+		PRINT_CLASS
+		printc 14, ".oofs_table_get"
+		DEBUG_DWORD [eax + oofs_table_indices], "idx"
+	.endif
+
 	mov	edx, [eax + oofs_table_indices]
+	or	edx, edx	# might be called before init?
+	jz	93f
+
 	shl	ecx, 2
 	cmp	ecx, [edx + array_index]
 	jae	91f
@@ -387,13 +396,17 @@ oofs_table_get:
 
 0:	shr	ecx, 2
 	clc
-	ret
+9:	ret
 91:	stc	# index-out-of-bounds
 	jmp	0b
 92:	printc 4, "oofs_table: index corrupt"
 	# TODO: recalculate
 	int 3
 	jmp	0b
+
+93:	printc 12, "oofs_table: indices null"
+	stc
+	jmp	9b
 # KEEP-WITH-NEXT
 
 # in: eax = this

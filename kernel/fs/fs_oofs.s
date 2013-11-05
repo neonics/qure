@@ -21,6 +21,7 @@ DECLARE_CLASS_BEGIN fs_oofs, fs
 .global oofs_root
 oofs_root:	.long 0	# ptr to oofs root object
 oofs_lookup_table: .long 0 # ptr to oofs_table
+oofs_alloc:	.long 0	# ptr to oofs_alloc
 
 # static
 DECLARE_CLASS_METHOD fs_api_mkfs,	fs_oofs_mkfs, OVERRIDE,STATIC
@@ -170,7 +171,6 @@ fs_oofs_mount:
 	.endif
 
 	call	[eax + oofs_vol_api_load_entry]	# out: eax
-	mov	edx, edi
 	jc	91f
 
 	mov	[edi + oofs_lookup_table], eax
@@ -200,6 +200,22 @@ fs_oofs_mount:
 
 	1:	pop	ebx
 	.endif
+
+
+	mov	edx, offset class_oofs_alloc
+	# eax is still lookup table
+	call	[eax + oofs_table_api_lookup]	# out: ecx
+	jc	1f	# not added/found yet, ok.
+	DEBUG "looked up alloc"
+	mov	eax, [edi + oofs_root]
+	call	[eax + oofs_vol_api_load_entry]
+	jc	1f
+	DEBUG "loaded alloc"
+	mov	[edi + oofs_alloc], eax
+	call newline
+	mov	eax, [edi + oofs_root]
+	call	[eax + oofs_api_print]
+1:	clc
 
 	.if OOFS_DEBUG
 	OK
@@ -503,7 +519,7 @@ oofs_drop$:
 	mov	eax, [ebx + oofs_lookup_table]
 	call	[eax + oofs_table_api_clear_entry]
 	pop	ebx
-	jc	91f
+	#jc	91f	# entry might not be loaded
 
 	push	ebx
 	mov	eax, [ebx + oofs_root]

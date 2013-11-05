@@ -450,7 +450,6 @@ oofs_vol_add:
 	jc	9f
 
 2:	# record entry
-	push_	ebx ecx
 	add	ecx, 511
 	shr	ecx, 9	# convert to sectors
 
@@ -474,8 +473,6 @@ oofs_vol_add:
 	add	ecx, [ebx - OOFS_EL_STRUCT_SIZE + oofs_el_lba]	# lba field now avail
 	mov	[ebx + oofs_el_lba], ecx # new free start
 
-	pop_	ecx ebx
-
 
 	# DISABLE saving - consistent with the rest.
 	#call	[eax + oofs_persistent_api_save]
@@ -488,45 +485,15 @@ oofs_vol_add:
 	jc	9f
 
 ######### record instance, so that oofs_child_moved event can be called.
-	# record object instance
-
-	# in: edx = child index
-	lea	edx, [edi * 4]
-	# in: ebx = child
-	mov	ebx, eax	# remember instance
-	# in: eax = this
-	mov	eax, [ebp]
-
-	# not needed - add does single append.
-	#call	oofs_vol_record_child$
-	#jc	94f
-
-
-
-
-0:	mov	eax, [ebp+4]	# this
-	mov	edx, [eax + oofs_vol_count]
-	dec	edx
-	shl	edx, 2
-	mov	eax, [eax + oofs_children]
-	cmp	edx, [eax + array_index]
-	jb	2f		# edx = index
-	call	ptr_array_newentry	# out: eax + edx
+	mov	ebx, eax	# in: ebx = child instance
+	mov	eax, [ebp + 4]	# in: eax = this
+	mov	ecx, [eax + oofs_vol_count]
+	dec	ecx		# return index
+	lea	edx, [ecx * 4]	#  in: edx = child index
+	call	oofs_vol_record_child$
 	jc	94f
-	jmp	0b
-2:
-	mov	[eax + edx], ebx
 
-pushad
-DEBUG "ADDED CHILD", 0xf0
-mov eax, [ebp + 4] # this
-call [eax +oofs_api_print]
-popad
-
-	mov	ecx, edx	# return index
-	shr	ecx, 2
-
-	mov	eax, ebx
+	mov	eax, ebx	# child instance
 #########
 
 	# call constructor
@@ -589,21 +556,27 @@ popad
 # in: eax = this
 # in: ebx = entry nr
 oofs_vol_delete:
+	.if OOFS_DEBUG
+		DEBUG_CLASS
+		printc 14, ".oofs_delete_entry"
+		DEBUG_DWORD ebx, "idx"
+		DEBUG_DWORD [eax+oofs_vol_count]
+	.endif
 	push_	ebx esi eax
-	DEBUG_DWORD ebx,"oofs_delete entry"
 
+	push	eax	# XXX abstraction break: direct xs below
 	call	[eax + oofs_vol_api_get_obj]
+	pop	eax
 	jc	1f	# we don't have the object instantiated - ok
 	# mark object deleted
 	mov	eax, [esp]
 	mov	esi, [eax + oofs_children]
 	# delete the instance:
 	push	eax
-	mov	eax, [esi + ebx * 4]
+	xor	eax, eax
+	xchg	eax, [esi + ebx * 4]	# mark deleted
 	call	class_deleteinstance
 	pop	eax
-	mov	dword ptr [esi + ebx * 4], 0	# mark deleted
-
 1:
 	# mark region free if last
 	inc	ebx	# index->count
@@ -614,6 +587,7 @@ oofs_vol_delete:
 	mov	esi, [eax + oofs_vol_array + ebx * 8 + oofs_el_sectors]
 	add	[eax + oofs_vol_array + ebx * 8 - 8 + oofs_el_sectors], esi
 	decd	[eax + oofs_vol_count]
+	# clc
 
 0:	pop_	eax esi ebx
 	ret
@@ -681,6 +655,7 @@ oofs_vol_load_entry:
 	lea	edx, [ecx * 4]	# in: edx = child index
 	mov	ebx, eax	# in: ebx = child
 	mov	eax, [ebp]	# in: eax = this
+
 	call	oofs_vol_record_child$
 	jc	94f
 
@@ -689,43 +664,9 @@ oofs_vol_load_entry:
 	mov	ebx, [edx + oofs_vol_array + ecx * 8 + oofs_el_lba]
 	mov	ecx, [edx + oofs_vol_array + ecx * 8 + oofs_el_sectors]
 
-call newline
-DEBUG "__ PRE INIT __ "
-DEBUG_DWORD eax
-DEBUG_CLASS eax
 	call	[eax + oofs_api_init]
 	jc	93f
-call newline
-DEBUG "__ POST INIT __"
-DEBUG_DWORD eax
 
-########
-.if 0 # THIS CODE IS GOOD
-	# record object instance
-	lea	edx, [edi * 4]
-	mov	edi, eax	# remember instance
-	# check array size
-	mov	eax, [ebp]	# this
-	mov	eax, [eax + oofs_children]
-	cmp	edx, [eax + array_capacity]
-	jb	1f
-	add	edx, 4
-	call	buf_resize
-	jc	94f
-	sub	edx, 4
-	mov	ebx, [ebp]
-	mov	[ebx + oofs_children], eax
-1:	mov	[eax + edx], edi	# set instance
-	add	edx, 4
-	mov	[eax + array_index], edx
-
-.endif
-########
-	#mov	[ebp], eax	# update return value eax
-call newline
-DEBUG "__ PRE LOAD __ "
-DEBUG_DWORD eax
-DEBUG_CLASS eax
 	call	[eax + oofs_persistent_api_load]
 	# child_moved handles instance array update
 	jc	95f
@@ -763,7 +704,7 @@ DEBUG_CLASS eax
 # in: edx = child index
 # in: ebx = child instance
 oofs_vol_record_child$:
-	push_	edi eax
+	push_	edx edi eax
 	# check array size
 	mov	eax, [eax + oofs_children]
 	cmp	edx, [eax + array_capacity]
@@ -777,8 +718,9 @@ oofs_vol_record_child$:
 1:	mov	[eax + edx], ebx	# set instance
 	add	edx, 4
 	mov	[eax + array_index], edx
+
 	clc
-9:	pop_	eax edi
+9:	pop_	eax edi edx
 	ret
 91:	printc 4, "oofs_vol_record_child: out of memory"
 	stc
@@ -803,7 +745,7 @@ oofs_vol_child_moved:
 	mov	edi, [eax + oofs_children]
 	or	edi, edi
 	jz	91f
-	mov	ecx, [eax + array_index]
+	mov	ecx, [eax + array_capacity]
 	shr	ecx, 2
 	jz	91f
 	mov	eax, edx
@@ -870,11 +812,13 @@ oofs_vol_get_obj:
 	# check if we have that many loaded
 	mov	edx, [eax + oofs_children]
 	shl	ebx, 2
-	cmp	ebx, [edx + array_index]
+	cmp	ebx, [edx + array_capacity]
 	jae	9f
 
 	mov	eax, [edx + ebx]
-	clc
+	or	eax, eax
+	jz	9f
+	#clc
 0:	pop_	edx ebx
 	STACKTRACE 0
 	ret
@@ -989,7 +933,7 @@ oofs_vol_print:
 	mov	edx, [eax + oofs_children]
 	or	edx, edx
 	jz	1f
-	cmp	edi, [edx + array_index]
+	cmp	edi, [edx + array_capacity]
 	jae	1f
 	mov	edx, [edx + edi]
 	or	edx, edx
