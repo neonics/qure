@@ -662,9 +662,10 @@ oofs_vol_load_entry:
 	mov	edx, eax	# this; parent ref
 	mov	eax, ebx	# instance
 	mov	ebx, [edx + oofs_vol_array + ecx * 8 + oofs_el_lba]
+	push	ecx
 	mov	ecx, [edx + oofs_vol_array + ecx * 8 + oofs_el_sectors]
-
 	call	[eax + oofs_api_init]
+	pop	ecx
 	jc	93f
 
 	call	[eax + oofs_persistent_api_load]
@@ -694,6 +695,10 @@ oofs_vol_load_entry:
 94:	mov	eax, edi
 	LOAD_TXT "ptr_array_newentry fail"
 90:	call	class_deleteinstance
+	# unrecord child
+	mov	eax, [ebp]
+	mov	edx, [eax + oofs_children]
+	mov	[edx + ecx * 4], dword ptr 0
 9:	printc 4, "oofs_load_entry: "
 	call	println
 	stc
