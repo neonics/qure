@@ -175,44 +175,15 @@ fs_oofs_mount:
 
 	mov	[edi + oofs_lookup_table], eax
 
-	.if 0
-		push	ebx
-		mov	edx, offset class_oofs_alloc_tbl
-		xor	ebx, ebx
-		# lookup in oofs_table: out: ecx=entry index
-		printc 9, "lookup oofs_alloc_tbl"
-		call	[eax + oofs_table_api_lookup]	# out:ecx
-		jnc	1f
-		printlnc 4, "fs_oofs_mount: adding oofs_alloc_tbl"
-		# edx=class_
-		mov	eax, [edi + oofs_lookup_table]
-		mov	ecx, 512 * 257
-		call	[eax + oofs_vol_api_add]
-		jc	93f
-		printlnc 9, "added oofs_alloc_tbl to oofs"
-	1:;	DEBUG_DWORD ecx, "entry"
-		mov	eax, [edi + oofs_root]
-		printc 9, "oofs_alloc_tbl: oofs.load_entry "
-		# in: ecx = entry nr
-		# in: edx = classdef ptr
-		call	[eax + oofs_vol_api_load_entry] #in:eax,ecx,edx
-		jc	94f
-
-	1:	pop	ebx
-	.endif
-
 
 	mov	edx, offset class_oofs_alloc
 	# eax is still lookup table
 	call	[eax + oofs_table_api_lookup]	# out: ecx
 	jc	1f	# not added/found yet, ok.
-	DEBUG "looked up alloc"
 	mov	eax, [edi + oofs_root]
 	call	[eax + oofs_vol_api_load_entry]
 	jc	1f
-	DEBUG "loaded alloc"
 	mov	[edi + oofs_alloc], eax
-	call newline
 	mov	eax, [edi + oofs_root]
 	call	[eax + oofs_api_print]
 1:	clc
@@ -227,25 +198,72 @@ fs_oofs_mount:
 	stc
 	jmp	9b
 
-93:	printlnc 4, "fs_oofs_mount: failed to register oofs_alloc_tbl"
+93:	printlnc 4, "fs_oofs_mount: failed to register oofs_alloc"
 	jmp	1b
-94:	printlnc 4, "fs_oofs_mount: failed to load oofs_alloc_tbl"
+94:	printlnc 4, "fs_oofs_mount: failed to load oofs_alloc"
 	jmp	1b
 
 
 fs_oofs_umount:
-fs_oofs_open:
+	DEBUG "umount"; jmp 1f
 fs_oofs_close:
+	DEBUG "close"; jmp 1f
 fs_oofs_nextentry:
+	DEBUG "nextentry"; jmp 1f
 fs_oofs_read:
-fs_oofs_create:
+	DEBUG "read"; jmp 1f
 fs_oofs_write:
+	DEBUG "write"; jmp 1f
 fs_oofs_delete:
+	DEBUG "delete"; jmp 1f
 fs_oofs_move:
-	DEBUG "not implemented"
+	DEBUG "move";
+1:	DEBUG "not implemented"
+	STACKTRACE 0
 	stc
 	ret
 
+fs_oofs_create:
+	DEBUG "create"
+	stc
+	ret
+
+# in: eax = this
+# in: esi = file/dir name
+# in: ebx = directory handle / -1 for root
+# in: edi = fs direntry struct to be filled
+# out: ebx = our handle
+fs_oofs_open:
+	DEBUG "open"; DEBUG_DWORD ebx; DEBUGS esi
+	cmp	ebx, -1
+	jnz	1f
+	# open root.
+	push_	eax edx
+	mov	eax, [eax + oofs_alloc]
+	or	eax, eax
+	stc
+	jz	2f
+
+	DEBUG "load txtab"
+	PRINT_CLASS eax
+	mov	edx, offset class_oofs_txtab
+	call	[eax + oofs_alloc_api_txtab_get] # in: ebx
+	jc	2f
+	DEBUG "loaded txtab"
+
+2:	pop_	edx eax
+
+	stc
+	ret
+
+
+1:	push_	eax
+#	mov	eax, [eax + oofs_tree]
+#	call	[eax + oofs_tree_api_find] # in: esi
+	pop_	eax
+	stc
+
+	ret
 ############################################################################
 #SHELL_COMMAND "oofs", cmd_oofs # see shell.s
 .text32

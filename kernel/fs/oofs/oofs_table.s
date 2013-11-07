@@ -261,9 +261,10 @@ oofs_table_load:
 	push_	ebx ecx edi edx esi
 	mov	edx, offset oofs_table_persistent
 	lea	edi, [eax + oofs_table_persistent]
-	mov	ecx, [eax + oofs_table_size]
-	add	ecx, offset oofs_table_strings - offset oofs_table_persistent
-
+#	mov	ecx, [eax + oofs_table_size]
+#	add	ecx, offset oofs_table_strings - offset oofs_table_persistent
+# load 1 sector completely as we don't know the size yet
+	mov	ecx, 0x200
 	call	[eax + oofs_persistent_api_read]
 	jc	9f
 	call	[eax + oofs_persistent_api_onload]

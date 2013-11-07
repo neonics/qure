@@ -103,6 +103,9 @@ oofs_print:
 	call	newline
 	ret
 
+# in: eax = this
+# in: edx = old child ptr
+# in: ebx = new child ptr
 oofs_child_moved:
 	DEBUG_CLASS
 	printc 13, ".oofs_child_moved: "
@@ -117,7 +120,8 @@ oofs_child_moved:
 .include "oofs_vol.s"
 .include "oofs_table.s"
 .include "oofs_array.s"
-.include "oofs_alloc.s"
+.include "oofs_alloc.s"	# space manager, using handles
+.include "oofs_txtab.s"	# translation table for handles
 
 .include "oofs_hash.s"
 .include "oofs_hashidx.s"

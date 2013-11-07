@@ -39,12 +39,10 @@ oofs_array_init:
 	# ensure the class is proper size
 	push	edx
 	mov	edx, [eax + oofs_array_start]
+	mov	[eax + edx], dword ptr 0	# set count to 0
 	add	edx, 4
-	DEBUG_DWORD edx
-	DEBUG_DWORD [eax+obj_size]
 	cmp	edx, [eax + obj_size]
 	jbe	1f
-	DEBUG "resize"
 	call	[eax + oofs_persistent_api_resize]#class_instance_resize
 	mov	edx, [eax + oofs_array_start]
 1:	pop	edx
@@ -52,16 +50,16 @@ oofs_array_init:
 	.if OOFS_DEBUG
 		PRINT_CLASS
 		printc 14, ".oofs_array_init"
-		printc 9, " LBA=";  push ebx; call _s_printhex8
-		printc 9, " size="; push ecx; call _s_printhex8
-		printc 9, " parent="; PRINT_CLASS edx
+		# printed by persistent_init
+		#printc 9, " LBA=";  push ebx; call _s_printhex8
+		#printc 9, " size="; push ecx; call _s_printhex8
+		#printc 9, " parent="; PRINT_CLASS edx
 		push	edx
 		printc 9, " array_shift=";
 		movzx edx, byte ptr [eax + oofs_array_shift]; call printhex2
 		printc 9, " array_start=";
 		pushd [eax + oofs_array_start]; call _s_printhex8;
 		mov	edx, [eax + oofs_array_start]
-		DEBUG_DWORD edx,"array_start"
 		printc 9, " array_count=";
 		mov	edx, [eax + edx]
 		call	printhex8
@@ -102,6 +100,9 @@ oofs_array_save:
 	ret
 
 oofs_array_onload:
+	.if OOFS_DEBUG
+		printc 14, "oofs_array_onload"
+	.endif
 	push_	ecx edx
 	mov	edx, [eax + oofs_array_start]
 	mov	edx, [eax + edx]	# count
@@ -144,10 +145,14 @@ oofs_array_load:
 	shl	edx, cl
 	lea	ecx, [edx + edi + 4]
 	mov	edx, [eax + oofs_array_persistent_start]
-	add	ecx, edx
+	add	ecx, edi	# add persistent....array data too
+	sub	ecx, edx
 	lea	edi, [eax + edx]
 	call	[eax + oofs_persistent_api_read]
 	jc	9f
+	# recalculate edi, as eax might have changed
+	mov	edi, [eax + oofs_array_persistent_start]
+	add	edi, eax
 	call	[eax + oofs_persistent_api_onload]
 
 9:	pop_	esi edx edi ecx ebx

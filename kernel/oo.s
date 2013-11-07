@@ -1004,13 +1004,18 @@ class_deleteinstance:
 	call	mfree_
 	mov	eax, -1
 
-	pop_	ecx edi esi ebp
+9:	pop_	ecx edi esi ebp
+	STACKTRACE 0
 	ret
-91:	printlnc 4, "warning: deleting unknown object"
-	jmp	0b
-92:	printlnc 4, "warning: class_deleteinstance: no instances"
+
+90:	printc 12, "class_deleteinstance: "
+	call	_s_println
 	stc
-	jmp	0b
+	jmp	9b
+91:	PUSH_TXT "unknown object"
+	jmp	90b
+92:	PUSH_TXT "no instances"
+	jmp	90b
 
 
 # in: eax = object ptr

@@ -10,6 +10,9 @@ MEM_HANDLE_SPLIT_DEBUG = 0
 HANDLE_ASSERT = 1	# data integrity assertions
 
 
+.global handle_get
+.global handle_find
+.global handles_print
 ##############################################################################
 # This is the 'static' handle management structure.
 # Note that even though it says 'array' below, this is not the array
@@ -101,7 +104,6 @@ ALLOC_HANDLES = 32 # 1024
 # Handle list printing routines
 
 # in: esi = handles struct ptr
-.global handles_print
 handles_print:
 	push	eax
 	push	ebx
@@ -493,7 +495,6 @@ handles_print_ll:
 # out: ebx = handle index
 # side-effect: [esi + handles_ptr] updated if handle array is reallocated
 # effect: [esi + handles_num] incremented
-.global handle_get
 handle_get:
 	push	esi
 	# first check if we can reuse handles:
