@@ -607,6 +607,9 @@ fs_obj_rw_init$:
 	cmp	ebx, [eax + fs_obj_p_size_sectors]
 	LOAD_TXT "sector outside partition", edx
 	jae	9f
+	cmp	ecx, [eax + fs_obj_p_size_sectors]
+	LOAD_TXT "size exceeds partition", edx
+	jae	9f
 	add	ebx, [eax + fs_obj_p_start_lba]
 	mov	ax, [eax + fs_obj_disk]
 	ret
@@ -629,6 +632,7 @@ fs_obj_read:
 		DEBUG_CLASS edx
 	.endif
 	call	fs_obj_rw_init$
+	jc	9f
 	.if FS_OBJ_DEBUG_RW
 		printc 9, " LBA="; push ebx; call _s_printhex8
 		printc 9, " size="; push ecx; call _s_printhex8
@@ -638,7 +642,6 @@ fs_obj_read:
 	.endif
 
 	call	disk_read
-
 	LOAD_TXT "disk_read error", edx
 	jc	9f
 
@@ -654,6 +657,24 @@ fs_obj_read:
 		clc
 	.endif
 	.endif
+	# clear trailing bytes if not asked to read:
+	mov	ebx, [esp + 4]
+
+	shl	ecx, 9
+	sub	ecx, ebx
+	jz	0f	# full sectors read
+
+	push	edi
+	add	edi, ebx
+	mov	ebx, ecx
+	xor	eax, eax
+	shr	ecx, 2
+	rep	stosd
+	mov	cl, bl
+	and	cl, 3
+	rep	stosb
+	pop	edi
+	clc
 
 0:	pop_	edx ecx ebx eax
 	ret
