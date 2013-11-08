@@ -3,11 +3,6 @@
 
 .global class_oofs_array
 
-.struct 0
-hash_sha1: .space 20
-hash_size: .long 0
-hash_lba:  .long 0
-.long 0
 
 DECLARE_CLASS_BEGIN oofs_array, oofs_persistent
 
@@ -148,6 +143,7 @@ oofs_array_load:
 	add	ecx, edi	# add persistent....array data too
 	sub	ecx, edx
 	lea	edi, [eax + edx]
+mov ecx, 512
 	call	[eax + oofs_persistent_api_read]
 	jc	9f
 	# recalculate edi, as eax might have changed

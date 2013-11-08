@@ -616,7 +616,6 @@ fs_obj_rw_init$:
 9:	stc
 	ret
 
-FS_OBJ_DEBUG_RW=1
 # in: eax = instance
 # in: ebx = partition-relative LBA
 # in: edi = buffer
@@ -664,6 +663,8 @@ fs_obj_read:
 	sub	ecx, ebx
 	jz	0f	# full sectors read
 
+	#DEBUG_DWORD ebx, "keep"
+	#DEBUG_DWORD ecx, "clear"
 	push	edi
 	add	edi, ebx
 	mov	ebx, ecx

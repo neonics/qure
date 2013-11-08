@@ -9,6 +9,8 @@ OOFS_ALLOC_DEBUG = 0
 .global class_oofs_alloc
 .global oofs_alloc_api_alloc	# in: ecx = sectors; out: ebx=handle
 .global oofs_alloc_api_txtab_get# in: edx = classdef ptr
+.global oofs_alloc_api_txtab_save
+.global oofs_alloc_api_handle_save# in: ebx = handle index, edx = instance
 
 .if HANDLE_STRUCT_SIZE == 32
 HANDLE_STRUCT_SIZE_SHIFT = 5
@@ -153,6 +155,9 @@ DECLARE_CLASS_METHOD oofs_persistent_api_load, oofs_alloc_load, OVERRIDE
 
 DECLARE_CLASS_METHOD oofs_alloc_api_alloc, oofs_alloc_alloc
 DECLARE_CLASS_METHOD oofs_alloc_api_txtab_get, oofs_alloc_txtab_get
+DECLARE_CLASS_METHOD oofs_alloc_api_txtab_save, oofs_alloc_txtab_save
+
+DECLARE_CLASS_METHOD oofs_alloc_api_handle_save, oofs_alloc_handle_save
 
 DECLARE_CLASS_END oofs_alloc
 #################################################
@@ -163,10 +168,10 @@ DECLARE_CLASS_END oofs_alloc
 # in: ecx = reserved size
 oofs_alloc_init:
 	.if OOFS_DEBUG
-		DEBUG_DWORD eax, "oofs_alloc_init", 0xe0
-		DEBUG_DWORD ebx, "LBA"
-		DEBUG_DWORD ecx, "size"
-		push edx; mov edx,[esp+4]; call debug_printsymbol; pop edx
+		DEBUG_CLASS
+		printc 14, ".oofs_alloc_init"
+		printc 9, " LBA="; push ebx; call _s_printhex8
+		printc 9, " size="; push ecx; call _s_printhex8
 		call	newline
 	.endif
 
@@ -204,8 +209,13 @@ oofs_alloc_init:
 	shr	edx, 9
 	mov	[edi + ebx + handle_size], edx
 	mov	[edi + ebx + handle_base], dword ptr 0	# LBA 0 (relative)
-	mov	[edi + ebx + handle_flags], dword ptr MEM_FLAG_HANDLE|HANDLE_FLAG_DIRTY
+	ord	[edi + ebx + handle_flags], MEM_FLAG_HANDLE|HANDLE_FLAG_DIRTY
 	# TODO: insert into LL's?
+	mov	ecx, [esi + handles_max]	# bounded loop
+	lea	edi, [esi + handles_ll_fa]
+	mov	esi, [esi + handles_ptr]
+	add	esi, offset handle_ll_el_addr
+	call	ll_insert_sorted$
 
 	# add handle for free space
 	call	oofs_alloc_handle_get
@@ -323,26 +333,20 @@ oofs_alloc_save:
 
 #	Save the handles handle
 
-	DEBUG_DWORD [eax + oofs_alloc_handles + handles_idx]
 	mov	esi, [eax + oofs_alloc_handles + handles_ptr]
 	add	esi, [eax + oofs_alloc_handles + handles_idx]
 
 	mov	ebx, [esi + handle_base]
 	mov	[eax + oofs_alloc_handles_lba], ebx	# save in reserved sector
-	DEBUG_DWORD ebx, "handles.lba"
-
 	add	ebx, [eax + oofs_lba]
 	mov	ecx, [esi + handle_size]
 	inc	ebx	# skip the reserved sector
 	mov	[eax + oofs_alloc_handles_sectors], ecx	# save in reserved sector
-	DEBUG_DWORD ecx, "handles.sectors"
 	shl	ecx, 9	# sectors->bytes
 
 	mov	edx, eax
 	mov	eax, [edx + oofs_persistence]
-	DEBUG "WRITE HANDLES"
-	DEBUG_DWORD ebx, "lba"
-	DEBUG_DWORD ecx, "size"	# XXX shl 9?
+	mov	esi, [edx + oofs_alloc_handles + handles_ptr]
 	call	[eax + fs_obj_api_write]
 	mov	eax, edx
 
@@ -362,14 +366,15 @@ oofs_alloc_load:
 	# load reserved sector
 	mov	edx, offset oofs_alloc_persistent
 	lea	edi, [eax + edx]
-	mov	ecx, 1
+	mov	ecx, 512	# load full sector
 	call	[eax + oofs_persistent_api_read]	# might change eax
 	jc	9f
 
-
 	# load handles handle
 	mov	ebx, [eax + oofs_alloc_handles_lba]
+	inc	ebx	# skip reserved sector
 	mov	ecx, [eax + oofs_alloc_handles_sectors]
+	add	ebx, [eax + oofs_lba]
 	.if OOFS_ALLOC_DEBUG
 		DEBUG "loaded reserved sector"
 		DEBUG_DWORD ebx, "handles.lba"
@@ -390,8 +395,6 @@ oofs_alloc_load:
 		DEBUG_DWORD ebx
 	.endif
 
-	add	ebx, [eax + oofs_lba]
-	inc	ebx
 	mov	edx, eax
 	mov	eax, [edx + oofs_persistence]
 	.if OOFS_ALLOC_DEBUG
@@ -442,23 +445,45 @@ oofs_alloc_alloc:
 	stc
 	jmp	9b
 
+# in: eax = this
+oofs_alloc_txtab_save:
+	push_	ebx edx
+	mov	edx, [eax + oofs_alloc_txtab]
+	mov	ebx, [eax + oofs_alloc_txtab_idx]
+	call	oofs_alloc_handle_save
+	pop_	edx ebx
+	ret
 
 # in: eax = this
 # in: edx = classdef ptr extends oofs_persistent
 # out: eax = loaded instance
+# out: ebx = txtab handle index
 oofs_alloc_txtab_get:
 	push_	ebx edx
-	xchg	eax, edx
+	mov	ebx, [eax + oofs_alloc_txtab]
+	or	ebx, ebx
+	jz	1f
+	mov	eax, ebx
+	jmp	9f
+
+1:	xchg	eax, edx
 	call	class_newinstance
 	jc	91f
 	xchg	eax, edx
 	mov	[eax + oofs_alloc_txtab], edx	# remember child
 	mov	ebx, [eax + oofs_alloc_txtab_idx]
 	call	oofs_alloc_handle_load
+	jc	92f
+
 9:	pop_	edx ebx
 	STACKTRACE 0
 	ret
+
 91:	printlnc 4, "oofs_alloc_txtab_get: instantiation error"
+	stc
+	jmp	9b
+
+92:	printlnc 4, "oofs_alloc_txtab_get: txtab load error"
 	stc
 	jmp	9b
 
@@ -492,11 +517,24 @@ oofs_alloc_child_moved:
 oofs_alloc_handle_load:
 # ALT: handle_apply;
 	# TODO: assert
+	.if OOFS_ALLOC_DEBUG
+		DEBUG_CLASS
+		printc 14, ".oofs_alloc_handle_load"
+		printc 9, " handle_idx="
+		push	ebx
+		call	_s_printhex8
+	.endif
+
 	push_	ebp esi ebx ecx edx eax
 	mov	esi, [eax + oofs_alloc_handles + handles_ptr]
 	add	esi, ebx
 	mov	ebx, [esi + handle_base]
 	mov	ecx, [esi + handle_size]	# sectors
+	.if OOFS_ALLOC_DEBUG
+		DEBUG_DWORD ecx, "sectors"
+		DEBUG_DWORD [esi + handle_caller], "initedsize"
+		call	newline
+	.endif
 	add	ebx, [eax + oofs_lba]
 	inc	ebx	# skip reserved sector
 	xchg	eax, edx# pass along this as persistence provider
@@ -556,6 +594,11 @@ oofs_alloc_onload_proxy$:
 	sub	ecx, ebx
 	jbe	1f	# make sure to not write after allocated size
 
+	.if OOFS_ALLOC_DEBUG
+		DEBUG_DWORD ebx, "keep"
+		DEBUG_DWORD ecx, "clear"
+	.endif
+
 	add	edi, ebx
 
 	xor	eax, eax
@@ -571,8 +614,30 @@ oofs_alloc_onload_proxy$:
 	ret
 
 
+# in: eax = this
+# in: ebx = handle index
+# in: edx = instance (oofs_persistent subclass)
+oofs_alloc_handle_save:
+	.if OOFS_ALLOC_DEBUG
+		DEBUG_CLASS
+		printc 14, ".oofs_alloc_handle_save"
+		printc 9, " instance: "
+		DEBUG_CLASS edx
+	.endif
+	xchg	eax, edx
+	call	[eax + oofs_persistent_api_save]
+	xchg	eax, edx
+	jc	9f
 
-# OK
+	# update handle
+	push	esi
+	mov	esi, [eax + oofs_alloc_handles + handles_ptr]
+	mov	[esi + ebx + handle_caller], dword ptr 1 # XXX FIXME TODO
+	pop	esi
+9:	STACKTRACE 0
+	ret
+
+
 oofs_alloc_print:
 	STACKTRACE 0,0
 	call	oofs_persistent_print
@@ -615,6 +680,19 @@ oofs_alloc_print:
 
 	lea	esi, [eax + oofs_alloc_handles]
 	call	handles_print
+
+	#
+
+	call	newline
+	printc 11, "txtab: "
+	push	eax
+	mov	eax, [eax + oofs_alloc_txtab]
+	or	eax, eax
+	jz	1f
+	call	[eax + oofs_api_print]
+
+1:	call	newline
+	pop	eax
 	pop	esi
 	ret
 

@@ -63,6 +63,7 @@ CLASS_METHOD_STRUCT_SIZE = 12
 .global class_get_by_name
 .global class_print_classname	# stackarg
 .global class_invoke_static
+.global class_invoke_virtual
 .global class_iterate_classes
 .global class_ref_inc
 # debug
@@ -1026,27 +1027,34 @@ class_instanceof:
 	or	eax, eax
 	jz	9f
 	push	eax
-	mov	eax, [eax + obj_class]
+	xchg	eax, edx
 	call	class_is_class
 	jc	91f
+	xchg	eax, edx
+	mov	eax, [eax + obj_class]
+	call	class_is_class
+	jc	92f
 0:	cmp	eax, edx
-	jz	1f
+	jz	0f
 	mov	eax, [eax + class_super]
 	or	eax, eax
 	jnz	0b
 	inc	eax	# clear ZF
 	stc
-1:	pop	eax
+0:	pop	eax
 	ret
 9:	or	esp, esp
 	stc
 	ret
-91:	printc 4, "class_is_class: not an object: "
-	push	eax
+
+91:	printc 12, "class_instanceof: not a class: "
+	jmp	1f
+92:	printc 12, "class_instanceof: not an object: "
+1:	push	eax
 	call	_s_printhex8
 	stc
 	STACKTRACE 4
-	jmp	1b
+	jmp	0b
 
 
 # in: eax = class def ptr to be checked (subclass)
@@ -1166,6 +1174,56 @@ class_invoke_static:
 	jmp	9b
 94:	printlnc 4, "class_invoke_static: class resolution failed"
 	jmp	9b
+
+
+
+# in: [esp + 0] = object
+# in: [esp + 4] = api method index
+# in: [esp + 8] = classdef ptr
+# out: eax = method return value for eax
+class_invoke_virtual:
+	push	edx
+	mov	eax, [esp + 8 + 0]	# object
+	mov	edx, [esp + 8 + 8]	# class
+	call	class_instanceof
+	pop	edx
+	jc	9f	# edx or eax might be wrong; instanceof prints.
+	# macro INVOKEVIRTUAL provides compiletime checking for api method
+	# using class_api_ naming convention.
+
+	# the object vptr table allows runtime method overrides, but does
+	# not provide method pointers for multiple inheritance.
+	#pushd	offset 1f
+	push	edx
+	mov	edx, [esp + 8 + 4]	# method index
+	mov	edx, [eax + edx]	# method ptr
+	mov	[esp + 8 + 4], edx	# method index->ptr
+	pop	edx
+
+	call	[esp + 4 + 4]
+
+	# for multiple inheritance, the method must be looked up in the
+	# class definition rather than using the runtime VPTR, as the VPTR
+	# only contains a single inheritance hierarchy.
+.if 0
+	# using multiple inheritance:
+	push	edx 	# TODO: optimize
+	mov	edx, [esp + 12 + 8]	# class
+	mov	eax, [esp + 12 + 4]	# method
+	mov	edx, [edx + class_vptr + eax]
+	mov	[esp + 12 + 4], edx
+	pop	edx
+	mov	eax, [esp + 8 + 0]	# object
+.endif
+
+9:	STACKTRACE 0
+	ret	12
+
+
+
+
+
+
 
 .if 0 # Disabled for now - tested to work
 # Dynamically registers a class, as opposed to built-in classes defined
@@ -1738,6 +1796,15 @@ OBJ_STRUCT_SIZE = .
 	mov	edx, [\this + \m]
 	call	debug_printsymbol
 	pop	edx
+.endm
+
+
+
+.macro INVOKEVIRTUAL class, method
+	pushd	offset class_\class
+	pushd	offset \class\()_api_\method
+	pushd	eax
+	call	class_invoke_virtual
 .endm
 
 .endif	#  __OO_DECLARED

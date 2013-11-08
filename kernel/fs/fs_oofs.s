@@ -237,33 +237,83 @@ fs_oofs_open:
 	DEBUG "open"; DEBUG_DWORD ebx; DEBUGS esi
 	cmp	ebx, -1
 	jnz	1f
-	# open root.
-	push_	eax edx
+
+######## open root
+	push_	edx ebx eax ebp
+	lea	ebp, [esp + 4]
 	mov	eax, [eax + oofs_alloc]
 	or	eax, eax
-	stc
-	jz	2f
+	jz	91f
 
-	DEBUG "load txtab"
-	PRINT_CLASS eax
 	mov	edx, offset class_oofs_txtab
-	call	[eax + oofs_alloc_api_txtab_get] # in: ebx
-	jc	2f
-	DEBUG "loaded txtab"
+	call	[eax + oofs_alloc_api_txtab_get] # in: edx; out: eax
+	jc	92f
 
-2:	pop_	edx eax
+	# get HEAD: entry 0
 
+	xor	ebx, ebx
+	INVOKEVIRTUAL oofs_txtab get	# ebx->ebx
+	jnc	2f
+
+	# initialize the translation table (symbolic handle references)
+
+	# allocate a handle for HEAD:
+	push_	ecx eax
+	mov	ecx, 1
+	mov	eax, [ebp]	# fs_oofs
+	mov	eax, [eax + oofs_alloc]
+	INVOKEVIRTUAL oofs_alloc alloc	# out: ebx
+	pop_	eax ecx
+	jc	93f
+
+	# insert it into the txtab
+	mov	edx, ebx	# handle
+	xor	ebx, ebx	# index
+	INVOKEVIRTUAL oofs_txtab set #	call [eax + oofs_txtab_api_set]
+	jc	94f
+	mov	ebx, edx	# HEAD handle index
+	# save txtab
+	mov	eax, [ebp]
+	mov	eax, [eax + oofs_alloc]
+	INVOKEVIRTUAL oofs_alloc txtab_save	# in: eax.
+	jc	94f
+
+2:	# ebx = handle for HEAD
+	DEBUG_DWORD ebx, "HEAD handle"
+
+	jc	9f
+
+	# update ebx return value:
+	# mov [ebp + 4],
+
+
+9:	pop_	ebp eax ebx edx
+	STACKTRACE 0
 	stc
 	ret
 
+91:	printlnc 12, "no oofs_alloc region"
+	stc
+	jmp	9b
+92:	printlnc 12, "no oofs_txtab"
+	stc
+	jmp	9b
+93:	printlnc 12, "can't alloc HEAD"
+	stc
+	jmp	9b
+94:	printlnc 12, "can't record HEAD"
+	stc
+	jmp	9b
 
+
+####### open subdir/file
 1:	push_	eax
 #	mov	eax, [eax + oofs_tree]
 #	call	[eax + oofs_tree_api_find] # in: esi
 	pop_	eax
 	stc
-
 	ret
+
 ############################################################################
 #SHELL_COMMAND "oofs", cmd_oofs # see shell.s
 .text32
