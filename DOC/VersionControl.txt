@@ -1,0 +1,387 @@
+Useful graph: file touch
+
+Rows: filenames in order of add. Renamed files are not duplicated.
+
+Columns: each column is a commit; the cell indicates change.
+
+Generation: git log -v | column  >>
+
+File touch frequency: density indicates volatile.
+FIles will generally be worked on for a while (several commits in a row),
+and then be left alone.
+Impact analysis: construct dependency structure representing modification ripples.
+
+Stability statistic: silent commit period preceeded by a number of densities,
+density count ratio.
+
+
+
+Workflow: W->S->C(->H->(B))
+===========================
+
+	W: Working copy: change files.
+	S: Stage Area:	 Aggregrate changes.
+	C: Commit:	 Record state.
+	 H: History:	 Provide linear state relation (event timeline).
+	 B: Branch:	 Manage timelines.
+
+
+W: working copy
+---------------
+Change files.
+
+
+S: stage area
+-------------
+	Purpose: Database-[#Domain] bridge
+	Function: Index
+	Operation: Aggregate working copy changes
+	Content: Versioned content
+
+The stage area contains a reference to a versioned history item.
+
+	class stage_area
+	{
+		id reference_id;
+		changeset index;
+
+		Query perform:  {
+			Query.new(
+				reference_id,
+				delta( index, working_copy )
+			);
+		}
+	}
+
+The index is a symbolic reference representing a working directory state.
+The index points to a defined state, and allows for comparison with it.
+
+
+C: commit
+---------
+Combine stage area with commit message and insert into database.
+
+	c = insert into changeset(prev,delta,msg) values (
+		insert into delta {
+			prev: $prev,
+			content: $filecontent
+		},
+		$filechanges,
+		$commitmessage
+	)
+
+
+H: history
+----------
+Update symbolic reference with commit identifier.
+
+
+FileSystems, Recording Change
+============
+
+User Domain Area [=Domain]
+----------------
+The workspace represents the User Domain area: a complex structure of attribute relationships.
+To attribute is to assign identifiable value. This translates to being able
+to add a named property to an object.
+Relationships extend the assignability of attributes into the abstract,
+where not only attributes interrelate, but also what they are attributed to.
+
+File Objects or Object Files: Attributable Emptiness
+------------
+Typically the user concept employed for attributed content is a filing system,
+where objects consist of a collection of attributes, such as content, editor,
+access restriction flags, and location (time and space).
+The object itself is an abstract concept, as it only consists of a collection
+of attributes. Were all attributes removed, there would be nothing left to
+constitute the object.
+
+The space in which such file objects reside must exhibit the attributability,
+which states that an attribute must be able to be identified. This means that
+any attribute is retrievable, which translates to it being uniquely
+identifiable. Therefore, the objects themselves, representing files, can relate
+to each other.
+
+Since the file system itself represents a container for file objects, the
+concept of a collection itself is hologaphically represented within the
+container as a directory, the container for a collection of files.
+
+Version Tracking
+----------------
+
+The Version Control System then is the database tracking all versions of a
+collection of attribute relationships. When a version should be recorded
+is determined by the editor, which executes several programs accessing the
+tracked content in order to apply changes. This typically consists of a number
+of alternations between editing content and executing the content.
+
+The VCS only tracks the content itself, not it's execution. Content that
+can be executed is called source code. Not all content is executable. This
+then is an unknown, in terms of the VCS.
+From the point of view of the VCS the content can be in two states: changing,
+or static. From a developer perspective, this translates to the code being
+in flux, or being deemed stable. Since the VCS has no knowledge of the execution
+environment of the content, it cannot by itself determine what changes in 
+content are relevant.  (that's about 6 ways to say the same thing).
+
+Thus, the VCS becomes a snapshot-taking camera of a domain over which it cannot
+determine a useful state. For, many more changes may occur than are recorded.
+
+Change-Recording-FileSystem (CRFS)
+-----------------
+If a VCS is built-in to the file system, it can and will record all changes,
+which is what a file system does. Generally a file system will ignore all
+previous states as it operates in overwrite mode. It could also append the
+changes. 
+
+Appending changes translates to all file edits resulting in the file getting
+longer. What is then considered the file is merely one state of it's history,
+a window over the entire change history of the file, showing only the latest
+changes relative to emptiness.
+
+A simple way to accomplish this is to append the current state of the file
+to the file with each change, and record the starting offsets of the files.
+When it is read, only the latest version will be retrieved.
+Typically, storing a file for each change means that a version exists for
+each character being appended or changed in the file. This means that for
+a file typed correctly from beginning to end there are as many versions
+as there are characters.
+
+Aggregating Changes
+-------------------
+
+The first level of aggregration is done in the editor, which aggregrates changes
+of characters between a designated symbol: the newline character. It presents
+an array of newline terminated strings. Not only does it allow changing of
+a any line, it allows to change the order of the lines, aswell as displace
+or duplicate content.
+If a file's content were most efficiently constructed, it would be most
+efficiently stored as the edit sequences themselves. Consider that any
+duplicated word word be copied, instead of typed again. The edit sequence
+would then contain a reference for each duplicated symbol, thereby compressing
+the file.
+
+Since files are usually not created that efficiently, a program that determines
+the most efficient way to create the file compresses the contents and creates
+a change sequence. Unfortunately, this change sequence is disconnected from
+meaningful changes. As such, there is no way to associate the sequence with
+semantic changes in the domain of the content.
+
+The second level of aggregration is the file, which consists of an array of
+newline separated strings, and thus, represents the persisted content of the
+editor. This is a user instructed command - save file - and thereby introduces
+the second level of marking meaningful changes.
+
+The third level is where version control enters, where all file states are
+recorded.
+
+Delta
+-----
+
+Delta encoding is the result of a linear relationship, as each file is marked
+related to exactly one other file representing another version of itself,
+providing the linear history. In essence, the system will store a superposition
+of all known versions of a file, with a linear pattern applied to produce
+an ordering, a sequence, containing all versions.
+
+The difference between any two versions of a file is called change. Thus,
+a file history provides only one possible view of change within the collection.
+
+As we have seen, a version control system stores changes. We've also seen
+that a compression algorithm can determine a more efficient way to construct
+a file out of changes than a human editor usually would. Thus, it is quite
+possible that a more efficient change set exists than the applied linear
+history, producing less duplication.
+
+Master File
+-----------
+Consider the combination of what is discussed: first, appending the entire file to itself and providing a window showing one version only of this master file,
+and second, storing changes.
+
+The most efficient way to store such files is to construct a single master
+file with all unique content, and have all versions consist of references
+to portions of this file.
+
+This master file itself is unlikely to be a valid version of the file. For
+instance, a versioned file may have redundant content, whereas the master file would not.
+Thus, to construct such a file would require a version containing two changes,
+both referring to the same portion in the master file.
+
+The master file itself represents the potential for construction any version
+of itself by combining any portion of itself in any linear structure, with
+the smallest version being empty, the next smallest being one character present
+in the master file, and so on. This would lead to compression algorithms
+employing symbolic encoding, which adds a layer of semantics on top of the
+file content. Symbols may refer to file content (data) or to parameterized
+operations, such as repetitions of sequences.
+
+Efficiency
+----------
+A compression algorithm suitable for linear file construction may not be
+ideal for a multi-version system, where the masterfile itself is the compression
+of the superset, and all versions consist of the changes required to transform
+emptiness into the particular version of the master file they represent.
+It may well be, that encoding the masterfile differently, where it would be
+twice the size it could be, translates into all the changesets becoming
+smaller, reducing the overall size.
+
+Such change must ofcourse be balanced with the required efficiency to retrieve
+a particular version. A version for instance, may be smallest encoded by
+requiring to decode a larger portion of the master file than it itself represents. An incremental compression algorithm, that, while producing output, constructs backreferences to such output, would be inefficient if the version only requires the last portion of the output. (Consider a file of a megabyte, where the
+last kilobyte is requested, requiring to decompress the entire megabyte).
+
+Traditional VCS using delta compression will generally store all deltas 
+in the order presented to them. This is inefficient under all but one
+circumstance: every change must not be reflected in the past. For instance,
+adding, and then removing, a section, can be delta encoded by only storing
+the change once, and referring to it twice, once additive, once subtractive.
+Traditional VCS will store both deltas as it would require them to
+search all recorded changes for a match. Further, they only compare
+the file with itself in one direction and thus cannot detect copied content.
+
+A VCS using superposition-compression would append unique content to the
+master file, and determine the changeset combining the empty file and the
+master file to produce the specific delta.
+
+Example
+-------
+
+A little example to illustrate. Legeng: each capital letter represents a portion of the file, say, a number of consecutive lines, and the lowercase letters refer to portions of the master file.
+
+	Version Content	Master		Delta(Master,Void)
+	0	A	A		a	(a=A)
+	1	ABC	A,BC		a,b	(b=BC)
+	2	AC	A,B,C		a,c	(c=C)
+	3	ZYX	A,B,C,ZYX	d	(d=ZYX)
+
+The delta's thus are provided by the commits or file saves. File saves
+can be aggregrated by a single symbol.
+
+Virtual Versions
+----------------
+The version space of such VCS would then not only consist of all labelled
+versions (commits) but also of 'virtual versions', representing shared
+changes. This results in a tree structure where all shared changes are
+abstracted and aggregated, so that all versions sharing in these changes
+can refer to a single virtual portion, saving space. The term virtual
+simply means that these are not real constituents of the version space
+as far as the linear history is concerned, for those changes may not ever
+have been presented in that form.
+
+Note that the changesets do not refer to the linear history, but to the
+changes required to transform the master file into a particular version.
+Such changes are thus radial, with the master file at the center, and all
+versions being combinations of divisions of this center.
+
+Comparing Changesets
+-----------------
+Since the master file is loosely compressed, and since all versions are
+described in terms of portions of the master file, comparing versions
+then translates into comparing the changes. This is a much faster operation
+than traversing a linear history aggregating change, as only a string symbols
+representing a subset of all possible changes needs to be compared, which
+is the most efficient.
+
+Consider the following scenario:
+
+	Version	Content	Master	Changeset	All Changes
+	0	ABCD	ABCD	a		a	(a=ABCD)
+	1	ABD	AB,C,D	a,c,d		a,c,d	(a=AB,c=C,d=D)
+	2	ACAD	A,B,C,D	a,c,a,d		a,b,c,d	(a=A,b=B,c=C,d=D)
+
+The first commit is the chunk ABCD, which is recorded as the first and only
+portion, labelled ''a''. The master file itself does not at this point
+recognize the boundaries between A,B,C or D, and, as far as it is concerned
+it is only a single piece of content.
+The second commit (ABD) produces a delta where section C becomes identified,
+and with it, AB and D.
+The third commit duplicates a portion of AB, splitting the chunk into A and B,
+and changes what was B into D.
+
+Comparing histories now is a matter of comparing the changesets, where each
+symbol represents a variable length of content that has been changed at one
+time. The time it takes to compare any version with any version is only
+dependent upon the size of the changeset constituting the versions. On average
+this means that any version can be compared with any version equally fast.
+
+Each commit produces a different overall changeset, as letters are added to its
+symbol table. Earlier versions would not use later symbols and thus have
+a shorter alphabet.
+The change set then becomes the subject of delta storage. The linear history
+of the changeset would be easily delta compressed, as each change would
+increment the alphabet and possibly change semantics of existing letters.
+A single sorted alphabet table, where the version introducing the letter is
+recorded, suffices. This would allow for quick change detection by quickly
+finding the lower bounds for the changes, as it is known when such changes
+started to occur. 
+
+The file change history may include duplications, such as exemplified
+in the third commit, where portion A occurs twice. The traditional approach
+would store the version as a delta of portion references relative to the
+last version only, which does not yet identify A, and thus will produce
+a delta that is larger than it needs to be.
+
+
+Sets
+----
+
+Other ways besides linear history to project the virtual version space are
+now also possible, such as classifying versions depending on their shared
+changes. Note again that these changes are nonlinear, and do not represent
+a linear history of change over time. Instead they are radial, representing
+changes relative between emptiness and the master file. Such changes will
+be called portions (of the master file) for short.
+
+One might envision this as countries on a planet, each city representing a
+version of the file, each country representing all versions sharing the
+same portion. Ofcourse, such sets would have multiple layers (Venn Diagram).
+
+The collection of versions containing a particular portion can be determined,
+and overlayed over the linear history, thereby creating time segments
+which can be collapsed while bisecting the data.
+Instead of walking the linear history to find the introduction of a change,
+all versions containing the changed portion can be determined and then
+sorted. This would require an index table.
+
+Granularity of structured content
+---------------------------------
+When a grammar of a particular file is known, such as a programming language,
+the language elements at various scales (variable names, methods, ...)
+provide the smallest possible change. Code refactoring then can be stored,
+changing the approach from tracking file changes and renames and duplications
+to tracking semantics. Method moves and symbol renames would then be tracked.
+
+At current the paradigm of a file system providing an arbitrary boundary
+of a software architecture is used to also provide the scale and thereby
+granularity of tracking change.
+
+Integrated Development Environment
+----------------------------------
+A truly integrated system would track editor operations, giving it both clues
+to duplicated content aswell as allowing quick history reversal (undo). It would
+also be able to track content being moved between files, aswell as the 
+period during which multiple files were open simultaneously, thereby 
+establishing a relationship between changes occurring.
+
+It would further have knowledge of content execution failures and successes,
+where each success causes an automatic staging area commit.
+The staging area is itself a repository, aggregrating changes into a
+second level commit history. This then would allow for multiple levels
+of history, the most detailed level being able to replay the editor commands,
+the level above that tagging the successful changes (resulting in successful
+compilations and tests), and the one above that a collection of related changes
+producing an overall semantic change identifiable as a feature or bugfix.
+
+A cross-cutting concern is publishing changes to be shared in a team. It is
+not always so that a group of semantic changes is the best level at which
+to share changes. Since all changes are collected, they can be classified
+in different ways. One way is architectural scale, as described. But, one
+might very well look at all commits fixing typo's, for instance. The
+integrated editor would allow a delta-view of all changed content where
+each individual change can be tagged.
+
+Obviously, this would get far to complex, yet it shows that essentially 
+a version control system extends well into the processes involved in
+constructing, modifying, and executing content, and that levels of aggregration
+become increasingly more volatile in the direction of detail.
+
