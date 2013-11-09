@@ -1,4 +1,7 @@
 
+Inheritance Hierarchy
+=====================
+
 	oofs			abstract
 	| 
 	| [f] parent
@@ -16,6 +19,65 @@
 	   | [m] load
 	   | [m] onload
 	   |
+	   |
 	   +- oofs_vol		Volume Descriptor: first (few) sector(s)
+	   |  
+	   |    [f] struct{ lba, size } regions[]
+	   |
+	   |    [m] load_entry
+	   |    [m] add
+	   |
+	   +- oofs_table	String table with classnames for oofs_vol
+	   |
+	   |   
+	   +- oofs_array	abstract
+	   |  |
+	   |  +- oofs_txtab
+	   |
+	   |
+	   +- oofs_alloc
+	   |
+	   |    [f] handles array
+	   |    [f] linked list
+	   |    [f] txtab
+	   |
+	   |    [m] alloc
+	   |    [m] handle_load
+	   |    [m] handle_save
+	   |    [m] txtab_get
+	   |    [m] txtab_save
+	   |
+	   +- oofs_handle
 	      |
-	      | 
+	      |  [f] handle
+	      |  [f] oofs_alloc
+	      |
+	      |
+	      +- oofs_tree
+	      |
+	      |    [f] struct fs_dirent [];
+	      |
+	      |    [m] next
+	      |
+	      +- oofs_blob TODO
+	      |
+	      +- oofs_....
+	      
+
+Runtime Hierarchy
+=================
+
+
+	fs_oofs
+	|
+	+- oofs_vol
+	|
+	+- oofs_table
+	|
+	+- oofs_alloc
+	   |
+	   + oofs_txtab
+	     |
+	     +- oofs_handle HEAD / root directory
+
+

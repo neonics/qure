@@ -10,6 +10,7 @@ OOFS_ALLOC_DEBUG = 0
 .global oofs_alloc_api_alloc	# in: ecx = sectors; out: ebx=handle
 .global oofs_alloc_api_txtab_get# in: edx = classdef ptr
 .global oofs_alloc_api_txtab_save
+.global oofs_alloc_api_handle_load# in: ebx = handle index, edx = instance
 .global oofs_alloc_api_handle_save# in: ebx = handle index, edx = instance
 
 .if HANDLE_STRUCT_SIZE == 32
@@ -157,6 +158,7 @@ DECLARE_CLASS_METHOD oofs_alloc_api_alloc, oofs_alloc_alloc
 DECLARE_CLASS_METHOD oofs_alloc_api_txtab_get, oofs_alloc_txtab_get
 DECLARE_CLASS_METHOD oofs_alloc_api_txtab_save, oofs_alloc_txtab_save
 
+DECLARE_CLASS_METHOD oofs_alloc_api_handle_load, oofs_alloc_handle_load
 DECLARE_CLASS_METHOD oofs_alloc_api_handle_save, oofs_alloc_handle_save
 
 DECLARE_CLASS_END oofs_alloc
@@ -452,38 +454,31 @@ oofs_alloc_txtab_save:
 	mov	ebx, [eax + oofs_alloc_txtab_idx]
 	call	oofs_alloc_handle_save
 	pop_	edx ebx
+	STACKTRACE 0
 	ret
 
 # in: eax = this
 # in: edx = classdef ptr extends oofs_persistent
 # out: eax = loaded instance
-# out: ebx = txtab handle index
 oofs_alloc_txtab_get:
-	push_	ebx edx
-	mov	ebx, [eax + oofs_alloc_txtab]
-	or	ebx, ebx
-	jz	1f
-	mov	eax, ebx
-	jmp	9f
+	push_	edx ecx ebx
+	mov	ecx, eax	# backup
 
-1:	xchg	eax, edx
-	call	class_newinstance
-	jc	91f
-	xchg	eax, edx
-	mov	[eax + oofs_alloc_txtab], edx	# remember child
+	mov	eax, [eax + oofs_alloc_txtab]
+	or	eax, eax
+	jnz	9f
+	mov	eax, ecx
+
 	mov	ebx, [eax + oofs_alloc_txtab_idx]
-	call	oofs_alloc_handle_load
-	jc	92f
+	call	oofs_alloc_handle_load	# in: ebx, edx
+	jc	91f
+	mov	[ecx + oofs_alloc_txtab], eax	# remember child
 
-9:	pop_	edx ebx
+9:	pop_	edx ecx ebx
 	STACKTRACE 0
 	ret
 
-91:	printlnc 4, "oofs_alloc_txtab_get: instantiation error"
-	stc
-	jmp	9b
-
-92:	printlnc 4, "oofs_alloc_txtab_get: txtab load error"
+91:	printlnc 4, "oofs_alloc_txtab_get: txtab load error"
 	stc
 	jmp	9b
 
@@ -511,8 +506,10 @@ oofs_alloc_child_moved:
 
 # Utility method, similar to oofs_vol.load_entry.
 #
+# in: eax = this
 # in: ebx = handle index
-# in: edx = instance of oofs_persistent - constructor will be called
+# in: edx = instance of oofs_handle - constructor will be called
+#         OR: edx = class ptr: will be instantiated
 # out: eax (?edx?) = object, constructor called.
 oofs_alloc_handle_load:
 # ALT: handle_apply;
@@ -523,30 +520,62 @@ oofs_alloc_handle_load:
 		printc 9, " handle_idx="
 		push	ebx
 		call	_s_printhex8
+		STACKTRACE 0,0
 	.endif
 
 	push_	ebp esi ebx ecx edx eax
-	mov	esi, [eax + oofs_alloc_handles + handles_ptr]
-	add	esi, ebx
-	mov	ebx, [esi + handle_base]
-	mov	ecx, [esi + handle_size]	# sectors
-	.if OOFS_ALLOC_DEBUG
-		DEBUG_DWORD ecx, "sectors"
-		DEBUG_DWORD [esi + handle_caller], "initedsize"
-		call	newline
-	.endif
-	add	ebx, [eax + oofs_lba]
-	inc	ebx	# skip reserved sector
-	xchg	eax, edx# pass along this as persistence provider
-	call	[eax + oofs_api_init] # XXX maybe oofs_persistence_init?
-	jc	91f
 
+	# assert edx is instance of oofs_handle
+
+	# allow to instantiate the class
+	xchg	eax, edx
+	call	class_is_class
+	jc	1f
+	call	class_newinstance
+	xchg	eax, edx
+	jc	93f
+
+###	# call constructor
+	mov	esi, ebx	# backup handle in case ebx becomes lba
+
+	xchg	eax, edx
+
+	push	edx
+	mov	edx, offset class_oofs_handle
+	call	class_instanceof
+	pop	edx
+	jz	2f
+
+	# if the object is oofs_persistent, have ebx = lba, ecx=size
+	push	edx
+	mov	edx, offset class_oofs_persistent
+	call	class_instanceof
+	pop	edx
+	jc	94f
+	# set up ebx, ecx
+	add	ebx, [edx + oofs_alloc_handles + handles_ptr]
+	mov	ecx, [ebx + handle_size]
+	mov	ebx, [ebx + handle_base]
+	inc	ebx	# skip reserved sector
+	add	ebx, [edx + oofs_lba]
+
+2:
+	# if the object is an oofs_handle, have ebx = handle
+	# in: ebx = handle
+	# in: edx = oofs_alloc
+	INVOKEVIRTUAL oofs init
+	mov	ebx, esi
+	jc	91f
+###
+
+1:
+	# edx=this
+	# eax=instance
 	# change the onload handler:
 	pushd	[eax + oofs_persistent_api_onload]
 	mov	[eax + oofs_persistent_api_onload], dword ptr offset oofs_alloc_onload_proxy$
-	mov	ebp, esp
+	mov	ebp, esp	# onload_proxy$ in: ebp = orig onload handler
 	# NOTE: the load method must not modify ebp!
-
 	call	[eax + oofs_persistent_api_load]
 	popd	[eax + oofs_persistent_api_onload]	# restore
 	mov	[esp], eax	# set return value
@@ -556,11 +585,23 @@ oofs_alloc_handle_load:
 	STACKTRACE 0
 	ret
 
-91:	printlnc 4, "oofs_alloc_handle_load: error calling persistent.init"
+91:	printlnc 12, "oofs_alloc_handle_load: error calling persistent.init"
 	stc
 	jmp	9b
 
-92:	printlnc 4, "oofs_alloc_handle_load: error calling persistent.load"
+92:	printlnc 12, "oofs_alloc_handle_load: error calling persistent.load"
+	stc
+	jmp	9b
+
+93:	printlnc 12, "oofs_alloc_handle_load: instantiation error"
+	stc
+	jmp	9b
+
+94:	printlnc 12, "oofs_alloc_handle_load: object not oofs_persistent"
+	stc
+	jmp	9b
+
+95:	printlnc 12, "oofs_alloc_handle_load: object not oofs_handle"
 	stc
 	jmp	9b
 
@@ -572,9 +613,9 @@ oofs_alloc_handle_load:
 # ecx = bytes loaded
 oofs_alloc_onload_proxy$:
 	# zero out uninitialized data
-	.if 0
-		DEBUG "onload_proxy$"
+	.if OOFS_ALLOC_DEBUG
 		DEBUG_CLASS
+		printc 14, ".onload_proxy$"
 		DEBUG_DWORD eax
 		DEBUG_DWORD edi,"dataptr"
 		DEBUG_DWORD ecx
@@ -624,6 +665,13 @@ oofs_alloc_handle_save:
 		printc 9, " instance: "
 		DEBUG_CLASS edx
 	.endif
+
+	# verify if the size will fit
+	push	ecx
+	mov	ecx, [edx + oofs_handle_handle]
+	pop	ecx
+
+
 	xchg	eax, edx
 	call	[eax + oofs_persistent_api_save]
 	xchg	eax, edx
@@ -671,9 +719,12 @@ oofs_alloc_print:
 	call	_s_printhex8
 	call	newline
 
-	printc 11, "txtab handle idx: "
-	pushd	[eax + oofs_alloc_txtab_idx]
-	call	_s_printhex8
+	printc 11, "txtab handle number: "
+	push	edx
+	mov	edx, [eax + oofs_alloc_txtab_idx]
+	shr	edx, HANDLE_STRUCT_SIZE_SHIFT
+	call	printdec32
+	pop	edx
 	call	newline
 
 	#

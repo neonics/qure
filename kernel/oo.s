@@ -1187,7 +1187,8 @@ class_invoke_virtual:
 	mov	edx, [esp + 8 + 8]	# class
 	call	class_instanceof
 	pop	edx
-	jc	9f	# edx or eax might be wrong; instanceof prints.
+	# instanceof prints if edx or eax are wrong; keeps silent if not extends
+	jc	91f
 	# macro INVOKEVIRTUAL provides compiletime checking for api method
 	# using class_api_ naming convention.
 
@@ -1198,9 +1199,23 @@ class_invoke_virtual:
 	mov	edx, [esp + 8 + 4]	# method index
 	mov	edx, [eax + edx]	# method ptr
 	mov	[esp + 8 + 4], edx	# method index->ptr
+.if 0
 	pop	edx
 
 	call	[esp + 4 + 4]
+.else
+# [esp+ 0] edx
+# [esp+ 4] invokevirtual ret
+# [esp+ 8] object
+# [esp+12] api method
+# [esp+16] classdef	-> invokevirtual ret
+	mov	edx, [esp + 4] # ret
+	mov	[esp + 16], edx
+	pop	edx
+	add esp, 12-4	# 4 for the method ptr ptr
+	ret	#call
+
+.endif
 
 	# for multiple inheritance, the method must be looked up in the
 	# class definition rather than using the runtime VPTR, as the VPTR
@@ -1219,8 +1234,15 @@ class_invoke_virtual:
 9:	STACKTRACE 0
 	ret	12
 
-
-
+91:	printc 12, "invokevirtual: class cast exception: instance of type "
+	pushd	[eax + obj_class]
+	call	class_print_classname
+	printc 12, " is not a subclass of "
+	pushd	[esp + 4 + 8]	# class
+	call	class_print_classname
+	call	newline
+	stc
+	jmp	9b
 
 
 

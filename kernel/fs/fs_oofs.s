@@ -22,6 +22,7 @@ DECLARE_CLASS_BEGIN fs_oofs, fs
 oofs_root:	.long 0	# ptr to oofs root object
 oofs_lookup_table: .long 0 # ptr to oofs_table
 oofs_alloc:	.long 0	# ptr to oofs_alloc
+#oofs_handles:	.long 0	# cache array
 
 # static
 DECLARE_CLASS_METHOD fs_api_mkfs,	fs_oofs_mkfs, OVERRIDE,STATIC
@@ -206,10 +207,6 @@ fs_oofs_mount:
 
 fs_oofs_umount:
 	DEBUG "umount"; jmp 1f
-fs_oofs_close:
-	DEBUG "close"; jmp 1f
-fs_oofs_nextentry:
-	DEBUG "nextentry"; jmp 1f
 fs_oofs_read:
 	DEBUG "read"; jmp 1f
 fs_oofs_write:
@@ -223,10 +220,77 @@ fs_oofs_move:
 	stc
 	ret
 
+# in: eax = fs
+# in: edi = fs_dirent
+# in: ebx = directory handle
 fs_oofs_create:
 	DEBUG "create"
-	stc
+	DEBUG_DWORD ebx
+	push	edx
+	xchg	eax, ebx
+	mov	edx, offset class_oofs_tree
+	call	class_instanceof
+	xchg	eax, ebx
+	pop	edx
+	jc	91f
+	xchg	eax, ebx
+	push	edx
+	mov	edx, edi
+	INVOKEVIRTUAL oofs_tree add
+	pop	edx
+	xchg	eax, ebx
+	STACKTRACE 0
 	ret
+# KEEP-WITH-NEXT 91f
+
+# in: eax = fs info
+# in: ebx = dir handle
+# in: ecx = cur entry
+# in: edi = fs dir entry struct
+# out: ecx = next entry (-1 for none)
+# out: edx = directory name
+fs_oofs_nextentry:
+	DEBUG "nextentry"; 
+	# verify ebx is oofs_tree object
+	push_	edx
+	xchg	eax, ebx
+	mov	edx, offset class_oofs_tree
+	call	class_instanceof
+	xchg	eax, ebx
+	pop_	edx
+	jc	91f
+
+.if 0
+	# fake 1 entry:
+	or	ecx, ecx
+	jnz	9f
+	mov	[edi + fs_dirent_name], dword ptr 'f'|'o'<<8|'o'<<16|'!'<<24
+	inc	ecx	# make nonzero
+.else
+	xchg	eax, ebx
+	INVOKEVIRTUAL oofs_tree next	# in: ecx=idx/offs; out: edx=ptr, ecx=next idx/offs
+	xchg	eax, ebx
+	jc	92f
+	push_	esi edi ecx
+	mov	ecx, FS_DIRENT_STRUCT_SIZE >> 2
+	mov	esi, edx
+	rep	movsb
+	mov	cl, FS_DIRENT_STRUCT_SIZE & 3
+	rep	movsd
+	pop_	ecx edi esi
+.endif
+	ret
+
+9:	mov	ecx, -1
+	ret
+
+91:	printc 12, "fs_oofs_nextentry: invalid handle"
+	stc
+	jmp	9b
+
+92:	printc 12, "fs_oofs_nextentry: error calling next"
+	stc
+	jmp	9b
 
 # in: eax = this
 # in: esi = file/dir name
@@ -246,9 +310,8 @@ fs_oofs_open:
 	jz	91f
 
 	mov	edx, offset class_oofs_txtab
-	call	[eax + oofs_alloc_api_txtab_get] # in: edx; out: eax
+	call	[eax + oofs_alloc_api_txtab_get] # in: edx; out: eax=txtab
 	jc	92f
-
 	# get HEAD: entry 0
 
 	xor	ebx, ebx
@@ -256,7 +319,6 @@ fs_oofs_open:
 	jnc	2f
 
 	# initialize the translation table (symbolic handle references)
-
 	# allocate a handle for HEAD:
 	push_	ecx eax
 	mov	ecx, 1
@@ -265,7 +327,6 @@ fs_oofs_open:
 	INVOKEVIRTUAL oofs_alloc alloc	# out: ebx
 	pop_	eax ecx
 	jc	93f
-
 	# insert it into the txtab
 	mov	edx, ebx	# handle
 	xor	ebx, ebx	# index
@@ -280,16 +341,32 @@ fs_oofs_open:
 
 2:	# ebx = handle for HEAD
 	DEBUG_DWORD ebx, "HEAD handle"
-
 	jc	9f
+	DEBUG "ok"
 
-	# update ebx return value:
-	# mov [ebp + 4],
+	# load handle content
+	mov	eax, offset class_oofs_tree
+	call	class_newinstance
+	jc	96f
+	# in: ebx = handle
+	# in: edx = oofs_alloc
+	mov	edx, [ebp]
+	mov	edx, [edx + oofs_alloc]
+	INVOKEVIRTUAL oofs init
+	jc	96f
 
+	mov	edx, eax
+
+	mov	eax, [ebp]	# just in case
+	mov	eax, [eax + oofs_alloc]
+	INVOKEVIRTUAL oofs_alloc handle_load
+	jc	95f
+
+	# return the instance rather than the handle
+	mov	[ebp + 4], eax # update ebx return value
 
 9:	pop_	ebp eax ebx edx
 	STACKTRACE 0
-	stc
 	ret
 
 91:	printlnc 12, "no oofs_alloc region"
@@ -304,15 +381,35 @@ fs_oofs_open:
 94:	printlnc 12, "can't record HEAD"
 	stc
 	jmp	9b
-
+95:	printlnc 12, "error loading dir"
+	stc
+	jmp	9b
+96:	printlnc 12, "can't instantiate oofs_tree"
+	stc
+	jmp	9b
 
 ####### open subdir/file
+# in: ebx = parent directory handle
 1:	push_	eax
+	DEBUG "OPEN SUBDIR"; DEBUGS esi
 #	mov	eax, [eax + oofs_tree]
 #	call	[eax + oofs_tree_api_find] # in: esi
 	pop_	eax
 	stc
 	ret
+
+# in: ebx = directory/file handle
+fs_oofs_close:
+	DEBUG "close"
+	cmp	ebx, -1
+	jz	9f
+	# ebx is object associated with a handle.
+	push	eax
+	mov	eax, ebx
+	call	class_deleteinstance
+	pop	eax
+	STACKTRACE 0
+9:	ret
 
 ############################################################################
 #SHELL_COMMAND "oofs", cmd_oofs # see shell.s

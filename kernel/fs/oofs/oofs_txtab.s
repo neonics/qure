@@ -6,6 +6,7 @@
 
 DECLARE_CLASS_BEGIN oofs_txtab, oofs_array
 
+# oofs_txtab_handle: .long 0
 oofs_txtab_array:	# passed to super
 oofs_txtab_count:	.long 0
 oofs_txtab_tbl:

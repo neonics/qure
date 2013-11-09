@@ -121,7 +121,9 @@ oofs_child_moved:
 .include "oofs_table.s"
 .include "oofs_array.s"
 .include "oofs_alloc.s"	# space manager, using handles
+.include "oofs_handle.s"# subclass of oofs_persistent, taking handle
 .include "oofs_txtab.s"	# translation table for handles
+.include "oofs_tree.s"	# directory data
 
 .include "oofs_hash.s"
 .include "oofs_hashidx.s"

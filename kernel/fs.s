@@ -636,7 +636,7 @@ fs_obj_read:
 		printc 9, " LBA="; push ebx; call _s_printhex8
 		printc 9, " size="; push ecx; call _s_printhex8
 	.endif
-	.if FS_OBJ_DEBUG_RW > 1
+	.if FS_OBJ_DEBUG_RW > 2
 		call more
 	.endif
 
@@ -706,7 +706,7 @@ fs_obj_write:
 		printc 9, " LBA="; push ebx; call _s_printhex8
 		printc 9, " size="; push ecx; call _s_printhex8
 	.endif
-	.if FS_OBJ_DEBUG_RW > 1
+	.if FS_OBJ_DEBUG_RW > 2
 		call more
 	.endif
 
@@ -729,6 +729,7 @@ fs_obj_write:
 		0: lodsb; mov dl, al; call printhex2; call printspace; loop 0b
 		call newline
 		pop_ edx eax ecx esi
+		clc
 	.endif
 	.endif
 
@@ -1032,6 +1033,7 @@ fs_root_read$:
 	printlnc 4, "fs_root_read: not implemented"
 	stc
 	ret
+.endif	# DEFINE
 
 ############################################################################
 # FS Handles
@@ -1041,6 +1043,7 @@ fs_root_read$:
 
 # Directory Entry
 .struct 0
+.if DEFINE
 .global FS_DIRENT_MAX_NAME_LEN
 .global fs_dirent_name
 .global fs_dirent_attr
@@ -1053,11 +1056,14 @@ fs_root_read$:
 .global fs_dirent_posix_mtime
 .global fs_dirent_posix_atime
 .global FS_DIRENT_STRUCT_SIZE
+.endif
+
 
 FS_DIRENT_MAX_NAME_LEN = 255
 fs_dirent_name: .space FS_DIRENT_MAX_NAME_LEN
 fs_dirent_attr:	.byte 0		# RHSVDA78
   FS_DIRENT_ATTR_DIR = 1 << 4
+# 44 bytes:
 fs_dirent_size:	.long 0, 0
 fs_dirent_posix_perm:	.long 0
 fs_dirent_posix_uid:	.long 0
@@ -1068,6 +1074,7 @@ fs_dirent_posix_atime:	.long 0,0
 # some other times - ignored.
 FS_DIRENT_STRUCT_SIZE = .
 
+.if DEFINE
 .text32
 
 
@@ -1290,19 +1297,30 @@ fs_nextentry:
 
 	push	edx
 	FS_HANDLE_CALL_API nextentry, edx	# out: edx=dir name, ecx=next
+.if 0
+	jnc	1f
+	printlnc 4, "fs_nextentry: error"
+	STACKTRACE 5*4, 0
+	stc
+1:
+.endif
 	mov	esi, edx
 	pop	edx
 
-	LOCK_READ [fs_handles_sem]
+	LOCK_READ_ [fs_handles_sem]
 	mov	eax, [fs_handles$]
 	mov	[eax + edx + fs_handle_dir_iter], ecx
+	jc	1f
+	inc	ecx	# -1->0 = ZF
+1:
 	pop	ebx
 	pop	ecx
 	mov	edx, esi
 	pop	esi
 
 0:	pop	eax
-	UNLOCK_READ [fs_handles_sem]
+	UNLOCK_READ_ [fs_handles_sem]
+	STACKTRACE 0	
 	ret
 
 9:	printc 4, "fs_nextentry: unknown handle: "
@@ -1599,7 +1617,10 @@ fs_close:	# fs_free_handle
 		pop esi
 	.endif
 
+	or	eax, eax	# handle might be null
+	jz	2f
 	call	mfree
+	2:
 
 	mov	eax, [ebx + edx + fs_handle_buf]
 	or	eax, eax

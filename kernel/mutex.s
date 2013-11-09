@@ -372,6 +372,12 @@ __MUTEX_DECLARE = 1
 999:
 .endm
 
+.macro LOCK_READ_ sem
+	pushf
+	LOCK_READ \sem
+	popf
+.endm
+
 .macro UNLOCK_READ sem
 	lock dec dword ptr \sem
 	# SF = 0: lock is >=0: jns success.
@@ -382,6 +388,12 @@ __MUTEX_DECLARE = 1
 	# x) LOCK_READ's DEC cannot be a cause due to it being preceeded by
 	#    an INC resulting in a zero or positive contribution that cannot
 	#    cannot make sem too negative.
+.endm
+
+.macro UNLOCK_READ_ sem
+	pushf
+	UNLOCK_READ \sem
+	popf
 .endm
 
 

@@ -1348,7 +1348,7 @@ cmd_ls$:
 	call	newline
 
 0:	KAPI_CALL fs_nextentry	# in: eax; out: esi
-	jc	0f
+	jbe	0f	# carry or zero
 	push	eax
 
 	DIRENT_SIZE_ALIGN = 10

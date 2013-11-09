@@ -1518,7 +1518,7 @@ ata_write:
 	push	ebx
 	push	ecx
 	push	edx
-	push	edi
+	push	esi
 
 	call	ata_rw_init$
 	jc	2f
@@ -1550,7 +1550,7 @@ ata_write:
 	loop	0b
 	clc
 
-2:	pop	edi
+2:	pop	esi
 	pop	edx
 	pop	ecx
 	pop	ebx

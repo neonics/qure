@@ -78,6 +78,14 @@ oofs_array_init:
 	ret
 
 oofs_array_save:
+	.if OOFS_DEBUG
+		DEBUG_CLASS
+		printc 14,".oofs_array_save"
+		printc 9, " start=";call printhex8
+		printc 9, " size=";push ecx; call _s_printhex8
+		call	newline
+	.endif
+
 	push_	ecx esi edx
 	# calculate array data length
 	mov	edx, [eax + oofs_array_start]
@@ -135,13 +143,13 @@ oofs_array_load:
 	mov	edi, [eax + oofs_array_start]
 # NOTE: at this point, count is probably not initialized unless the object
 # size includes the field.
-	mov	edx, [eax + edi]	# count
-	mov	cl, [eax + oofs_array_shift]
-	shl	edx, cl
-	lea	ecx, [edx + edi + 4]
+	#mov	edx, [eax + edi]	# count
+	#mov	cl, [eax + oofs_array_shift]
+	#shl	edx, cl
+	#lea	ecx, [edx + edi + 4]
 	mov	edx, [eax + oofs_array_persistent_start]
-	add	ecx, edi	# add persistent....array data too
-	sub	ecx, edx
+	#add	ecx, edi	# add persistent....array data too
+	#sub	ecx, edx
 	lea	edi, [eax + edx]
 mov ecx, 512
 	call	[eax + oofs_persistent_api_read]

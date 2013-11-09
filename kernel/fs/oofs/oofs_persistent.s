@@ -209,6 +209,7 @@ oofs_persistent_write:
 94:	PUSH_TXT "data size exceeds object size"
 	jmp	90b
 95:	PUSH_TXT "data exceeds partition"
+	DEBUG_DWORD ebx; DEBUG_DWORD [eax+oofs_sectors]
 	jmp	90b
 
 # For now, this method does not support partial data loading.
