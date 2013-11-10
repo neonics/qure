@@ -120,10 +120,11 @@ oofs_persistent_init:
 oofs_persistent_write:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		printc 13, ".oofs_persistent_write"
+		printc 14, ".oofs_persistent_write"
 		printc 9, " region(LBA="; pushd [eax + oofs_lba]; call _s_printhex8
 		printc 9, " sectors="; pushd [eax + oofs_sectors]; call _s_printhex8
 		printc 9, ") size="; pushd ecx; call _s_printhex8
+		DEBUG_DWORD edx,"start"
 		call	newline
 	.endif
 	push_	eax ebx ecx edx esi edi
@@ -195,7 +196,7 @@ oofs_persistent_write:
 	STACKTRACE 0
 	ret
 
-90:	printc 4, "oofs_write: "
+90:	printc 12, "oofs_persistent_write: "
 	call	_s_println
 	stc
 	jmp	0b
@@ -279,6 +280,7 @@ oofs_persistent_read:
 	push	eax
 	mov	edx, eax
 	mov	eax, [eax + oofs_persistence]
+#	INVOKEVIRTUAL fs_obj read	# class_fs, yet fs_obj_api_*
 	call	[eax + fs_obj_api_read]
 	pop	eax
 	jc	91f
@@ -296,9 +298,9 @@ oofs_persistent_read:
 	jmp	0b
 
 91:	PUSH_TXT "fs_obj_api_read error"
-	jmp	0b
+	jmp	90b
 92:	PUSH_TXT "resize error"
-	jmp	0b
+	jmp	90b
 93:	PUSH_TXT "persistent start overlaps with volatile data"
 	jmp	90b
 

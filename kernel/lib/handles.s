@@ -11,6 +11,8 @@ HANDLE_ASSERT = 1	# data integrity assertions
 
 
 .global handle_get
+.global handle_free
+.global handle_free_by_base
 .global handle_find
 .global handles_print
 ##############################################################################
@@ -1197,13 +1199,25 @@ MERGE_RECURSE = 0
 # in: esi = handles struct ptr
 # in: eax = base pointer
 handle_free_by_base:
-	push_	ebx esi	# esi must be last
+	push_	ebx
 	call	handle_get_by_base
 	jc	91f
+	call	handle_free
+0:	pop	ebx
+	ret
+90:	printc 4, "handle_free_by_base: "
+	call	_s_println
+	jmp	0b
+91:	pushstring "unknown pointer"
+	jmp	90b
 
+# in: ebx = handle index
+# in: esi = handles struct
+handle_free:
+	push_	esi	# stackref
 	mov	esi, [esi + handles_ptr]
 	test	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
-	jz	92f
+	jz	91f
 	and	[esi + ebx + handle_flags], byte ptr ~MEM_FLAG_ALLOCATED
 	# alt:
 	# btc	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED_SHIFT
@@ -1221,23 +1235,16 @@ handle_free_by_base:
 	clc
 ##################
 
-9:	pop_	esi ebx
+9:	pop_	esi
 	STACKTRACE 0
 	ret
 
-90:	printc 4, "handle_free_by_base: "
-	call	_s_print
-	printc 4, ": "
-	push	eax
+91:	printc 4, "handle_free: pointer already free: "
+	push	ebx
 	call	_s_printhex8
+	call	newline
 	stc
 	jmp	9b
-
-91:	pushstring "unknown pointer"
-	jmp	90b
-
-92:	pushstring "pointer already free"
-	jmp	90b
 
 
 # State diagram for the linked list memory management

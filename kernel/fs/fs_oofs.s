@@ -274,9 +274,9 @@ fs_oofs_nextentry:
 	push_	esi edi ecx
 	mov	ecx, FS_DIRENT_STRUCT_SIZE >> 2
 	mov	esi, edx
-	rep	movsb
-	mov	cl, FS_DIRENT_STRUCT_SIZE & 3
 	rep	movsd
+	mov	cl, FS_DIRENT_STRUCT_SIZE & 3
+	rep	movsb
 	pop_	ecx edi esi
 .endif
 	ret

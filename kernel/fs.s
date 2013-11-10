@@ -678,6 +678,7 @@ fs_obj_read:
 	clc
 
 0:	pop_	edx ecx ebx eax
+	STACKTRACE 0
 	ret
 9:	printc 4, "fs_obj_read: "
 	push	edx
@@ -734,6 +735,7 @@ fs_obj_write:
 	.endif
 
 0:	pop_	eax ebx ecx edx
+	STACKTRACE 0
 	ret
 9:	printc 4, "fs_obj_write: "
 	push	edx

@@ -1349,7 +1349,16 @@ cmd_ls$:
 
 0:	KAPI_CALL fs_nextentry	# in: eax; out: esi
 	jbe	0f	# carry or zero
-	push	eax
+	call	fs_dirent_print
+	jmp	0b
+
+0:	KAPI_CALL fs_close	# in: eax
+9:	ret
+
+
+.global fs_dirent_print
+fs_dirent_print:
+	push_	eax ebx ecx edx esi edi
 
 	DIRENT_SIZE_ALIGN = 10
 	.data
@@ -1446,13 +1455,10 @@ cmd_ls$:
 3:	call	printspace
 	call	printc
 	call	printchar
+	call	newline
 
-1:	call	newline
-	pop	eax
-	jmp	0b
-
-0:	KAPI_CALL fs_close	# in: eax
-9:	ret
+	pop_	edi esi edx ecx ebx eax
+	ret
 
 ########################################################################
 

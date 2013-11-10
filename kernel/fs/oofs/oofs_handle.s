@@ -1,13 +1,14 @@
 #############################################################################
 .intel_syntax noprefix
 
+OOFS_HANDLE_DEBUG = 0
+
 DECLARE_CLASS_BEGIN oofs_handle, oofs_persistent
 
 oofs_handle_persistence:.long 0 # oofs_alloc instance
 oofs_handle_handle:	.long 0	# oofs_alloc handle
 
-oofs_handle_persistent_start:
-oofs_handle_size:	.long 0	# bytes
+oofs_handle_persistent_start: .long 0	# eax relative offset
 
 DECLARE_CLASS_METHOD oofs_api_init, oofs_handle_init, OVERRIDE
 DECLARE_CLASS_METHOD oofs_persistent_api_load, oofs_handle_load, OVERRIDE
@@ -30,7 +31,6 @@ oofs_handle_init:
 	jc	91f
 	mov	[eax + oofs_handle_persistence], edx
 	mov	[eax + oofs_handle_handle], ebx
-	mov	[eax + oofs_handle_size], dword ptr 0
 
 	# calculate LBA, size
 	push_	ebx ecx
@@ -43,7 +43,7 @@ oofs_handle_init:
 	# in: ebx = LBA
 	# in: ecx = reserved size
 
-	.if OOFS_DEBUG
+	.if OOFS_HANDLE_DEBUG
 		PRINT_CLASS
 		printc 14, ".oofs_handle_init"
 		printc 9, " handle="; pushd [esp+4]; call _s_printhex8
@@ -63,12 +63,46 @@ oofs_handle_init:
 	stc
 	jmp	9b
 
+
+# utility method: calculates and sets lba and size
+# XXX TODO move to oofs_alloc as get_geo, out: ebx, ecx
+# in: eax = this
+# in: ebx = handle index
+handle_set_geo$:
+	push_	esi edx ecx ebx
+	mov	edx, [eax + oofs_handle_persistence]	# oofs_alloc
+	mov	esi, [edx + oofs_alloc_handles + handles_ptr]
+	add	esi, ebx
+	mov	ebx, [esi + handle_base]
+	mov	ecx, [esi + handle_size]
+	inc	ebx	# skip reserved sector
+	add	ebx, [edx + oofs_lba]
+
+	mov	[eax + oofs_lba], ebx
+	mov	[eax + oofs_sectors], ecx
+	pop_	ebx ecx edx esi
+	ret
+
+
 oofs_handle_load:
+	.if OOFS_HANDLE_DEBUG
+		DEBUG_CLASS
+		printlnc 14, ".oofs_handle_load"
+	.endif
 	push_	ecx edx edi
-	mov	ecx, 512
-	mov	edx, offset oofs_handle_persistent_start
+	# get the persisted handle size in sectors
+	mov	ecx, [eax + oofs_handle_persistence]
+	mov	ecx, [ecx + oofs_alloc_handles + handles_ptr]
+	add	ecx, [eax + oofs_handle_handle]
+	mov	ecx, [ecx + handle_caller]
+	shl	ecx, 9
+	jnz	1f
+	mov	ecx, 512	# read at least 1 sector
+1:
+	mov	edx, [eax + oofs_handle_persistent_start]
 	lea	edi, [eax + edx]
-	call	[eax + oofs_persistent_api_read]
+#	call	[eax + oofs_persistent_api_read]
+	INVOKEVIRTUAL oofs_persistent read
 	jc	1f
 	# recalculate edi
 	lea	edi, [eax + edx]
@@ -79,26 +113,72 @@ oofs_handle_load:
 	# TODO: onload: read rest.
 
 oofs_handle_onload:
-	.if OOFS_DEBUG
+	.if OOFS_HANDLE_DEBUG
 		PRINT_CLASS
 		printc 14, ".onload"
 		DEBUG_DWORD edi
-		DEBUG_DWORD [eax + oofs_handle_size]
-		push edx; lea edx, [eax + oofs_handle_persistent_start]
+		push edx; mov edx, [eax + oofs_handle_persistent_start]
 		DEBUG_DWORD edx
 		pop edx
 		call	newline
 	.endif
+	# XXX TODO load rest
 	clc
 	ret
 
 oofs_handle_save:
-	push_	ecx edx esi
-	mov	ecx, [eax + oofs_handle_size]
-	add	ecx, 4	# the size dword itself
-	mov	edx, offset oofs_handle_persistent_start
+	.if OOFS_HANDLE_DEBUG
+		PRINT_CLASS
+		printc 14, ".oofs_handle_save"
+	.endif
+	push_	eax ebx edx esi	# esp ref!
+	# assume the persistent part is the tail end of the object
+	mov	ecx, [eax + obj_size]
+	mov	edx, [eax + oofs_handle_persistent_start]
+	sub	ecx, edx
+	DEBUG_DWORD ecx, "oofs_handle_size"
+
+	# if the size won't fit, reallocate the handle
+	push	ecx	# esp ref!
+	add	ecx, 511
+	shr	ecx, 9
+	cmp	[eax + oofs_sectors], ecx	# copied from handle
+	jae	1f
+	# we need to realloc a handle.
+	mov	esi, eax	# backup this
+	mov	eax, [eax + oofs_handle_persistence]
+	INVOKEVIRTUAL oofs_alloc alloc	# out: ebx
+	jc	1f
+	xchg	ebx, [esi + oofs_handle_handle]
+	INVOKEVIRTUAL oofs_alloc free	# in: ebx
+	jc	1f
+	# update handle, lba, and size
+	mov	eax, esi	# restore this
+	mov	ebx, [eax + oofs_handle_handle]
+	call	handle_set_geo$
+
+	# update the handle's persisted size
+	push_	esi ecx
+	mov	esi, [eax + oofs_handle_persistence] # oofs_alloc
+	mov	esi, [esi + oofs_alloc_handles + handles_ptr]
+	add	esi, ebx
+	# ecx is still good I think
+	DEBUG_DWORD ecx, "UPDATE INITED SIZE"
+	mov	[esi + handle_caller], ecx
+	# TODO: mark handle dirty or save
+	pop_	ecx esi
+
+	clc
+
+1:	pop	ecx
+	jc	91f
+
 	lea	esi, [eax + edx]
-	call	[eax + oofs_persistent_api_write]
-	pop_	esi edx ecx
-	STACKTRACE 0
+	INVOKEVIRTUAL oofs_persistent write
+
+	pop_	esi edx ebx eax
+9:	STACKTRACE 0
 	ret
+91:	printlnc 12, "oofs_handle_save: error reallocating diskspace"
+	stc
+	jmp	0b

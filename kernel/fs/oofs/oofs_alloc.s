@@ -8,6 +8,7 @@ OOFS_ALLOC_DEBUG = 0
 
 .global class_oofs_alloc
 .global oofs_alloc_api_alloc	# in: ecx = sectors; out: ebx=handle
+.global oofs_alloc_api_free	# in: ebx = handle
 .global oofs_alloc_api_txtab_get# in: edx = classdef ptr
 .global oofs_alloc_api_txtab_save
 .global oofs_alloc_api_handle_load# in: ebx = handle index, edx = instance
@@ -155,6 +156,7 @@ DECLARE_CLASS_METHOD oofs_persistent_api_save, oofs_alloc_save, OVERRIDE
 DECLARE_CLASS_METHOD oofs_persistent_api_load, oofs_alloc_load, OVERRIDE
 
 DECLARE_CLASS_METHOD oofs_alloc_api_alloc, oofs_alloc_alloc
+DECLARE_CLASS_METHOD oofs_alloc_api_free, oofs_alloc_free
 DECLARE_CLASS_METHOD oofs_alloc_api_txtab_get, oofs_alloc_txtab_get
 DECLARE_CLASS_METHOD oofs_alloc_api_txtab_save, oofs_alloc_txtab_save
 
@@ -263,6 +265,10 @@ oofs_alloc_init:
 # in: esi = handles struct
 # in: ebx = minimum handles offset to accommodate (thus, size must be ebx+HANDLE_STRUCT_SIZE)
 oofs_alloc_handles$:
+	.if OOFS_ALLOC_DEBUG
+		PRINT_CLASS
+		printc 14, "oofs_alloc_handles$"
+	.endif
 	push_	eax ebx ecx edx
 	mov	eax, [esi + handles_ptr]
 	or	eax, eax
@@ -446,6 +452,16 @@ oofs_alloc_alloc:
 91:	printlnc 4, "oofs_alloc_alloc: region full"
 	stc
 	jmp	9b
+
+
+oofs_alloc_free:
+	push_	esi eax
+	lea	esi, [eax + oofs_alloc_handles]
+	mov	eax, ebx
+	call	handle_free
+	pop_	eax esi
+	ret
+
 
 # in: eax = this
 oofs_alloc_txtab_save:

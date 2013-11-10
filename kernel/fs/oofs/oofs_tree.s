@@ -1,6 +1,8 @@
 #############################################################################
 .intel_syntax noprefix
 
+OOFS_TREE_DEBUG = 0
+
 .global oofs_tree_api_next
 .global oofs_tree_api_add
 
@@ -11,7 +13,9 @@ oofs_tree_size:	.long 0	# total occupied space
 oofs_tree_entries:
 
 DECLARE_CLASS_METHOD oofs_api_init, oofs_tree_init, OVERRIDE
-DECLARE_CLASS_METHOD oofs_persistent_api_load, oofs_tree_load, OVERRIDE
+DECLARE_CLASS_METHOD oofs_api_print, oofs_tree_print, OVERRIDE
+
+#DECLARE_CLASS_METHOD oofs_persistent_api_load, oofs_tree_load, OVERRIDE
 DECLARE_CLASS_METHOD oofs_persistent_api_save, oofs_tree_save, OVERRIDE
 DECLARE_CLASS_METHOD oofs_persistent_api_onload, oofs_tree_onload, OVERRIDE
 
@@ -33,6 +37,7 @@ oofs_tree_init:
 		call	newline
 		popf
 	.endif
+	mov	[eax + oofs_handle_persistent_start], dword ptr offset oofs_tree_persistent_start
 	call	oofs_handle_init	# super.init()
 	ret
 
@@ -40,6 +45,7 @@ oofs_tree_init:
 	stc
 	ret
 
+.if 0
 oofs_tree_load:
 	push_	ecx edx edi
 	mov	ecx, 512
@@ -53,10 +59,11 @@ oofs_tree_load:
 1:	pop_	edi edx ecx
 	STACKTRACE 0
 	ret
+.endif
 	# TODO: onload: read rest.
 
 oofs_tree_onload:
-	.if 0
+	.if OOFS_TREE_DEBUG
 		PRINT_CLASS
 		printc 14, ".onload"
 		DEBUG_DWORD [eax + oofs_tree_size]
@@ -69,13 +76,52 @@ oofs_tree_onload:
 	ret
 
 oofs_tree_save:
-	push_	ecx edx esi
-	mov	ecx, [eax + oofs_tree_size]
-	add	ecx, 4	# the size dword itself
-	mov	edx, offset oofs_tree_persistent_start
-	lea	esi, [eax + edx]
-	call	[eax + oofs_persistent_api_write]
-	pop_	esi edx ecx
+	.if OOFS_TREE_DEBUG
+		PRINT_CLASS
+		printc 14, "oofs_tree_save"
+	.endif
+
+	push_	edx ebx edi
+########
+	# set up edx=HEAD, ebx=this handle
+	push	eax
+	mov	eax, [eax + oofs_handle_persistence]
+	mov	edx, -1
+	INVOKEVIRTUAL oofs_alloc txtab_get
+	jc	1f
+	mov	edi, eax	# backup txtab for set later
+	mov	edx, ebx
+	xor	ebx, ebx
+	INVOKEVIRTUAL oofs_txtab get	# get entry 0
+	mov	edx, -1
+	jc	1f
+	mov	edx, ebx
+1:	pop	eax
+	mov	ebx, [eax + oofs_handle_handle]	# remember for change event
+	# now, edx = txtab[0], and ebx is this handle
+########
+
+	call	oofs_handle_save	# explicit super call
+	jc	9f
+
+########
+	# check if ebx is the root dir
+	cmp	ebx, edx
+	clc
+	jnz	9f
+	# match: update.
+	xor	ebx, ebx
+	mov	edx, [eax + oofs_handle_handle] # new handle
+	push	eax
+	mov	eax, edi
+	INVOKEVIRTUAL oofs_txtab set
+	# now also save the txtab
+	mov	eax, [esp]
+	mov	eax, [eax + oofs_handle_persistence]
+	INVOKEVIRTUAL oofs_alloc txtab_save
+	pop	eax
+########
+9:	pop_	edi ebx edx
 	STACKTRACE 0
 	ret
 
@@ -91,7 +137,7 @@ oofs_tree_next:
 	# check if the current entry exists
 	lea	edx, [ecx + oofs_tree_persistent_start + FS_DIRENT_STRUCT_SIZE]
 	cmp	edx, [eax + obj_size]
-	jae	91f
+	ja	91f
 
 	lea	edx, [ecx + FS_DIRENT_STRUCT_SIZE]
 	cmp	edx, [eax + oofs_tree_size]
@@ -112,7 +158,7 @@ oofs_tree_next:
 # in: eax = this
 # in: edx = fs_dirent to be added
 oofs_tree_add:
-	.if 0
+	.if OOFS_TREE_DEBUG
 		DEBUG "oofs_tree_add: "
 		push	esi
 		lea	esi, [edx + fs_dirent_name]
@@ -129,6 +175,7 @@ oofs_tree_add:
 1:	pop	edx
 	jc	91f
 
+	# append *edx
 	push_	edi ecx esi
 	mov	edi, [eax + oofs_tree_size]
 	lea	edi, [eax + oofs_tree_entries + edi]
@@ -141,18 +188,49 @@ oofs_tree_add:
 	pop_	esi ecx edi
 
 	# let's save.
+DEBUG "save"
+DEBUG_DWORD [eax+oofs_handle_handle],"pre handle"
+	INVOKEVIRTUAL oofs_persistent save
+	jc	9f
 
-#	INVOKEVIRTUAL oofs_persistent save
-
-	push_	eax ebx edx
-	mov	ebx, [eax + oofs_handle_handle]
-	mov	edx, eax
-	mov	eax, [eax + oofs_handle_persistence]
-	INVOKEVIRTUAL oofs_alloc handle_save	# updates initialized size
-	pop_	edx ebx eax
+DEBUG_DWORD [eax+oofs_handle_handle],"post handle"
+		call newline
+		DEBUG "TREE:",0xf0; call newline
+		call	oofs_tree_print
+		clc
 
 9:	STACKTRACE 0
 	ret
 
-91:	stc
+91:	printlnc 12, "oofs_tree_add: resize error"
+	stc
 	jmp	9b
+
+
+oofs_tree_print:
+	printc 11, "oofs_tree: "
+	printc 9, "handle: "
+	pushd	[eax + oofs_handle_handle]
+	shr	dword ptr [esp], HANDLE_STRUCT_SIZE_SHIFT
+	call	_s_printhex8
+
+	printc 9, " size: "
+	pushd	[eax + oofs_tree_size]
+	call	_s_printhex8
+	call	newline
+
+	push_	ecx esi edx
+	lea	esi, [eax + oofs_tree_entries]
+	mov	ecx, [eax + oofs_tree_size]
+0:	sub	ecx, FS_DIRENT_STRUCT_SIZE
+	jb	0f
+	
+	call	fs_dirent_print
+
+	add	esi, FS_DIRENT_STRUCT_SIZE
+	jmp	0b
+0:
+	pop_	edx esi ecx
+
+
+	ret

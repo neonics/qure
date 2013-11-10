@@ -72,7 +72,7 @@ oofs_txtab_get:
 	pop	edx
 	ret
 
-91:	printc 12, "oofs_txtab_lookup: index out of bounds: "
+91:	printc 12, "oofs_txtab_get: index out of bounds: "
 	push	ebx
 	call	_s_printhex8
 	printcharc 12, '/'
@@ -81,7 +81,7 @@ oofs_txtab_get:
 	call	newline
 92:	stc
 	jmp	9b
-93:	printc 12, "oofs_txtab_lookup: unallocated handle"
+93:	printc 12, "oofs_txtab_get: unallocated handle"
 	stc
 	jmp	9b
 
