@@ -226,22 +226,33 @@ fs_oofs_move:
 fs_oofs_create:
 	DEBUG "create"
 	DEBUG_DWORD ebx
-	push	edx
+	push_	ebx edx
+
+	push	eax
+	mov	eax, [eax + oofs_alloc]
+	INVOKEVIRTUAL oofs_alloc handle_get
+	mov	ebx, eax
+	pop	eax
+	jc	91f	# note: destroys ebx
+
 	xchg	eax, ebx
 	mov	edx, offset class_oofs_tree
 	call	class_instanceof
 	xchg	eax, ebx
-	pop	edx
 	jc	91f
 	xchg	eax, ebx
-	push	edx
 	mov	edx, edi
 	INVOKEVIRTUAL oofs_tree add
-	pop	edx
-	xchg	eax, ebx
+	mov	eax, ebx	# restore this
+9:	pop_	edx ebx
 	STACKTRACE 0
 	ret
-# KEEP-WITH-NEXT 91f
+91:	printc 12, "fs_oofs_close: invalid handle: "
+	push	ebx
+	call	_s_printhex8
+	call	newline
+	stc
+	jmp	9b
 
 # in: eax = fs info
 # in: ebx = dir handle
@@ -251,6 +262,13 @@ fs_oofs_create:
 # out: edx = directory name
 fs_oofs_nextentry:
 	DEBUG "nextentry"; 
+
+	push	eax
+	mov	eax, [eax + oofs_alloc]
+	INVOKEVIRTUAL oofs_alloc handle_get
+	mov	ebx, eax
+	pop	eax
+	jc	91f
 	# verify ebx is oofs_tree object
 	push_	edx
 	xchg	eax, ebx
@@ -359,11 +377,11 @@ fs_oofs_open:
 
 	mov	eax, [ebp]	# just in case
 	mov	eax, [eax + oofs_alloc]
-	INVOKEVIRTUAL oofs_alloc handle_load
+	INVOKEVIRTUAL oofs_alloc handle_load	# ebx->eax
 	jc	95f
 
-	# return the instance rather than the handle
-	mov	[ebp + 4], eax # update ebx return value
+	# return the handle index
+	mov	[ebp + 4], ebx # update ebx return value
 
 9:	pop_	ebp eax ebx edx
 	STACKTRACE 0
@@ -402,14 +420,22 @@ fs_oofs_open:
 fs_oofs_close:
 	DEBUG "close"
 	cmp	ebx, -1
-	jz	9f
-	# ebx is object associated with a handle.
+	jz	1f
+	# ebx is handle index
 	push	eax
-	mov	eax, ebx
+	mov	eax, [eax + oofs_alloc]
+	INVOKEVIRTUAL oofs_alloc handle_get
+	jc	91f
 	call	class_deleteinstance
-	pop	eax
+9:	pop	eax
 	STACKTRACE 0
-9:	ret
+1:	ret
+91:	printc 12, "fs_oofs_close: invalid handle: "
+	push	ebx
+	call	_s_printhex8
+	call	newline
+	stc
+	jmp	9b
 
 ############################################################################
 #SHELL_COMMAND "oofs", cmd_oofs # see shell.s

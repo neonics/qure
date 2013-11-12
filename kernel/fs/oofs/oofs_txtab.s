@@ -81,7 +81,10 @@ oofs_txtab_get:
 	call	newline
 92:	stc
 	jmp	9b
-93:	printc 12, "oofs_txtab_get: unallocated handle"
+93:	printc 12, "oofs_txtab_get: unallocated handle: "
+	push	ebx
+	call	_s_printhex8
+	call	newline
 	stc
 	jmp	9b
 

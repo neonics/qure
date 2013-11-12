@@ -431,6 +431,33 @@ ptr_hash_put:
 9:	pop_	eax ecx edx esi edi
 	ret
 
+# in: eax = ptr_hash
+# in: ebx = key
+# out: edx = value
+.global ptr_hash_get
+ptr_hash_get:
+	push_	edi ecx
+
+	mov	edi, [eax + 0]	# keys
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	stc
+	jz	9f
+	xchg	eax, ebx
+	repnz	scasd
+	xchg	eax, ebx
+	stc
+	jnz	9f
+
+	sub	edi, [eax + 0]
+	add	edi, [eax + 4]
+	mov	edx, [edi - 4]
+
+	clc
+
+9:	pop_	ecx edi
+	ret
+
 .endif
 
 .ifndef __HASH_DECLARED

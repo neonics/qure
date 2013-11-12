@@ -1197,6 +1197,7 @@ fs_handle_printinfo:
 	jz	1f
 .if FS_HANDLE_PRINTINFO_COMPACT
 	call	printspace
+	printcharc 10, '\''
 .else
 	printc	10, " name: '"
 .endif
@@ -1459,8 +1460,6 @@ DEBUG "fs_create"
 	jc	93f
 	# parent dir opened.
 
-	lea	esi, [edi + 1]	# file/dirname pointer
-
 #######	prepare args, call filesystem api
 	LOCK_WRITE [fs_handles_sem]
 
@@ -1471,7 +1470,15 @@ DEBUG "fs_create"
 	call	fs_new_handle$	# out: eax + edx
 	jc	94f
 	mov	[eax + edx + fs_handle_parent], ebx
+
+	xchg	eax, esi
+	call	strdup
+	xchg	eax, esi
+	mov	[eax + edx + fs_handle_label], esi
+
 	push	edx		# new file handle index
+
+	lea	esi, [edi + 1]	# file/dirname pointer
 
 	lea	edi, [eax + edx + fs_handle_dirent]
 
@@ -1492,9 +1499,7 @@ DEBUG "fs_create"
 	call	[eax + fs_api_create]
 	pop	eax		# new file handle
 
-	pushf	# just in case.. (inc affects CF?)
-	UNLOCK_WRITE [fs_handles_sem]
-	popf
+	UNLOCK_WRITE_ [fs_handles_sem]
 	jnc	0f
 	call	fs_close	# close new file handle and parents.
 	stc
@@ -1503,25 +1508,25 @@ DEBUG "fs_create"
 	ret
 9:	jmp	0b
 
+90:	printc 4, "fs_create: "
+	call	_s_print
+	call	println
+	stc
+	jmp	0b
+
 # need to have 1 '/'
-91:	printc 4, "fs_create: error: relative path: "
+91:	PUSH_TXT "error: relative path: "
+	jmp	90b
+92:	PUSH_TXT "path exists: "
 	call	println
-	stc
-	jmp	0b
-92:	printc 4, "fs_create: path exists: "
-	call	println
-	stc
-	jmp	0b
-93:	printc 4, "fs_create: parent path doesn't exist: "
-	call	println
-	stc
-	jmp	0b
-94:	printc 4, "fs_create: can't allocate handle"
+	jmp	90b
+93:	PUSH_TXT "parent path doesn't exist: "
+	jmp	90b
+94:	PUSH_TXT "can't allocate handle"
 	UNLOCK_WRITE [fs_handles_sem]
 	mov	eax, ebx	# parent handle
 	call	fs_close
-	stc
-	jmp	0b
+	jmp	90b
 
 
 KAPI_DECLARE fs_write
@@ -1619,10 +1624,7 @@ fs_close:	# fs_free_handle
 		pop esi
 	.endif
 
-	or	eax, eax	# handle might be null
-	jz	2f
 	call	mfree
-	2:
 
 	mov	eax, [ebx + edx + fs_handle_buf]
 	or	eax, eax

@@ -11,6 +11,7 @@ OOFS_ALLOC_DEBUG = 0
 .global oofs_alloc_api_free	# in: ebx = handle
 .global oofs_alloc_api_txtab_get# in: edx = classdef ptr
 .global oofs_alloc_api_txtab_save
+.global oofs_alloc_api_handle_get # in: ebx = handle index
 .global oofs_alloc_api_handle_load# in: ebx = handle index, edx = instance
 .global oofs_alloc_api_handle_save# in: ebx = handle index, edx = instance
 
@@ -161,6 +162,7 @@ DECLARE_CLASS_METHOD oofs_alloc_api_free, oofs_alloc_free
 DECLARE_CLASS_METHOD oofs_alloc_api_txtab_get, oofs_alloc_txtab_get
 DECLARE_CLASS_METHOD oofs_alloc_api_txtab_save, oofs_alloc_txtab_save
 
+DECLARE_CLASS_METHOD oofs_alloc_api_handle_get,  oofs_alloc_handle_get
 DECLARE_CLASS_METHOD oofs_alloc_api_handle_load, oofs_alloc_handle_load
 DECLARE_CLASS_METHOD oofs_alloc_api_handle_save, oofs_alloc_handle_save
 
@@ -211,7 +213,7 @@ oofs_alloc_init:
 	# initialize
 
 	# add handle for handles.
-	call	oofs_alloc_handle_get	# out:ebx
+	call	oofs_alloc_handle_alloc	# out:ebx
 	jc	91f
 
 	mov	[esi + handles_idx], ebx	# remember the handles handle index
@@ -232,7 +234,7 @@ oofs_alloc_init:
 	call	ll_insert_sorted$
 
 	# add handle for free space
-	call	oofs_alloc_handle_get
+	call	oofs_alloc_handle_alloc
 	jc	91f
 
 	mov	edi, [eax + oofs_alloc_handles + handles_ptr]
@@ -324,6 +326,18 @@ oofs_alloc_handle_register:
 	.endif
 
 9:	STACKTRACE 0
+	ret
+
+# in: eax = this
+# in: ebx = handle index
+# out: eax = cached instance
+# out: CF
+oofs_alloc_handle_get:
+	mov	eax, [eax + oofs_alloc_handles_hash]
+	push	edx
+	call	ptr_hash_get
+	mov	eax, edx
+	pop	edx
 	ret
 
 # method called by handles.s when handles region is too small
@@ -490,7 +504,7 @@ oofs_alloc_load:
 
 # in: eax= this
 # out: ebx = handle index
-oofs_alloc_handle_get:
+oofs_alloc_handle_alloc:
 	push	esi
 	lea	esi, [eax + oofs_alloc_handles]
 	call	handle_get

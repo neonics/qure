@@ -152,6 +152,7 @@ oofs_handle_save:
 	# we need to realloc a handle.
 	mov	esi, eax	# backup this
 	mov	eax, [eax + oofs_handle_persistence]
+	# XXX TODO add oofs_alloc.resize which may optimize
 	INVOKEVIRTUAL oofs_alloc alloc	# out: ebx
 	jc	1f
 	xchg	ebx, [esi + oofs_handle_handle]
@@ -168,9 +169,13 @@ oofs_handle_save:
 	mov	esi, [esi + oofs_alloc_handles + handles_ptr]
 	add	esi, ebx
 	# ecx is still good I think
-	DEBUG_DWORD ecx, "UPDATE INITED SIZE"
 	mov	[esi + handle_caller], ecx
-	# TODO: mark handle dirty or save
+	# handles are changed; to remain consistent, save:
+	mov	ecx, eax
+	mov	eax, [eax + oofs_handle_persistence]
+	INVOKEVIRTUAL oofs_persistent save
+	mov	eax, ecx
+
 	pop_	ecx esi
 
 	clc
