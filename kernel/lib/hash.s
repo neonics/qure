@@ -340,6 +340,97 @@ array_remove:
 	pop_	esi edi edx
 	ret
 
+
+
+.global ptr_hash_new
+# ptr hash: dword -> dword
+# in: eax = num elements
+# out: eax = [ptr_array keys, ptr_array values]
+ptr_hash_new:
+	push	edx
+	mov	edx, eax
+
+	mov	eax, 8
+	call	mallocz
+	jc	91f
+
+	xchg	eax, edx
+	shl	eax, 2
+	call	buf_new
+	jc	92f
+	mov	[edx], eax
+	mov	eax, [eax + array_capacity]
+	call	buf_new
+	jc	93f
+	mov	[edx + 4], eax
+	mov	eax, edx
+9:	pop	edx
+	ret
+
+91:	mov	eax, edx
+	jmp	9b
+93:	mov	eax, [edx]
+	call	buf_free
+92:	mov	eax, edx
+	call	mfree
+	stc
+	jmp	9b
+
+.if 0
+ptr_hash_debug:
+	pushf
+	push edx
+	DEBUG "ptr_hash:"
+	DEBUG_DWORD eax
+	DEBUG_DWORD [eax+0], "keys"
+	mov edx, [eax + 0]
+	DEBUG_DWORD [edx + array_index],"idx"
+	DEBUG_DWORD [edx + array_capacity],"cap"
+	DEBUG_DWORD [eax+4], "values"
+	mov edx, [eax + 4]
+	DEBUG_DWORD [edx + array_index],"idx"
+	DEBUG_DWORD [edx + array_capacity],"cap"
+	pop edx
+	call	newline
+	popf
+	ret
+.endif
+
+# in: eax = ptr_hash
+# in: ebx = key
+# in: edx = value
+.global ptr_hash_put
+ptr_hash_put:
+	push_	edi esi edx ecx eax
+	mov	esi, eax	# backup
+	mov	edi, [eax + 0]	# keys
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	jz	2f
+	mov	eax, ebx
+	repnz	scasd
+	jz	1f			# match: update.
+
+2:	mov	ecx, edx		# value
+
+	mov	eax, [esi + 0]		# keys
+	call	ptr_array_newentry
+	jc	9f
+	mov	[eax + edx], ebx
+
+	mov	eax, [esi + 4]		# values
+	call	ptr_array_newentry
+	jc	9f
+	# XXX TODO assert edx is same
+	mov	[eax + edx], ecx	# set value
+	jmp	9f
+
+1:	sub	edi, [esi + 0]
+	add	edi, [esi + 4]
+	mov	[edi - 4], edx
+9:	pop_	eax ecx edx esi edi
+	ret
+
 .endif
 
 .ifndef __HASH_DECLARED

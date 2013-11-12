@@ -117,6 +117,7 @@ DECLARE_CLASS_BEGIN oofs_alloc, oofs_persistent
 
 #### Volatile
 oofs_alloc_txtab:	.long 0	# txtab instance
+oofs_alloc_handles_hash:.long 0 # key = handle index, value = instance ptr
 
 ###### begin handles struct fields
 oofs_alloc_handles: # the handles struct
@@ -181,8 +182,17 @@ oofs_alloc_init:
 
 	call	oofs_persistent_init	# super.init()
 
-	# clear linked list
 	push_	ebx ecx edx esi edi
+
+	# allocate hash
+	mov	edx, eax
+	mov	eax, 16
+	call	ptr_hash_new
+	jc	92f
+	xchg	eax, edx
+	mov	[eax + oofs_alloc_handles_hash], edx
+
+	# clear linked list
 	push_	eax 
 	lea	edi, [eax + oofs_alloc_ll]
 	mov	eax, -1
@@ -260,6 +270,61 @@ oofs_alloc_init:
 91:	printlnc 4, "oofs_alloc: error getting handle"
 	stc
 	jmp	9b
+
+92:	printlnc 4, "oofs_alloc: error allocating hash"
+	stc
+	jmp	9b
+
+
+
+# in: eax = this
+# in: edx = handle instance
+# in: ebx = handle index
+oofs_alloc_handle_register:
+	.if OOFS_ALLOC_DEBUG
+		PRINT_CLASS
+		printc 14, ".handle_register"
+		printc 9, " handle="; push ebx; call _s_printhex8
+		printc 9, " instance="; PRINT_CLASS edx
+	.endif
+
+	push_	eax
+	mov	eax, [eax + oofs_alloc_handles_hash]
+	call	ptr_hash_put
+	pop_	eax
+
+	.if OOFS_ALLOC_DEBUG > 1
+	jc	9f
+
+		push_	esi edi ecx edx
+		mov	esi, [eax + oofs_alloc_handles_hash]
+		DEBUG_DWORD esi, "ptr_hash"
+		mov	edi, [esi + 4]	# v
+		mov	esi, [esi + 0]	# k
+		DEBUG_DWORD esi, "keys"
+		DEBUG_DWORD [esi + array_index], "#keys"
+		DEBUG_DWORD [esi + array_capacity], "/"
+		DEBUG_DWORD edi, "values"
+		DEBUG_DWORD [edi + array_index], "#values"
+		DEBUG_DWORD [edi + array_capacity], "/"
+		call	newline
+		mov	ecx, [esi + array_index]
+		shr	ecx, 2
+		jz	1f
+	0:	mov	edx, [esi]
+		call	printhex8
+		call	printspace
+		mov	edx, [edi]
+		call	printhex8
+		call	newline
+		add	esi, 4
+		add	edi, 4
+		loop	0b
+	1:	pop_	edx ecx edi esi
+	.endif
+
+9:	STACKTRACE 0
+	ret
 
 # method called by handles.s when handles region is too small
 # in: esi = handles struct
@@ -507,11 +572,25 @@ oofs_alloc_txtab_get:
 oofs_alloc_child_moved:
 	# only child we know is txtab:
 	cmp	edx, [eax + oofs_alloc_txtab]
-	jnz	91f
+	jnz	1f
 	mov	[eax + oofs_alloc_txtab], ebx
 
 9:	STACKTRACE 0
 	ret
+
+1:	push_	eax ebx ecx esi edi
+	mov	esi, [eax + oofs_alloc_handles_hash]
+	mov	edi, [esi + 4]	# values
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	jz	1f
+	mov	eax, edx
+	repnz	scasd
+	jnz	1f
+	mov	[edi - 4], ebx	# update value
+	# might loop here in general case, but handle->instance=1:1.
+1:	pop_	edi esi ecx ebx eax
+	jz	9b
 
 91:	printc 4, "oofs_alloc_child_moved: unknown child: "
 	PRINT_CLASS edx

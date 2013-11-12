@@ -68,8 +68,8 @@ oofs_txtab_get:
 	jz	93f
 
 
-9:	STACKTRACE 0
-	pop	edx
+9:	pop	edx
+	STACKTRACE 0
 	ret
 
 91:	printc 12, "oofs_txtab_get: index out of bounds: "

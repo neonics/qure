@@ -56,6 +56,11 @@ oofs_handle_init:
 	call	oofs_persistent_init	# super.init()
 	pop_	ecx ebx
 
+	xchg	eax, edx
+	call	oofs_alloc_handle_register
+	xchg	eax, edx
+
+
 9:	STACKTRACE 0
 	ret
 

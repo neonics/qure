@@ -101,7 +101,7 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 		-o $@ $(KERNEL_OBJECTS) #$^
 
 KLIB_SRC = lib/mem.s lib/handles.s \
-		lib/ll.s lib/string.s lib/buffer.s lib/token.s
+		lib/ll.s lib/string.s lib/buffer.s lib/token.s lib/hash.s
 
 EXE_SRC = exe/libc.s exe/elf.s exe/pe.s
 
