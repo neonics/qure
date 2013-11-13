@@ -394,8 +394,17 @@ debug_regdiff0$:
 .macro DEBUG_REGDIFF0 nr, reg
 	pushd	\reg
 	.ifc \reg,esp
-	add	dword ptr [esp], 4 + 2 + 4
+	add	dword ptr [esp], 4 + COLOR_STACK_SIZE + 4
 	.endif
+	pushd	\nr
+	PUSHSTRING "\reg"
+	call	debug_regdiff0$
+.endm
+
+# for segment registers
+.macro DEBUG_REGDIFF1 nr, reg
+	pushd	\reg
+	andd	[esp], 0xffff
 	pushd	\nr
 	PUSHSTRING "\reg"
 	call	debug_regdiff0$
@@ -412,10 +421,10 @@ debug_regdiff:
 	DEBUG_REGDIFF0 5, edi
 	DEBUG_REGDIFF0 6, ebp
 	DEBUG_REGDIFF0 7, esp
-	DEBUG_REGDIFF0 8, cs
-	DEBUG_REGDIFF0 9, ds
-	DEBUG_REGDIFF0 10, es
-	DEBUG_REGDIFF0 11, ss
+	DEBUG_REGDIFF1 8, cs
+	DEBUG_REGDIFF1 9, ds
+	DEBUG_REGDIFF1 10, es
+	DEBUG_REGDIFF1 11, ss
 	popcolor
 	popf
 	ret
