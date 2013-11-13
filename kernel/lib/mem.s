@@ -538,9 +538,10 @@ memory_map_print_type$:
 	print "?"
 	jmp	2f
 
-1:	push	edx
-	pushcolor 15
-	call	_s_printc
+1:	pushcolor 15
+	push	edx
+	call	_s_print
+	popcolor
 2:	ret
 #
 
@@ -1874,10 +1875,14 @@ cmd_mem$:
 	mov	eax, data_0_end - kernel_data_start
 	call	print_size
 	printc 15, " str: "
-	mov	eax, data_str_end - data_str_start
+	mov	eax, data_str_end - data_str_start	# local syms
+	add	eax, offset data_ring2_strings_end	# extern syms
+	sub	eax, offset data_ring2_strings_start
 	call	print_size
 	printc 15, " bss: "
 	mov	eax, data_bss_end - data_bss_start
+	add	eax, offset data_ring2_bss_end
+	sub	eax, offset data_ring2_bss_start
 	call	print_size
 .if 0
 	mov	eax, kernel_end - data_bss_end
@@ -1933,10 +1938,10 @@ cmd_mem$:
 2:	xor	edx, edx
 	printc 15, " Stack: "
 	mov	eax, [kernel_stack_top]
-	sub	eax, [ramdisk_load_end]	# offset kernel_end
+	sub	eax, [kernel_stack_bottom]	# offset kernel_end
 	call	print_size
-	mov	ecx, ss
-	mov	edx, [ramdisk_load_end] # offset kernel_end
+#	mov	ecx, ss
+	mov	edx, [kernel_stack_bottom] # offset kernel_end
 	mov	eax, [kernel_stack_top]
 	call	cmd_mem_print_addr_range$
 	call	newline
