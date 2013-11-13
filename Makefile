@@ -69,6 +69,7 @@ BOOT_DEPS = build/boot.bin build/kernel.bin build/kernel.reloc \
 build/boot.img: $(BOOT_DEPS) build/write.exe
 	@echo "  BOOT  $@"
 	@build/write.exe -o $@ \
+		-s 2880 \
 		-b build/boot.bin \
 		-rd \
 		-b build/kernel.bin \

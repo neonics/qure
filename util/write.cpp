@@ -227,6 +227,13 @@ bool parse_args( int argc, char ** argv )
 		{
 			no_pad = true;
 		}
+		else if ( strcmp( argv[i], "-s" ) == 0 )
+		{
+			if ( ++i < argc && ( outlen = atoi( argv[i] ) ) )
+				outlen <<= 9;
+			else
+				ok = false;
+		}
 		else
 		{
 			ok = false;
@@ -249,6 +256,7 @@ bool parse_args( int argc, char ** argv )
 			"Write a 1.44MB floppy disk image, marking the first "
 			"sector as a boot sector.\n\n"
 
+			"  -s <sectors>\tspecifies size of output image (default 2880 for 1.44Mb)\n"
 			"  -np      \tno pad: do not pad output to 1.44Mb\n"
 			"  -b <file>\tappend image at next sector alignment, "
 			"starting at 0.\n\n"
