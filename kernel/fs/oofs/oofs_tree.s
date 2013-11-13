@@ -3,6 +3,15 @@
 
 OOFS_TREE_DEBUG = 0
 
+
+TREE_ENTRY_SIZE = (FS_DIRENT_STRUCT_SIZE + 4)	# 4: handle index
+
+.struct 0
+.space FS_DIRENT_STRUCT_SIZE
+tree_entry_handle:	.long 0
+
+#####
+
 .global oofs_tree_api_next
 .global oofs_tree_api_add
 
@@ -21,6 +30,7 @@ DECLARE_CLASS_METHOD oofs_persistent_api_onload, oofs_tree_onload, OVERRIDE
 
 DECLARE_CLASS_METHOD oofs_tree_api_next, oofs_tree_next
 DECLARE_CLASS_METHOD oofs_tree_api_add, oofs_tree_add
+DECLARE_CLASS_METHOD oofs_tree_api_find_by_name, oofs_tree_find_by_name
 
 DECLARE_CLASS_END oofs_tree
 #################################################
@@ -130,16 +140,16 @@ oofs_tree_save:
 # in: ecx = entry offset
 # out: edx = entry pointer
 # out: ecx = next entry offset or -1 if current entry doesnt exist
-# XXX for now, entries are FS_DIRENT_STRUCT_SIZE constant length,
+# XXX for now, entries are (FS_DIRENT_STRUCT_SIZE+4) constant length,
 # otherwise ecx might need to contain the current entry, and have
 # the caller increment ecx.
 oofs_tree_next:
 	# check if the current entry exists
-	lea	edx, [ecx + oofs_tree_persistent_start + FS_DIRENT_STRUCT_SIZE]
+	lea	edx, [ecx + oofs_tree_persistent_start + TREE_ENTRY_SIZE]
 	cmp	edx, [eax + obj_size]
 	ja	91f
 
-	lea	edx, [ecx + FS_DIRENT_STRUCT_SIZE]
+	lea	edx, [ecx + TREE_ENTRY_SIZE]
 	cmp	edx, [eax + oofs_tree_size]
 	ja	91f
 
@@ -147,11 +157,12 @@ oofs_tree_next:
 	lea	edx, [eax + oofs_tree_entries + ecx]
 	cmpd	[edx + fs_dirent_posix_perm], 0
 	jz	91f
-	add	ecx, FS_DIRENT_STRUCT_SIZE
+	add	ecx, TREE_ENTRY_SIZE
 	ret
 
 # cur entry doesn't exist
 91:	mov	ecx, -1
+	stc
 	ret
 
 
@@ -168,7 +179,7 @@ oofs_tree_add:
 
 	push_	edx
 	# calc needed object size
-	mov	edx, FS_DIRENT_STRUCT_SIZE + offset oofs_tree_entries
+	mov	edx, TREE_ENTRY_SIZE + offset oofs_tree_entries
 	cmp	[eax + obj_size], edx
 	jnb	1f
 	call	oofs_persistent_resize
@@ -184,7 +195,8 @@ oofs_tree_add:
 	rep	movsd
 	mov	cl, FS_DIRENT_STRUCT_SIZE & 3
 	rep	movsb
-	addd	[eax + oofs_tree_size], FS_DIRENT_STRUCT_SIZE
+	mov	[edi], dword ptr -1	# handle index
+	addd	[eax + oofs_tree_size], TREE_ENTRY_SIZE
 	pop_	esi ecx edi
 
 	# let's save.
@@ -207,6 +219,37 @@ DEBUG_DWORD [eax+oofs_handle_handle],"post handle"
 	jmp	9b
 
 
+
+# in: eax = this
+# in: esi = entry name
+# out: esi = tree entry (fs_dirent + handle idx)
+# out: ebx = handle index (to prevent exposure of tree_entry_handle)
+# out: CF
+oofs_tree_find_by_name:
+	push_	ecx edx edi ebx esi # ebx,esi need to be last!
+
+	call	strlen_	# esi->ecx
+	lea	ebx, [ecx + 1]	# also cmp trailing 0
+
+	xor	ecx, ecx
+0:	call	oofs_tree_next
+	jc	0f
+
+	lea	edi, [edx + fs_dirent_name]
+	push_	ecx
+	mov	ecx, ebx
+	repz	cmpsb
+	pop_	ecx
+	mov	esi, [esp]
+	jnz	0b
+	mov	esi, edx
+	mov	ecx, [edx + tree_entry_handle]
+	mov	[esp+4], ecx	# ebx return value
+0:
+	pop_	esi ebx edi edx ecx
+	ret
+
+
 oofs_tree_print:
 	printc 11, "oofs_tree: "
 	printc 9, "handle: "
@@ -222,12 +265,12 @@ oofs_tree_print:
 	push_	ecx esi edx
 	lea	esi, [eax + oofs_tree_entries]
 	mov	ecx, [eax + oofs_tree_size]
-0:	sub	ecx, FS_DIRENT_STRUCT_SIZE
+0:	sub	ecx, TREE_ENTRY_SIZE
 	jb	0f
 	
 	call	fs_dirent_print
 
-	add	esi, FS_DIRENT_STRUCT_SIZE
+	add	esi, TREE_ENTRY_SIZE
 	jmp	0b
 0:
 	pop_	edx esi ecx

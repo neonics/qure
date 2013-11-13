@@ -411,6 +411,17 @@ ptr_hash_put:
 	repnz	scasd
 	jz	1f			# match: update.
 
+	# check for unused entries (key/value=-1)
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2	# jz check not needed
+	mov	eax, -1
+	mov	edi, [esi + 0]
+	repnz	scasd
+	jnz	2f	# no unused entries
+
+	mov	[edi - 4], ebx	# k
+	jmp	1f	# set v
+
 2:	mov	ecx, edx		# value
 
 	mov	eax, [esi + 0]		# keys
@@ -454,6 +465,33 @@ ptr_hash_get:
 	mov	edx, [edi - 4]
 
 	clc
+
+9:	pop_	ecx edi
+	ret
+
+# in: eax = ptr_hash
+# in: ebx = key
+# out: edx = value
+.global ptr_hash_remove
+ptr_hash_remove:
+	# since it is a ptr_hash we can use -1 for key to indicate available.
+	push_	edi ecx
+	mov	edi, [eax + 0]	# keys
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	stc
+	jz	9f
+	xchg	eax, ebx
+	repnz	scasd
+	xchg	eax, ebx
+	stc
+	jnz	9f
+	mov	[edi - 4], dword ptr -1	# k
+
+	sub	edi, [eax + 0]
+	mov	edx, -1
+	add	edi, [eax + 4]
+	xchg	edx, [edi - 4]		# v
 
 9:	pop_	ecx edi
 	ret

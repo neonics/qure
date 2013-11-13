@@ -278,17 +278,10 @@ fs_oofs_nextentry:
 	pop_	edx
 	jc	91f
 
-.if 0
-	# fake 1 entry:
-	or	ecx, ecx
-	jnz	9f
-	mov	[edi + fs_dirent_name], dword ptr 'f'|'o'<<8|'o'<<16|'!'<<24
-	inc	ecx	# make nonzero
-.else
 	xchg	eax, ebx
 	INVOKEVIRTUAL oofs_tree next	# in: ecx=idx/offs; out: edx=ptr, ecx=next idx/offs
 	xchg	eax, ebx
-	jc	92f
+	jc	9f	# cur entry doesn't exist
 	push_	esi edi ecx
 	mov	ecx, FS_DIRENT_STRUCT_SIZE >> 2
 	mov	esi, edx
@@ -296,17 +289,12 @@ fs_oofs_nextentry:
 	mov	cl, FS_DIRENT_STRUCT_SIZE & 3
 	rep	movsb
 	pop_	ecx edi esi
-.endif
 	ret
 
 9:	mov	ecx, -1
 	ret
 
 91:	printc 12, "fs_oofs_nextentry: invalid handle"
-	stc
-	jmp	9b
-
-92:	printc 12, "fs_oofs_nextentry: error calling next"
 	stc
 	jmp	9b
 
@@ -408,23 +396,49 @@ fs_oofs_open:
 
 ####### open subdir/file
 # in: ebx = parent directory handle
+# in: esi = entry name
 1:	push_	eax
-	DEBUG "OPEN SUBDIR"; DEBUGS esi
-#	mov	eax, [eax + oofs_tree]
-#	call	[eax + oofs_tree_api_find] # in: esi
-	pop_	eax
-	stc
+
+	mov	eax, [eax + oofs_alloc]
+	INVOKEVIRTUAL oofs_alloc handle_get	# ebx->eax
+	jc	91f
+
+	INVOKEVIRTUAL oofs_tree find_by_name	# esi->esi,ebx
+	jc	9f	# not found
+	# edi to be filled
+	push_	edi ecx esi
+	mov	ecx, FS_DIRENT_STRUCT_SIZE >> 2
+	rep	movsd
+	mov	cl, FS_DIRENT_STRUCT_SIZE & 3
+	rep	movsb
+	pop_	esi ecx edi
+	# return a handle index in ebx.
+	# ebx may be -1, which is taken as root, so change it.
+	cmp	ebx, -1
+	jnz	1f	# TODO: instantiate and cache (if dir).
+	dec	ebx	# make it -2, indicating empty handle.
+1:
+	clc
+
+9:	pop_	eax
 	ret
+
+91:	printlnc 12, "invalid handle"
+	stc
+	jmp	9b
+
 
 # in: ebx = directory/file handle
 fs_oofs_close:
 	DEBUG "close"
 	cmp	ebx, -1
 	jz	1f
+	cmp	ebx, -2	# empty file/dir in oofs_tree
+	jz	1f
 	# ebx is handle index
 	push	eax
 	mov	eax, [eax + oofs_alloc]
-	INVOKEVIRTUAL oofs_alloc handle_get
+	INVOKEVIRTUAL oofs_alloc handle_remove
 	jc	91f
 	call	class_deleteinstance
 9:	pop	eax

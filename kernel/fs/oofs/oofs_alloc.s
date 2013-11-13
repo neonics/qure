@@ -11,7 +11,10 @@ OOFS_ALLOC_DEBUG = 0
 .global oofs_alloc_api_free	# in: ebx = handle
 .global oofs_alloc_api_txtab_get# in: edx = classdef ptr
 .global oofs_alloc_api_txtab_save
-.global oofs_alloc_api_handle_get # in: ebx = handle index
+# cache:
+.global oofs_alloc_api_handle_get # in: ebx = handle index; out: eax=instance
+.global oofs_alloc_api_handle_remove# in: ebx = handle index; out: eax=instance
+# persistent:
 .global oofs_alloc_api_handle_load# in: ebx = handle index, edx = instance
 .global oofs_alloc_api_handle_save# in: ebx = handle index, edx = instance
 
@@ -162,7 +165,9 @@ DECLARE_CLASS_METHOD oofs_alloc_api_free, oofs_alloc_free
 DECLARE_CLASS_METHOD oofs_alloc_api_txtab_get, oofs_alloc_txtab_get
 DECLARE_CLASS_METHOD oofs_alloc_api_txtab_save, oofs_alloc_txtab_save
 
-DECLARE_CLASS_METHOD oofs_alloc_api_handle_get,  oofs_alloc_handle_get
+DECLARE_CLASS_METHOD oofs_alloc_api_handle_get,    oofs_alloc_handle_get
+DECLARE_CLASS_METHOD oofs_alloc_api_handle_remove, oofs_alloc_handle_remove
+
 DECLARE_CLASS_METHOD oofs_alloc_api_handle_load, oofs_alloc_handle_load
 DECLARE_CLASS_METHOD oofs_alloc_api_handle_save, oofs_alloc_handle_save
 
@@ -336,6 +341,17 @@ oofs_alloc_handle_get:
 	mov	eax, [eax + oofs_alloc_handles_hash]
 	push	edx
 	call	ptr_hash_get
+	mov	eax, edx
+	pop	edx
+	ret
+
+# in: eax = this
+# in: ebx = handle index
+# out: eax = instance
+oofs_alloc_handle_remove:
+	mov	eax, [eax + oofs_alloc_handles_hash]
+	push	edx
+	call	ptr_hash_remove
 	mov	eax, edx
 	pop	edx
 	ret
