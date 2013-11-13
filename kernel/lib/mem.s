@@ -1839,7 +1839,7 @@ cmd_mem$:
 	call	newline
 
 	printc 15, " Code: "
-	mov	eax, kernel_code_end - kernel_code_start
+	mov	eax, offset KERNEL_CODE_SIZE
 	xor	edx, edx
 	call	print_size
 	printc 15, " (realmode: "
@@ -1885,8 +1885,9 @@ cmd_mem$:
 	jz	2f
 	printc 12, " 99: "
 	call	print_size
-2:	printc 15, ")"
+2:	
 .endif
+	printc 15, ")"
 
 	mov	ecx, cs
 	mov	edx, offset kernel_data_start
