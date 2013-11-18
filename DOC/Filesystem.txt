@@ -829,3 +829,130 @@ QFS:
 
 git cp sfs.s oofs, dbfs
 
+
+
+Scheduling: optimization
+========================
+
+OOFS uses same code that is used for memory management. This is done by
+maintaining an array of handles, each handle containing a base pointer
+and a size that refer to volatile or persistent memory. Each handle
+has further space for a status, indicating what kind of handle it is
+(allocated/free), and space for two linked lists. 
+One linked list maintains the contiguous address space, which assists
+in merging blocks of space as soon as one is freed. 
+The other linked list maintains an order of size, making sure that the
+block allocated is the smallest free block that can accommodate it.
+
+Now, for persistent storage, where each directory, file, and metadata
+entry is maintained by a handle, it may become unfeasible to maintain
+the entire handle array in memory. 
+
+
+Volatile Memory
+---------------
+
+Handles within the array can be grouped by a function hierarchy. The top
+level would introduce a split between storage and retrieval, or, write
+and read. Storage requires to allocate free space, and it is convenient
+to have all handles referring to free space be adjacent. Many orderings
+are possible, such as having each sector contain handles referring to
+space with sizes in different orders of magnitude, even though a purely
+incremental ordering would have, on a fairly used filesystem, most handles
+in a given sector be of the same order of magnitude.
+A scheme such as this, would also be able to order the sectors in a
+meaningful way. If it is known that all handles in a given sector are
+unallocated, then the traversal order does not need to follow the
+linked list, but can be array-like. Next and previous entry pointers
+would refer to other sectors, their distance a possible indication of
+the difference in order of magnitude. If a next pointer refers to another
+sector, it can be remembered as a hint, yet the iteration would continue
+within the sector until all handles within the parameters are scanned.
+If a handle, for instance, is found that is too small, it's next pointer
+would refer to a larger handle, in another sector. The next handle
+in array order would for instance be too large. A decision can then
+be made whether to take the larger handle, or to refine the search
+in another sector (containing 512/32 handles) to find a better match.
+
+Persistent Storage
+------------------
+
+A second split in functionality by which to order the handles in the array
+is in directory access. Since the symbolic references to blocks of data
+is hierarchical, the accessing of such data will follow a certain pattern.
+The directory concept would group files together, and a general operation
+of listing the contents of a directory would have the entries be read
+together. For directories spanning multiple sectors, having these
+adjacent is more efficient.
+
+The root directory refers to a handle, which is in itself an array of
+handles of a different kind. Such handles may refer to subdirectories,
+and thus to other handles or sectors. It then is convenient to store
+subdirectories relatively close to their parent directory.
+
+
+Difference and relation
+----------
+
+The volatile memory optimisation has different constraints than
+persistent storage. Memory is a window over a larger address space,
+and thus must be efficient in what it maintains by reducing access
+to disk. If allocated and unallocated handles are scattered, traversing
+the linked list would require many disk accesses. Such a fragmented
+list can be ordered in memory, yet this would require much metadata
+to keep track of which entries to save where if they are changed.
+Grouping entries by change, then, such as next/previous updates,
+is advantageous.
+
+The consideration for persistent storage is that it is slow, and
+that data is organized by relative distance. Data closer together
+is accessed faster than data further apart.
+
+Disk Access Optimization Filesystem Layer
+=========================================
+
+A generic layer could be added below any filesystem, which would maintain
+metadata regarding access order.
+
+The bottom layer will be the disk itself. The layer above it is the
+partition layer. Then usually comes the filesystem layer, however,
+in this case, the optimization layer is taken to be the filing system.
+This then produces a filesystem with a partition or disk access scheme,
+which is to simply read and write sectors. A filesystem may then be
+written onto it, unaware of the fact that it does not have direct disk
+access, and that the sectors it writes may be located elsewhere than 
+the addresses it uses for them.
+
+The optimization layer would reserve a percentage of the diskspace
+to provide a translation table between the address spaces. Another
+approach is to use the file system above it to allocate a file of variable
+size for this purpose.
+
+The metadata kept by the layer will include various operating system
+level information, such as a process identifier for grouping disk
+access patterns that can occur out of sequence, aswell as a counter
+for various pattern paths.
+
+For example, upon starting a task, the OS will first do various disk
+operations, first traversing the directory hierarchy, to be followed
+by reading the trask image. Then, once the task is executing, it may
+itself open various files.
+
+The layer would keep track of the requests by maintaining a tree
+consisting of requested addresses. Initially the tree will be a list,
+yet future executions of the task may diverge from this at different
+points. The tree will then grow to represent all different sequences
+of disk access for the task. Ofcourse, such trees can be curtailed
+by having a maximum number of branches per node. Each time an address
+is read, the access count for the sector address is increased, which
+allows it's parent node to sort the branches by usage pattern.
+
+An optimization process would take advantage of disk-idle time to
+reorganize the sectors transparently, so that they are grouped
+more efficiently. No knowledge of the particular filesystem is
+needed since all addresses are translated.
+
+However, I predict that it will not be too long before physical storage
+media using moving parts will be entirely eliminated (SSD), and therefore,
+the effort it takes to optimize disk access this way will be wasted.
+

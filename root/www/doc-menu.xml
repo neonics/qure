@@ -1,0 +1,9 @@
+<menu xmlns="http://www.neonics.com/xslt/layout/1.0" class="mainmenu" id="mainmenu">
+	<item link="../">
+		<label xml:lang="en">QuRe</label>
+	</item>
+
+	<item href="index.html">
+		<label xml:lang="en">Doc</label>
+	</item>
+</menu>

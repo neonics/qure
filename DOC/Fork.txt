@@ -1,6 +1,6 @@
-(Freedom.txt, Funny.txt)
 
-Fork.
+Fork
+====
 
 
 A fork represents a choice, go one way or the other.
@@ -21,9 +21,10 @@ of the task can also be used as a pivot moment.
 
 
 Pivot
+-----
 
-int 69, 0x45, 1000101
-int 96, 0x60, 1100000	
+	int 69, 0x45, 1000101
+	int 96, 0x60, 1100000	
 
 Pivoting centers around the stack. The stack, at a minimum, needs to contain
 the code selector, instruction pointer, and flags.
@@ -31,6 +32,9 @@ the code selector, instruction pointer, and flags.
 The IP and EFLAGS are needed only when a task can be interrupted in the middle
 of it's execution, 'unbeknownst' to the task. The code selector is needed to
 specify the execution context.
+
+Cyclical Tasks
+--------------
 
 A nested task - one that can interrupt its parent task - cannot run on the same stack,
 unless this task is cyclical with an identifiable point of neutrality, meaning,
@@ -57,6 +61,9 @@ only specifies it's effect given that it's conditions are satisfied, i.e., that
 there is agreement on the meaning of the context (contents of registers and stack).
 For any other meaning of these registers, the method is not defined. Applying it anyway
 yields results that have not been considered during the encoding of applying an effect.
+
+Numerological Considerations
+----------------------------
 
 Thus, the 9 symbolizes a path becoming circular - a cycle or loop. The 6 represents
 the opposite, a loop becoming a path. Due to there being two symbols, both cycles

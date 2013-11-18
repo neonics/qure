@@ -3,19 +3,49 @@ $ARGV[0] or die "usage : txt2html [-t template] <txtfile> [out.html]\n\n"
 	."\t -t\ttemplate file: default: a builtin xhtml header/footer.\n"
 	."\t\tspecify 'none' for no header/footer\n";
 
-if ( $ARGV[0] eq '-t' ) {
-	shift @ARGV;
-	if ( $ARGV[0] eq 'none' )
-	{
-		$template = '${CONTENT}';
+%options;	# toc title RP
+$options{tagline}='Conscious Computing';
+
+while ( $ARGV[0] =~ /^-./ )
+{
+	$ARGV[0] eq '-t' and do {
 		shift @ARGV;
-	}
-	else
-	{
-		open IN, $_ = shift @ARGV or die "can't open template $_: $!";
-		$template = join("", (<IN>) );
-		close IN;
-	}
+		if ( $ARGV[0] eq 'none' )
+		{
+			$template = '${CONTENT}';
+			shift @ARGV;
+		}
+		else
+		{
+			open IN, $_ = shift @ARGV or die "can't open template $_: $!";
+			$template = join("", (<IN>) );
+			close IN;
+		}
+	} or $ARGV[0] eq '--toc' and do {
+		$options{toc} = 1;
+		shift @ARGV;
+	} or $ARGV[0] eq '--title' and do {
+		shift @ARGV;
+		$options{title} = shift @ARGV;
+	} or $ARGV[0] eq '--rawtitle' and do {
+		shift @ARGV;
+		my $title = shift @ARGV;
+
+		$title =~ s@^.*?/@@g;	# strip root of path
+		$title =~ s/\.(txt|html)$//;	# strip suffix
+		$title =~ s/([[:lower:]])([[:upper:]])/\1 \2/g;
+		$options{title}=$title;
+	} or $ARGV[0] eq '-p' and do {
+		shift @ARGV;
+		$options{RP} = shift @ARGV;
+	} or $ARGV[0] eq '--onload' and do {
+		shift @ARGV;
+		$options{onload} = shift @ARGV;
+	} or $ARGV[0] eq '--tagline' and do {
+		shift @ARGV;
+		$options{tagline} = shift @ARGV;
+	} or die "unknown option: $ARGV[0]";
+
 }
 
 open IN, $ARGV[0] or die "can't open $ARG[0]: $!";
@@ -109,6 +139,44 @@ $c=~ s@(?<!\t)\[=([^\]]+)\]@<a name="$1"></a>@g;
 $c=~ s@\n([^<\n]{1,60})\n([^<\n]{70,}\n)@\n$1<br/>\n$2@g;
 
 
+###########
+# generate a TOC:
+my $tmp = $c;
+my $o="";
+my $id=0;
+my @toc;
+while ( $tmp =~ /<h(.)>(.*?)<\/h\1>/ )
+{
+	push @toc, {link=>"<a href='#toc$id'>$2</a>", level=>$1};
+	$tmp = $';
+#	$_ = $&; s/<h(.)>/<h\1 id='toc$id'>/; $o.=$_;
+	$o.=$` . "<a name='toc$id'\/>" . $&;
+	$id++;
+}
+
+$c = $o . $tmp;
+
+my $lev=0;
+foreach ( @toc ) {
+	while ( $_->{level} < $lev )
+	{
+		$lev --;
+		$toc .= "</ol>";
+	}
+	while ( $_->{level} > $lev )
+	{
+		$lev ++;
+		$toc .= "<ol>";
+	}
+
+	$toc .= "<li>$_->{link}</li>\n";
+}
+while ( $lev-- > 0 )
+{
+	$toc .= "</ol>";
+}
+
+
 $c=~ tr/\r/\n/;
 done:
 
@@ -118,7 +186,12 @@ $c = join( "\n", (map { /(<([^>\n]+)>.*?<\/\2>)/ ? "$_\n" : "<p>$_</p>\n" } @l) 
 
 if ( $template )
 {
-	 $template =~ s/\$\{CONTENT\}/$c/;
+	 $template =~ s/\$\{ONLOAD\}/$options{onload}/g;
+	 $template =~ s/\$\{CONTENT\}/$c/g;
+	 $template =~ s/\$\{TITLE\}/$options{title}/g;
+	 $template =~ s/\$\{TOC\}/$toc/g;
+	 $template =~ s/\$\{TAGLINE\}/$options{tagline}/g;
+	 $template =~ s/\$\{RP\}/$options{RP}/g;
 	 $c = $template;
 }
 else {
@@ -128,8 +201,11 @@ $c=<<"EOF";
 <html>
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <title>$title</title>
   </head>
   <body>
+<h1>$title</h1>
+$toc
 $c
   </body>
 </html>
@@ -139,10 +215,15 @@ EOF
 $ARGV[1] and do {
 #-f $ARGV[1] and die "$ARGV[1] exists.";
 open OUT, ">", $ARGV[1] or die;
+print OUT $toc if $options{toc};
 print OUT $c;
 close OUT;
 }
-or print $c;
+or do {
+print $toc if $options{toc};
+print $c;
+};
+
 
 exit;
 

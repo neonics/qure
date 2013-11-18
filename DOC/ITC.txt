@@ -24,8 +24,7 @@ it would need to have established timing agreements firsts. It would then wait
 for messages confirming the already known identifications, and computing an unused
 one. This approach is slow, since it takes time.
 A task then, could detect duplicates, by the following protocol:
-(starting situation: 2 tasks running who have established connection; 1 new task
-starting communication:)
+	(starting situation: 2 tasks running who have established connection; 1 new task starting communication:)
 	it would broadcast the number 1.
 	1) all tasks respond by sending their number.
 	2) all tasks respond by echoing that number, and their own number.
@@ -43,6 +42,9 @@ The two scenario's so far, are that a task may or may not choose to respond with
 it's number when it reads another number. (task 3, above, could aswell have been task
 2).
 
+Identification Protocol
+-----------------------
+
 Assuming communication is set up that will result in information received over
 the connection is stored in the task, the task may or may not choose to maintain
 a list of numbers and when it last saw them.
@@ -55,7 +57,7 @@ In such a persistent system, each task can send any number it likes. Let's say
 that it makes up a name for itself and offers it on the broadcast. The other tasks
 knowing this, cannot be sure whether the name refers to the task they remember
 by that name. For, when a task is met for the first time, it's name will be unknown,
-and there will be no reason not to associate all communications with that name
+and there will be no reason not to associate all communications with that task
 to that name. The only potential issue is that another task - say one also known -
 starts to communicate using that identity. [starting scenario: all tasks have
 unique names and all tasks are known to all tasks; enter a new task].
@@ -82,7 +84,7 @@ any number will do, as there is no correlation between made up names and reputat
 Say that tasks have their limits, and that after a certain amount of conflicting
 messages they simply can't be bothered anymore with that message, since it simply
 repeats and doesn't change the information (besides keeping track of how many
-times it's name is mentioned). AFter this period, they will not respond to
+times it's name is mentioned). After this period, they will not respond to
 the same message. Thus it is possible that a task joins, and attempts to use
 a name that others remember as offensive, without being aware of this. It would
 state the name and receive no response. It would try different names for a while,

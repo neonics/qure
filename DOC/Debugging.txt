@@ -1,3 +1,20 @@
+Debugger
+========
+
+The built-in debugger will step in on protection violations, often
+indicating a bug. It contains a scrollable stack, where all values are
+checked against the source line table and will print the source file, line
+and approximate method name using the symbol table.
+
+Tracing
+-------
+There is a step-debugger available also, which can be activated by
+setting EFLAGS.TF (the trap flag).
+
+Common procedure
+----------------
+
+
 The current procedure followed for debugging is:
 
 
@@ -10,6 +27,7 @@ The current procedure followed for debugging is:
 
 
 Finding code locations:
+-----------------------
 
     * Exceptions:
 
@@ -45,6 +63,7 @@ The memory code offset can be found by several means:
 
 
 Disassembly
+-----------
 
   the alias 'dk' (and 'dk16' for realmode code) provide a disassembly
   of the object file which is based on address 0.
@@ -52,7 +71,7 @@ Disassembly
   Translating the runtime (physical) address to the image address is
   done by subtracting the kernel load address, such as:
 
-    perl -e 'printf "%x\n", ADDRESS - 0x11200'
+	perl -e 'printf "%x\n", ADDRESS - 0x11200'
 
   followed by running 'dk' and searching for the address label.
   The opcodes printed in an exception serve to doublecheck.
@@ -67,6 +86,7 @@ Disassembly
   for a load address aligned on a boundary greater than the size of the kernel.
 
 Adding debug statements
+-----------------------
 
   Several macros (DEBUG, DEBUG_DWORD, DEBUG_REGSTORE/REGDIFF, BREAKPOINT)
   are defined which do not generally alter EFLAGS or other registers.
@@ -78,17 +98,22 @@ Adding debug statements
 
 
 Adding shell commands
+---------------------
 
   Shell commands can be added by simply adding a 'SHELL_COMMAND "foo", cmd_foo'
   to the list in shell.s and implementing the method:  cmd_foo: ret
 
 
 Detecting memory writes
+-----------------------
 
-  At current a shell command must be written with the following invocation:
+The code may enable hardware breakpoints using kernel/debugger/hwdebug.s,
+for example:
 
-  mov eax, data_address
-  call breakpoint_enable_memwrite_dword
+	mov eax, data_address
+	call breakpoint_enable_memwrite_dword
+
+Alternatively, use the shell command 'breakpoint'.
 
   The data address is typically obtained by adding DEBUG_DWORD [something]
   in the code where this address is set up.

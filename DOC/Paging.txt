@@ -102,10 +102,10 @@ In this case it would have a serious impact to reset CR3 on a task switch.
 ----
 UPDATE: the cr3 switch is implemented, but no difference is noticable,
 likely because a VM switch occurs on each interrupt anyway.
-----------------------------------------------------------------------
 
 
 MEMORY:
+=======
 
 The top 4Mb is used for the kernel page directory and page tables,
 aswell as for the page tables of tasks.

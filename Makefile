@@ -154,27 +154,38 @@ site-src:
 
 TXTDOC=Bootsector Cluster NetFork CloudNet LiquidChristalProcessor \
 	CircularBuffer HostMe Freedom Net TaskSwitching CallingConvention \
-	Filesystem EnclosedSource DNS2 Gittorrent VersionControl
+	Filesystem EnclosedSource DNS2 Gittorrent VersionControl OOFS \
+	Security Fork Storage Paging Scheduling ITC GAS GitFS Debugging \
+	Architecture
 HTMLDOC=PersistentCluster
 
 WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${TXTDOC}))
 DOC_SRC=$(addprefix DOC/, $(addsuffix .txt,${WWW_DOC}))
-HTML_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${HTMLDOC}))
+HTML_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${HTMLDOC})) \
+	root/www/doc/menu.xml
 
 HTMLDEPS = util/template.pl util/template.html Makefile
 
 root/www/doc/%.html: DOC/%.txt util/txt2html.pl $(HTMLDEPS)
 	@[ -d root/www/doc ] || mkdir root/www/doc
 	@echo "  HTML  $@"
-	@#util/txt2html.pl -t web/doc.htmlt $< | xmllint - > $@
-	@echo '$${CONTENT}' > _tmp_template.html
-	@util/txt2html.pl -t none $< > $@.tmp
-	@util/template.pl -t util/template.html -p ../www.neonics.com/ $@.tmp > $@
-	@rm _tmp_template.html $@.tmp
+	@##util/txt2html.pl -t web/doc.htmlt $< | xmllint - > $@
+	@#echo '$${CONTENT}' > _tmp_template.html
+	@util/txt2html.pl \
+		--rawtitle $< \
+		-t util/template.html \
+		-p ../www.neonics.com/ \
+		--onload "template( null, '../www.neonics.com/', [], 'menu.xml');" \
+		$< > $@
+	@#util/template.pl -t util/template.html -p ../www.neonics.com/ $@.tmp > $@
+	@#rm _tmp_template.html $@.tmp
 
 root/www/doc/%.html: DOC/%.html $(HTMLDEPS)
 	@echo "  HTML  $@"
 	@util/template.pl -t util/template.html -p ../www.neonics.com/ $< > $@
+
+root/www/doc/menu.xml: root/www/doc-menu.xml
+	@cp $< $@
 
 site-doc: root/www/doc.inc
 	@#[ -d root/src/kernel/DOC ] || mkdir -p root/src/kernel/DOC
@@ -184,7 +195,13 @@ site-doc: root/www/doc.inc
 
 root/www/doc.inc: $(WWW_DOC) $(HTML_DOC)
 	@echo "  HTMLl $@"
-	@ls root/www/doc | util/genlinks.pl > root/www/doc.inc
+	@ls root/www/doc | grep -v -e \.xml\$$ | util/genlinks.pl > root/www/doc.inc
+
+root/www/doc/index.html: root/www/doc.inc
+	@echo "  HTML  $@"
+	@cat $< | sed -e 's@doc/@@g' | \
+	util/template.pl -t util/template.html -p ../www.neonics.com/ \
+		--menuxml 'menu.xml' - > $@
 
 WWW_N = root/www/www.neonics.com
 
