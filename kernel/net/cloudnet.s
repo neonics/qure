@@ -11,6 +11,8 @@ CLOUD_PACKET_DEBUG = 0
 
 CLOUD_LOCAL_ECHO = 1
 
+CLOUD_ARPWATCH = 0
+
 CLOUD_MCAST = 1	# 0: BCAST
 CLOUD_MCAST_IP = 224|123<<24	# 224.0.0.123  (unassigned: .115-.250)
 
@@ -39,7 +41,9 @@ cloud_nic:	.long 0
 cluster_ip:	.long 0
 lan_ip:		.long 0
 cloud_sock:	.long 0
+.if CLOUD_ARPWATCH
 cloud_arp_sock:	.long 0
+.endif
 cloud_flags:	.long 0
 	STOP$	= 1
 cluster_node:	.long 0
@@ -60,8 +64,10 @@ cloudnet_daemon:
 	jc	9f
 	call	cloud_rx_start
 	jc	9f
+	.if CLOUD_ARPWATCH
 	call	cloud_arpwatch_start
 	jc	9f
+	.endif
 
 	mov	eax, offset class_cluster_node
 	call	class_newinstance
@@ -195,12 +201,14 @@ cloud_socket_open:
 	KAPI_CALL socket_print
 	call	newline
 
+	.if CLOUD_ARPWATCH
 	# add arp watcher
 	mov	ebx, SOCK_AF_ETH	# flags
 	mov	edx, ETH_PROTO_ARP << 16
 	KAPI_CALL socket_open
 	jc	9f
 	mov	[cloud_arp_sock], eax
+	.endif
 
 	clc
 9:	ret
@@ -364,7 +372,7 @@ cloudnet_rx:
 
 	jmp	0b
 
-
+.if CLOUD_ARPWATCH
 # start arpwatch listener thread/task
 cloud_arpwatch_start:
 	printc 13, " start arpwatch "
@@ -417,7 +425,7 @@ cloudnet_arpwatch:
 
 9:	pop	eax
 	jmp	0b
-
+.endif
 
 ################################################
 # Cluster Management
