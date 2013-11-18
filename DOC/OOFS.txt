@@ -1,0 +1,341 @@
+OOFS String Hash
+================
+
+Every path element's SHA1 hash is calculated.
+
+At first, there will be 256 buckets. The first 2 hex chars of the SHA1
+hash will be the index into which bucket.
+
+Using dword sector addresses (relative to region start) this will take
+2 sectors (4*256=1kb).
+
+With this scheme, two levels (split at byte boundary) will take 257kb.
+
+
+Hashing scheme
+---------------
+Since the first byte of the 20 byte hash can be inferred (but can be left
+as a parent reference), the list can be compressed, so that only 19 bytes
+need to be stored in the first level: 19*256 = 4864 = 4096 + 768 = 9.5 sectors.
+
+
+Incremental
+-----------
+
+The first step is to construct a compact array of hashes. Since 'rep cmpsd'
+cannot be used, the top level is split, more data can be appended after
+each hash, as long as they maintain a fixed element size.
+If we want to store the original filenames, a second table will be used,
+which will be indexed by the hashes.
+
+Initial structure will then be:
+
+	struct {
+		sha1_hash:	.space 20
+		string_index:	.long 0
+	}
+
+combining two tables: the stringtable, and a hash table indexing the
+string table, allowing for bidirectional mapping. In this case, the
+algorithm to calculate the hash for a string is known and thus the index
+does not need to be derived from the string table as it can be directly
+calculated. This allows the stringtable to contain gaps and be ordered
+differently than the hashes.
+
+Sorted
+------
+
+Hashes will remain stored sorted. Adding a new hash would shift all succeeding
+hashes, potentially requiring to write the entire hashtable to disk (if one
+is prepended). On average, half the hashtable would need to be written. This
+means that if there are 1 million files, almost 20000 sectors would need
+to be written.
+
+Split
+-----
+
+To prevent this, the hashtable is split according to a number of initial bits,
+into buckets. For convenience we'll use 8 bit increments.
+Each hash's top level bucket is identified by it's first byte, and will start
+on a sector boundary.
+Now there then will be 256 sectors for the top level hash index, requiring
+cached memory usage of 128kb.
+
+Since it is known that there are 256 buckets - a fixed size array - only
+the starting sector, or the number of sectors per bucket, need to be
+stored.
+
+The first sector then can contain 256 words, indicating size or relative
+start. 
+
+Multisector
+-----------
+
+If a hash entry for a particular index (of the first byte) exceeds a number
+of entries, multiple sectors will be needed. This means that that bucket
+may be relocated to another place.
+
+Thus, both the offset (lba) and number of sectors need to be maintained.
+
+Assuming a limit of 64k sectors per bucket, the start offset will need to
+be more than 16 bits.
+
+The first sector then will contain the sizes, and the two following sectors
+the start LBA.
+
+
+Allocation
+----------
+
+Another list needs to be maintained in memory, containing all the spaces
+within the region/partition, sorted. Some will be used, some will not.
+
+
+mem_handle.s
+------------
+
+	struct {
+		long addr;	# for merging
+		long addr_prev;
+		long addr_next
+
+		long size;
+		long size_prev;
+		long size_next;
+
+		# size so far: 24 bytes
+
+		byte flags;
+	}	# size: 32 bytes.
+
+	handle_merge_left:
+		# precondition: [edi.addr_prev]=[esi.addr_next]
+		mov	edx, [ebx + edi + addr_prev]
+		cmp	edx, [ebx + esi + addr_next]
+		jnz	9f
+
+		andb	[ebx + edi + size], ~ALLOCATED
+		xor	edx, edx
+		movd	[ebx + esi + addr], 0
+		xchg	edx, [ebx + esi + size]
+		add	[ebx + edi + size], edx
+
+		mov	edx, [ebx + esi + addr_next]
+		mov	[ebx + edi + addr_next], edx
+
+		mov	edx, [eax + handle_last]
+		xchg	[ebx + edx + handle_prev]
+
+		# etc.. see mem_handle.s
+
+	9:	ret
+
+
+	# in: edx = size to alloc
+	# out: esi = handle pointer
+	alloc_sectors:
+		lea	ebx, [eax + handles]
+
+		mov	esi, [eax + size_first]
+	0:	cmp	edx, [ebx + esi + size]
+		jb	alloc_split
+		jz	alloc_done
+		mov	esi, [ebx + esi + size_next]
+		cmp	esi, -1
+		jnz	0b
+
+	alloc_split:
+		mov	edi, [ebx + esi + size]
+		sub	edi, edx
+		cmp	edi, SPLIT_MIN_THRESH
+		jb	alloc_done
+		xchg	[ebx + esi + size], edx
+
+		mov	edi, [ebx + esi + addr_next]
+
+		# etc..
+
+	alloc_done:
+		orb	[ebx + esi + flags], ALLOCATED
+		call	handle_save
+		ret
+		
+	handle_save:
+		jmp	save_offset
+
+
+	class root
+	{
+		save:	# ebx=sect esi=offs ecx=bytes
+			push	eax
+			add	ebx, [eax + lba]
+			mov	eax, [eax + persistence]
+			call	fs_obj_write
+			pop	eax
+			ret
+	}
+
+	class cache extends root
+	{
+		mark_dirty:
+			mov	ebx, esi
+			shr	ebx, 9
+			mov	ecx, ebx
+			shr	ebx, 5
+			and	ecx, 31
+			add	ebx, [eax + sector_flags]
+			bts	[ebx], ecx
+			ret
+		
+		save_dirty_sectors:
+			mov	esi, [eax + sector_flags]
+			mov	ecx, [eax + count]
+			add	ecx, 511
+			shr	ecx, 9
+		0:	lodsd
+			or	eax, eax
+			jz	1f
+			loop	0b
+			ret
+		
+		1:	bsf	ebx, eax
+			shl	ebx, 5
+			mov	esi, ebx
+			shl	esi, 9
+			add	ebx, [eax + sectors]
+			lea	edx, [eax + handles]
+			add	esi, edx
+			push	ecx
+			mov	ecx, 1
+			call	fs_obj_write
+			pop	ecx
+			ret
+	}
+
+
+
+	create_file:
+		mov	eax, offset class_file
+		call	class_newinstance
+
+	
+
+	class file
+	{
+		init:
+			push	eax
+			mov	edx, offset class_alloc
+			call	lookup
+			pop	edx
+			call	[eax + handle_alloc]	# out: esi=handle
+			mov	eax, edx
+
+		.if OBJ_PAGING
+			mov	edx, [ebx + esi + size]
+			call	class_instance_resize
+		.else
+		.endif
+			ret
+	}
+
+
+	class pair
+	{
+		set:
+			mov	[eax + edx * 8 + key], esi
+			mov	[eax + edx * 8 + value], edi
+			ret
+	}
+
+	class string_attribute
+	{
+		ref stringtable;
+
+
+		set:
+			call	persist_string
+			mov	[eax + edx * 4], edi
+			ret
+
+		# in: esi = string
+		# out: edi = index
+		persist_string:
+			push	eax
+			mov	eax, [eax + stringtable]
+			call	[eax + stringtable_add]
+			pop	eax
+			ret
+	}
+
+	aspect persistable
+	{
+		attribute persistent(obj)
+		{
+			defines offset persistent;
+
+		}
+
+		# in: esi, ecx
+		save_offset:
+			push	esi ebx
+			mov	ebx, esi
+			shr	ebx, 9
+			and	esi, ~511
+			lea	esi, [persistent(eax) + esi]
+			add	ebx, [eax + lba]
+			call	fs_obj_write
+			pop	ebx esi
+			ret
+	}
+
+
+	class stringtable
+	{
+		aspect persistent;
+
+		int size;
+		byte data[];
+
+		int add( byte[] s, int len )
+		{
+			if ( size & 511 + len > 511 )
+				this = class_resize( this, (size + len + 4)|511 );
+
+			memmov( &data[size], s, len );
+
+			int ret = size;
+			size += len;
+
+			save_offset( offset size, 1 );
+			if ( 4 + size > 512 )
+				save_offset( ret, len )
+
+			return ret;
+		}
+	}
+
+**************************************
+
+
+class oofs_vol
+{
+	volatile
+	{
+	}
+
+	persistent
+	{
+		count: .long 0
+
+		struct {
+			lba: .long 0
+			size: .long 0
+		} array[];
+	}
+}
+
+
+
+
+Handle Order
+============

@@ -1,3 +1,6 @@
+Booting
+=======
+
 Bootsector:
 
 16 bit real mode, uses BIOS to load more sectors (sector1).
@@ -27,6 +30,7 @@ Idea 1: have 16, 32 and 64 bit kernels loaded. Rename bootloader to 16 bit kerne
 
 
 KFS - Kernel File System
+------------------------
 
 Attempts to solve the loadable module problem: code suitable for modules,
 such as ATA drivers, would need to be loaded using the BIOS, and thus
@@ -36,12 +40,12 @@ The solution is to export a Kernel File System that appears at a mount
 point in the root filesystem. This is not required for ISO9660 images,
 but is nice for HDD.
 
-= Loadable Modules
+- Loadable Modules -
 
 The advantage of having a module is that the code can be independently compiled
 and updated from the kernel. Thus, higher programming languages can be used.
 
-= Backward compatability
+- Backward compatability -
 
 As with the BIOS loading the bootsector, which uses the BIOS to load
 the rest of the bootloader, which then loads the kernel, 
@@ -51,61 +55,61 @@ The current approach is to have the (boot) loader implement a simple filesystem
 that follows the loader image in the next sector on disk. 
 The bootloader loads the first image within the filesystem.
 
-------------------
-Bootsector 
-  load bootloader
-------------------
-Bootloader
-  Gather BIOS info
-  load first ramdisk image
-------------------
-RAMDISK header
-  (offset,length)*
----------------
-Kernel
-  realmode
-    16 bit code to switch to pmode
-    32 bit pmode init code
-      gdt, idt, pic, pit, keyboard
-  ----
-  kmain
-    pci
-    bios
-    cmos
-    ata
-    (shell)
-    (iso9660)
----------------
+	------------------
+	Bootsector 
+	  load bootloader
+	------------------
+	Bootloader
+	  Gather BIOS info
+	  load first ramdisk image
+	------------------
+	RAMDISK header
+	  (offset,length)*
+	---------------
+	Kernel
+	  realmode
+	    16 bit code to switch to pmode
+	    32 bit pmode init code
+	      gdt, idt, pic, pit, keyboard
+	  ----
+	  kmain
+	    pci
+	    bios
+	    cmos
+	    ata
+	    (shell)
+	    (iso9660)
+	---------------
 
 The new idea is then this:
 
-==============
-bootsector
-==============
-bootloader
-==============
-RAMDISK header
-==============
-First RAMDISK image
-  -----------
-  Kernel
-    realmode
-    pmode
-    init preloaded modules
-  -----------
-  KFS Header
-  -----------
-    ata
-  -----------
-    iso9660
-  -----------
-==============  
-    pci
-  -----------
+	==============
+	bootsector
+	==============
+	bootloader
+	==============
+	RAMDISK header
+	==============
+	First RAMDISK image
+	  -----------
+	  Kernel
+	    realmode
+	    pmode
+	    init preloaded modules
+	  -----------
+	  KFS Header
+	  -----------
+	    ata
+	  -----------
+	    iso9660
+	  -----------
+	==============  
+	    pci
+	  -----------
 
 
-/kfs
-  modules/
+	/kfs
+	  modules/
 
 Approach 1 is to have a loaded/, unloaded/, preloaded/, and loadonstart/
 directories. One could do a  mv loaded/foo.mod unloaded/.
@@ -131,16 +135,16 @@ Another approach is to have the dependency and order information stored
 in the KFS itself. 
 
 
-============
-Bootsector
-============
-Bootloader
-============
-KFS Header
------------
-  kernel image
-  module*
-============
+	============
+	Bootsector
+	============
+	Bootloader
+	============
+	KFS Header
+	-----------
+	  kernel image
+	  module*
+	============
 
 The bootloader would have a minimal 16 bit KFS implementation.
 Images would be marked as a kernel, allowing for several versions of
@@ -211,7 +215,6 @@ in a partition table entry, using other values here to indicate the bootsector
 resides in a partition allows to reuse the partition table data to indicate
 the location and size of the bootloader code, instead of chainloading.
 
----------------------
 
 
 Memory Mapping / Flat
@@ -266,15 +269,15 @@ The kernel as a service to tasks must establish agreements. One such agreement
 is addressing.As shown, the kernel does not have to use the same address space
 (the base of segment selectors), as it can convert, which is costly.
 
- Paging
- ------
+Paging
+------
  The kernel will need access to user data which it will reference using addresses.
  Therefore, the kernel library will need to have those pages mapped and adressable
  using the pointers given by the application. 
  (to be really secure, a vararg method such as printf should evaluate all pointers
  to see if they refer to the task address space. Paging would allow this,
  by having a special mapping: the library code, it's static data, and the task.
- See Paging.txt for more.)
+ See [Paging|Paging.html] for more.)
 
 Selector Overflow
 -----------------
@@ -310,8 +313,7 @@ Areas:
 
 	0.....|selector base........|selector limit.......4Gb.
 
-The selector limit could be -selector base, making the data after 4Gb (before the
-selector) inaccessible.
+The selector limit could be -selector base, making the data after 4Gb (before the selector) inaccessible.
 
 The scheduler allocates the task stack itself, and thus controls it. It's contents
 will point to the task data initially, and may be set up by the task to attempt to
@@ -382,4 +384,4 @@ at certain privilege levels in the IDT.
 The first 19 interrupts are reserved for the kernel, as they are exception handlers.
 The kernel determines when these are triggered, and therefore should not be used
 directly by tasks, unless there is an agreement.
-[see ITC.txt (legacy name: IPC)]
+(See [ITC|ITC.html], legacy name: IPC)

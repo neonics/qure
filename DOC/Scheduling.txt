@@ -23,9 +23,10 @@ i.e.:
 	mov	[ebx + task_stack_esp], eax
 
 
--- CPL notes
-1) CPL 1, 2 and 3 are functionally identical: privileged instructions are
-not acessible. In paging, CPL0 is System, the rest User.
+CPL notes
+---------
+
+1) CPL 1, 2 and 3 are functionally identical: privileged instructions are not acessible. In paging, CPL0 is System, the rest User.
 
 Therefore, the CPL levels 1,2 and 3 are only useful in providing 3 different
 segmentation boundaries. These can be provided in CPL0 also, but, a CPL0
@@ -42,8 +43,6 @@ segments. The CPL0 it can call directly must be conforming (DPL1).
 
 2) TSS has IO access flags, taken from the TR at any time. Use one TSS per
 driver; no fields are used except the IO. (or - copy the io perm bits).
-
--- end CPL notes
 
 
 Solution 1 extends Common Solution
@@ -125,180 +124,183 @@ In theory the number of allocated stacks should not exceed the number of tasks.
 
 Solution 3, continued
 ---------------------
-schedule_task:
-	and	[ebx + task_flags], TASK_FLAG_CPL3
-	jz	1f
-	mov	eax, TASK_STACK_PRIV_SIZE
-	call	kmalloc	# assume same ss for entire kernel
-	mov	[ebx + task_stack_esp0], eax
-1:	
+	schedule_task:
+		and	[ebx + task_flags], TASK_FLAG_CPL3
+		jz	1f
+		mov	eax, TASK_STACK_PRIV_SIZE
+		call	kmalloc	# assume same ss for entire kernel
+		mov	[ebx + task_stack_esp0], eax
+	1:
 
 
-schedule_isr:
-	mov	cr3, [ebx + task_reg_cr3]
-	mov	[tss_esp0], [ebx + task_reg_esp0]
+	schedule_isr:
+		mov	cr3, [ebx + task_reg_cr3]
+		mov	[tss_esp0], [ebx + task_reg_esp0]
 
 Checks can be done: [tss_esp0] != [task_reg_esp0]
 
-scheduling_enable:
-	# tss already set up.
-	# scheduler introduces possibility of more than one TSS stack being used
-	mov	eax, [tss_esp0]
-	mov	[ebx + task_reg_esp0], eax
+	scheduling_enable:
+		# tss already set up.
+		# scheduler introduces possibility of more than one TSS stack being used
+		mov	eax, [tss_esp0]
+		mov	[ebx + task_reg_esp0], eax
 
 
-kmalloc:
-	this can, at first, be malloc. 
-	it can also be a specialized malloc, because the stack sizes will
-	all be the same. This would save on memory handles.
-	kmalloc would then be integrated in to the task scheduling code,
-	and it can store its pointers in the task descriptors.
+	kmalloc:
 
-	Empty task descriptors can then be kept with their stack intact.
+this can, at first, be malloc. 
+it can also be a specialized malloc, because the stack sizes will
+all be the same. This would save on memory handles.
+kmalloc would then be integrated in to the task scheduling code,
+and it can store its pointers in the task descriptors.
 
-	Alternative:
-	------------
-	map a memory address. We will assume it is contiguous, and can be
-	extended.
-	this can be done this way for instance:
-		if exists(page + 4095)	# next page addr already occupied
-			decrease_base(ds, 4096)
-			remap_pages
-			add_page
-	This way, a segment selector reserved for use of accessing the stack
-	pages - such as the stack selector - can be adjusted, and the pages
-	remapped:
-		[empty]	[stack0] [stack1]
-		[stack0][stack1] [empty]
-	It also assumes that there is a range of addresses available before it.
+Empty task descriptors can then be kept with their stack intact.
 
-	In theory, a generalized kmalloc may manage any number of regions.
-	As long as the number of pages will fit in memory, it can defragment
-	them simply by changing the page mapping.
+Alternative:
+------------
+map a memory address. We will assume it is contiguous, and can be
+extended.
+this can be done this way for instance:
+	if exists(page + 4095)	# next page addr already occupied
+		decrease_base(ds, 4096)
+		remap_pages
+		add_page
+This way, a segment selector reserved for use of accessing the stack
+pages - such as the stack selector - can be adjusted, and the pages
+remapped:
+	[empty]	[stack0] [stack1]
+	[stack0][stack1] [empty]
+It also assumes that there is a range of addresses available before it.
 
-	At first, kmalloc will be hardcoded to a single region.
-	THere will then be 2 mallocs:
-	1) the general purpose malloc working on the heap bottoming at 1Mb
-	2) kmalloc, working with the page area, topping at end of memory.
-	The mem_handles code must be updated to take an argument: the pointer
-	to the linked list structure pointer. (an index in an array).
-	The mem.s calls must be updated to provide the argument.
+In theory, a generalized kmalloc may manage any number of regions.
+As long as the number of pages will fit in memory, it can defragment
+them simply by changing the page mapping.
 
-	Now the kmalloc code can use the alloc routines to operate on
-	a separate space. It can then use any stack size easily.
-	However, the joining of stacks into larger chunks is not needed
-	here, and the find by size is also not needed.
+At first, kmalloc will be hardcoded to a single region.
+There will then be 2 mallocs:
+1) the general purpose malloc working on the heap bottoming at 1Mb
+2) kmalloc, working with the page area, topping at end of memory.
+The mem_handles code must be updated to take an argument: the pointer
+to the linked list structure pointer. (an index in an array).
+The mem.s calls must be updated to provide the argument.
 
-	The paging code itself already uses a simple memory management
-	for it's pages: the page directory and page tables, a compact 
-	1 million entry two level tree.
-	All pages it uses as page tables are recorded in the page dir.
-	At current, all pages in all page tables are identity mapped.
-	At current, all pages in all page tables are only used for page tables
-	(or page directories).
-	To then distinguish them from the kmalloc stack pages:
-	1) use a free flag
-	2) check if the page is identity mapped, if stack pages use
-	a different mapping.
+Now the kmalloc code can use the alloc routines to operate on
+a separate space. It can then use any stack size easily.
+However, the joining of stacks into larger chunks is not needed
+here, and the find by size is also not needed.
 
-alloc_stack_page:
-	mov	edi, [stack_pages_free]
-	rep	scasbit
-	mov	esi, [page_directory]
-	call	malloc_page_idmap_pt_alloc
-	ARRAY_PUSH [stack_pages], eax
-	ret
+The paging code itself already uses a simple memory management
+for it's pages: the page directory and page tables, a compact 
+1 million entry two level tree.
+All pages it uses as page tables are recorded in the page dir.
+At current, all pages in all page tables are identity mapped.
+At current, all pages in all page tables are only used for page tables
+(or page directories).
+To then distinguish them from the kmalloc stack pages:
+1) use a free flag
+2) check if the page is identity mapped, if stack pages use
+a different mapping.
 
-	Turns out this code is very similar to malloc_page_phys.
-	It can be generalized to take a pointer to the array.
-	(code is small: speed/size[extra memrefs])
+	alloc_stack_page:
+		mov	edi, [stack_pages_free]
+		rep	scasbit
+		mov	esi, [page_directory]
+		call	malloc_page_idmap_pt_alloc
+		ARRAY_PUSH [stack_pages], eax
+		ret
 
-alloc_task_priv_stack:
-	same code again, but now it only uses a bitstring - not another
-	array.
-	scan bitstring, calculate offset in bits; multiply by stack size
-	NOTE: in this case, all stack pages must be contiguous.
-	They don't have to be, if a whole number of stacks fits in one page.
-	IF the number of stacks per page is known, then, the bit index
-	modulo that will provide an index into [stack_pages].
+Turns out this code is very similar to malloc_page_phys.
+It can be generalized to take a pointer to the array.
+(code is small: speed/size[extra memrefs])
 
-	Thus:
+	alloc_task_priv_stack:
 
-	xor	eax, eax
-	mov	edi, [task_stack_free]
-	mov	ecx, [edi + task_index]
-	mov	edx, ecx
-	shr	ecx, 2
-	repnz	scasd
-	jz	no_stack_free$
+same code again, but now it only uses a bitstring - not another
+array.
+scan bitstring, calculate offset in bits; multiply by stack size
+NOTE: in this case, all stack pages must be contiguous.
+They don't have to be, if a whole number of stacks fits in one page.
+IF the number of stacks per page is known, then, the bit index
+modulo that will provide an index into [stack_pages].
 
-	# found a dword that has some bits set - some pages free.
+Thus:
 
-	bsf	eax, [edi - 4] # jz can't happen
+		xor	eax, eax
+		mov	edi, [task_stack_free]
+		mov	ecx, [edi + task_index]
+		mov	edx, ecx
+		shr	ecx, 2
+		repnz	scasd
+		jz	no_stack_free$
 
-	sub	edx, ecx	# dword_idx
-	shl	edx, 5
-	add	eax, edx
+		# found a dword that has some bits set - some pages free.
 
-	# eax is now the bit index
+		bsf	eax, [edi - 4] # jz can't happen
 
-	TASK_PRIV_STACK_SIZE = 512
+		sub	edx, ecx	# dword_idx
+		shl	edx, 5
+		add	eax, edx
 
-	xor	edx, edx
-	mov	ebx, 4096 / TASK_PRIV_STACK_SIZE
-	div	ebx
+		# eax is now the bit index
 
-	mov	ebx, [task_stack_pages]
-	mov	ebx, [ebx  + eax * 4]	# get the page
+		TASK_PRIV_STACK_SIZE = 512
 
-	mov	eax, TASK_PRIV_STACK_SIZE
-	mul	edx	# stack_in_page * stacksize
+		xor	edx, edx
+		mov	ebx, 4096 / TASK_PRIV_STACK_SIZE
+		div	ebx
 
-	add	eax, ebx	# stack = page + stack_in_page * stacksize
-	ret
+		mov	ebx, [task_stack_pages]
+		mov	ebx, [ebx  + eax * 4]	# get the page
 
-no_stack_free$:
-	call	malloc_page_idmap_pt_alloc
-	PTR_ARRAY_NEWENTRY [task_stack_pages], base=ebx, index=edx
-	mov	[ebx + edx], eax
+		mov	eax, TASK_PRIV_STACK_SIZE
+		mul	edx	# stack_in_page * stacksize
 
-	# DWORD_PTR to BITBASE + BITINDEX: >> 5, << 2: / 32 bit * 4
-	mov	bl, dl
-	and	bl, 31
-	shr	edx, 3
-	and	dl, ~3
+		add	eax, ebx	# stack = page + stack_in_page * stacksize
+		ret
 
-	mov	eax, [task_stack_free]
-	cmp	edx, [eax + task_index]	# byte-granularity
-	jb	1f
-	PTR_ARRAY_NEWENTRY [task_stack_free]
-1:	btc	[eax + edx], ebx	# clear bit
-	# alt:
-	mov	ebx, 1
-	shl	ebx, ecx
-	clear:	not,and
-	set:	or
+	no_stack_free$:
+		call	malloc_page_idmap_pt_alloc
+		PTR_ARRAY_NEWENTRY [task_stack_pages], base=ebx, index=edx
+		mov	[ebx + edx], eax
+
+		# DWORD_PTR to BITBASE + BITINDEX: >> 5, << 2: / 32 bit * 4
+		mov	bl, dl
+		and	bl, 31
+		shr	edx, 3
+		and	dl, ~3
+
+		mov	eax, [task_stack_free]
+		cmp	edx, [eax + task_index]	# byte-granularity
+		jb	1f
+		PTR_ARRAY_NEWENTRY [task_stack_free]
+	1:	btc	[eax + edx], ebx	# clear bit
+		# alt:
+		mov	ebx, 1
+		shl	ebx, ecx
+		clear:	not,and
+		set:	or
 	
 
 
 
 
-	# get bit index from base
-	#
-	# index	=   ptr / 32
-	# bit	= ( ptr / 32 ) * 4
-	# 
-	.macro DWORD_PTR_TO_BITARRAY_PTR index, bit, ptr
-.ifne \ptr,\index;	mov	\index, \ptr	; .endif
-.ifne \ptr,\bit;	mov	\bit, \ptr	; .endif
-			shr	\index, 3
-			and	\index, ~3
-			shr	\bit, 5
-	.endm
+		# get bit index from base
+		#
+		# index	=   ptr / 32
+		# bit	= ( ptr / 32 ) * 4
+		# 
+		.macro DWORD_PTR_TO_BITARRAY_PTR index, bit, ptr
+	.ifne \ptr,\index;	mov	\index, \ptr	; .endif
+	.ifne \ptr,\bit;	mov	\bit, \ptr	; .endif
+				shr	\index, 3
+				and	\index, ~3
+				shr	\bit, 5
+		.endm
 
 
----------------------------------------
+
 Privileged / Non-Privileged
+---------------------------------------
 
 User tasks will only have access to a small part of memory and the cpu for
 executing it's instructions. This happens involuntary from the point of view
