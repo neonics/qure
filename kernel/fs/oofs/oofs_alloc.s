@@ -6,18 +6,6 @@
 
 OOFS_ALLOC_DEBUG = 0
 
-.global class_oofs_alloc
-.global oofs_alloc_api_alloc	# in: ecx = sectors; out: ebx=handle
-.global oofs_alloc_api_free	# in: ebx = handle
-.global oofs_alloc_api_txtab_get# in: edx = classdef ptr
-.global oofs_alloc_api_txtab_save
-# cache:
-.global oofs_alloc_api_handle_get # in: ebx = handle index; out: eax=instance
-.global oofs_alloc_api_handle_remove# in: ebx = handle index; out: eax=instance
-# persistent:
-.global oofs_alloc_api_handle_load# in: ebx = handle index, edx = instance
-.global oofs_alloc_api_handle_save# in: ebx = handle index, edx = instance
-
 .if HANDLE_STRUCT_SIZE == 32
 HANDLE_STRUCT_SIZE_SHIFT = 5
 .else
@@ -116,12 +104,32 @@ HANDLE_FLAG_DIRTY = 256	# 2nd byte of flags; first byte reserved by handles.s
 # be set to 0, whereupon a load method will know how much data to actually
 # load, and how much to initialize with zeroes.
 # 
+#
+# HANDLE INDICES
+#
+# There are two handle indices in use. The first, called handle index,
+# is the offset into the handles array. This is kept protected and only
+# shared with oofs_handle and subclasses.
+#
+# The second is an index into the open handles hashtable,
+# oofs_alloc_open_handles, called the fs handle index, as this is a handle
+# as presented to the fs layer.
+# This translation step is required, since two processes may open
+# the same directory, resulting in the same handle index being returned
+# to the fs layer, which may result in closing the wrong handle.
+# It has the further advantage that handles may be relocated without
+# the fs layer needing to be informed.
+# The key associated with this index is the handle index, and the value
+# is the object instance.
+#
+# In short, this class abstracts the handle indices and only exports
+# the translated values.
 ####################################################
 DECLARE_CLASS_BEGIN oofs_alloc, oofs_persistent
 
 #### Volatile
 oofs_alloc_txtab:	.long 0	# txtab instance
-oofs_alloc_handles_hash:.long 0 # key = handle index, value = instance ptr
+oofs_alloc_open_handles:.long 0 # key = handle index, value = instance ptr
 
 ###### begin handles struct fields
 oofs_alloc_handles: # the handles struct
@@ -165,8 +173,9 @@ DECLARE_CLASS_METHOD oofs_alloc_api_free, oofs_alloc_free
 DECLARE_CLASS_METHOD oofs_alloc_api_txtab_get, oofs_alloc_txtab_get
 DECLARE_CLASS_METHOD oofs_alloc_api_txtab_save, oofs_alloc_txtab_save
 
-DECLARE_CLASS_METHOD oofs_alloc_api_handle_get,    oofs_alloc_handle_get
-DECLARE_CLASS_METHOD oofs_alloc_api_handle_remove, oofs_alloc_handle_remove
+DECLARE_CLASS_METHOD oofs_alloc_api_handle_register, oofs_alloc_handle_register
+DECLARE_CLASS_METHOD oofs_alloc_api_handle_get,      oofs_alloc_handle_get
+DECLARE_CLASS_METHOD oofs_alloc_api_handle_remove,   oofs_alloc_handle_remove
 
 DECLARE_CLASS_METHOD oofs_alloc_api_handle_load, oofs_alloc_handle_load
 DECLARE_CLASS_METHOD oofs_alloc_api_handle_save, oofs_alloc_handle_save
@@ -193,11 +202,12 @@ oofs_alloc_init:
 
 	# allocate hash
 	mov	edx, eax
-	mov	eax, 16
-	call	ptr_hash_new
+	mov	eax, 16	# num entries
+	mov	ecx, 8	# entry size
+	call	array_new
 	jc	92f
 	xchg	eax, edx
-	mov	[eax + oofs_alloc_handles_hash], edx
+	mov	[eax + oofs_alloc_open_handles], edx
 
 	# clear linked list
 	push_	eax 
@@ -285,75 +295,106 @@ oofs_alloc_init:
 
 
 # in: eax = this
+# in: ebx = alloc handle index
 # in: edx = handle instance
-# in: ebx = handle index
+# out: ebx = fs handle index (to pass to fs layer/use for handle_get/remove)
 oofs_alloc_handle_register:
 	.if OOFS_ALLOC_DEBUG
 		PRINT_CLASS
 		printc 14, ".handle_register"
 		printc 9, " handle="; push ebx; call _s_printhex8
-		printc 9, " instance="; PRINT_CLASS edx
+		printc 9, " instance="; call printhex8; PRINT_CLASS edx
 	.endif
 
-	push_	eax
-	mov	eax, [eax + oofs_alloc_handles_hash]
-	call	ptr_hash_put
-	pop_	eax
+	push_	ecx esi edi
+	# scan for unused entry
+	mov	edi, [eax + oofs_alloc_open_handles]
+	mov	ecx, [edi + array_index]
+	shr	ecx, 3
+	jz	1f
+0:	cmpd	[edi + 0], -1
+	jnz	2f
+	cmpd	[edi + 4], -1
+	jz	3f
+2:	add	edi, 8
+	loop	0b
+1:
 
-	.if OOFS_ALLOC_DEBUG > 1
-	jc	9f
+	mov	edi, eax	# backup this
+	mov	eax, [eax + oofs_alloc_open_handles]
+	mov	esi, edx	# backup instance
+	mov	ecx, 8
+	call	array_newentry	# eax,ecx -> eax,edx
+	jc	91f
+	mov	[edi + oofs_alloc_open_handles], eax
+	mov	[eax + edx + 0], ebx
+	mov	[eax + edx + 4], esi
 
-		push_	esi edi ecx edx
-		mov	esi, [eax + oofs_alloc_handles_hash]
-		DEBUG_DWORD esi, "ptr_hash"
-		mov	edi, [esi + 4]	# v
-		mov	esi, [esi + 0]	# k
-		DEBUG_DWORD esi, "keys"
-		DEBUG_DWORD [esi + array_index], "#keys"
-		DEBUG_DWORD [esi + array_capacity], "/"
-		DEBUG_DWORD edi, "values"
-		DEBUG_DWORD [edi + array_index], "#values"
-		DEBUG_DWORD [edi + array_capacity], "/"
-		call	newline
-		mov	ecx, [esi + array_index]
-		shr	ecx, 2
-		jz	1f
-	0:	mov	edx, [esi]
-		call	printhex8
-		call	printspace
-		mov	edx, [edi]
-		call	printhex8
-		call	newline
-		add	esi, 4
-		add	edi, 4
-		loop	0b
-	1:	pop_	edx ecx edi esi
-	.endif
+	mov	ebx, edx	# return index (offset)
+9:
+	mov	eax, edi
+	mov	edx, esi
+8:	pop_	edi esi ecx
+
+	STACKTRACE 0
+	ret
+
+3:	# re-use entry
+	mov	[edi + 0], ebx
+	mov	[edi + 4], edx
+	mov	ebx, edi
+	sub	ebx, [eax + oofs_alloc_open_handles]
+	jmp	8b
+
+91:	printlnc 12, "oofs_alloc_handle_register: malloc error"
+	stc
+	jmp	9b
+
+# in: eax = this
+# in: ebx = fs handle index
+# out: eax = cached instance
+# out: CF
+oofs_alloc_handle_get:
+	mov	eax, [eax + oofs_alloc_open_handles]
+	cmp	ebx, [eax + array_index]
+	jae	91f
+	mov	eax, [eax + ebx + 4]
+	clc
 
 9:	STACKTRACE 0
 	ret
 
-# in: eax = this
-# in: ebx = handle index
-# out: eax = cached instance
-# out: CF
-oofs_alloc_handle_get:
-	mov	eax, [eax + oofs_alloc_handles_hash]
-	push	edx
-	call	ptr_hash_get
-	mov	eax, edx
-	pop	edx
-	ret
+91:	printlnc 12, "oofs_alloc_handle_get: index out of bounds"
+	stc
+	jmp	9b
+# KEEP-WITH-NEXT 91b
 
 # in: eax = this
-# in: ebx = handle index
+# in: ebx = fs handle index
 # out: eax = instance
 oofs_alloc_handle_remove:
-	mov	eax, [eax + oofs_alloc_handles_hash]
-	push	edx
-	call	ptr_hash_remove
-	mov	eax, edx
-	pop	edx
+	mov	eax, [eax + oofs_alloc_open_handles]
+	cmp	ebx, [eax + array_index]
+	jae	91b
+
+	# check if last entry
+	sub	ebx, 8
+	cmp	ebx, [eax + array_index]
+	lea	ebx, [ebx + 8]	# add w/o flags
+	jz	1f	# it is - shrink array
+
+	# mark entry as free by setting key/value to -1
+	push_	ebx
+	add	ebx, eax
+	mov	eax, -1
+	mov	[ebx + 0], dword ptr -1	# index
+	xchg	[ebx + 4], eax
+	pop_	ebx
+	ret
+
+1:	# last entry
+	subd	[eax + array_index], 8
+	mov	eax, [eax + ebx + 4]
 	ret
 
 # method called by handles.s when handles region is too small
@@ -572,20 +613,23 @@ oofs_alloc_txtab_save:
 # in: edx = classdef ptr extends oofs_persistent
 # out: eax = loaded instance
 oofs_alloc_txtab_get:
-	push_	edx ecx ebx
-	mov	ecx, eax	# backup
+	push_	edx ebx
 
+	mov	ebx, eax	# backup
 	mov	eax, [eax + oofs_alloc_txtab]
 	or	eax, eax
 	jnz	9f
-	mov	eax, ecx
+	mov	eax, ebx
 
 	mov	ebx, [eax + oofs_alloc_txtab_idx]
+	call	oofs_alloc_get_handle_instance$	# eax,ebx,edx -> edx
+	jc	9f
+	mov	[eax + oofs_alloc_txtab], edx	# remember child
+
 	call	oofs_alloc_handle_load	# in: ebx, edx
 	jc	91f
-	mov	[ecx + oofs_alloc_txtab], eax	# remember child
 
-9:	pop_	edx ecx ebx
+9:	pop_	edx ebx
 	STACKTRACE 0
 	ret
 
@@ -609,21 +653,28 @@ oofs_alloc_child_moved:
 	ret
 
 1:	push_	eax ebx ecx esi edi
-	mov	esi, [eax + oofs_alloc_handles_hash]
-	mov	edi, [esi + 4]	# values
-	mov	ecx, [edi + array_index]
-	shr	ecx, 2
+	xor	edi, edi	# count updates
+	mov	esi, [eax + oofs_alloc_open_handles]
+	mov	ecx, [esi + array_index]
+	shr	ecx, 3
 	jz	1f
-	mov	eax, edx
-	repnz	scasd
-	jnz	1f
-	mov	[edi - 4], ebx	# update value
-	# might loop here in general case, but handle->instance=1:1.
-1:	pop_	edi esi ecx ebx eax
-	jz	9b
+0:	cmp	edx, [esi + 4]
+	jnz	2f
+	mov	[esi + 4], ebx	# update value
+	inc	edi	# don't break early, but count
+2:	add	esi, 8
+	loop	0b
+1:	or	edi, edi	# verify child found
+	pop_	edi esi ecx ebx eax
+	jnz	9b		# child found
 
-91:	printc 4, "oofs_alloc_child_moved: unknown child: "
-	PRINT_CLASS edx
+91:	printc 4, "oofs_alloc_child_moved: unknown child: old="
+	call	printhex8
+	printc 4, " new="
+	push	ebx
+	call	_s_printhex8
+	call	printspace
+	PRINT_CLASS ebx
 	call	newline
 	stc
 	jmp	9b
@@ -648,22 +699,75 @@ oofs_alloc_handle_load:
 		STACKTRACE 0,0
 	.endif
 
-	push_	ebp esi ebx ecx edx eax
+	push_	ebp
+
+	call	oofs_alloc_get_handle_instance$
+	jc	9f
+
+	xchg	eax, edx
+	# edx=this
+	# eax=instance
+	# change the onload handler:
+	pushd	[eax + oofs_persistent_api_onload]
+	mov	[eax + oofs_persistent_api_onload], dword ptr offset oofs_alloc_onload_proxy$
+	mov	ebp, esp	# onload_proxy$ in: ebp = orig onload handler
+	# NOTE: the load method must not modify ebp!
+	call	[eax + oofs_persistent_api_load]
+	popd	[eax + oofs_persistent_api_onload]	# restore
+#	mov	[esp], eax	# set return value
+	jc	91f
+
+
+9:	pop_	ebp
+	STACKTRACE 0
+	ret
+
+91:	printlnc 12, "oofs_alloc_handle_load: error calling persistent.load"
+	stc
+	jmp	9b
+
+
+# utility method.
+#
+# If edx is an object, verifies that it is a subclass of oofs_persistent.
+#
+# in: ebx = handle instance (for lba/size constructor init)
+# in: edx = instance of oofs_persistent or oofs_handle (or subclass),
+#  OR edx = class def ptr for these classes.
+# out: edx = instance
+# out: CF = 1 if edx is not a classdef ptr and not instanceof persistent,handle
+#          or if edx is classdef ptr and not subclass of persistent,handle
+#          or instantiation error
+#          or constructor returned error.
+oofs_alloc_get_handle_instance$:
 
 	# assert edx is instance of oofs_handle
 
 	# allow to instantiate the class
 	xchg	eax, edx
 	call	class_is_class
-	jc	1f
-	call	class_newinstance
+	jnc	1f	# it's a classdef ptr
+
+	# verify it is oofs_persistent
+	push	edx
+	mov	edx, offset class_oofs_persistent
+	call	class_instanceof
+	pop	edx
 	xchg	eax, edx
+	# simply return CF.
+	ret
+
+###	instantiate and initialize the object
+# in: eax = classdef ptr
+# in: edx = this
+1:	push_	ebx ecx esi
+
+	# instantiate the class.
+	call	class_newinstance	# eax->eax
 	jc	93f
 
 ###	# call constructor
 	mov	esi, ebx	# backup handle in case ebx becomes lba
-
-	xchg	eax, edx
 
 	push	edx
 	mov	edx, offset class_oofs_handle
@@ -691,22 +795,10 @@ oofs_alloc_handle_load:
 	INVOKEVIRTUAL oofs init
 	mov	ebx, esi
 	jc	91f
-###
 
-1:
-	# edx=this
-	# eax=instance
-	# change the onload handler:
-	pushd	[eax + oofs_persistent_api_onload]
-	mov	[eax + oofs_persistent_api_onload], dword ptr offset oofs_alloc_onload_proxy$
-	mov	ebp, esp	# onload_proxy$ in: ebp = orig onload handler
-	# NOTE: the load method must not modify ebp!
-	call	[eax + oofs_persistent_api_load]
-	popd	[eax + oofs_persistent_api_onload]	# restore
-	mov	[esp], eax	# set return value
-	jc	92f
+	xchg	eax, edx
 
-9:	pop_	eax edx ecx ebx esi ebp
+9:	pop_	esi ecx ebx
 	STACKTRACE 0
 	ret
 
@@ -714,11 +806,8 @@ oofs_alloc_handle_load:
 	stc
 	jmp	9b
 
-92:	printlnc 12, "oofs_alloc_handle_load: error calling persistent.load"
-	stc
-	jmp	9b
-
 93:	printlnc 12, "oofs_alloc_handle_load: instantiation error"
+	xchg	eax, edx		# eax =this, edx=instance
 	stc
 	jmp	9b
 
@@ -726,9 +815,6 @@ oofs_alloc_handle_load:
 	stc
 	jmp	9b
 
-95:	printlnc 12, "oofs_alloc_handle_load: object not oofs_handle"
-	stc
-	jmp	9b
 
 # [ebp +  0] = original onload
 # [ebp +  4] = eax = oofs_alloc instance
@@ -866,9 +952,39 @@ oofs_alloc_print:
 	or	eax, eax
 	jz	1f
 	call	[eax + oofs_api_print]
+1:	pop	eax
 
-1:	call	newline
-	pop	eax
+
+	call	newline
+	printlnc 11, "open handles: "
+	push_	eax ecx edx
+	mov	eax, [eax + oofs_alloc_open_handles]
+	or	eax, eax
+	jz	1f
+	xor	ecx, ecx
+	jmp	2f
+0:	mov	edx, ecx
+	pushcolor 8
+	#shr	edx, 3
+	call	printhex8
+	popcolor
+	call	printspace
+	mov	edx, [eax + ecx + 0]
+	call	printhex8
+	call	printspace
+	mov	edx, [eax + ecx + 4]
+	call	printhex8
+	cmp	edx, -1
+	jz	3f
+	call	printspace
+	PRINT_CLASS edx
+3:	call	newline
+	add	ecx, 8
+2:	cmp	ecx, [eax + array_index]
+	jb	0b
+
+1:	pop_	edx ecx eax
+
 	pop	esi
 	ret
 

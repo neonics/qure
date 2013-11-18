@@ -61,6 +61,7 @@ CLASS_METHOD_STRUCT_SIZE = 12
 .global class_extends
 .global class_is_class
 .global class_get_by_name
+.global class_obj_print_classname	# stackarg
 .global class_print_classname	# stackarg
 .global class_invoke_static
 .global class_invoke_virtual
@@ -565,6 +566,7 @@ class_instance_resize:
 	mov	edi, [class_instances]
 	mov	ecx, [edi + array_index]
 	shr	ecx, 2
+	jz	91f
 	repnz	scasd
 	jnz	91f
 	lea	ebx, [edi - 4]	# remember pointer offset
@@ -628,7 +630,7 @@ class_instance_resize:
 	.endif
 
 	mov	[eax + obj_size], edx
-	mov	[ebx - 4], eax	# replace instance pointer
+	mov	[ebx], eax	# replace instance pointer
 	clc
 
 9:	pop_	esi ebx ecx edi
@@ -1009,14 +1011,22 @@ class_deleteinstance:
 	STACKTRACE 0
 	ret
 
-90:	printc 12, "class_deleteinstance: "
-	call	_s_println
+91:	call	0f
+	print "unknown object: "
+	push	eax
+	call	_s_printhex8
+	call	printspace
+	push	eax
+	call	class_obj_print_classname
+	call	newline
 	stc
 	jmp	9b
-91:	PUSH_TXT "unknown object"
-	jmp	90b
-92:	PUSH_TXT "no instances"
-	jmp	90b
+92:	call	0f
+	print "no instances"
+	stc
+	jmp	9b
+0:	printc 12, "class_deleteinstance: "
+	ret
 
 
 # in: eax = object ptr
@@ -1381,17 +1391,19 @@ cmd_objects:
 	pop	edx
 	jz	3f
 	call	printspace
-	mov	ebx, [eax + obj_class]
-	mov	esi, [ebx + class_name]
-	call	print
+	push	eax
+	call	class_obj_print_classname
 
 ######## print hierarchy
 	pushcolor 8
+	mov	eax, [eax + obj_class]
 0:	call	printspace
-	mov	ebx, [ebx + class_super]
-	or	ebx, ebx
+	call	class_is_class
+	jc	2f
+	mov	eax, [eax + class_super]
+	or	eax, eax
 	jz	2f
-	mov	esi, [ebx + class_name]
+	mov	esi, [eax + class_name]
 	call	print
 	jmp	0b
 2:	popcolor
@@ -1517,6 +1529,20 @@ _print_methods$:
 1:	pop	ecx
 	ret
 
+
+# in: [esp] = instance
+class_obj_print_classname:
+	cmpd	[esp + 4], 0
+	jz	1f
+	push	eax
+	mov	eax, [esp + 8]
+	mov	eax, [eax + obj_class]
+	mov	[esp + 8], eax
+	pop	eax
+	jmp	class_print_classname
+
+1:	printc 4, "<null>"
+	ret	4
 
 
 # in: [esp] = classdef ptr
@@ -1801,8 +1827,9 @@ OBJ_STRUCT_SIZE = .
 
 
 .macro PRINT_CLASS this=eax
-	pushd	[\this + obj_class]
-	call	class_print_classname
+	#pushd	[\this + obj_class]
+	pushd	\this
+	call	class_obj_print_classname
 .endm
 
 .macro DEBUG_CLASS this=eax

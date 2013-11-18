@@ -243,7 +243,7 @@ array_newentry:
 	pop	edx
 	jb	0f
 
-	add	edx, ecx # MTAB_ENTRY_SIZE
+	add	edx, ecx
 	# optionally: increase grow size
 	call	buf_resize_	# in: eax, out: eax
 	mov	edx, [eax + buf_index]
@@ -399,6 +399,7 @@ ptr_hash_debug:
 # in: eax = ptr_hash
 # in: ebx = key
 # in: edx = value
+# out: ebx = index (XXX other reg?)
 .global ptr_hash_put
 ptr_hash_put:
 	push_	edi esi edx ecx eax
@@ -434,11 +435,17 @@ ptr_hash_put:
 	jc	9f
 	# XXX TODO assert edx is same
 	mov	[eax + edx], ecx	# set value
+	mov	ebx, edx
+	shr	ebx, 2
 	jmp	9f
 
 1:	sub	edi, [esi + 0]
+	mov	ebx, edi
 	add	edi, [esi + 4]
+	sub	ebx, 4
 	mov	[edi - 4], edx
+	shr	ebx, 2
+
 9:	pop_	eax ecx edx esi edi
 	ret
 
@@ -469,6 +476,51 @@ ptr_hash_get:
 9:	pop_	ecx edi
 	ret
 
+
+# returns the index for the key
+# in: eax = ptr_hash
+# in: ebx = key
+# out: ebx = key index
+.global ptr_hash_getidx
+ptr_hash_getidx:
+	push_	edi ecx
+	mov	edi, [eax + 0]	# keys
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	stc
+	jz	9f
+	xchg	eax, ebx
+	repnz	scasd
+	xchg	eax, ebx
+	stc
+	jnz	9f
+
+	sub	edi, 4
+	sub	edi, [eax + 0]
+	shr	edi, 2
+	mov	ebx, edi
+
+9:	pop_	ecx edi
+	ret
+
+# returns key for index
+# in: eax = ptr_hash
+# in: ebx = index
+# out: ebx = key
+.global ptr_hash_getkey
+ptr_hash_getkey:
+	push_	eax
+	mov	eax, [eax + 0]	# keys
+	shl	ebx, 2
+	cmp	ebx, [eax + array_index]
+	jae	91f
+	mov	ebx, [eax + ebx]
+	clc
+9:	pop_	eax
+	ret
+91:	stc
+	jmp	9b
+
 # in: eax = ptr_hash
 # in: ebx = key
 # out: edx = value
@@ -495,6 +547,102 @@ ptr_hash_remove:
 
 9:	pop_	ecx edi
 	ret
+
+
+# in: eax = ptr_hash
+# in: ebx = index
+# out: ebx = key
+# out: edx = value
+.global ptr_hash_remove_by_idx
+ptr_hash_remove_by_idx:
+	push_	edi ecx
+	mov	ecx, ebx
+	mov	edi, [eax + 0]	# keys
+	shl	ecx, 2
+	cmp	ecx, [edi + array_index]
+	jae	91f
+
+	mov	edx, -1
+	mov	ebx, -1
+	xchg	ebx, [edi + ecx]	# k
+
+	sub	edi, [eax + 0]
+	add	edi, [eax + 4]	# should clear CF
+	xchg	edx, [edi + ecx]	# v
+
+9:	pop_	ecx edi
+	ret
+91:	stc
+	jmp	9b
+
+# in: eax = ptr_hash
+# in: ebx = index
+# out: ebx = key
+# out: edx = value
+.global ptr_hash_get_by_idx
+ptr_hash_get_by_idx:
+	push_	edi ecx
+	mov	ecx, ebx
+	mov	edi, [eax + 0]	# keys
+	shl	ecx, 2
+	cmp	ecx, [edi + array_index]
+	jae	91f
+
+	mov	ebx, [edi + ecx]	# k
+
+	sub	edi, [eax + 0]
+	add	edi, [eax + 4]	# should clear CF
+	mov	edx, [edi + ecx]	# v
+
+9:	pop_	ecx edi
+	ret
+91:	stc
+	jmp	9b
+
+
+# in: eax = ptr_hash
+.global ptr_hash_print
+ptr_hash_print:
+	push_	eax ecx edx esi edi
+
+	mov	esi, [eax + 0]	# keys
+	mov	edi, [eax + 4]	# values
+	mov	ecx, [esi + array_index]
+	cmp	ecx, [edi + array_index]
+	jz	2f
+	printlnc 14, "warning: key size != value size"
+2:	shr	ecx, 2
+	jz	1f
+	mov	edx, ecx
+	call	printdec32
+	printc 11, "/"
+	mov	edx, [esi + array_capacity]
+	shr	edx, 2
+	call	printdec32
+	call	newline
+
+	mov	eax, ecx
+
+0:	mov	edx, eax
+	sub	edx, ecx
+	pushcolor 8
+	call	printhex8
+	popcolor
+	call	printspace
+
+	mov	edx, [esi]
+	call	printhex8
+	add	esi, 4
+	call	printspace
+	mov	edx, [edi]
+	call	printhex8
+	add	edi, 4
+	call	newline
+	loop	0b
+
+	pop_	edi esi edx ecx eax
+	ret
+
 
 .endif
 
@@ -543,3 +691,4 @@ __HASH_DECLARED=1
 		mov	\arrayref, eax
 	.endm
 .endif
+

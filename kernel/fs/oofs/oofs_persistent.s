@@ -330,7 +330,7 @@ oofs_persistent_resize:
 	clc		# prevent stacktrace
 	jnz	9f	# not class_oofs: don't call method
 	call	[eax + oofs_api_child_moved]
-	clc
+	#clc
 9:	mov	eax, ebx	# restore new
 	pop_	edx ebx
 	STACKTRACE 0

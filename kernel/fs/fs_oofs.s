@@ -247,7 +247,7 @@ fs_oofs_create:
 9:	pop_	edx ebx
 	STACKTRACE 0
 	ret
-91:	printc 12, "fs_oofs_close: invalid handle: "
+91:	printc 12, "fs_oofs_create: invalid handle: "
 	push	ebx
 	call	_s_printhex8
 	call	newline
@@ -261,27 +261,24 @@ fs_oofs_create:
 # out: ecx = next entry (-1 for none)
 # out: edx = directory name
 fs_oofs_nextentry:
-	DEBUG "nextentry"; 
-
 	push	eax
+
 	mov	eax, [eax + oofs_alloc]
-	INVOKEVIRTUAL oofs_alloc handle_get
-	mov	ebx, eax
-	pop	eax
+	INVOKEVIRTUAL oofs_alloc handle_get	# ebx -> eax
 	jc	91f
-	# verify ebx is oofs_tree object
+
+	# verify instance is oofs_tree
+	or	eax, eax
+	jz	9f
 	push_	edx
-	xchg	eax, ebx
 	mov	edx, offset class_oofs_tree
 	call	class_instanceof
-	xchg	eax, ebx
 	pop_	edx
-	jc	91f
+	jc	92f
 
-	xchg	eax, ebx
 	INVOKEVIRTUAL oofs_tree next	# in: ecx=idx/offs; out: edx=ptr, ecx=next idx/offs
-	xchg	eax, ebx
 	jc	9f	# cur entry doesn't exist
+
 	push_	esi edi ecx
 	mov	ecx, FS_DIRENT_STRUCT_SIZE >> 2
 	mov	esi, edx
@@ -289,14 +286,26 @@ fs_oofs_nextentry:
 	mov	cl, FS_DIRENT_STRUCT_SIZE & 3
 	rep	movsb
 	pop_	ecx edi esi
+
+0:	pop	eax
 	ret
 
 9:	mov	ecx, -1
-	ret
+	jmp	0b
 
-91:	printc 12, "fs_oofs_nextentry: invalid handle"
+91:	printc 12, "fs_oofs_nextentry: invalid handle: "
+	push	ebx
+	call	_s_printhex8
+	call	newline
 	stc
 	jmp	9b
+
+92:	printc 12, "fs_oofs_nextentry: illegal instance: not oofs_tree: "
+	PRINT_CLASS eax
+	call	newline
+	stc
+	jmp	9b
+
 
 # in: eax = this
 # in: esi = file/dir name
@@ -304,12 +313,12 @@ fs_oofs_nextentry:
 # in: edi = fs direntry struct to be filled
 # out: ebx = our handle
 fs_oofs_open:
-	DEBUG "open"; DEBUG_DWORD ebx; DEBUGS esi
+	#DEBUG "open"; DEBUG_DWORD ebx; DEBUGS esi
 	cmp	ebx, -1
 	jnz	1f
 
 ######## open root
-	push_	edx ebx eax ebp
+	push_	esi edx ebx eax ebp
 	lea	ebp, [esp + 4]
 	mov	eax, [eax + oofs_alloc]
 	or	eax, eax
@@ -346,9 +355,7 @@ fs_oofs_open:
 	jc	94f
 
 2:	# ebx = handle for HEAD
-	DEBUG_DWORD ebx, "HEAD handle"
 	jc	9f
-	DEBUG "ok"
 
 	# load handle content
 	mov	eax, offset class_oofs_tree
@@ -358,20 +365,25 @@ fs_oofs_open:
 	# in: edx = oofs_alloc
 	mov	edx, [ebp]
 	mov	edx, [edx + oofs_alloc]
-	INVOKEVIRTUAL oofs init
+	mov	esi, ebx	# backup alloc handle index
+	INVOKEVIRTUAL oofs init	# out: ebx = fs handle index
 	jc	96f
 
 	mov	edx, eax
 
 	mov	eax, [ebp]	# just in case
 	mov	eax, [eax + oofs_alloc]
+	push	eax
+	xchg	ebx, esi	# ebx = alloc handle index, esi=fs handle idx
 	INVOKEVIRTUAL oofs_alloc handle_load	# ebx->eax
+	pop	eax
 	jc	95f
 
 	# return the handle index
-	mov	[ebp + 4], ebx # update ebx return value
+	mov	[ebp + 4], esi # update ebx return value
+#	DEBUG_DWORD esi
 
-9:	pop_	ebp eax ebx edx
+9:	pop_	ebp eax ebx edx esi
 	STACKTRACE 0
 	ret
 
@@ -393,11 +405,14 @@ fs_oofs_open:
 96:	printlnc 12, "can't instantiate oofs_tree"
 	stc
 	jmp	9b
+97:	printlnc 12, "error finding handle index"
+	stc
+	jmp	9b
 
 ####### open subdir/file
 # in: ebx = parent directory handle
 # in: esi = entry name
-1:	push_	eax
+1:	push_	eax edx	# stackref!
 
 	mov	eax, [eax + oofs_alloc]
 	INVOKEVIRTUAL oofs_alloc handle_get	# ebx->eax
@@ -412,34 +427,64 @@ fs_oofs_open:
 	mov	cl, FS_DIRENT_STRUCT_SIZE & 3
 	rep	movsb
 	pop_	esi ecx edi
-	# return a handle index in ebx.
-	# ebx may be -1, which is taken as root, so change it.
-	cmp	ebx, -1
-	jnz	1f	# TODO: instantiate and cache (if dir).
-	dec	ebx	# make it -2, indicating empty handle.
-1:
-	clc
 
-9:	pop_	eax
+	# return a handle index in ebx.
+
+	# check if the handle is allocated:
+	cmp	ebx, -1
+	jnz	1f
+	# not allocated. Don't instantiate, but register the fs handle:
+	xor	edx, edx	# null object
+	mov	eax, [esp + 4]	# this
+	mov	eax, [eax + oofs_alloc]
+	INVOKEVIRTUAL oofs_alloc handle_register # out: ebx = fs handle idx
+	jc	95f
+	jmp	9f
+
+
+1:	mov	edx, eax	# backup eax = parent handle instance
+	mov	eax, offset class_oofs_tree
+	call	class_newinstance
+	# in: ebx = handle
+	# in: edx = oofs_alloc
+	mov	edx, [esp + 4]	# this
+	mov	edx, [edx + oofs_alloc]
+	INVOKEVIRTUAL oofs init	# out: ebx = handle index
+	jc	93f
+
+
+9:	pop_	edx eax
 	ret
 
-91:	printlnc 12, "invalid handle"
+90:	PUSH_TXT "fs_oofs_open: %s\n"
+	PUSHCOLOR 12
+	call	printfc
+	POPCOLOR
+	add	esp, 8
 	stc
 	jmp	9b
+
+91:	PUSH_TXT "invalid handle"
+	jmp	90b
+92:	PUSH_TXT "error instantiating oofs_tree"
+	jmp	90b
+93:	PUSH_TXT "error initializing oofs_tree"
+	jmp	90b
+95:	PUSH_TXT "error registering handle"
+	jmp	90b
 
 
 # in: ebx = directory/file handle
 fs_oofs_close:
-	DEBUG "close"
 	cmp	ebx, -1
-	jz	1f
-	cmp	ebx, -2	# empty file/dir in oofs_tree
 	jz	1f
 	# ebx is handle index
 	push	eax
 	mov	eax, [eax + oofs_alloc]
 	INVOKEVIRTUAL oofs_alloc handle_remove
 	jc	91f
+	or	eax, eax	# null (unallocated) handle object?
+	jz	9f
 	call	class_deleteinstance
 9:	pop	eax
 	STACKTRACE 0

@@ -2303,11 +2303,18 @@ PRINTF_DEBUG = 0
 # 	NOTE that X=0 (black on black) is treated as the end of the string.
 #
 
+# in: stack; bottom arg is color.
+.global printfc
+printfc:
+	push	ebp
+	lea	ebp, [esp + 8 + COLOR_STACK_SIZE]
+	jmp	1f
+
 # in: stack
 printf:
 	push	ebp
 	lea	ebp, [esp + 8]
-	push	eax
+1:	push	eax
 	push	ebx
 	push	ecx
 	push	edx

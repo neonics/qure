@@ -20,7 +20,8 @@ DECLARE_CLASS_END oofs_handle
 .text32
 # in: eax = instance
 # in: edx = parent (instance of class_oofs_alloc)
-# in: ebx = oofs_alloc handle
+# in: ebx = oofs_alloc handle index
+# out: ebx = fs handle index (for use with oofs_alloc_handle_*)
 oofs_handle_init:
 	# verify that the persistence is indeed oofs_alloc:
 	push_	edx eax
@@ -34,6 +35,17 @@ oofs_handle_init:
 
 	# calculate LBA, size
 	push_	ebx ecx
+
+	cmp	ebx, -1
+	jnz	1f
+	printc 0xf4, "handle -1"
+	int 3
+	# it's a dummy handle
+	mov	ebx, -1
+	mov	ecx, -1
+	jmp	2f
+
+1: 
 	mov	ecx, [edx + oofs_alloc_handles + handles_ptr]
 	add	ecx, ebx
 	mov	ebx, [ecx + handle_base]
@@ -53,11 +65,11 @@ oofs_handle_init:
 		call	newline
 	.endif
 
-	call	oofs_persistent_init	# super.init()
+2:	call	oofs_persistent_init	# super.init()
 	pop_	ecx ebx
 
 	xchg	eax, edx
-	call	oofs_alloc_handle_register
+	call	oofs_alloc_handle_register	# out: ebx = fs hndl idx
 	xchg	eax, edx
 
 
@@ -99,14 +111,13 @@ oofs_handle_load:
 	mov	ecx, [eax + oofs_handle_persistence]
 	mov	ecx, [ecx + oofs_alloc_handles + handles_ptr]
 	add	ecx, [eax + oofs_handle_handle]
-	mov	ecx, [ecx + handle_caller]
+	mov	ecx, [ecx + handle_caller]	# initialized sectors
 	shl	ecx, 9
 	jnz	1f
 	mov	ecx, 512	# read at least 1 sector
 1:
 	mov	edx, [eax + oofs_handle_persistent_start]
 	lea	edi, [eax + edx]
-#	call	[eax + oofs_persistent_api_read]
 	INVOKEVIRTUAL oofs_persistent read
 	jc	1f
 	# recalculate edi

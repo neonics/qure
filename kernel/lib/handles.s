@@ -1085,6 +1085,8 @@ handle_get_by_base:
 	ret
 		.if HANDLE_ASSERT
 		91:	printc 4, "corrupt handle"
+			DEBUG_DWORD ebx
+			DEBUG_DWORD edx
 			# inspect ebx (rel handle ptr), edi = prev handle ptr
 			call	handle_print$
 			int 3
@@ -1204,12 +1206,14 @@ handle_free_by_base:
 	jc	91f
 	call	handle_free
 0:	pop	ebx
+	STACKTRACE 0
 	ret
-90:	printc 4, "handle_free_by_base: "
-	call	_s_println
+91:	printc 4, "handle_free_by_base: unknown pointer: "
+	push	eax
+	call	_s_printhex8
+	call	newline
+	stc
 	jmp	0b
-91:	pushstring "unknown pointer"
-	jmp	90b
 
 # in: ebx = handle index
 # in: esi = handles struct
