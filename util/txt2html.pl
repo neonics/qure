@@ -157,6 +157,7 @@ while ( $tmp =~ /<h(.)>(.*?)<\/h\1>/ )
 $c = $o . $tmp;
 
 my $lev=0;
+my $toc = "<h2>TOC</h2>\n";
 foreach ( @toc ) {
 	while ( $_->{level} < $lev )
 	{
