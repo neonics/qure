@@ -229,10 +229,6 @@ include "dma.s", dma
 	# gdt
 	.global GDT
 
-	# mutex
-	.global mutex
-	.global mutex_owner
-
 	# mem
 	.global malloc
 	.global malloc_aligned

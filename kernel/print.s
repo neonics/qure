@@ -365,10 +365,20 @@ COLOR_STACK_SIZE = 4
 .macro PRINTCHARc_ col, c
 	IS_REG8 _IS_REG8, \c
 	.if _IS_REG8
-	mov	ah, \col
-	mov	al, \c
+		.ifnc \col,ah
+		mov	ah, \col
+		.endif
+		mov	al, \c
 	.else
-	mov	ax, (\col<<8) | \c
+		IS_REG8 _IS_REG8 \col
+		.if _IS_REG8
+			mov	al, \c
+			.ifnc \col,ah
+			mov	ah, \col
+			.endif
+		.else
+			mov	ax, (\col<<8) | \c
+		.endif
 	.endif
 	call	printcharc
 .endm

@@ -4,6 +4,8 @@
 .intel_syntax noprefix
 
 MUTEX_DEBUG = 1	# registers lock owners
+MUTEX_TRACE = 0	# 1=print lock/unlock
+MUTEX_ASSERT = 1
 
 _MUTEX_LOCAL = 0	# experimental feature
 
@@ -11,6 +13,21 @@ _MUTEX_LOCAL = 0	# experimental feature
 ################################################################
 # Mutex - mutual exclusion
 #
+.global mutex
+.global mutex_owner
+.global mutex_released
+.global mutex_fail
+.global mutex_name_SCHEDULER
+.global mutex_name_SCREEN
+.global mutex_name_MEM
+.global mutex_name_KB
+.global mutex_name_FS
+.global mutex_name_NET
+.global mutex_name_TCP_CONN
+.global mutex_name_SOCK
+.global mutex_name_TIME
+
+
 .data SECTION_DATA_SEMAPHORES
 .align 4
 mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
@@ -27,12 +44,16 @@ mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 
 	NUM_MUTEXES	= 9
 .if DEFINE
-mutex_owner:	.space 4 * NUM_MUTEXES
 
+.data SECTION_DATA_BSS
+mutex_owner:	.space 4 * NUM_MUTEXES
+mutex_released:	.space 4 * NUM_MUTEXES
+
+.section .strings
 mutex_names:
 mutex_name_SCHEDULER:	.asciz "SCHEDULER"
-mutex_name_MEM:		.asciz "MEM"
 mutex_name_SCREEN:	.asciz "SCREEN"
+mutex_name_MEM:		.asciz "MEM"
 mutex_name_KB:		.asciz "KB"
 mutex_name_FS:		.asciz "FS"
 mutex_name_NET:		.asciz "NET"
@@ -45,7 +66,25 @@ tls_mutex: .long 0
 .tdata_end
 
 .text32
+# in: [esp] = offset to mutex_name_*
+# in: CF according to btr/bts expectation
+mutex_fail:
+	jc	1f
+	printc 0x4f, "failed to release lock "
+	jmp	2f
+1:	printc 0x4f, "failed to acquire lock "
+2:	pushd	[esp + 4]
+	call	_s_println
+	STACKTRACE 0,0
+	ret	4
 
+# in: [esp] = MUTEX_ bit number
+mutex_lock:
+	ret
+mutex_unlock:
+	ret
+mutex_spinlock:
+	ret
 .endif
 
 .ifndef __MUTEX_DECLARE
@@ -113,23 +152,24 @@ __MUTEX_DECLARE = 1
 
 
 # out: CF = 1: fail, mutex was already locked.
-.macro MUTEX_LOCK name, nolocklabel=0, locklabel=0, debug=0
+.macro MUTEX_LOCK name, nolocklabel=0, locklabel=0
 	lock bts dword ptr [mutex], MUTEX_\name
-	MUTEX_LOCAL_SETC \name
+
+	.if MUTEX_ASSERT
+		jnc	1990f
+		pushd	offset mutex_name_\name
+		call	mutex_fail
+		int 3
+	1990:
+	.endif
 
 	.if MUTEX_DEBUG
-		jc	100f
-		call	101f
-	101:	pop	[mutex_owner + MUTEX_\name * 4]
-	100:
+		call	1991f
+	1991:	popd	[mutex_owner + MUTEX_\name * 4]
 	.endif
 
-	.if \debug
-		jnc	100f
-		printc 5, "MUTEX LOCK \name: fail"
-		stc
-	100:	
-	.endif
+	MUTEX_LOCAL_SETC \name
+
 	.ifnc 0,\nolocklabel
 	jc	\nolocklabel
 	.endif
@@ -139,41 +179,80 @@ __MUTEX_DECLARE = 1
 .endm
 
 # out: CF = 1: it was locked (ok); 0: another thread unlocked it (err)
-.macro MUTEX_UNLOCK name, debug=0
+.macro MUTEX_UNLOCK name
 	lock btr dword ptr [mutex], MUTEX_\name
-	MUTEX_LOCAL_CLEARC \name
-	.if MUTEX_DEBUG > 1
-		mov	[mutex_owner + MUTEX_\name * 4], dword ptr 0
+	.if MUTEX_ASSERT
+		jc	1990f
+		pushd	offset mutex_name_\name
+		call	mutex_fail
+		int 3
+	1990:
 	.endif
-
-	.if \debug
-		jc	100f
-		printc 4, "MUTEX_UNLOCK \name: unlock error"
-		clc
-	100:
+	MUTEX_LOCAL_CLEARC \name
+	.if MUTEX_DEBUG
+		call	1999f
+	1999:	popd	[mutex_released + MUTEX_\name * 4]
 	.endif
 .endm
 
 
+MUTEX_SPINLOCK_TIMEOUT=0	# implies MUTEX_ASSERT
+
 .macro MUTEX_SPINLOCK_ name
+	.if MUTEX_SPINLOCK_TIMEOUT
+		push	ecx
+		mov	ecx, SPINLOCK_TIMEOUT
+	.endif
 	jmp	1990f
-1999:	lock btr dword ptr [mutex], MUTEX_\name	# clear mutex on fail
+	.if MUTEX_SPINLOCK_TIMEOUT
+	1994:	pushd	offset mutex_name_\name
+		call	mutex_fail
+		int 3
+		mov	ecx, SPINLOCK_TIMEOUT
+	.endif
+1999:
+	.if MUTEX_SPINLOCK_TIMEOUT
+		dec	ecx
+		jz	1994b
+	.endif
 	YIELD
 1990:	lock bts dword ptr [mutex], MUTEX_\name
 	jc	1999b
+	.if MUTEX_TRACE
+		DEBUG "LOCK \name";call .+5;call _s_printhex8;
+	.endif
 	MUTEX_LOCAL_SETC_ \name
-	call	1999f
-1999:	pop	dword ptr [mutex_owner + MUTEX_\name * 4]
+	.if MUTEX_DEBUG
+		call	1999f
+	1999:	popd	[mutex_owner + MUTEX_\name * 4]
+	.endif
+	.if MUTEX_SPINLOCK_TIMEOUT
+		pop	ecx
+	.endif
 .endm
 
 .macro MUTEX_UNLOCK_ name
 	pushf
 	lock btr dword ptr [mutex], MUTEX_\name
+	.if MUTEX_ASSERT
+		jc	1990f
+		pushd	offset mutex_name_\name
+		call	mutex_fail
+		int 3
+	1990:
+	.endif
+	.if MUTEX_TRACE
+		DEBUG "UNLOCK \name";call .+5;call _s_printhex8;
+	.endif
 	MUTEX_LOCAL_CLEARC_ \name
-	mov	dword ptr [mutex_owner + MUTEX_\name * 4], 0
+	.if MUTEX_DEBUG
+		call	1999f
+	1999:	popd	[mutex_released + MUTEX_\name * 4]
+	.endif
 	popf
 .endm
 
+.if 0 # unused
 .macro MUTEX_SCHEDLOCK name
 1999:	lock bts dword ptr [mutex], MUTEX_\name
 	jnc	1999f
@@ -214,6 +293,13 @@ __MUTEX_DECLARE = 1
 	.endif
 .endm
 
+.else
+
+.macro MUTEX_SPINLOCK name
+	MUTEX_SPINLOCK_ \name
+.endm
+
+.endif
 
 #####################################################################
 # Semaphores (shared variable)

@@ -658,11 +658,7 @@ debugger_printcalc_mutex$:
 	ret
 
 debugger_print_mutex$:
-	push	eax
-	push	ecx
-	push	edx
-	push	esi
-	push	edi
+	push_	eax ebx ecx edx esi edi
 
 	cmp	byte ptr [debugger_mutex_col_width$], 0
 	jnz	1f
@@ -673,6 +669,7 @@ debugger_print_mutex$:
 	mov	edx, [mutex]
 	call	printbin8
 	call	newline
+	mov	ebx, edx
 
 	mov	ecx, NUM_MUTEXES
 	mov	esi, offset mutex_owner
@@ -681,7 +678,15 @@ debugger_print_mutex$:
 0:	mov	edx, NUM_MUTEXES
 	sub	edx, ecx
 	call	printdec32
-	printchar_ ':'
+	mov	eax, 1
+	xchg	edx, ecx
+	shl	eax, cl
+	xchg	edx, ecx
+	test	ebx, eax
+	mov	ah, 7
+	jz	3f
+	mov	ah, 15
+3:	printcharc_ ah, ':'
 
 	xchg	esi, edi
 	push	ecx
@@ -704,13 +709,27 @@ debugger_print_mutex$:
 	call	printspace
 	call	debug_printsymbol
 1:	call	newline
-	loop	0b
-########
-	pop	edi
-	pop	esi
-	pop	edx
+
+	# print release
+	push	ecx
+	movzx	ecx, byte ptr [debugger_mutex_col_width$]
+	add	ecx, 2
+2:	call	printspace
+	loop	2b
 	pop	ecx
-	pop	eax
+	mov	edx, NUM_MUTEXES
+	sub	edx, ecx
+	mov	edx, [mutex_released + edx * 4]
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+	call	newline
+
+	dec	ecx
+	jnz	0b
+#	loop	0b
+########
+	pop_	edi esi edx ecx ebx eax
 	ret
 
 DEBUGGER_SWAP_CR3 = 0
