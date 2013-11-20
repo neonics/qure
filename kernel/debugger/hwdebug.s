@@ -52,8 +52,13 @@ breakpoint_enable_memwrite_dword:
 .global breakpoint_memwrite_dword
 breakpoint_memwrite_dword:
 enable_breakpoint_memwrite_dword:
-	#DEBUG "Set breakpoint: addr:"
-	#DEBUG_DWORD eax
+.if 0
+	DEBUG "Set breakpoint: addr:"
+	DEBUG_DWORD eax
+	call	newline
+	STACKTRACE 0,0
+.endif
+
 	push	ebx
 	GDT_GET_BASE ebx, ds
 	add	eax, ebx
@@ -61,10 +66,19 @@ enable_breakpoint_memwrite_dword:
 	#DEBUG " hw addr:"
 	#DEBUG_DWORD eax
 
+# KEEP-WITH-NEXT fallthrough
 
 breakpoint_set_memwrite_dword:
 call bp_disabled
 	push_	eax ebx
+
+# clear old breakpoints:
+	xor	ebx, ebx
+	mov	dr0, ebx
+	mov	dr1, ebx
+	mov	dr2, ebx
+	mov	dr3, ebx
+
 	mov	ebx, dr7
 	#	ebx, 0b11111111111111110010011111111111 # 0=reserved bit
 	#              f   f   f   f   2   7   aabbccdd
