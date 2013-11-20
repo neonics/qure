@@ -774,5 +774,5 @@ TODO: HTTPD memory leak on high load.
 
 DONE: fix mutex bug
 DONE: fix socket_buffer_read mutex reset.
-TODO: fix occasional scheduling reentrancy.
-TODO: fix memory mutex recursion
+DONE: fix occasional scheduling reentrancy.
+DONE: fix memory mutex recursion

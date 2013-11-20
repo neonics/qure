@@ -928,16 +928,19 @@ handles_alloc$:
 	call	ll_insert_sorted$	# in: esi, edi, ebx, ecx
 	sub	esi, offset handle_ll_el_addr
 
+
+	pop	esi
+
 	# now mark the old memory region as free:
 	or	eax, eax	# only applies to first time
 	jz	1f
-	call	mfree	# see 1b for eax
+	call	handle_free_by_base	# see 1b for eax
 1:
 
 	# When we're here, the handles are set up properly, at least one
 	# allocated for the handle structures themselves.
 
-	pop_	esi edi ecx ebx eax
+	pop_	edi ecx ebx eax
 	ret
 
 
@@ -958,8 +961,10 @@ handles_validate_contiguous_address$:
 	mov	edi, [esi + ebx + handle_fa_prev]
 	cmp	edi, -1
 	jz	1f
-	mov	edx, [esi + edi + handle_base]
-	add	edx, [esi + edi + handle_size]
+	mov	edx, [esi + edi + handle_size]
+or edx, edx
+js 99f
+	add	edx, [esi + edi + handle_base]
 	cmp	edx, eax
 	jnbe	41f
 1:
@@ -1034,7 +1039,7 @@ handles_validate_contiguous_address$:
 	printlnc 4,"-----------------------------";
 	mov	esi, [esp]
 	call	handles_print
-	int 3
+99:	int 3
 	sti
 	jmp	9b
 

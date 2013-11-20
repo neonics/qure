@@ -493,12 +493,12 @@ get_time_ms_40_24:
 	jz	1f
 	call	SEL_kernelCall:0
 1:
+	pushf
+	cli	# lock pit port / disable scheduler
 	MUTEX_SPINLOCK TIME
 
 	push_	ebx ecx edi esi
 
-	pushf
-	cli	# lock pit port
 mov eax, [clock]
 mov [cur_clock], eax
 	mov	esi, [clock_ms_fp+4]
@@ -531,7 +531,6 @@ mov [cur_clock], eax
 	mov	[latch_val], ax
 	.endif
 
-	popf
 
 
 	# eax = counter (counts down!)
@@ -641,6 +640,7 @@ mov [frac+4], eax
 	MUTEX_UNLOCK TIME
 
 	pop_	esi edi ecx ebx
+	popf
 	ret
 
 get_time_ms:

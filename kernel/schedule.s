@@ -594,6 +594,10 @@ call newline
 	pop	ebp
 .endif
 	# stack is set up as if there was an interrupt with privilege level change.
+	# NOTE: the code called from the scheduler _MAY_ result in this code being
+	# executed from within the ISR stack:
+	# (task_update_time_* -> pit.s/get_time_ms_40->mutex->yield).
+	# The solution there is to disable the scheduler around the mutex lock.
 	jmp	schedule_isr
 
 
@@ -936,7 +940,9 @@ pit_read_time:
 	popf
 	ret
 
-
+# NOTE: be certain that methods called here either disable the scheduler
+# or not call yield (which is what MUTEX_SPINLOCK does).
+#
 # in: ebx = task ptr
 task_update_time_suspend$:
 	push_	eax edx esi edi
