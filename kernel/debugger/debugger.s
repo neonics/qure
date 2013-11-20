@@ -471,8 +471,8 @@ debug_printsymbol:
 	call	debug_getsource
 	jc	1f
 
-	add	edx, [reloc$]
 	push	edx
+	add	edx, [reloc$]
 	mov	edx, eax
 	mov	ah, 11
 	call	printc
@@ -482,6 +482,7 @@ debug_printsymbol:
 	pop	edx
 
 1:
+	add	edx, [reloc$]
 	call	debug_getsymbol
 	jc	1f
 	pushcolor 14
