@@ -1,0 +1,125 @@
+
+Nonlocality
+-----------
+The network packet handler ''kernel/net/net.s'' is in charge of processing
+incoming packets on the one hand, and offering the ability to inject packets
+onto the network on the other, thus bridging userspace over a network,
+translating between locality and nonlocality.
+
+One might expect there to be a synchronicity between local packet processing
+and reception - which there is, the packet queue - but, there is another less
+obvious synchronicity, and that is between a userspace program and the network
+in the outgoing direction. To provide sending information, the kernel offers packet
+buffers. Since all networked programs require such buffers, the kernel - which is,
+in one aspect, a shared library aimed at reducing the complexity of programs -
+provides, and thus manages, these. Removing the problem to userspace does not solve
+synchronicity for multithreaded applications, as the task of synchronizing network
+buffer usage remains.
+
+One level of the solution is to maintain separate network buffers for each task,
+and assume each task is singlethreaded, or treat threads as tasks. Yet, this puts
+the solution in a specific place, which does not account for interrupt handlers
+in a multithreaded process, such as the kernel itself.
+
+The network buffer allocation routine uses a circular array of pointers. If packet
+buffers are allocated more often within a timeperiod than they are released, there
+is a net shortage. This then can occur under seemingly several circumstances, which
+are first, a process allocating more buffers than the kernel has to offer; second,
+a process requesting to send packets at a higher frequency than the network speed
+allows; and thirdly, too many parallel networked tasks.
+
+Scheduler API: Semaphores
+-------------
+At current, no mechanism is in place to guard against the above. A simple solution is
+to synchronize array access in the same way IO access is efficiently scheduled,
+which is by using a feature of the scheduler that won't schedule a task until
+a semaphore is triggered.
+
+The use of semaphores involves nonprivileged hardware assisted atomic operations,
+at least within a hardware thread. The value at a memory address is incremented
+and decremented depending on the use. Two reflections of neutrality, each the
+inverse of the other, are provided as READ and WRITE locks.
+Hardware provides a flag register that gets triggered when deviating from neutrality,
+represented as zero, a unique value clearing all flags. Transitioning from or to
+negative values will trigger a range of flags, and no more than a single bit is
+needed to distinguish between two sides. 
+
+One side - the negative side of zero - represents the WRITE locks, as only a single
+value (-1) is allowed. On the positive side all values are allowed, representing
+READ locks, for, once a READ lock is acquired, the data is guaranteed to not
+be modified (depending on the guarantee that only semaphore-locked is used 
+to access the data), and thus further READ locks merely prolong the period of
+no-change.
+
+To reserve a read-lock, the semaphore is incremented. If the result is greater
+than zero, the lock succeeds. If it is zero, it means the semaphore is write
+protected. To release a read-lock, the semaphore is decremented. 
+
+Write locking uses the operations in reverse. Decrementing a negative value
+always results in the sign flag to be set, as the number remains negative,
+but the carry flag is only triggered in the transition from zero to negative,
+indicating a unique value.
+
+Further, the second unique value, zero or neutrality, represents the data not
+being accessed, since there are no read locks, and there is no write lock.
+The scheduler uses this information, together with it's knowledge that since
+it is being executed, no other code is running on the hardware thread, as it is
+in complete control of scheduling. The scheduler, when called by an interrupt,
+is guaranteed to be the only task running as interrupts are disabled.
+Armed with this information, the scheduler, aware of the way semaphores
+are operated, can now safely continue execution of such task. This condition is reached
+when a semaphore is requested to be locked by multiple tasks at the same time. 
+One tasks will receive the lock, whereas the others, having attempted to lock,
+determine that it is already taken, and undo their operation by performing
+the inverse, whereafter they yield to the scheduler referring to the semaphore,
+thereby requesting not to be scheduled until the value is neutral.
+
+Efficient tasks will yield after returning a lock, informing the scheduler
+that potentially a lock is opened. It can then, being efficient, determine
+whether it has suspended tasks from being scheduled due to a lock, and
+whether one of those locks is available. The task might even clue the
+scheduler in.
+
+Extension
+---------
+In this way, semaphores can be used to control the scheduler. A scheduler
+extension - code that has been given write access to the schedule - may
+alter each task to be waiting for a particular semaphore. Such an extension
+could have all tasks refer to the same semaphore, which makes it a flag
+that either disables scheduling alltogether, or behaves in the default
+circular fashion. It could also maintain a bit-array for all tasks, as their
+order is guaranteed to remain the same, and play it like an organ. This allows
+to both record and playback scheduling sequences.
+
+A pattern can then be projected onto the bits enabling tasks for scheduling,
+thereby allowing for any scheduling algorithm.
+
+
+
+Relativity
+----------
+Now, as discussed earlier, synchronicity can be seen to be relative depending
+on context and function, such as network translation, the network speed
+relative to the task speed, or even a multithreaded process relative to
+a shared point such as memory. 
+
+However, all of these are the same, as they are all examples of parallel
+threads of execution. Whether one side of the relation has a higher frequency
+than the other, or whether that side is running more parallel threads than
+the other, makes no difference. 
+
+Singularity
+-----------
+A multithreaded system will have a fixed point that relates to all threads
+identically. From the perspective of the thread, such is a shared resource,
+as it is the context in which it operates. Memory, for instance, is shared
+by all hardware threads, and thus potentially by all software threads,
+providing the context in which tasks are executed. The network interface
+is seen by a task as a shared resource, as only harmonious information
+can be meaningful. Use of such a shared resource requires yielding to the
+scheduler.
+
+The scheduler then, provides a bridge translating between parallel and serial:
+a point of synchronicity, where actions are performed at the appropriate
+time to guarantee integrity. 
+

@@ -156,7 +156,7 @@ TXTDOC=Bootsector Cluster NetFork CloudNet LiquidChristalProcessor \
 	CircularBuffer HostMe Freedom Net TaskSwitching CallingConvention \
 	Filesystem EnclosedSource DNS2 Gittorrent VersionControl OOFS \
 	Security Fork Storage Paging Scheduling ITC GAS GitFS Debugging \
-	Architecture
+	Architecture Synchronicity
 HTMLDOC=PersistentCluster
 
 WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${TXTDOC}))

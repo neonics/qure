@@ -776,3 +776,5 @@ DONE: fix mutex bug
 DONE: fix socket_buffer_read mutex reset.
 DONE: fix occasional scheduling reentrancy.
 DONE: fix memory mutex recursion
+
+TODO: make network buffer allocation asynchronous relative to packet reception.
