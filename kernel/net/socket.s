@@ -380,7 +380,7 @@ socket_buffer_read:
 0:	mov	edi, [socket_array]
 		xor	ecx, ecx
 		test	dword ptr [edi + eax + sock_flags], SOCK_CLOSED
-		jnz	11f
+		jnz	61f
 	mov	esi, [edi + eax + sock_in_buffer]
 	mov	ecx, [esi + buffer_index]
 	mov	edi, [esi + buffer_start]
@@ -404,23 +404,20 @@ socket_buffer_read:
 ########
 	MUTEX_SPINLOCK_ SOCK
 	jmp	0b
-11:
-#DEBUG_DWORD [edi+eax+sock_flags], "socket_buffer_read: sock closed"
-#clc;#stc
-#xor ecx, ecx;
-#jmp 3f
 
 1:	cmp	dword ptr [socket_buffer_sem], 0
 	jbe	9f	# TODO FIXME - just in case. 2 appends can result in 1 read...
 	lock dec dword ptr [socket_buffer_sem]
 	clc
-3:
-	MUTEX_UNLOCK_ SOCK
 2:	pop	ebx
 	pop	edi
 	ret
 
 9:	printlnc 4, "socket_buffer_sem < 0: "; DEBUG_DWORD [socket_buffer_sem]
+	jmp	1b
+
+61:	DEBUG "sock closed"
+	MUTEX_UNLOCK_ SOCK
 	jmp	1b
 
 # in: eax = socket index
@@ -566,7 +563,7 @@ socket_accept:
 	add	ebx, ecx
 	jmp	1f
 
-0:	MUTEX_UNLOCK SOCK
+0:	MUTEX_UNLOCK_ SOCK
 
 	YIELD_SEM (offset sock_accept_sem)
 
