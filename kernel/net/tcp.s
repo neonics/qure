@@ -1763,7 +1763,7 @@ net_tcp_handle_syn$:
 	_TCP_HLEN = (TCP_HEADER_SIZE + _TCP_OPTS)
 
 	NET_BUFFER_GET
-	jc	9f
+	jc	91f
 	push	edi
 
 	mov	eax, [edx + ipv4_src]
@@ -1775,7 +1775,7 @@ net_tcp_handle_syn$:
 	call	net_ipv4_header_put # mod eax, esi, edi
 	pop	esi
 	pop	edx
-	jc	8f
+	jc	92f
 
 	# add tcp header
 	push	edi
@@ -1854,17 +1854,23 @@ net_tcp_handle_syn$:
 
 	pop	esi
 	NET_BUFFER_SEND
+	jc	91f
 
-9:	pop	eax
-	jc	1f
+	pop	eax
 	add	eax, [tcp_connections]
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_SYN_ACK_TX | TCP_CONN_STATE_SYN_TX
-1:	MUTEX_UNLOCK_ TCP_CONN
-	pop	ebp
+	MUTEX_UNLOCK_ TCP_CONN
+
+0:	pop	ebp
 	popad
 	ret
-8:	pop	edi
-	jmp	9b
+
+# these errors occur before TCP_CONN is locked
+92:	# ipv4 header put fail (arp lookup failure etc)
+	pop	edi
+91:	# net buffer get/send fail
+	pop	eax
+	jmp	0b
 
 # in: esi = source tcp frame
 # in: edi = target tcp frame
