@@ -193,9 +193,10 @@ site-doc: root/www/doc.inc
 	@#cp -a DOC/Screenshots/*.png root/www/screenshots/
 	@#cp DOC/* root/src/kernel/DOC/
 
-root/www/doc.inc: $(WWW_DOC) $(HTML_DOC)
+root/www/doc.inc: $(WWW_DOC) $(HTML_DOC) util/genlinks.pl
 	@echo "  HTMLl $@"
-	@ls root/www/doc | grep -v -e \.xml\$$ | util/genlinks.pl > root/www/doc.inc
+	@#ls root/www/doc | grep -v -e \.xml\$$ | util/genlinks.pl > root/www/doc.inc
+	@util/genlinks.pl --mtime --maxhours '7*24' > root/www/doc.inc
 
 root/www/doc/index.html: root/www/doc.inc
 	@echo "  HTML  $@"
