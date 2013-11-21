@@ -231,6 +231,7 @@ SHELL_COMMAND "uptime"		cmd_uptime
 SHELL_COMMAND "date"		cmos_print_date
 SHELL_COMMAND "shutdown"	cmd_shutdown
 SHELL_COMMAND "reboot"		cmd_reboot
+SHELL_COMMAND "crc32"		cmd_crc32
 # NOTE: linker must terminate list with LONG(0);
 ### End of Shell Command list
 ############################################################################
@@ -2870,5 +2871,18 @@ cmd_iproute:
 	call	newline
 	ret
 9:	printlnc 4, "usage: iproute <ipv4_addr>"
+	ret
+
+
+.include "../lib/crc32.s"
+cmd_crc32:
+	lodsd
+	lodsd
+	mov	esi, eax
+	call	strlen_
+	call	crc32
+	push	eax
+	call	_s_printhex8
+	call	newline
 	ret
 .endif
