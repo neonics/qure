@@ -1743,6 +1743,8 @@ atapi_read_capacity:
 		PRINTLN " bytes: "
 	.endif
 
+	mov	esi, offset atapi_packet
+
 	mov	ebx, [esi]	# LBA
 	bswap	ebx
 
@@ -1808,6 +1810,7 @@ atapi_read12$:
 	push_	eax ecx
 	SEM_SPINLOCK [atapi_sem]#LOCK_WRITE [atapi_sem]
 	pop_	ecx eax
+	push	esi
 	push	edx
 	push	ebx
 
@@ -1833,6 +1836,7 @@ atapi_read12$:
 	call	atapi_packet_command
 9:	pop	ebx
 	pop	edx
+	pop	esi
 	pushf
 	SEM_UNLOCK [atapi_sem]#UNLOCK_WRITE [atapi_sem]
 	popf
@@ -1869,7 +1873,8 @@ atapi_packet:
 # in: esi = 6 word packet data
 # in: edi = buffer
 # in: ecx = max transfer size
-# out: esi = offset to buffer, ecx = data in buffer
+# out: ecx = data in buffer
+# destroys: eax
 atapi_packet_command:
 	cmp	ecx, ATAPI_SECTOR_SIZE
 	jbe	0f
@@ -1950,6 +1955,7 @@ pop eax
 	add	dx, ATA_PORT_DATA
 	mov	ecx, 6
 	rep	outsw
+	sub	esi, 12
 	pop	ecx
 	pop	dx
 
@@ -2037,7 +2043,6 @@ pop eax
 		PRINTln "Data read."
 	.endif
 
-	mov	esi, edi
 	clc
 1:	ret
 

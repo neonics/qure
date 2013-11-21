@@ -139,6 +139,7 @@ fs_iso9660_mount:
 	pop	edi
 	jc	7f
 
+	mov	esi, [edi + iso_prim_vol_desc]
 	call	iso9660_verify$
 	jc	7f
 
@@ -159,9 +160,7 @@ fs_iso9660_mount:
 	mov	al, [edi + fs_obj_disk]
 	push	edi
 	mov	edi, [edi + iso_path_table]
-	push	esi
 	call	atapi_read12$
-	pop	esi
 	pop	edi
 	jc	6f
 
@@ -873,7 +872,7 @@ fs_iso9660_read:
 0:	mov	ecx, edx
 	push	eax
 	mov	al, [eax + fs_obj_disk]
-	call	atapi_read12$	# mod: eax, ecx, esi
+	call	atapi_read12$	# mod: eax, ecx
 	pop	eax
 	jc	9f
 	inc	ebx
@@ -899,6 +898,7 @@ fs_iso9660_move:
 # Utility Methods
 
 # used in fs_iso9660_mount
+# in: esi = volume descriptor buffer
 iso9660_verify$:
 	cmp	[esi], byte ptr 1	# expect primary volume descriptor
 	jnz	9f
@@ -1149,10 +1149,10 @@ jc 9f
 	mov	ebx, [edx + iso9660_dr_extent_location]
 mov	edx, [edx + iso9660_dr_data_len]
 0:	
-	push_	esi eax
+	push_	eax
 	mov	ecx, 1
 	call	atapi_read12$	# mod: eax, esi, ecx (->0x800)
-	pop_	eax esi
+	pop_	eax
 	jc	1f
 inc	ebx
 add	edi, 2048
