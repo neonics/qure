@@ -401,7 +401,9 @@ nic_print:
 
 	print	"  IP "
 	mov	eax, [ebx + nic_ip]
+	pushcolor 15
 	call	net_print_ipv4
+	popcolor
 	print	" MASK "
 .if 1#IFCONFIG_OLDSKOOL
 	mov	eax, [ebx + nic_netmask]
