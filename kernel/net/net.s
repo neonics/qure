@@ -175,6 +175,9 @@ net_buffer_allocate$:
 	ret
 # KEEP-WITH-NEXT (1f)
 
+# XXX TODO FIXME: currently round robin without usage check!
+# Proposed solution: add bitstring marking buffer occupation
+#
 # out: edi
 net_buffer_get:
 	push_	eax edx
@@ -193,6 +196,15 @@ net_buffer_get:
 1:	add	eax, 15
 	and	al, 0xf0
 	mov	edi, eax
+
+	# clear buffer
+	push	ecx
+	xor	eax, eax
+	mov	ecx, BUFFER_SIZE >> 2
+	rep	stosd
+	sub	edi, BUFFER_SIZE
+	pop	ecx
+
 	pop_	edx eax
 	clc
 	ret
@@ -235,6 +247,19 @@ net_buffer_send:
 .macro NET_BUFFER_FREE
 	# TODO
 .endm
+
+net_buffers_print:
+	printc 11, "tx buffers: "
+	mov	edx, [net_buffers]
+	mov	edx, [edx + array_index]
+	shr	edx, 2
+	call	printdec32
+	print " x "
+	xor	edx, edx
+	mov	eax, BUFFER_SIZE
+	call	print_size
+	call	newline
+	ret
 
 ##############################################################################
 # gas does not use path's relative to the source file.
@@ -310,6 +335,7 @@ protocol_checksum_:
 	push	eax
 	jmp	1f
 protocol_checksum:
+	jecxz	9f
 	push	edx
 	push	eax
 	xor	edx, edx
@@ -335,7 +361,7 @@ protocol_checksum:
 
 	pop	eax
 	pop	edx
-	ret
+9:	ret
 
 2:	mov	al, [esi + ecx * 2]
 	add	edx, eax
@@ -722,40 +748,8 @@ cmd_host:
 	ret
 ##############################################################################
 
-NET_RX_QUEUE = 1
-NET_RX_QUEUE_ITER_RESCHEDULE = 0	# 0=task loop, 1=task reschedule
 NET_RX_QUEUE_DEBUG = 0
 
-.if NET_RX_QUEUE == 0
-
-# in: ds = es = ss
-# in: ebx = nic
-# in: esi = packet (ethernet frame)
-# in: ecx = packet len
-# effect: schedules net_rx_packet task with a copy of the packet
-net_rx_packet:
-	push	esi
-	# copy the packet
-	call	mdup	# in: esi,ecx; out: esi = copied packet
-	jc	8f
-
-	PUSH_TXT "net"
-	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE
-	push	cs
-	push	eax
-	mov	eax, offset net_rx_packet_task
-	add	eax, [realsegflat]
-	xchg	eax, [esp]
-	KAPI_CALL schedule_task
-	jc	9f	# lock fail, already scheduled, ...
-0:	pop	esi
-	ret
-8:	printlnc 4, "net: out of memory"
-	jmp	0b
-9:	printlnc 4, "net: packet dropped"
-	jmp	0b
-
-.else
 # A queue for incoming packets so as to not flood the scheduler with a job
 # (and possibly a stack) for each packet.
 .struct 0
@@ -854,8 +848,10 @@ net_rx_queue_newentry:
 	jz	3b
 	# fallthrough
 4:	
+.if NET_QUEUE_DEBUG
 printlnc 4,"netq full";
 pushad;call net_rx_queue_print_;popad;
+.endif
 stc;jmp 9b	# code below unstable
 # 0..tail=head..capacity: no room.
 	# expand array
@@ -933,7 +929,6 @@ popcolor
 #popad
 .endif
 
-
 	mov	edx, [net_rx_queue_head]
 	cmp	[eax + edx + net_rx_queue_status], dword ptr NET_RX_QUEUE_STATUS_SCHEDULED
 	stc
@@ -984,9 +979,10 @@ int 3
 	jnc	1f
 	MUTEX_UNLOCK_ NET
 
+	incd	[ebx + nic_rx_dropped]
+
 ########################################################
 9:	call	net_print_drop_msg$
-	DEBUG_BYTE [net_rx_queue_scheduled$]
 	printlnc 4, "queue full"
 
 0:	pop	esi
@@ -1000,12 +996,14 @@ net_print_drop_msg$:
 
 8:	call	net_print_drop_msg$
 	printlnc 4, "mdup error"
+	MUTEX_UNLOCK NET
 	jmp	0b
 
 ########################################################
 # we have a queue entry - set it up.
 # XXX FIXME TODO: possible bug: the queue entry is marked as reserved,
 # but not set up at this point. it might get scheduled.
+# NOTE: mutex locked!
 1:	call	mdup	# in: esi, ecx; out: esi
 net_rx_pkt:	# Debug symbol
 	jc	8b
@@ -1058,117 +1056,35 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 1:	ret	# BUG: edx = [esp] = 00100900
 
 
-net_rx_queue_handler_again:
-	nop
-	#call	newline
-	#DEBUG_DWORD esp,"ENTRY:LOOP",0xb0;DEBUG_DWORD [esp]
-	#jmp	_foo
-
-NET_QUEUE_DEBUG2 = 0
 
 net_rx_queue_handler:
-	#DEBUG_DWORD esp, "ENTRY:SCHED",0xb0;DEBUG_DWORD [esp]
-#_foo:
-.if NET_QUEUE_DEBUG2
-	printcharc 0xa1,'1'
-.endif
 	MUTEX_SPINLOCK_ NET
-
-.if NET_QUEUE_DEBUG2
-	printcharc 0xa2,'2'
-.endif
-
-.if 1
 	call	net_rx_queue_get
 	jnc	1f
-.if NET_QUEUE_DEBUG2
-	printcharc 0xa3,'-'
-.endif
-.else
-	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
-	cmp	[eax + edx + net_rx_queue_status], dword ptr NET_RX_QUEUE_STATUS_SCHEDULED
-	jz	1f
-	ARRAY_ENDL
-9:	
-.endif
 	MUTEX_UNLOCK_ NET
-
-.if NET_QUEUE_DEBUG2
-	printcharc 0xa0,'0'
-.endif
-
 
 	call	net_tcp_cleanup
 
-
-	# if we don't ever exit, do schedule here, then jump back:
-	# call schedule_near
-	# jmp net_rx_queue_handler
-
-	# TODO: have scheduler deal with semaphores, i.e., IO_WAIT and such.
-	
-#	lock dec byte ptr [net_rx_queue_scheduled$]
-#	jnz	net_rx_queue_handler_again
-
 	YIELD_SEM (offset netq_sem)
 	lock dec dword ptr [netq_sem]
+	jmp	net_rx_queue_handler
 
-.if NET_QUEUE_DEBUG2
-	printcharc 0xa0,'<'
-.endif
-	jmp	net_rx_queue_handler_again
-
-#	DEBUG "queue handler exiting"
-#	DEBUG_BYTE [net_rx_queue_scheduled$]
-
-# for debug if error on ret
-#	DEBUG_DWORD esp, "q exit",0xb0
-#push ebp; lea ebp,[esp+4];DEBUG_DWORD [ebp];pop ebp
-	ret	# queue exhausted
-
-
+# note: mutex NET locked!
 1:	sub	esp, 8*4
 	lea	esi, [eax + edx + net_rx_queue_args]
 	mov	edi, esp
 	mov	ecx, 8
 	rep	movsd
 	popad	# esp ignored
-.if NET_QUEUE_DEBUG2
-DEBUG "+",0xf0
-pushad
-call	net_print_protocol
-popad
-.endif
 
 	mov	eax, [net_rx_queue]
 	mov	[eax + edx + net_rx_queue_status], dword ptr 0
 
-#		DEBUG_DWORD edx,"removed"
-#		call newline
-#		pushad
-#		call net_rx_queue_print_
-#		popad
-
 	MUTEX_UNLOCK_ NET
 
 	call	net_rx_packet_task
+	jmp	net_rx_queue_handler
 
-.if NET_RX_QUEUE_ITER_RESCHEDULE
-	# check if the queue is empty, if not, schedule job again
-0:	MUTEX_SPINLOCK NET, nolocklabel=0b
-	xor	ecx, ecx
-	ARRAY_LOOP [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, eax, edx, 9f
-	add	ecx, [eax + edx + net_rx_queue_status]
-	ARRAY_ENDL
-9:	MUTEX_UNLOCK NET
-
-	jecxz	9f
-	jmp	net_rx_queue_schedule
-9:
-.else
-	jmp	net_rx_queue_handler_again
-.endif
-	ret
 
 net_rx_queue_print:
 	MUTEX_SPINLOCK_ NET
@@ -1233,7 +1149,6 @@ net_rx_queue_print_:
 9:
 
 	ret
-.endif
 
 # in: ebx = nic
 # in: esi = packet (ethernet frame) [to be freed on completion]
@@ -1277,8 +1192,6 @@ cmd_netstat:
 	inc	ecx
 	jmp	0b
 1:
-
-	.if NET_RX_QUEUE
 	call	net_rx_queue_print
-	.endif
+	call	net_buffers_print
 	ret

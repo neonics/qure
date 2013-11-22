@@ -156,16 +156,20 @@ __MUTEX_DECLARE = 1
 	lock bts dword ptr [mutex], MUTEX_\name
 
 	.if MUTEX_ASSERT
+	.ifnc \nolocklabel,0
 		jnc	1990f
 		pushd	offset mutex_name_\name
 		call	mutex_fail
 		int 3
 	1990:
 	.endif
+	.endif
 
 	.if MUTEX_DEBUG
+		jc	1992f
 		call	1991f
 	1991:	popd	[mutex_owner + MUTEX_\name * 4]
+	1992:
 	.endif
 
 	MUTEX_LOCAL_SETC \name
@@ -188,27 +192,38 @@ __MUTEX_DECLARE = 1
 		int 3
 	1990:
 	.endif
-	MUTEX_LOCAL_CLEARC \name
+	.if MUTEX_TRACE
+		DEBUG "UNLOCK \name";call .+5;call _s_printhex8;
+	.endif
+	MUTEX_LOCAL_CLEARC_ \name
 	.if MUTEX_DEBUG
 		call	1999f
 	1999:	popd	[mutex_released + MUTEX_\name * 4]
 	.endif
 .endm
 
+.macro MUTEX_UNLOCK_ name
+	pushf
+	MUTEX_UNLOCK \name
+	popf
+.endm
 
-MUTEX_SPINLOCK_TIMEOUT=0	# implies MUTEX_ASSERT
 
-.macro MUTEX_SPINLOCK_ name
+MUTEX_SPINLOCK_TIMEOUT=1000000	# implies MUTEX_ASSERT
+
+.macro MUTEX_SPINLOCK name
 	.if MUTEX_SPINLOCK_TIMEOUT
 		push	ecx
-		mov	ecx, SPINLOCK_TIMEOUT
+		mov	ecx, MUTEX_SPINLOCK_TIMEOUT
 	.endif
 	jmp	1990f
 	.if MUTEX_SPINLOCK_TIMEOUT
 	1994:	pushd	offset mutex_name_\name
 		call	mutex_fail
+	.if MUTEX_ASSERT
 		int 3
-		mov	ecx, SPINLOCK_TIMEOUT
+	.endif
+		mov	ecx, MUTEX_SPINLOCK_TIMEOUT
 	.endif
 1999:
 	.if MUTEX_SPINLOCK_TIMEOUT
@@ -231,75 +246,11 @@ MUTEX_SPINLOCK_TIMEOUT=0	# implies MUTEX_ASSERT
 	.endif
 .endm
 
-.macro MUTEX_UNLOCK_ name
+.macro MUTEX_SPINLOCK_ name
 	pushf
-	lock btr dword ptr [mutex], MUTEX_\name
-	.if MUTEX_ASSERT
-		jc	1990f
-		pushd	offset mutex_name_\name
-		call	mutex_fail
-		int 3
-	1990:
-	.endif
-	.if MUTEX_TRACE
-		DEBUG "UNLOCK \name";call .+5;call _s_printhex8;
-	.endif
-	MUTEX_LOCAL_CLEARC_ \name
-	.if MUTEX_DEBUG
-		call	1999f
-	1999:	popd	[mutex_released + MUTEX_\name * 4]
-	.endif
+	MUTEX_SPINLOCK \name
 	popf
 .endm
-
-.if 0 # unused
-.macro MUTEX_SCHEDLOCK name
-1999:	lock bts dword ptr [mutex], MUTEX_\name
-	jnc	1999f
-	call	schedule_near
-	jmp	1999b
-1999:	call	1999f
-1999:	pop	dword ptr [mutex_owner + MUTEX_\name * 4]
-.endm
-
-.macro MUTEX_SPINLOCK name, nolocklabel=0, locklabel=0, debug=0
-	push	ecx
-	mov	ecx, 10
-9101:	MUTEX_LOCK \name, 0, 9102f
-	YIELD
-	loop	9101b
-	.if \debug
-		printc 5, "MUTEX_SPINLOCK \name: fail"
-		.if MUTEX_DEBUG > 1
-			print " owner: "
-			push edx
-			mov edx,	dword ptr [mutex_owner + MUTEX_\name * 4]
-			call printhex8
-			call newline
-			print "MUTEX: "
-			mov edx, [mutex]
-			call printbin8
-			call printspace
-			pop edx
-		.endif
-	.endif
-	stc
-9102:	pop	ecx
-	.ifnc 0,\locklabel
-	jnc	\locklabel
-	.endif
-	.ifnc 0,\nolocklabel
-	jc	\nolocklabel
-	.endif
-.endm
-
-.else
-
-.macro MUTEX_SPINLOCK name
-	MUTEX_SPINLOCK_ \name
-.endm
-
-.endif
 
 #####################################################################
 # Semaphores (shared variable)

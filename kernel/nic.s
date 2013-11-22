@@ -34,6 +34,7 @@ nic_rx_count:	.long 0
 nic_tx_count:	.long 0
 nic_rx_bytes:	.long 0, 0
 nic_tx_bytes:	.long 0, 0
+nic_rx_dropped:	.long 0
 # API - method pointers
 .align 4
 DECLARE_CLASS_METHODS
@@ -433,7 +434,11 @@ nic_print:
 	mov	eax, [ebx + nic_tx_bytes + 0]
 	mov	edx, [ebx + nic_tx_bytes + 4]
 	call	print_size
-	println ")"
+
+	print ") dropped: "
+	mov	edx, [ebx + nic_rx_dropped]
+	call	printdec32
+	call	newline
 
 	push	ecx
 	push	ebx
