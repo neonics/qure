@@ -757,7 +757,7 @@ debugger:
 	mov	eax, SEL_compatDS
 	mov	ds, eax
 	mov	es, eax
-	#push	dword ptr [mutex]
+	push	dword ptr [mutex]
 	push	dword ptr [task_queue_sem]
 	push	edx
 	push	dword ptr 0	# local storage
@@ -924,14 +924,14 @@ debugger:
 	pop	eax
 	mov	cr3, eax
 .endif
-	call	scheduler_resume
+#	call	scheduler_resume
 	pop	ebx
 	pop	edi
 	pop	esi
 	add	esp, 4	# local storage
 	pop	edx
 	pop	dword ptr [task_queue_sem]
-	#pop	dword ptr [mutex]
+	pop	dword ptr [mutex]
 	pop	eax
 	PIC_SET_MASK
 	pop	ebp

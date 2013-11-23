@@ -778,3 +778,5 @@ DONE: fix occasional scheduling reentrancy.
 DONE: fix memory mutex recursion
 
 TODO: make network buffer allocation asynchronous relative to packet reception.
+
+DONE?: fix debugger interference with scheduler mutex on network traps

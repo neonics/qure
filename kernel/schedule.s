@@ -476,7 +476,6 @@ scheduler_suspend:
 1:	loop	0b
 
 scheduler_resume:
-	mov	ecx, 1000
 	SEM_UNLOCK [task_queue_sem]
 0:	MUTEX_UNLOCK SCHEDULER
 	ret
