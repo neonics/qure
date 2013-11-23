@@ -1299,23 +1299,13 @@ fs_nextentry:
 	UNLOCK_READ [fs_handles_sem]
 
 	push	edx
-	FS_HANDLE_CALL_API nextentry, edx	# out: edx=dir name, ecx=next
-.if 0
-	jnc	1f
-	printlnc 4, "fs_nextentry: error"
-	STACKTRACE 5*4, 0
-	stc
-1:
-.endif
+	FS_HANDLE_CALL_API nextentry, edx	# out: edx=dir name, ecx=next, CF=end
 	mov	esi, edx
 	pop	edx
 
 	LOCK_READ_ [fs_handles_sem]
 	mov	eax, [fs_handles$]
 	mov	[eax + edx + fs_handle_dir_iter], ecx
-	jc	1f
-	inc	ecx	# -1->0 = ZF
-1:
 	pop	ebx
 	pop	ecx
 	mov	edx, esi
@@ -1323,11 +1313,12 @@ fs_nextentry:
 
 0:	pop	eax
 	UNLOCK_READ_ [fs_handles_sem]
-	STACKTRACE 0	
 	ret
 
 9:	printc 4, "fs_nextentry: unknown handle: "
 	call	printhex8
+	call	newline
+	STACKTRACE 4,0
 	stc
 	jmp	0b
 
