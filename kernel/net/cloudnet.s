@@ -50,7 +50,7 @@ cluster_node:	.long 0
 .text32
 
 cloudnet_daemon:
-	orb	[cloud_flags], STOP$
+	#orb	[cloud_flags], STOP$
 	mov	eax, 100
 	call	sleep	# nicer printing
 	call	cloud_init_ip
@@ -91,9 +91,16 @@ call	cluster_add_node	# register self
 	jmp	2f
 1:	printc 4, "cloudnet_daemon: cluster_node error"
 2:
+
 	call	cloud_register
 
-0:	mov	eax, 1000 * 60 * 5
+	mov	eax, 1000 * 60 + 999	# 60.999 secs
+	call	_calc_time_clocks$
+	mov	[ping_timeout_clocks], eax
+
+# main loop
+
+0:	mov	eax, 1000 * 60 # * 5
 	call	sleep
 	testd	[cloud_flags], STOP$
 	jnz	0b
@@ -172,10 +179,11 @@ cloud_init_ip:
 cloud_mcast_init:
 	printc 13, " multicast initialisation "
 
+	mov	ebx, [cloud_nic]
+
 	IP_LONG	eax, 224,0,0,1
 	mov	dl, IGMP_TYPE_QUERY
 	call	net_igmp_send
-	jc	9f
 
 	mov	eax, CLOUD_MCAST_IP
 	call	net_igmp_join
@@ -542,24 +550,69 @@ cluster_add_node:
 .data
 packet_ping$:
 .asciz "ping "
-packet_ping_nr$:.long 0
+packet_ping_cluster_era:.long 0
+packet_ping_node_age:	.long 0
 packet_ping_end$ = .
 
-packet_pong$:
-.asciz "ping"
-packet_pong_nr$:.long 0
-packet_pong_end$ = .
+ping_timeout_clocks: .long 0
+
 .text32
 cluster_ping:
-	printlnc 11, "ping cluster"
-	ARRAY_LOOP [cluster_nodes], NODE_SIZE, ebx, edx, 2f
-	mov	eax, [ebx + edx + node_addr]
 	pushad
+	printlnc 11, "ping cluster"
 	LOAD_PACKET ping
+	mov	eax, [cluster_node]
+	mov	edx, [eax + cluster_era]
+	mov	[esi + packet_ping_cluster_era], edx
+	mov	edx, [eax + node_age]
+	mov	[esi + packet_ping_node_age], edx
+.if CLOUD_MCAST
+	mov	eax, CLOUD_MCAST_IP
+.else
+	mov	eax, -1	# BCAST
+.endif
 	call	cloud_packet_send
 	popad
+
+# verify alive nodes
+	pushad
+	#call	get_time_ms
+	mov	ecx, [clock]
+#	DEBUG_DWORD ecx,"clock"; DEBUG_DWORD [ping_timeout_clocks];call newline;
+	mov	ebx, [lan_ip]
+	ARRAY_LOOP [cluster_nodes], NODE_SIZE, eax, edx, 1f
+
+	# update self
+	cmp	ebx, [eax + edx + node_addr]
+	jnz	1f
+	mov	[eax + edx + node_clock], ecx
+1:
+#	DEBUG_DWORD [eax + edx + node_clock],"clock"	# last seen
+	lea	esi, [eax + edx + node_node_hostname]
+	call	print
+
+	call	printspace
+	push	eax
+	mov	eax, [eax + edx + node_addr]
+	call	net_print_ipv4
+	pop	eax
+	call	printspace
+	push	edx
+	mov	edx, [eax + edx + node_clock]
+	sub	edx, ecx	# cur clock
+	neg	edx
+	call	printhex8
+	call	printspace
+	call	_print_time$
+	call	_print_onoffline$
+	call	newline
+	pop	edx
+#	cmp	ecx, [eax + edx + node_clock]	# last seen
+#
 	ARRAY_ENDL
-2:	ret
+	popad
+	ret
+
 
 #############################################################################
 # Cluster Event Handler
@@ -603,13 +656,6 @@ cloudnet_handle_packet:
 	add	ecx, CL_PAYLOAD_START
 	pop	esi
 
-	mov	eax, [esi]	# peer ip
-	push	esi
-	lea	edi, [esi + 12]	# mac
-	lea	esi, [esi + CL_PAYLOAD_START + 6] # 6: "hello\0"
-	call	cluster_add_node
-	pop	esi
-
 	# detect message
 	.macro ISMSG name, label
 		push_	edi esi ecx
@@ -624,9 +670,9 @@ cloudnet_handle_packet:
 	mov	eax, [esi + CL_PAYLOAD_START + 0]
 	or	eax, 0x20202020
 	cmp	eax, 'h'|'e'<<8|'l'<<16|'l'<<24
-	jnz	91f
+	jnz	60f
 	cmpw	[esi + CL_PAYLOAD_START + 4], 'o'
-	jnz	91f
+	jnz	60f
 
 #	ISMSG "hello", 1f
 #	ISMSG "ping", 2f
@@ -636,6 +682,14 @@ cloudnet_handle_packet:
 
 # hello packet
 1:
+
+	mov	eax, [esi]	# peer ip
+	push	esi
+	lea	edi, [esi + 12]	# mac
+	lea	esi, [esi + CL_PAYLOAD_START + 6] # 6: "hello\0"
+	call	cluster_add_node
+	pop	esi
+
 	mov	eax, [cluster_node]
 
 	# adopt cluster information
@@ -746,12 +800,39 @@ cloudnet_handle_packet:
 	mov	[eax + cluster_node_pkt], byte ptr 'h'
 .endif
 	ret
+
+
+# not hello, check ping
+60:	cmp	eax, 'p'|'i'<<8|'n'<<16|'g'<<24
+	jnz	91f
+	cmpb	[esi + CL_PAYLOAD_START + 4], ' '
+	jnz	91f
+# ping
+	printc 11, " rx ping "
+	pushad
+	mov	eax, [esi]	# SOCK READPEER ip
+	call	net_print_ip
+	mov	edx, [clock]
+	ARRAY_LOOP [cluster_nodes], NODE_SIZE, ebx, ecx, 1f
+	cmp	eax, [ebx + ecx + node_addr]
+	jz	1f
+	ARRAY_ENDL
+	printlnc 12, " unknown node"
+	jmp	2f
+
+1:	printc 13, " update node "
+	lea	esi, [ebx + ecx + node_node_hostname]
+	call	println
+	mov	[ebx + ecx + node_clock], edx
+2:	popad
+	ret
+
+
 # pong
 9:	printlnc 13, " ignore"
 	ret
 91:	printlnc 13, " ignore: unknown message"
 	ret
-
 
 
 print_ip$:
@@ -908,8 +989,8 @@ cmd_cloud_print$:
 	push	eax
 	pushstring "%8s"
 	call	printf
-
 	add	esp, 8
+
 	call	printspace
 	mov	eax, [ebx + ecx + node_addr]
 	call	print_ip$
@@ -939,7 +1020,10 @@ cmd_cloud_print$:
 	mov	edx, [clock]
 	sub	edx, [ebx + ecx + node_clock]
 	call	_print_time$
-	println " ago)"
+	print " ago) "
+
+	call	_print_onoffline$
+	call	newline
 
 	######################################################
 
@@ -1013,6 +1097,7 @@ cmd_cloud_print$:
 2:	ret
 
 _print_time$:
+	push_	edi eax edx
 	mov	edi, edx
 	mov	edx, [pit_timer_period]
 	mov	eax, [pit_timer_period+4]
@@ -1020,8 +1105,48 @@ _print_time$:
 	shr	edx, 8
 	imul	edi
 	call	print_time_ms_40_24
+	pop_	edx eax edi
 	ret
 
+
+# in: eax = milliseconds
+# out: eax = clocks
+_calc_time_clocks$:
+	push_	edx ebx
+	mov	ebx, eax
+
+	# let's assume that the timer is at least 4Hz,
+	# or 255 milliseconds per clock
+
+	mov	edx, [pit_timer_period]
+	mov	eax, [pit_timer_period+4]
+	shrd	eax, edx, 8
+	shr	edx, 8
+	jnz	91f
+
+	# it does.
+
+	mov	edx, ebx
+	# edx:eax = millisec period : 00000000
+	mov	ebx, eax
+	xor	eax, eax
+	# ebx = clock period millisecs 8:24
+	div	ebx
+	shr	eax, 8
+	mov	edx, eax
+9:	pop_	ebx edx
+	ret
+91:	printc 12, "warning: clock < 4Hz not implemented"
+	mov	eax, [pit_timer_period + 4]	# approximate
+	jmp	9b
+
+_print_onoffline$:
+	cmp	edx, [ping_timeout_clocks]
+	jae	1f
+	printc 10, " online"
+	jmp	2f
+1:	printc 12, " offline"
+2:	ret
 
 
 ###############################################################################
