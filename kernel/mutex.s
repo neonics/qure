@@ -16,6 +16,8 @@ _MUTEX_LOCAL = 0	# experimental feature
 .global mutex
 .global mutex_owner
 .global mutex_released
+.global mutex_lock_time
+.global mutex_unlock_time
 .global mutex_fail
 .global mutex_name_SCHEDULER
 .global mutex_name_SCREEN
@@ -48,6 +50,8 @@ mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 .data SECTION_DATA_BSS
 mutex_owner:	.space 4 * NUM_MUTEXES
 mutex_released:	.space 4 * NUM_MUTEXES
+mutex_lock_time:.space 4 * NUM_MUTEXES
+mutex_unlock_time:.space 4 * NUM_MUTEXES
 
 .section .strings
 mutex_names:
@@ -169,6 +173,8 @@ __MUTEX_DECLARE = 1
 		jc	1992f
 		call	1991f
 	1991:	popd	[mutex_owner + MUTEX_\name * 4]
+		pushd	[clock]
+		popd	[mutex_lock_time + MUTEX_\name * 4]
 	1992:
 	.endif
 
@@ -199,6 +205,8 @@ __MUTEX_DECLARE = 1
 	.if MUTEX_DEBUG
 		call	1999f
 	1999:	popd	[mutex_released + MUTEX_\name * 4]
+		pushd	[clock]
+		popd	[mutex_unlock_time + MUTEX_\name * 4]
 	.endif
 .endm
 
@@ -240,6 +248,8 @@ MUTEX_SPINLOCK_TIMEOUT=1000000	# implies MUTEX_ASSERT
 	.if MUTEX_DEBUG
 		call	1999f
 	1999:	popd	[mutex_owner + MUTEX_\name * 4]
+		pushd	[clock]
+		popd	[mutex_lock_time + MUTEX_\name * 4]
 	.endif
 	.if MUTEX_SPINLOCK_TIMEOUT
 		pop	ecx

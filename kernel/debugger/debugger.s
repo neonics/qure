@@ -704,7 +704,14 @@ debugger_print_mutex$:
 	lodsd
 	mov	edx, eax
 	call	printhex8
-	or	edx, edx
+	call	printspace
+
+	mov	eax, NUM_MUTEXES
+	sub	eax, ecx
+	mov	edx, [mutex_lock_time + eax * 4]
+	call	printhex8
+
+	cmpd	[esi - 4], 0
 	jz	1f
 	call	printspace
 	call	debug_printsymbol
@@ -717,9 +724,12 @@ debugger_print_mutex$:
 2:	call	printspace
 	loop	2b
 	pop	ecx
-	mov	edx, NUM_MUTEXES
-	sub	edx, ecx
-	mov	edx, [mutex_released + edx * 4]
+	mov	eax, NUM_MUTEXES
+	sub	eax, ecx
+	mov	edx, [mutex_unlock_time + eax * 4]
+	call	printhex8
+	call	printspace
+	mov	edx, [mutex_released + eax * 4]
 	call	printhex8
 	call	printspace
 	call	debug_printsymbol
