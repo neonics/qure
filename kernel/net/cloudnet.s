@@ -452,7 +452,7 @@ node_node_hostname:	.space 16
 node_mac:	.space 6
 
 node_clock_met:	.long 0
-node_clock:	.long 0
+node_clock:	.long 0	# last seen
 #node_cycles:	.long 0	# node age?
 NODE_SIZE = .
 .data
@@ -1651,7 +1651,10 @@ _html_cell$:
 	testb	[ebp + 16], 2
 	jz	1f
 	SOCKBUF_APPEND_STRING "</td><td>"
-1:	ret
+	ret
+1:	movb	[edi], ' '
+	inc	edi
+	ret
 
 _html_item_close$:
 	testb	[ebp + 16], 2
@@ -1696,7 +1699,7 @@ cluster_stream_nodes_list:
 	jnz	1f
 	SOCKBUF_APPEND_STRING "\n<ul>\n"
 	jmp	2f
-1:	SOCKBUF_APPEND_STRING "\n<table>\n\t<tr><th>name</th><th>age</th><th>krev</th><th>boot time</th><th>uptime</th><th>joined cluster</th><th>cluster uptime</th></tr>\n"
+1:	SOCKBUF_APPEND_STRING "\n<table>\n\t<tr><th>name</th><th>status</th><th>age</th><th>krev</th><th>boot time</th><th>uptime</th><th>joined cluster</th><th>cluster uptime</th></tr>\n"
 2:
 
 	# iterate
@@ -1728,7 +1731,21 @@ cluster_stream_nodes_list:
 	stosb
 	pop	esi
 
-	# cell
+	# cell: online status
+
+	call	_html_cell$
+
+	push	esi
+	mov	edx, [clock]
+	sub	edx, [ebx + esi + node_clock]
+	cmp	edx, [ping_timeout_clocks]
+	LOAD_TXT "<span style='color:red'>offline</span>", esi, ecx, 1
+	jae	1f
+	LOAD_TXT "<span style='color:#0f0'>online</span>", esi, ecx, 1
+1:	rep	movsb
+	pop	esi
+
+	# cell: era#age
 
 	call	_html_cell$
 
