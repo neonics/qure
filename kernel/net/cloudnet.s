@@ -900,12 +900,28 @@ cloudnet_packet_print:
 SHELL_COMMAND "cloud", cmd_cloud
 
 cmd_cloud:
-	or	esi, esi
-	jz	cmd_cloud_print$
-	lodsd
 	lodsd
 
+	xor	edi, edi	# verbosity / global option
+
+	# parse options
+0:	lodsd
 	or	eax, eax
+	jz	cmd_cloud_print$	# default action
+
+	cmpb	[eax], '-'
+	jnz	1f			# no more options
+	CMD_ISARG "-v"
+	jnz	2f
+	inc	edi
+	jmp	0b
+
+2:	printc 12, "unknown argument: "
+	push	eax
+	call	_s_println
+	ret
+
+1:	CMD_ISARG "status"
 	jz	cmd_cloud_print$
 
 1:	CMD_ISARG "start"
@@ -933,11 +949,12 @@ cmd_cloud:
 2:	call	[eax + oofs_persistent_api_load]
 	ret
 
-1:	printlnc 4, "usage: cloud <command> [args]"
-	printlnc 4, " commands: init start stop"
+1:	printlnc 12, "usage: cloud [options] [<command> [args]]"
+	printlnc 12, " options: -v: increase verbosity; can have more than one"
+	printlnc 12, " commands: status init start stop"
 	ret
 
-
+# in: edi = format/verbose level:
 cmd_cloud_print$:
 	printc 11, "CloudNet status: "
 	mov	ax, [cloud_flags]
@@ -947,11 +964,16 @@ cmd_cloud_print$:
 	call	net_print_ipv4
 	call	newline
 
+	cmp	edi, 1
+	jb	2f
+
 	mov	eax, [cluster_node]
 	or	eax, eax
 	jz	2f
 
+
 	printc 15, "Kernel Revision: "
+	push	edi
 	sub	esp, 128
 	mov	edi, esp
 	mov	ecx, 128
@@ -959,13 +981,20 @@ cmd_cloud_print$:
 	mov	esi, esp
 	call	println
 	add	esp, 128
+	pop	edi
 
 	call	[eax + oofs_api_print]
 2:
 
 	mov	ebx, [cluster_nodes]
+
+
 	or	ebx, ebx
 	jz	2f
+
+	cmp	edi, 1
+	jb	1f
+
 	print "local cluster: "
 	mov	eax, [ebx + array_index]
 	xor	edx, edx
@@ -974,7 +1003,7 @@ cmd_cloud_print$:
 	mov	edx, eax
 	call	printdec32
 	call	newline
-
+1:
 	ARRAY_LOOP [cluster_nodes], NODE_SIZE, ebx, ecx
 	mov	eax, [cloud_nic]
 	mov	eax, [eax + nic_ip]
@@ -994,6 +1023,10 @@ cmd_cloud_print$:
 	call	printspace
 	mov	eax, [ebx + ecx + node_addr]
 	call	print_ip$
+
+	cmp	edi, 1
+	jb	1f
+
 	call	printspace
 	pushcolor 8
 	lea	esi, [ebx + ecx + node_mac]
@@ -1011,9 +1044,12 @@ cmd_cloud_print$:
 
 	call	newline
 	printc 15, "   (met: "
+1:
 	mov	edx, [clock]
 	sub	edx, [ebx + ecx + node_clock_met]
 	call	_print_time$
+	cmp	edi, 1
+	jb	1f
 	print " ago"
 
 	printc 15, " seen: "
@@ -1021,11 +1057,14 @@ cmd_cloud_print$:
 	sub	edx, [ebx + ecx + node_clock]
 	call	_print_time$
 	print " ago) "
-
+1:
 	call	_print_onoffline$
 	call	newline
 
 	######################################################
+
+	cmp	edi, 2
+	jb	1f
 
 	printc 15, "   N birth "
 	mov	edx, [ebx + ecx + node_node_birthdate]
@@ -1092,6 +1131,7 @@ cmd_cloud_print$:
 
 	call	newline
 	call	newline
+1:
 
 	ARRAY_ENDL
 2:	ret
