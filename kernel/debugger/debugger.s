@@ -711,7 +711,8 @@ debugger_print_mutex$:
 	mov	edx, [mutex_lock_time + eax * 4]
 	call	printhex8
 
-	cmpd	[esi - 4], 0
+	mov	edx, [esi - 4]
+	or	edx, edx
 	jz	1f
 	call	printspace
 	call	debug_printsymbol
@@ -726,14 +727,16 @@ debugger_print_mutex$:
 	pop	ecx
 	mov	eax, NUM_MUTEXES
 	sub	eax, ecx
-	mov	edx, [mutex_unlock_time + eax * 4]
-	call	printhex8
-	call	printspace
 	mov	edx, [mutex_released + eax * 4]
 	call	printhex8
 	call	printspace
+	mov	edx, [mutex_unlock_time + eax * 4]
+	call	printhex8
+	call	printspace
+	cmpd	[mutex_released + eax * 4], 0
+	jz	1f
 	call	debug_printsymbol
-	call	newline
+1:	call	newline
 
 	dec	ecx
 	jnz	0b
