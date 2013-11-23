@@ -1,5 +1,6 @@
 Distributed Architecture
 ------------------------
+# 2013-09-30?
 
 
 Setup with 2 instances on a LAN:
@@ -375,3 +376,110 @@ reboots.
 		sub	edx, [eax + era_start]
 		mov	eax, [eax + age]
 		ret
+
+
+
+Crash Detection
+===============
+# 2013-11-22
+
+All nodes broadcast a keepalive or ping packet every minute. All nodes
+keep track of a last_seen in terms of clocks. Every minute after sending
+the ping, the last_seen for all nodes is checked to a timeout.
+
+To not flood the network, this is done periodically, and no response
+is expected except within a minute. Since each node periodically pings
+within the timeout period, this is satisfied.
+
+However, a timeout of a minute means that a node can be down for almost two
+before it is determined to be offline.
+
+A node that is in the debugger, and thus has no scheduling, and therefore
+no packet handling, is still at least partially operational, and could
+broadcast a message indicating it has halted processing, unless the exception
+occurred in a critical path.
+
+Vice versa, using the scheme as described in [Alert|Alert.txt], minimal reception
+might be enabled, such as a kind of 'wake-on-lan' packets which could trigger
+a reboot. If the network card is configurable to detect certain kinds of packets,
+then the network card interrupt service routine would probably be able to detect
+this by simply checking a flag on the incoming packet, and thus trigger
+a reboot.
+
+The shared virtual IP, currently hardcoded, needs to be shared in the cluster
+data which is maintained. At current only the cluster birthdate is propagated
+across the nodes, but this is easily extensible. Once a node detects that a
+node is down, it also knows, by checking the ip, whether it is the DMZ node
+or not. If it is, it will attempt to claim the shared IP.
+
+Synchronisation and optimal distribution
+---------------
+
+Multiple nodes could decide simultaneously to take on the role of DMZ, although
+the chance is very small. The distance would need to be at least the delay
+between two ARP requests. Therefore, the nodes will communicate their periodic
+offset, which will allow all nodes to know the distribution. This offset is
+already provided by the arrival time. 
+
+Nodes would optimally shift their periods so as to provide an even distribution.
+Two nodes would have each one ping 30 seconds before and after the other.
+For three nodes, the distance would be 20 seconds, and so on.
+
+Each node will, after filtering out the unresponsive nodes, take stock of
+the number of nodes that has responded within the last minute. It will then
+know how much it needs to shift it's phase relative to the others.
+
+The nodes will be sorted according to phase. The node will place itself
+initially at zero-point, and determines the distance to the nearest node
+on either side. It will then sort the list according to smallest distance.
+The starting point will be the node with the smallest distance to the next,
+and the longest distance to the previous. Since the nodes are sorted, and
+since the period is cyclical, such a starting point then becomes obvious: there
+is only one point where the increase in distance decreases.
+
+Since all nodes follow this algorithm, they will all come up with the exact same
+list. In the case where two nodes are very close together, and may be perceived
+in a different order in some nodes, it is possible that both nodes will adjust
+their phase in the same, rather than the opposite, direction. A minimum distance,
+such as 5 seconds, will have both nodes shift at non-ideal distance, each say 2
+seconds from the average. Thus, in the case where there are two nodes in a cluster,
+spaced a few milliseconds apart, one node would shift it's phase forward by 15
+seconds, and one backwards by 15 seconds. If they shift in the same direction,
+the situation won't change. Therefore, one will shift forward 17 seconds, and
+one will shift backward 12 seconds (or vice versa), depending on the order of their
+IP address. The node with the lower IP will subtract half the minimum distance
+(of 5 seconds), whereas the other will add. In the case where both shift in
+the same direction, the distance will now be near the minimum distance.
+Another shift will make sure the minimum distance is exceeded. Ofcourse, the
+distance of 5 seconds is long enough to provide for proper ordering of ping
+reception times in order to determine the direction of phase shift. Ofcourse,
+two values might be used instead - a minimum distance, and a deviation from
+the ideal shift, possibly dependent upon the number of nodes in the cluster,
+or the number of nodes within the minimum distance.
+
+Thus in two cycles, or, two minutes, the nodes will be ideally spaced,
+providing for optimum sampling times without flooding the network.
+Further, the distance will be far enough apart (unless there are many nodes),
+that the node claiming DMZ will achieve a result without overlapping such
+an operation of another nearby node.
+
+A node that would claim DMZ knows which node is before it in the list - as
+it is the last node it received a ping from - and could communicate
+peer-to-peer to query whether it has already assumed DMZ. Ofcourse, this
+is already implemented in the gratuitious ARP, which the prior node would
+respond to. Further, such gratuitious ARP is broadcast, and thus known by
+all nodes.
+
+A node in such a case would receive a gratuitious arp from the previous
+node in the list for the DMZ ip, and thus know that the DMZ node has
+timed out. It detects this by the MAC address in the ARP packet, as the
+node's IP is no longer in use.
+
+	NOTE: this makes it important that nodes be identified by their MAC
+	rather than their IP, as IP's change. The DHCP server does attempt
+	to maintain the same IP's for the same MAC's, yet, if a node changes
+	it's IP to the DMZ IP, the record for the DMZ node will be overwritten
+	with a copy of the assuming node. So far, this is not an issue since
+	the only information kept on nodes is their role - their IP.
+
+

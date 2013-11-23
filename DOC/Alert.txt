@@ -1,0 +1,149 @@
+System Alerts
+=============
+
+Certain system events may require a user intervention.
+
+The console already provides a hook called on printing.
+The hook allows to draw a text box on the screen after the screen
+is updated, thereby making it a pop-up.
+
+Such a popup would allow the system to continue to operate,
+yet prevents shell access by requiring an uncommon keypress to continue.
+All other keys are ignored, possibly with sound notification, to
+prevent unexpected interruptions in commandline editing causing
+answers to be given to the dialog box that were intended for the shell.
+By shell is also meant any program run in the shell, which then posesses
+top-level screen and keyboard access, besides interrupt handlers and
+other tasks that may also invoke the keyboard routines. However,
+the alert system is designed for just that, since background routines
+are not supposed to interfere with the shell.
+
+kernel/alert.s:
+
+	alert_init:
+		mov	eax, offset alert_show
+		xchg	eax, [screen_update]
+		mov	[alert_screen_update], eax
+		ret
+	
+	alert_message:
+		bt	[alert_flags], 1
+		jnz	append$
+		call	alert_takeover
+	append$:
+		mov	eax, [alert_messages]
+		invokevirtual message append
+		jmp	alert_main
+	
+	alert_show:
+		call	drawbuffer$
+		call	flushbuffer$
+		ret
+
+
+	alert_release:
+		mov	eax, [alert_screen_update]
+		mov	[screen_update], eax
+		ret
+	
+	alert_beep:
+		call	beep
+		load_txt "press <ESC> to continue"
+		call	setfeedback$
+	
+	alert_main:
+		call	alert_show
+		mov	ah, KB_GET
+		call	keyboard
+		call	clearfeedback$
+		cmp	ax, K_ESC
+		jz	alert_beep
+
+The default interrupt handler in ''kernel/idt.s'', which is tightly
+connected to the debugger, will check the context of the interrupt.
+If the active shell/virtual console caused the exception, the debugger
+may proceed as usual (given that the first console is the kernel thread,
+as all it's functionality is accessible through interrupts).
+
+If either a background task, or a task attached to another virtual console
+caused the interrupt, a popup may be shown indicating the condition
+and the program, offering an option to terminate or restart the task,
+or to invoke the debugger. Ofcourse, if the exception is a breakpoint,
+keys to continue execution with or without switching to the debugger
+will be offered. Further, an option to suspend the task (which it already
+is) will be presented, allowing to return focus to the current shell
+to either continue commandline editing or invoke inspection commands
+outside of the debugger. Further, a commandline tool to interact
+with the debugger, besides ''int 3'', will offer a way to list such
+suspended tasks, and attach the debugger. An option for 'ps' might
+filter the task list to show such processes, and a pid option to the
+debug command would provide to schedule the task again, which would
+invoke the debugger.
+
+When the debugger has been told to suspend debugging the task, it is
+marked as nonschedulable in the scheduler, and a flag indicating it's
+condition is set. The exception handler will then unroll the stack
+up to the point of invoking the exception and yield to the scheduler.
+
+Upon resuming the suspended task, the exception interrupt handler
+is invoked again, and it will check the scheduler task context for
+the debug flag, in which case it will already have the answer that
+the alert would ask for, and proceed to display the debug window.
+
+
+	kernel/idt.s:
+
+		jmp_table_target:
+			...
+			mov	eax, [tls_task_idx]
+			add	eax, [tasks]
+			test	[eax + task_flags], TASK_FLAG_DEBUG
+			jnz	debugger
+
+			mov	esi, offset debugger_exception_alert
+			call	alert_message
+			jz	debugger
+
+			or	[eax + task_flags], TASK_FLAG_DEBUG|TASK_FLAG_SUSPENDED
+
+			popad
+			pop	es
+			pop	ds
+			yield
+			jmp	jmp_table_target
+
+
+The ''debugger_exception_alert'' would point to a static object, or,
+a structure containing the text to display, and the options and their
+keyboard codes. It further contains a handler for each option. In the
+case of a boolean dialog, flags can be set. The unroll/yield code
+above could be called in the key handler.s
+
+Also, the unroll is incomplete, as the IP is still pointing to within
+the interrupt handler, and, thus occupying the system stack and possibly
+other resources if the interrupt is chained. Yet, not all interrupts will
+continue execution at the same instruction generating the interrupt.
+On the other hand, showing the task as 'stuck' in the debugger is consistent.
+
+The yield will invoke the kernel api through a page fault, thus saving the
+flags, and having the scheduler resume another schedulable task with it's
+own flags. Thus, interrupts can be left disabled, since the halted task
+is not scheduled.
+
+
+	alert_init:
+		sti
+		...
+		ret
+
+This re-enables the interrupts if they were disabled,
+and therefore enables both the scheduler and the keyboard handler, aswell
+as any other background activity such as networking. If the exception occurred
+in networking, the packet handler task (assuming the network driver has successfully
+invoked the routine to append the packet to the incoming queue), which is
+invoked by the scheduler using a semaphore indicating the queue size,
+will not be schedulable and thus not provide further exceptions. If the
+exception occured in an interrupt handler, the exception may occur again,
+although the TSS might be marked busy, giving rise to another exception.
+
+

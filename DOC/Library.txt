@@ -1,0 +1,65 @@
+A library is code that is shared by multiple tasks.
+
+An algorithm with static data usage can be compiled into an object
+file specifying pages that need to be copied on modification, thus
+allowing multiple threads to access the routines simultaneously.
+
+The solution as implemented in the kernel itself, which does not use
+such paging for it's own static data, is to allocate buffers on a per
+task basis.
+
+A sliding window compression routine such as LZ77 using a fixed window
+size could allocate this and thus establish a session with a task or
+thread. However this removes the dealing with synchronization to any
+library function.
+
+Treating an object like a dynamically loaded library is inefficient
+for kernel algorithms due to the need of symbol resolution.
+Rather, statically linked libraries would be preferred here,
+where object files are concatenated on a section level, thus
+compacting any static data smaller than a page.
+
+Copy-on-write data, or, single-threaded data thus can be indicated by 
+placing it in a section with proper flags.
+
+Such data must be marked explicitly since the use of such a library
+by a single thread - as per the perspective of the library, seeing
+only sequential requests - results in duplication of the data, and
+thus is only an efficient mechanism when multiple threads access
+the routines simultaneously.
+
+An initialisation function would serve to initialize a copy of the current
+state to the initial state, yet since the data of more algorithms will be
+packed in a single page - which must be done in an efficient order - all
+initialization routines sharing data on that page must be called, or whether
+they are initialized or not must be remembered. Given certain conditions,
+it is potentially more efficient to simply 'cache' the original data.
+
+Run-Time Optimization
+---------------------
+The kernel could analyze thread behaviour, monitoring memory access,
+and devise a translation packing the data in a different order. This
+can be persisted by modifying the symbol tables and performing a second
+relocation of the code ranges belonging to the algorithms.
+
+It would enable page faults, determine the possible exit paths of code
+on a page, set breakpoints there, in order to not generate multiple
+page faults for the same data page per code page execution. The exit paths
+must be limited this way for other code pages may modify the same data page,
+which' information will be lost. It further reduces the granularity of
+the information, as it is not known which data in the page is accessed,
+thus preventing data packing.
+
+This can simply be done by replacing the last instruction, 
+all jumps outside the page, and return instructions. The last would
+be conditional on the return address on the stack. On all such conditions,
+the page would be marked as scanned based on the address of the first
+instruction executed on that page.  On the next page access, the entrypoint
+is compared, and the page monitoring can be turned off, although this would
+lead to only a single path of execution being recorded. Since jumps have
+been traced, the paths not taken are also known, and they can be replaced
+with breakpoint instructions.
+
+This allows to fully profile the data access of a page of code.
+Aggregating this information over the entire system execution will yield
+an optimum ordering of data as related to particular code pages. 

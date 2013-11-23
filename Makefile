@@ -152,6 +152,7 @@ site-src:
 	#[ -d root/src/kernel ] || mkdir -p root/src/kernel
 	#cp -a TODO Makefile 16 bootloader kernel util fonts root/src/kernel
 
+# leave here for now
 TXTDOC=Bootsector Cluster NetFork CloudNet LiquidChristalProcessor \
 	CircularBuffer HostMe Freedom Net TaskSwitching CallingConvention \
 	Filesystem EnclosedSource DNS2 Gittorrent VersionControl OOFS \
@@ -159,10 +160,16 @@ TXTDOC=Bootsector Cluster NetFork CloudNet LiquidChristalProcessor \
 	Architecture Synchronicity
 HTMLDOC=PersistentCluster
 
+TXTDOC=$(shell util/doctools.pl -d DOC/ -t txt list)
+
 WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${TXTDOC}))
 DOC_SRC=$(addprefix DOC/, $(addsuffix .txt,${WWW_DOC}))
 HTML_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${HTMLDOC})) \
 	root/www/doc/menu.xml
+
+.PHONY: foo
+foo:
+	@echo "txt DOC: ${TXTDOC}"
 
 HTMLDEPS = util/template.pl util/template.html Makefile
 

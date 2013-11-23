@@ -33,7 +33,7 @@ if ( $ARGV[0] eq '--mtime' )
 
 			my $modstring = defined $foo
 				? " mtime=\"$foo->{mtime}\" mod=\"$foo->{mod}\""
-				: "";
+				: " mtime=\"today\" mod='N'";
 			$h =~ /^(.*?)\.html$/;
 			"  <li><a href=\"doc/$h\"$modstring>$1</a></li>\n"
 		}
@@ -44,6 +44,7 @@ if ( $ARGV[0] eq '--mtime' )
 <style type="text/css">
 span.new { margin-left: 1em; background-color: #0f0; font-style: italic; font-size: smaller}
 span.updated { margin-left: 1em; background-color: yellow; font-style: italic; font-size: smaller}
+span.tobeadded { margin-left: 1em; background-color: red; font-style: italic; font-size: smaller}
 </style>
 
 <script type='text/javascript'>
@@ -91,7 +92,7 @@ function isodate( d, iso )
 	isotz( d.getTimezoneOffset() );
 }
 
-var modelabels = { 'A': 'new', 'M': 'updated'  };
+var modelabels = { 'A': 'new', 'M': 'updated', 'N': 'tobeadded'  };
 
 /**
  * given an element, it scans all <a> tags for 'mtime' and 'mod'
@@ -106,23 +107,24 @@ function addlabels( id, maxhours ) {
 
 	var els = d.getElementsByTagName( 'a' );
 	for ( i=0; i < els.length; i ++ ) {
-		if ( !els.item(i).getAttribute('mtime' ) )
+		if ( !els.item(i).getAttribute('mod' ) )
 			continue;
-
-		var hours = Math.round(
-			( now - new Date( parsedate( els.item(i).getAttribute('mtime') ) ) ) /1000/3600
-		);
-
-		if ( hours < maxhours )
+		if ( els.item(i).getAttribute('mtime' ) )
 		{
-			var span = document.createElement("span");
-			var m = els.item(i).getAttribute( 'mod' );
-			m = modelabels[m];
-			span.innerHTML = m;
-			span.setAttribute( "class", m );
-			els.item(i).parentNode.appendChild( span );
+			var hours = Math.round(
+				( now - new Date( parsedate( els.item(i).getAttribute('mtime') ) ) ) /1000/3600
+			);
+
+			if ( hours >= maxhours )
+				continue;
 		}
 
+		var span = document.createElement("span");
+		var m = els.item(i).getAttribute( 'mod' );
+		m = modelabels[m];
+		span.innerHTML = m;
+		span.setAttribute( "class", m );
+		els.item(i).parentNode.appendChild( span );
 	}
 }
 
