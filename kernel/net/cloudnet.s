@@ -1023,11 +1023,11 @@ cmd_cloud_print$:
 	call	printspace
 	mov	eax, [ebx + ecx + node_addr]
 	call	print_ip$
+	call	printspace
 
 	cmp	edi, 1
 	jb	1f
 
-	call	printspace
 	pushcolor 8
 	lea	esi, [ebx + ecx + node_mac]
 	call	net_print_mac
@@ -1044,21 +1044,21 @@ cmd_cloud_print$:
 
 	call	newline
 	printc 15, "   (met: "
-1:
+
 	mov	edx, [clock]
 	sub	edx, [ebx + ecx + node_clock_met]
 	call	_print_time$
-	cmp	edi, 1
-	jb	1f
 	print " ago"
 
 	printc 15, " seen: "
-	mov	edx, [clock]
+1:	mov	edx, [clock]
 	sub	edx, [ebx + ecx + node_clock]
 	call	_print_time$
+	cmp	edi, 1
+	jb	1f
 	print " ago) "
-1:
-	call	_print_onoffline$
+
+1:	call	_print_onoffline$
 	call	newline
 
 	######################################################
