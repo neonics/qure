@@ -483,3 +483,46 @@ node's IP is no longer in use.
 	the only information kept on nodes is their role - their IP.
 
 
+
+Security Ring
+=============
+
+Now that nodes can be (and are) rebooted if they are found to be offline,
+it is needful to establish a way for this to be done securely, so that
+packet injection in the network will not comprommise the system.
+
+A key can be generated and communicated using mcast or even peer-to-peer,
+yet this can be snooped. Since a snooper will have all the information
+that any node has, something else is needed.
+
+A node joining the cluster for the first time must be authorized. A single
+node in a ring of trust is enough. The connecting node will print it's 
+fingerprint on the console, and a cluster node is chosen to also print
+this and ask whether to allow the node onto the cluster. Once user
+intervention has taken place, the cluster is accepted.
+
+The code in ''net.s'' checking for the reboot packet will then have to
+check for a signature. This would require it to have access to the cluster
+node list to verify the signature. The code therefore will be moved
+to the cloudnet code base, and a hook in the network code made available
+though a kernel api to register a reboot packet filter.
+
+Local Elevation
+---------------
+The kernel function registering the reboot packet filter would only be
+accessible for certain processes. Since a process does not need to
+run at CPL0, it may temporarily ask for elevation merely to execute
+the function. The kernel API thus can alert to ask whether to allow
+the process access to the function.
+
+To automate this, processes or programs may be signed, and their
+signatures added to a list specifying permissions, or, using a group
+membership or list of roles.
+
+For now, the kernel may simply check whether the returning address
+of the kernel call, aswell as the pointer to the reboot packet filter,
+is within the kernel code range in order to establish trust. This is
+secure since all non-kernel programs will be loaded in a different
+address space, as the kernel is mapped in all user processes.
+
+
