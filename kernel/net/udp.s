@@ -11,7 +11,7 @@ udp_checksum:	.word 0
 UDP_HEADER_SIZE = .
 .text32
 # in: edi = udp frame pointer
-# in: eax = sport/dport
+# in: eax = sport/dport	# XXX SHOULD make edx like TCP
 # in: cx = udp payload len (without header size)
 net_udp_header_put:
 	push	eax

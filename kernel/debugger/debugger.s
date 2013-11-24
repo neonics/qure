@@ -785,7 +785,7 @@ debugger:
 	#mov	dword ptr [mutex], MUTEX_SCHEDULER # 0#~MUTEX_SCREEN # -1
 	mov	dword ptr [task_queue_sem], -1
 
-	PIC_SET_MASK ~(1<<IRQ_KEYBOARD)# | 1<<IRQ_TIMER)
+#	PIC_SET_MASK ~(1<<IRQ_KEYBOARD)# | 1<<IRQ_TIMER)
 	sti	# for keyboard. Todo: mask other interrupts.
 	pushad	# just in case
 	mov	al, IRQ_KEYBOARD + IRQ_BASE

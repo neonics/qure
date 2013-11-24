@@ -63,6 +63,7 @@ IPV4_HEADER_SIZE = .
 # in: dh = flags
 #	1<<0: 0=use nic ip; 1: 0.0.0.0
 #	1<<1: 1=(edx >> 16) & 255 = ttl
+#	1<<2: 1=force use esi MAC
 # in: eax = destination ip
 # in: ecx = payload length (without ethernet/ip frame)
 # in: ebx = nic - ONLY if eax = -1!
@@ -74,6 +75,8 @@ net_ipv4_header_put:
 	push	esi
 	cmp	eax, -1
 	jz	1f	# require ebx=nic and esi=mac to be arguments
+	test	dh, 4
+	jnz	1f	# force use of esi MAC
 	call	net_arp_resolve_ipv4	# in: eax; out: ebx=nic, esi=mac for eax
 	jc	0f	# jc arp_err$:printlnc 4,"ARP error";stc;ret
 

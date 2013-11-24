@@ -969,6 +969,8 @@ net_rx_packet:
 	add	[ebx + nic_rx_bytes + 0], ecx
 	adcd	[ebx + nic_rx_bytes + 4], 0
 
+	call	net_check_reboot_packet
+
 cmp ecx, 2000
 jb 1f
 printc 4, "net_rx_packet: packet size too large: ";DEBUG_DWORD ecx
@@ -1055,6 +1057,47 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 	printlnc 4, "schedule error"	# task already scheduled: happens often
 1:	ret	# BUG: edx = [esp] = 00100900
 
+
+net_check_reboot_packet:
+	push_	edi esi ecx
+	lea	edi, [ebx + nic_mac]
+	lea	esi, [esi + eth_dst]
+	cmpsd
+	jnz	1f
+	cmpsw
+	jnz	1f
+	sub	esi, 6 + offset eth_dst
+	cmpw	[esi + eth_type], 8#bswap word ETH_PROTO_IPV4
+	jnz	1f
+	cmpb	[esi + ETH_HEADER_SIZE + ipv4_protocol], IP_PROTOCOL_UDP
+	jnz	1f
+	mov	eax, [esi + ETH_HEADER_SIZE + ipv4_dst]
+	mov	ecx, [ebx + nic_ip]
+	cmp	eax, ecx
+	jnz	1f
+	and	eax, [ebx + nic_netmask]
+	and	ecx, [ebx + nic_netmask]
+	cmp	eax, ecx
+	jnz	1f
+	cmpw	[esi + ETH_HEADER_SIZE + IPV4_HEADER_SIZE + udp_sport], 0xe703 # NBO 999
+	jnz	1f
+	cmpw	[esi + ETH_HEADER_SIZE + IPV4_HEADER_SIZE + udp_dport], 0xe703 # NBO 999
+	jnz	1f
+	cmpd	[esi + ETH_HEADER_SIZE + IPV4_HEADER_SIZE + UDP_HEADER_SIZE], 0x1337c0de
+	jnz	1f
+
+	printlnc 0x4f, "Received reboot packet"
+
+	call	SEL_kernelMode:0
+	printc 11, "Rebooting"
+	cli
+	pushd	0
+	pushw	0
+	lidt [esp]
+	int 3
+
+1:	pop_	ecx esi edi
+	ret
 
 
 net_rx_queue_handler:

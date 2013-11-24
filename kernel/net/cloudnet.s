@@ -98,9 +98,13 @@ call	cluster_add_node	# register self
 	call	_calc_time_clocks$
 	mov	[ping_timeout_clocks], eax
 
+	# delay to make sure the 1st sleep period will exceed
+	# the ping timeout
+	mov	eax, 1000 	# 1 sec
+	call	sleep
 # main loop
 
-0:	mov	eax, 1000 * 60 # * 5
+0:	mov	eax, 1000 * 60	# 1 min
 	call	sleep
 	testd	[cloud_flags], STOP$
 	jnz	0b
@@ -580,25 +584,27 @@ cluster_ping:
 	mov	ecx, [clock]
 #	DEBUG_DWORD ecx,"clock"; DEBUG_DWORD [ping_timeout_clocks];call newline;
 	mov	ebx, [lan_ip]
-	ARRAY_LOOP [cluster_nodes], NODE_SIZE, eax, edx, 1f
+	xor	edi, edi	# count online nodes
+	ARRAY_LOOP [cluster_nodes], NODE_SIZE, eax, esi, 1f
 
 	# update self
-	cmp	ebx, [eax + edx + node_addr]
+	cmp	ebx, [eax + esi + node_addr]
 	jnz	1f
-	mov	[eax + edx + node_clock], ecx
+	mov	[eax + esi + node_clock], ecx
 1:
-#	DEBUG_DWORD [eax + edx + node_clock],"clock"	# last seen
-	lea	esi, [eax + edx + node_node_hostname]
+#	DEBUG_DWORD [eax + esi + node_clock],"clock"	# last seen
+	push	esi
+	lea	esi, [eax + esi + node_node_hostname]
 	call	print
+	pop	esi
 
 	call	printspace
 	push	eax
-	mov	eax, [eax + edx + node_addr]
+	mov	eax, [eax + esi + node_addr]
 	call	net_print_ipv4
 	pop	eax
 	call	printspace
-	push	edx
-	mov	edx, [eax + edx + node_clock]
+	mov	edx, [eax + esi + node_clock]
 	sub	edx, ecx	# cur clock
 	neg	edx
 	call	printhex8
@@ -606,13 +612,91 @@ cluster_ping:
 	call	_print_time$
 	call	_print_onoffline$
 	call	newline
-	pop	edx
-#	cmp	ecx, [eax + edx + node_clock]	# last seen
-#
+	cmp	edx, [ping_timeout_clocks]
+	adc	edi, 0	# count
+
+	# send reboot packet
+	cmp	edx, [ping_timeout_clocks]
+	jb	1f
+	call	cluster_reboot_node
+
+1:
 	ARRAY_ENDL
+
+	printc 11, "online nodes: "
+	mov	edx, edi
+	call	printdec32
+	call	newline
 	popad
 	ret
 
+# in: eax + esi = node
+cluster_reboot_node:
+	printc 0xf0, "rebooting node: "
+	push_	esi edx eax
+	lea	edx, [eax + esi + node_node_hostname]
+	push	edx
+	call	_s_println
+	# send UDP packet to IP
+
+	NET_BUFFER_GET
+	jc	91f
+	push	edi
+
+	add	esi, eax
+	mov	eax, [esi + node_addr]	# IPV4 dest
+	lea	esi, [esi + node_mac]
+	mov	ebx, [cloud_nic]
+
+	# ETH, IP frame
+	mov	ecx, 4 + UDP_HEADER_SIZE
+	mov	dx, IP_PROTOCOL_UDP | 4 << 8	# force use esi MAC
+	# in: edi = out packet
+	# in: dl = ipv4 sub-protocol
+	# in: dh = bit 0: 0=use nic ip; 1=use 0 ip; bit 1: 1=edx>>16&255=ttl
+	# in: eax = destination ip
+	# in: ecx = payload length (without ethernet/ip frame)
+	# in: ebx = nic - ONLY if eax = -1!
+	# in: esi = mac - ONLY if eax = -1!
+	# out: edi = points to end of ethernet+ipv4 frames in packet
+	# out: ebx = nic object (for src mac & ip) [calculated from eax]
+	# out: esi = destination mac [calculated from eax]
+	push	edi	# remember eth frame start
+	call	net_ipv4_header_put
+	pop	edx	# edx = eth frame
+	jc	9f
+
+	# UDP frame
+	mov	eax, (999<<16) | (999) # dport<<16|sport !XXXX should make edx like tcp!
+	sub	ecx, UDP_HEADER_SIZE	# in: ecx = udp payload len
+	mov	esi, edi		# remember udp frame start
+	call	net_udp_header_put
+	add	ecx, UDP_HEADER_SIZE
+
+	mov	[edi], dword ptr 0x1337c0de
+	add	edi, 4	# for NET_BUFFER_SEND
+.if 1
+	mov	eax, [esi - IPV4_HEADER_SIZE + ipv4_src]
+	mov	edx, [esi + IPV4_HEADER_SIZE + ipv4_dst]
+	call	net_udp_checksum	# in: eax,edx, esi=udp frame, ecx=udp framelen
+.else
+	push	edi
+	add	edx, offset ipv4_src + ETH_HEADER_SIZE # in: edx = ipv4 src,dst
+	mov	eax, IP_PROTOCOL_UDP
+	mov	edi, offset udp_checksum
+	call	net_ip_pseudo_checksum
+	pop	edi
+.endif
+
+
+	pop	esi
+	NET_BUFFER_SEND
+	jc	91f
+
+9:	pop_	eax edx esi
+	ret
+91:	printlnc 4, "net_buffer get/send error"
+	jmp	9b
 
 #############################################################################
 # Cluster Event Handler
@@ -937,6 +1021,9 @@ cmd_cloud:
 1:	CMD_ISARG "register"
 	jz	cloud_register
 
+	CMD_ISARG "reboot"
+	jz	cmd_cloud_reboot_node
+
 1:	CMD_ISARG "init"
 	jnz	1f
 	mov	eax, [cluster_node]
@@ -952,6 +1039,23 @@ cmd_cloud:
 1:	printlnc 12, "usage: cloud [options] [<command> [args]]"
 	printlnc 12, " options: -v: increase verbosity; can have more than one"
 	printlnc 12, " commands: status init start stop"
+	ret
+
+cmd_cloud_reboot_node:
+	lodsd
+	or	eax, eax
+	jz	91f
+	ARRAY_LOOP [cluster_nodes], NODE_SIZE, ebx, ecx
+	lea	edx, [ebx + ecx + node_node_hostname]
+	call	strcmp
+	jz	1f
+	ARRAY_ENDL
+	ret
+1:	mov	eax, ebx
+	mov	esi, ecx
+	call	cluster_reboot_node
+	ret
+91:	printlnc 12, "reboot expects hostname"
 	ret
 
 # in: edi = format/verbose level:
