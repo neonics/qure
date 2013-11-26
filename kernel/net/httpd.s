@@ -279,9 +279,17 @@ net_service_tcp_http:
 
 	call	www_send_screen
 
-	mov	esp, ebp
+100:	mov	esp, ebp
 	pop	ebp
 	ret
+
+1:	cmpw	[edx], '/' | 'D' << 8	# gzip test
+	jnz	1f
+
+	call	www_gzip_test
+
+	jmp	100b
+
 ###################################################
 
 1:	# serve custom file:
@@ -1293,11 +1301,48 @@ www_err_response:
 	KAPI_CALL socket_close
 	ret
 
+# in: eax = tcp conn
+www_gzip_test:
+	push_	eax ebx ecx edx edi
+	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: application/x-gzip\r\n\r\n", esi, ecx, 1
+	KAPI_CALL socket_write
+
+	mov	eax, 1024
+	call	mallocz
+	jc	91f
+	mov	ebx, eax
+
+		mov	edi, eax
+		mov	ecx, 1024
+		call	gzip
+
+		DEBUG_DWORD [ebx]
+
+		mov	ecx, edi
+		mov	esi, ebx
+		sub	ecx, ebx
+		DEBUG_DWORD ecx, "compressed size"
+		mov	eax, [esp + 4*4]
+		KAPI_CALL socket_write
+
+	mov	eax, ebx
+	call	mfree
+
+	mov	eax, [esp + 4*4]
+	KAPI_CALL socket_flush
+	KAPI_CALL socket_close
+	pop_	edi edx ecx ebx eax
+	ret
+
+91:	pop_	edi edx ecx ebx eax
+	add	esp, 4
+	mov	esi, offset www_code_500$
+	jmp	www_err_response
+
 
 # in: eax = tcp conn
 www_send_screen:
-	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
-	call	strlen_
+	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n", esi, ecx, 1
 	KAPI_CALL socket_write
 
 .section .strings
@@ -1420,3 +1465,5 @@ SEND_BUFFER = 1
 	KAPI_CALL socket_flush
 	KAPI_CALL socket_close
 	ret
+
+.include "../lib/gzip.s"
