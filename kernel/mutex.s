@@ -80,6 +80,8 @@ mutex_fail:
 2:	pushd	[esp + 4]
 	call	_s_println
 	STACKTRACE 0,0
+	call	debugger_print_mutex$
+	call	cmd_ps$
 	ret	4
 
 # in: [esp] = MUTEX_ bit number

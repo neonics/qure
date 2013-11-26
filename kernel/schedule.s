@@ -1616,6 +1616,16 @@ schedule_task:
 	call	printhex8
 	pop 	edx
 	call	newline
+	DEBUG "task: "
+	pushd	[esp + 16]
+	call	_s_print
+	DEBUG " addr: "
+	push	edx
+	mov	edx, [esp + 4+4]
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+	pop	edx
 1:	stc
 	ret	16
 ######## error messages

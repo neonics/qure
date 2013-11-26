@@ -1003,8 +1003,6 @@ net_print_drop_msg$:
 
 ########################################################
 # we have a queue entry - set it up.
-# XXX FIXME TODO: possible bug: the queue entry is marked as reserved,
-# but not set up at this point. it might get scheduled.
 # NOTE: mutex locked!
 1:	call	mdup	# in: esi, ecx; out: esi
 net_rx_pkt:	# Debug symbol

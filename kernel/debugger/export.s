@@ -536,6 +536,8 @@ stacktrace:
 	mov	ebp, [esp + 8]
 	lea	ebp, [esp + 12 + ebp]
 	call	stacktrace_ebp
+	lea	ebp, [esp + 4]	# log the location where the stacktrace is printed
+	call	stacktrace_ebp
 	pop	ebp
 	ret	4
 
