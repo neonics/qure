@@ -357,7 +357,9 @@ oofs_save:
 
 # in: eax = this
 oofs_persistent_print:
-STACKTRACE 0,0
+.if OOFS_PRINT_TRACE
+	STACKTRACE 0,0
+.endif
 	call	oofs_print	# super.print()
 	push_	esi edx
 	printc 11, "persistence: "

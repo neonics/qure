@@ -186,7 +186,9 @@ fs_oofs_mount:
 	jc	1f
 	mov	[edi + oofs_alloc], eax
 	mov	eax, [edi + oofs_root]
+	.if OOFS_DEBUG
 	call	[eax + oofs_api_print]
+	.endif
 1:	clc
 
 	.if OOFS_DEBUG

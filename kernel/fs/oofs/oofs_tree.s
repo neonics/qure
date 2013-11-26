@@ -251,6 +251,9 @@ oofs_tree_find_by_name:
 
 
 oofs_tree_print:
+.if OOFS_PRINT_TRACE
+	STACKTRACE 0,0
+.endif
 	printc 11, "oofs_tree: "
 	printc 9, "handle: "
 	pushd	[eax + oofs_handle_handle]

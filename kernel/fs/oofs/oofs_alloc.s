@@ -898,7 +898,9 @@ oofs_alloc_handle_save:
 
 
 oofs_alloc_print:
+.if OOFS_PRINT_TRACE
 	STACKTRACE 0,0
+.endif
 	call	oofs_persistent_print
 
 	printc 11, "handles: "

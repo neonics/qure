@@ -73,6 +73,10 @@ SHELL_COMMAND_STRUCT_SIZE = .
 MAX_CMDLINE_LEN = 1024
 MAX_CMDLINE_ARGS = 256
 
+.global shell_variable_set
+.global env_var_label
+.global env_var_value
+
 DECLARE_CLASS_BEGIN cmdline
 cmdline_buf:		.space MAX_CMDLINE_LEN
 cmdline_len:		.long 0
@@ -1647,15 +1651,15 @@ shell_variables_list:
 	or	eax, eax
 	jz	1f
 	mov	ecx, [eax + array_index]
-	shr	ecx, 3
-	jz	1f
+	jecxz	1f
 0:	mov	esi, [eax + env_var_label]
 	call	print
 	print_ " = "
 	mov	esi, [eax + env_var_value]
 	call	println
 	add	eax, ENV_VAR_STRUCT_SIZE
-	loop	0b
+	sub	ecx, ENV_VAR_STRUCT_SIZE
+	jg	0b
 1:	ret
 
 
@@ -1674,8 +1678,7 @@ shell_variable_get:
 	push	eax
 	mov	eax, esi
 	call	strlen
-	inc	eax
-	mov	ecx, eax
+	lea	ecx, [eax + 1]
 	pop	eax
 
 	mov	edx, [eax + array_index]
@@ -1738,16 +1741,17 @@ shell_variable_unset:
 shell_variable_set:
 	push	ebx
 	mov	ebx, eax
-	call	shell_variable_get
+	call	shell_variable_get	# out: eax + edx
 	jc	1f
+	add	eax, edx
 	# found
 	xchg	eax, edi
 	call	strdup
 	# free string value
 	xchg	eax, [edi + env_var_value]
 	call	mfree
-	mov	eax, edi
-	mov	ebx, [edi + env_var_handler]
+	mov	eax, edi	# restore value
+	mov	ebx, [eax + env_var_handler]
 	jmp	0f
 	
 1:	# add

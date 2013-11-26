@@ -10,6 +10,9 @@
 .global oofs_table_api_lookup
 .global oofs_table_api_get
 
+
+OOFS_TABLE_DEBUG = 0
+
 # use the 'persistent offset' feature. 
 # it truncates the parent object data length to offs.
 DECLARE_CLASS_BEGIN oofs_table, oofs_persistent#, offs=oofs_persistent#, psize=oofs_persistent
@@ -211,6 +214,8 @@ oofs_table_onload:
 
 	mov	eax, ebp	# restore this
 
+	.if OOFS_TABLE_DEBUG
+
 	# print entries using offset array
 	printc 15, "oofs_table constructed index; entries: "
 	mov	edi, [eax + oofs_table_indices]
@@ -232,6 +237,8 @@ oofs_table_onload:
 	call	println
 	inc	edx
 	PTR_ARRAY_ITER_NEXT edi, ebp, esi
+
+	.endif
 
 	clc
 
@@ -518,7 +525,9 @@ findstring$:
 
 
 oofs_table_print:
+.if OOFS_PRINT_TRACE
 	STACKTRACE 0,0
+.endif
 	call	oofs_persistent_print	# super.print();
 	push_	esi ecx eax edx
 	printc 11, "Table: persistent size "

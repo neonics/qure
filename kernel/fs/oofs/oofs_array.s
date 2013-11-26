@@ -191,7 +191,9 @@ oofs_array_iterate:
 	ret
 
 oofs_array_print:
+.if OOFS_PRINT_TRACE
 	STACKTRACE 0,0
+.endif
 
 	push_	edx ebx
 	printc 11, "oofs_array: count: "

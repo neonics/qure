@@ -873,7 +873,9 @@ oofs_vol_lookup:
 
 # in: eax = this
 oofs_vol_print:
+.if OOFS_PRINT_TRACE
 	STACKTRACE 0,0
+.endif
 	call	oofs_persistent_print	# super.print()
 	push_	ebp edi esi edx ecx ebx
 

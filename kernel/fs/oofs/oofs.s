@@ -18,6 +18,7 @@
 .global oofs_print
 
 OOFS_DEBUG = 0	# 1 = trace methods; 2 = verbose
+OOFS_PRINT_TRACE = 0	# 1: oofs_api_print prints stacktrace
 
 DECLARE_CLASS_BEGIN oofs#, relatable
 oofs_parent:	.long 0	# nonpersistent
@@ -93,8 +94,10 @@ oofs_init:
 
 # in: eax = this
 oofs_print:
+.if OOFS_PRINT_TRACE
 	pushd 0
 	call stacktrace
+.endif
 	printc 11, "Object "
 	push	eax
 	call	_s_printhex8
