@@ -327,6 +327,8 @@ net_ipv6_print:
 
 #############################################################################
 
+# RFC 1071: computing internet checksums.
+#
 # in: esi = pointer to header to checksum
 # in: edi = offset relative to esi to receive checksum
 # in: ecx = length in bytes

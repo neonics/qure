@@ -186,7 +186,7 @@ cloud_mcast_init:
 	mov	ebx, [cloud_nic]
 
 	IP_LONG	eax, 224,0,0,1
-	mov	dl, IGMP_TYPE_QUERY
+	mov	dx, IGMP_TYPE_QUERY | 1 << 8
 	call	net_igmp_send
 
 	mov	eax, CLOUD_MCAST_IP

@@ -48,14 +48,49 @@ igmp_type:	.byte 0	# lo 4 bits = version; hi 4 bits = type
 	IGMP_TYPE_REPORTv2	= 0x16
 	IGMP_TYPE_LEAVEv2	= 0x17
 	IGMP_TYPE_REPORTv3	= 0x22
-igmpv3_max_resp:.byte 0 # bit7=0: val * 1/10 s; 1: [1 | exp:3 | mant:4 ]: (mant | 0x10) << (exp + 3)
+igmp_max_resp:.byte 0 # bit7=0: val * 1/10 s; 1: [1 | exp:3 | mant:4 ]: (mant | 0x10) << (exp + 3)
 igmp_checksum:	.word 0
-igmp_addr:	.long 0	# group address
+# up to here is the common header for all IGMP packets
 
+# IGMPv1, v2, and v3 Query:
+igmp_addr:	.long 0	# group address
+IGMP_HEADER_SIZE = .	# minimum header size
+
+# IGMPv3 Query:
 igmpv3_s_qrv:	.byte 0	# [RESV:4 | S:1 | QRV:3 ]; S=suppress router processing;QRV:querier robustness val
 igmpv3_qqic:	.byte 0	# querier query interval code; same semantics as max_resp except in seconds
 igmpv3_numsrc:	.word 0	# nr of source ipv4 addr to follow
-IGMP_HEADER_SIZE = .
+
+
+# IGMP Query (0x11):
+# v1: frame len 8 octets and max_resp = 0
+# v2: frame len 8 octets and max_resp != 0
+# v3: frame len >= 12 octets
+
+
+.struct 4	# IGMPv3 Membership Report
+		.word 0	# reserved
+igmpv3_num_gr:	.word 0	# number of group records
+igmpv3_grs:	# array of group records
+
+
+.struct 0	# IGMPv3 Group Record
+igmpv3_gr_type:	.byte 0
+	# Current-State-Record: response to query
+	IGMP_GR_MODE_IS_INCLUDE		= 1	# leave
+	IGMP_GR_MODE_IS_EXCLUDE		= 2	# join
+	# Filter-Mode-Change-Record: notification of local filter change
+	IGMP_GR_MODE_CHANGE_INCLUDE	= 3
+	IGMP_GR_MODE_CHANGE_EXCLUDE	= 4
+	# Source-List-Change-Record:
+	IGMP_GR_MODE_ALLOW_NEW_SOURCES	= 5
+	IGMP_GR_MODE_BLOCK_OLD_SOURCES	= 6
+igmpv3_gr_auxlen:.byte 0
+igmpv3_gr_numsrc:.word 0
+igmpv3_gr_addr:	.long 0	# multicast address
+igmpv3_gr_srcs:	# array of unicast IPv4 source addresses
+# after this, auxlen bytes.
+
 .text32
 
 # in: edi = igmp frame pointer
@@ -83,18 +118,88 @@ net_igmp_header_put:
 	pop	edx
 	ret
 
+# in: esi = igmp frame pointer
+# in: ecx = igmp frame len
+net_igmp_checksum$:
+	push_	edi
+	mov	edi, offset igmp_checksum
+	call	protocol_checksum
+	pop_	edi
+	ret
+
+###########################################
+# IGMPv1:
+# - Query  v1 0x11 max_response_time = 0
+# - Report v1 0x12
+# - Packet len 8 (_MIGHT_ be longer?)
+# - checksum over 8 bytes ALWAYS.
+#
+# IGMPv2:
+# - Query  v1 0x11 v2=max_response_time > 0: 1/10s
+# - Report v1 0x11 for backwards compat
+# - Report v2 0x16
+# - Leave  v2 0x17
+# - Packet len 8 bytes minimum, data beyond 8 bytes ignored
+# - checksum over ENTIRE IP payload.
+#
+# IGMPv3:
+# - Query  v1 0x11 v3=+8 + source addrs; max_resp_tm: <128=1/10;>=floating pt
+# - Report v3 0x22
+# - Report v1 0x12
+# - Report v2 0x16
+# - Leave  v2 0x17
+# - IP TTL 1
+# - IP ToS 0xc0 (IP precedence of internetwork control)
+# - IP router alert option (RFC 2113)
+#
+# NOTES
+#
+# The above refers to the IGMP _IMPLEMENTATION_ version (1,2 or 3).
+# Therefore, since this code attempts to be up to date, it will be v3,
+# and thus treat the messages as such.
+# 
+# The max_response_time field is treated differently by all IGMP versions;
+# v1: must be 0 on tx, ignored on rx.
+# v2: deciseconds
+# v3: < 128: deciseconds; >=128: (mant|0x10)<<(exp+3) as per:
+#    |1|exp|mant|	# NOTE!!! RFC numbers bits in reverse! ('1'=bit 0)
+# example code:
+#
+# decode_time:
+#	movzx	ax, byte ptr [esi + igmp_max_resp_time]
+#	test	al, 128
+#	jz	1f
+#	mov	cl, al
+#	shr	cl, 4	# cl = |0000|1|exp|
+#	and	cl, 3	# cl = |0000|0|exp|
+#	add	cl, 3	# cl = exp+3, max  value = 10
+#	and	al, 15	# al = mant
+#	or	al, 0x10# al = |0001|mant|
+#	shl	ax, cl	# max: 5 bits + 10 bits
+# 1:	ret	# ax = deciseconds
+#
+# in: ax = deciseconds
+# encode_time:
+#	cmp	ax, 128
+#	jb	1f	# bsr must succeed (ZF=0) since ax>=128
+#	bsr	cx, ax	# cx = most significant set bit index
+#	sub	cl, 4	# leave 4 bits
+#	jns	2f
+#	xor	cl, cl	# exp = 0
+# 2:	shr	ax, cl	# al = |0000|mant|
+#	shl	cl, 4
+#	mov	ah, cl
+#	or	ah, 128
+# 1:	ret
+###########################################
 
 # in: esi = igmp frame
 # in: ecx = igmp frame len
 # in: edx = ipv4 frame
 net_ipv4_igmp_print:
-	cmp	ecx, IGMP_HEADER_SIZE
-	jb	91f
-
 	push_	eax edx
 
 	printc 11, "IGMPv"
-
 	mov	ah, [esi + igmp_type]
 	mov	al, '1' # v1
 	cmp	ah, IGMP_TYPE_QUERY
@@ -127,9 +232,18 @@ net_ipv4_igmp_print:
 	#jmp	4f
 
 ########
-4:	call	printchar
+4:	
+	cmp	ecx, 12
+	jb	1f
+	cmp	al, '2'
+	jz	1f	# don't update for v2
+	mov	al, '3'	# version 3
+1:
+
+	call	printchar
 	call	printspace
 	call	_s_print
+	push	eax
 	print " ("
 	mov	eax, [edx + ipv4_src]
 	call	net_print_ipv4
@@ -137,44 +251,127 @@ net_ipv4_igmp_print:
 	mov	eax, [edx + ipv4_dst]
 	call	net_print_ipv4
 	print ") "
-	mov	eax, [esi + igmp_addr]
+	pop	eax
+
+	# for query, if v2+, print max resp
+	cmp	ah, IGMP_TYPE_QUERY
+	jnz	3f
+## Query
+	cmp	al, '1'
+	jz	2f
+	print " maxresp "
+	movzx	edx, byte ptr [esi + igmp_max_resp]
+	call	printhex2
+	call	printspace
+
+	# check QUERY v3: igmp frame >= 12 bytes
+	sub	ecx, 12
+	jl	2f	# not v3
+	shr	ecx, 3
+	# ecx = num dwords 
+
+	cmp	cx, [esi + igmpv3_numsrc]
+	jnz	92f
+4:	print " #"
+	push	ecx
+	call	_s_printdec32
+	or	ecx, ecx
+	jz	1f
+	mov	edx, 12
+0:	mov	eax, [esi + edx]
+	call	printspace
+	call	net_print_ip
+	add	edx, 4
+	loop	0b
+	jmp	1f
+
+# report v3
+3:	cmpb	[esi + igmp_type], IGMP_TYPE_REPORTv3
+	jnz	1f	# unknown v3 message
+
+	# Report v3 has different layout: the 2nd dword isnot
+	# the group address, but reserved word followed by
+	# number of group records.
+	sub	ecx, 8	# the standard dword header + the reportv3 numgrp
+	jl	91f	# short packet
+
+	shr	ecx, 1	# group record count is at least 8 bytes per entry
+	jz	1f	# no group records.
+	mov	ax, [esi + igmpv3_num_gr]
+	xchg	al, ah
+	cmp	cx, ax
+	jb	91f	# short packet
+	# note: might still be short packet if there are source addresses
+	# in one of the entries.
+
+###########
+	movzx	ecx, ax	# num group records
+	push	ecx
+	call	_s_printdec32
+	or	ecx, ecx
+	jz	1f	# no group records, done.
+	cmp	ecx, 1
+	jz	0f
+	call	newline	# multiple records, use multiline format
+0:
+	push_	ebx esi
+	add	esi, 8	# offset of groups
+	lea	ebx, [esi + ecx * 2]	# igmp frame end
+0:	cmp	esi, ebx
+	jae	4f	# short packet
+	lodsd
+	print " t="
+	movzx	edx, al	# record type
+	call	printhex2
+	movzx	edx, ah	# aux data len
+	shr	eax, 16
+	print " numsrc="
+	push	eax
+	call	_s_printdec32
+	# skip source addresses:
+	shl	eax, 2	# *4
+	add	edx, eax
+	lodsd	# mcast addr
+	call	printspace
+	call	net_print_ipv4
+	add	esi, edx	# add aux group data
+	loop	0b
+	pop_	esi ebx
+	jmp	1f
+# grp: short packet
+4:	pop_	esi ebx
+	jmp	91f
+###########
+
+# v1,2
+2:	mov	eax, [esi + igmp_addr]
 	call	net_print_ipv4
 
-	print	" checksum "
-	mov	dx, [esi + igmp_checksum]
-	call	printhex4
-
-	# check if v3
-	cmpb	[esi + igmp_type], IGMP_TYPE_REPORTv3
-	jnz	2f
-
-	.if 0
-		# dump payload as IP's
-		push	ecx
-		sub	ecx, 8
-		shr	ecx, 3
-		jz	1f
-		mov	edx, 8
-	0:	mov	eax, [esi + edx]
-		call	printspace
-		call	net_print_ip
-		loop	0b
-	1:	pop	ecx
-	.endif
-
-2:
+1:
+	#print	" checksum "
+	#mov	dx, [esi + igmp_checksum]
+	#call	printhex4
 
 	call	newline
 
 9:	pop_	edx eax
 	ret
+####################################################################
 
 91:	printc 4, "IGMP: short packet: "
 	push	ecx
 	call	_s_printdec32
 	call	newline
-	STACKTRACE 0,0
-	ret
+	jmp	9b
+92:	movzx	eax, word ptr [esi + igmpv3_numsrc]
+	push	eax
+	push	ecx
+	PUSHSTRING "numsrc (%d)*8 + 12 != pktlen (%d)"
+	pushcolor 12
+	call	printfc
+	popcolor
+	add	esp, 12
+	jmp	9b
 
 # in: ebx = nic
 # in: edx = ipv4 frame
@@ -189,6 +386,8 @@ ph_ipv4_igmp:
 62:
 	push_	eax edx
 
+	# filter: allow destination addresses to be
+	# broadcast, multicast, and the NIC IP.
 	mov	eax, [edx + ipv4_dst]
 	cmp	eax, -1	# broadcast
 	jz	1f
@@ -246,57 +445,89 @@ ph_ipv4_igmp:
 	call	newline
 	jmp	9b
 
+
 # in: dl = IGMP_TYPE
+# in: dh = IGMP version
 # in: ebx = nic
 # in: eax = dest ip
 net_igmp_send:
-	NET_BUFFER_GET
+	push_	edi esi ecx
+	NET_BUFFER_GET	# XXX verify that packet is zeroed
 	jc	91f
-	push	eax
+	push	eax	# stackref
 	push	edx	# stack referenced below
-	push	edi
-	# in: edi = out packet
-	# in: edx = [ 00 ] [ ttl ] [flags(1<<1=ttl)] [ipv4 sub-protocol]
-	mov	edx, IP_PROTOCOL_IGMP | 1<<9 | 1 << 16
-	# in: eax = destination ip
-	# in: ecx = payload length (without ethernet/ip frame)
+	push	edi	# packet start
+
 	mov	ecx, IGMP_HEADER_SIZE
-	cmp	dl, IGMP_TYPE_REPORTv3
+	cmp	dh, 3	# version 3 has 12 octet minimum frame size
 	jnz	1f
 	add	ecx, 4
+	cmp	dl, IGMP_TYPE_REPORTv3
+	jnz	1f
+	# have v3 report. Fornow, only 1 group record/mcast addr:
+	# 8 bytes header + 8 bytes for group record:
+	# 16 - 12 = 4
+	add	ecx, 4
 1:
+
+	# in: edi = out packet
+	# in: eax = destination ip
+	# in: ecx = payload length (without ethernet/ip frame)
+	# in: edx = [ 00 ] [ ttl ] [flags(1<<1=ttl)] [ipv4 sub-protocol]
+	mov	edx, IP_PROTOCOL_IGMP | 1<<9 | 1 << 16
+
 	# in: ebx = nic - ONLY if eax = -1!
-	mov	ebx, [cloud_nic]
 	# out: edi = points to end of ethernet+ipv4 frames in packet
 	# out: ebx = nic object (for src mac & ip) [calculated from eax]
 	# out: esi = destination mac [calculated from eax]
 	call	net_ipv4_header_put
+	mov	esi, edi	# start of igmp frame for IGMPv3 Report
 
-	mov	dl, [esp + 4] # IGMP_TYPE
+	mov	dx, [esp + 4] # IGMP_TYPE | version << 8
 	cmp	dl, IGMP_TYPE_QUERY
 	jnz	1f
 	xor	eax, eax	# zero igmp_addr for query
 1:
+
+	call	net_igmp_header_put
+
 	cmp	dl, IGMP_TYPE_REPORTv3
 	jnz	1f
-#	add	edi, 4
+	# overwrite group address with number of group records:
+	mov	dword ptr [edi - 4], (1<<8) << 16
+	# add the group record
+	# |b: record type |b: aux data len |w: num src|
+	mov	eax, IGMP_GR_MODE_IS_EXCLUDE # join
+	stosd
+	mov	eax, [esp + 8]	# group IP
+	stosd
+	# no sources.
 1:
-	# in: dl = msg type
-	# in: eax = group address
-	call	net_igmp_header_put
+
+	mov	ecx, edi
+	sub	ecx, esi	
+	jle	93f
+	call	net_igmp_checksum$	# in: esi, ecx
 
 	pop	esi
 	NET_BUFFER_SEND
 	pop	edx
 	pop	eax
 	jc	92f
+9:	pop_	edi esi ecx
 	ret
 91:	printlnc 4, "net_buffer_get error"
 	stc
-	ret
+	jmp	9b
 92:	printlnc 4, "net_buffer_send error"
 	stc
-	ret
+	jmp	9b
+93:	printlnc 4, "edi < esi"
+	int 3
+	jmp	1b
+
+
+
 
 # in: ebx = NIC
 net_igmp_print:
@@ -342,18 +573,18 @@ net_igmp_join:
 
 62:	# report
 	# TODO: timer, repeat
-	mov	dl, IGMP_TYPE_REPORTv3
+	mov	dx, IGMP_TYPE_REPORTv3 | 3 << 8
 	call	net_igmp_send	# in: eax, ebx, dl
-	mov	dl, IGMP_TYPE_REPORTv2
+	mov	dx, IGMP_TYPE_REPORTv2 | 2 << 8
 	call	net_igmp_send	# in: eax, ebx, dl
-	#mov	dl, IGMP_TYPE_REPORTv1
+	#mov	dl, IGMP_TYPE_REPORTv1 | 1 << 8
 	#call	net_igmp_send	# in: eax, ebx, dl
 
 0:	pop_	edx ecx
 	ret
 91:	printc 4, "net_igmp_join: malloc error"
 	jmp	0b
-92:	printc 4, "net_igmp_join: alrady member of "
+92:	printc 4, "net_igmp_join: already member of "
 	call	net_print_ipv4
 	call	newline
 	jmp	62b
@@ -365,7 +596,7 @@ net_igmp_leave:
 	jnz	91f
 
 	push	edx
-	mov	dl, IGMP_TYPE_LEAVEv2
+	mov	dx, IGMP_TYPE_LEAVEv2 | 2 << 8
 	call	net_igmp_send
 	pop	edx
 
