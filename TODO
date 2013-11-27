@@ -8,22 +8,22 @@ v include acpi.s breaks as [acpi code not committed]
   Filed bug report. 
 
 
-v: bootloader writing. Currently destroys the target disk's previous
+v bootloader writing. Currently destroys the target disk's previous
    data, as it writes to the MBR and succeeding sectors.
 
 TODO: bootloader writing: write sector1 and following in the place indicated
   by the MBR. If writing to existing partition, allocate space using
   it's filesystem.
 
-v: PMode. Provide: GDT (Global Descriptor Table)
+v PMode. Provide: GDT (Global Descriptor Table)
 
-v: Pmode IDT (Interrupt Table)
+v Pmode IDT (Interrupt Table)
 
-v: PIC remapping
+v PIC remapping
 
-v: implement keyboard driver in PMode (depends IDT)
+v implement keyboard driver in PMode (depends IDT)
 
-TODO: Task Switching (TSS) (depends PMode)
+v Task Switching (TSS) (depends PMode)
   partly done - one TSS switch already works. Need to check whether
   a context switch really occurs to make sure.
 
@@ -31,23 +31,24 @@ v construct memory map (ebda, bios rom etc).
   using realmode kernel int 0x12 and int 0x15 to pass map to pmode.
   malloc makes use of the largest block.
 
-TODO: implement Paging
+v implement Paging
   since it cannot be turned off and it seems like a nightmare it is postponed.
+  UPDATE: it can be turned off.
 
-TODO: test acpi_poweroff
+v test acpi_poweroff
 
-v: Shell
+v Shell
   extremely small shell with history, environment variables, and a built-in
   command list. Shell is run from kernel, can be exited to return to
   stage 2 bootloader, which offers shutdown and reboot.
 
-TODO: filesystem
+v filesystem
    implemented fdisk.
    implemented FAT16 read access.
    started on 'sfs', custom filesystem. Something akin to git seems worth
    considering.
 
-v: clean up bootloader, separate from kernel. Decisions:
+v clean up bootloader, separate from kernel. Decisions:
 	- whether sector1 is the kernel, or whether it is additional
 	  bootloader code. At some point the kernel/sector1 will not
 	  be succeeding the bootsector immediately, if compatability
@@ -96,9 +97,9 @@ v: clean up bootloader, separate from kernel. Decisions:
 
 TODO: load modules/objects/programs
 
-TODO: have the sector1 code switch to pmode asap,
-and update all the code used to linear addressing.
-pmode needed for ACPI. 
+v have the sector1 code switch to pmode asap,
+  and update all the code used to linear addressing.
+  pmode needed for ACPI. 
 
 TODO: create assembler
 
@@ -107,20 +108,20 @@ TODO: create high level programming language compiler
 TODO: VM98 Mode (depends TSS)
   postponed, due to realmode switching availability.
 
-v: IO APIC
+TODO: IO APIC
 
 TODO: Local APIC (xAPIC)
   postponed until SMP.
 
 TODO: ELF Loader, KFS
-	Compile (g++ test.c && objcopy -O elf32-i386 test.o test.o)
-	Add to boot.img (write.exe ... -b test.o)
-	Modify bootloader: pass on pointer to RAMDISK0
-	Add code to kernel to access RAMDISK0 location - KFS.
-	Load entry 1 (0=kernel), ELF image.
-	Support REL and EXE; in case of EXE subtract base address from
-	addresses to make 0-aligned.
-	Iterate over relocation table:
+	v Compile (g++ test.c && objcopy -O elf32-i386 test.o test.o)
+	- Add to boot.img (write.exe ... -b test.o)
+	v Modify bootloader: pass on pointer to RAMDISK0
+	v Add code to kernel to access RAMDISK0 location - KFS.
+	v Load entry 1 (0=kernel), ELF image.
+	- Support REL and EXE; in case of EXE subtract base address from
+	  addresses to make 0-aligned.
+	- Iterate over relocation table:
 		for each symbol update address:
 			use kernel ELF image to locate symbol (and its address).
 	Change makefile: store REL ELF binary of kernel image. 
@@ -134,18 +135,18 @@ TODO: ELF Loader, KFS
 		(as to not replicate too much ELF code in the 16 bit loader)
 	Keep track of all loaded ELF images as they will be the basis
 	for the processes. 
-	Finish kernel memory map: it already has access to the realmode
-	data bios memory map. Needs to find a suitable memory segment
-	for the kernel, for dynamic data maintenance, and for
-	processes. Initial approach: take biggest memory segment,
-	it'll be last usable one, above 1MB, extending to a little before
-	physical memory end - the final segment of unusable data. Make sure
-	algorithm can operate on any map ordering.
-	Add relocation code. Perhaps split up the pmode code to have it just
-	switch to pmode with all interrupts disabled,
-	then return to the realmode loader code, do a memory move,
-	then continue on with the setup of interrupts etc. Could also
-	have the kernel do this, as the GDT needs to be adjusted:
+	- Finish kernel memory map: it already has access to the realmode
+	  data bios memory map. Needs to find a suitable memory segment
+	  for the kernel, for dynamic data maintenance, and for
+	  processes. Initial approach: take biggest memory segment,
+	  it'll be last usable one, above 1MB, extending to a little before
+	  physical memory end - the final segment of unusable data. Make sure
+	  algorithm can operate on any map ordering.
+	v Add relocation code. Perhaps split up the pmode code to have it just
+	  switch to pmode with all interrupts disabled,
+	  then return to the realmode loader code, do a memory move,
+	  then continue on with the setup of interrupts etc. Could also
+	  have the kernel do this, as the GDT needs to be adjusted:
 		disable interrupts
 		memmove
 		update gdt (need to create 32 bit code)
@@ -197,7 +198,7 @@ TODO: ELF Loader, KFS
 	each section also recording the api name of the library.
 
 
-Shell: argument escaping
+TODO: shell: argument escaping
 
 	Use the parsed tokens, write a little grammar for them:
 	see process_tokens in shell.s and trash/cd_apply.s
@@ -292,16 +293,38 @@ IMPROVEMENT: Optimize static string storage:
 	and using the elf/coff string tables to update references
 	in code and data.
 
-BUG: fdisk: ata_(get|print)_capacity reports 0 in VMWare
+TODO: string data optimizer:
+  works on .o file (perhaps conversion to ELF and back).
+  works on data between symbol locations section_data_str_(start|end).
+  removes duplicate strings (saves 2k); uses matching suffix strings.
+  Requires symbols to be stored in the .o to find the string references.
 
-BUG: ata: sometimes DRQ timeout in VMWare.
+  Approach: declare a section .strtab (as a .data area takes about 10kb).
+  This area contains fields of 2 dwords: the string data offset, and the
+  code offset (within the instruction opcode).
+  Also declare the string subsection to be the last one (just before bss).
+  During build, manipulate the .o file: pad the unused space in the .strtab,
+  and update the start of the bss section and all references to the bss section.
+  All .bss data uses labels, which may not be exported if they end with $,
+  so, need to find an option to have those present in the object file, and then
+  removed from the final object file.
+  Another approach is to have objcopy shrink the data section and do the .bss 
+  relocation.
+
+  UPDATE: see util/stringdata.pl.
+
+
+
+v fdisk: ata_(get|print)_capacity reports 0 in VMWare
+
+v ata: sometimes DRQ timeout in VMWare.
   When this happens, gfx mode no longer works.
   Suspect filesystem handle freeing.
   ata reports ERR and ABRT occasionally - need to find out how to reset.
 
 TODO: implement IDE DMA.
 
-BUG: hash: pci device array reallocation does not work properly;
+v hash: pci device array reallocation does not work properly;
   part of a nic structure is not copied. Found out due to a buffer pointer
   being zero causing GPF. As a side effect hardware breakpoints are implemented
   which revealed the culprit on memory write.
@@ -323,25 +346,28 @@ TODO: offload screen writing in interrupts
 
   See DOC/TaskSwitching.txt
 
+
 BUG: On resume after hibernate of host os, qemu's nic irq/scheduler doesn't trigger.
 
-BUG: since fixing strtok and fs_update_path, the directory is no longer trailed by /.
-     cd /b then yields dir /b, not /b/, thus catting a file F yields path /bF.
-WORKAROUND: cd /b/
 
-FIXED: symboltable is loaded after kernel's BSS. Stack may run into it, as it is
+v since fixing strtok and fs_update_path, the directory is no longer trailed by
+  /.
+  cd /b then yields dir /b, not /b/, thus catting a file F yields path /bF.
+  WORKAROUND: cd /b/
+
+v symboltable is loaded after kernel's BSS. Stack may run into it, as it is
   64/128 kb beyond kernel end, not beyond symtab end.
 
-FIXED: bootloader's ramdisk kernel load end is before end of bss. This was due
+v bootloader's ramdisk kernel load end is before end of bss. This was due
   to not taking the ramdisk FAT into account. Bug was detected by new '-s' option
   to mem.
 
-BUG: occasionally 0x00000000 is called on ARP error from incoming connection.
+v occasionally 0x00000000 is called on ARP error from incoming connection.
 
 
-TODO: fat12 long filenames
+v fat12 long filenames
 
-TODO: iso9660 RR extensions for long filenames
+v iso9660 RR extensions for long filenames
 
 TODO: use cld in IRQ proxies (and the core IRQ handler), as this is assumed,
 	yet some code uses std...cld, which might cause problems when IRQ's
@@ -350,8 +376,8 @@ TODO: use cld in IRQ proxies (and the core IRQ handler), as this is assumed,
 
 TODO: Multitasking: shell.
   v Make shell multi-instantiable, i.e. object.
-  - Have 'alt-2' open another console shell
-  - contextualize print routines: have an array/pointer to a struct
+  v Have 'alt-2' open another console shell
+  v contextualize print routines: have an array/pointer to a struct
     containing the pointer to the buffer and screenpos.
     (alternate approach: have a print-object layer that can also be used
     to print to files etc).
@@ -361,10 +387,10 @@ TODO: Multitasking: shell.
   - update kernel context/IP pointer to a hlt loop, checking how many
     processes are running. Add this context as the 0th context.
   - process layout:
-     - kernel in hlt loop (idle task?)
+     v kernel in hlt loop (idle task?)
      - kb handler checking console activation
-     - when console activated, no process is allocated yet
-     - enter creates shell process.
+     v when console activated, no process is allocated yet
+     v enter creates shell process.
      - scheduler updates:
        - round robin scan (skipping gaps).
        - increase task entry struct with flags: one-shot or process.
@@ -388,33 +414,11 @@ TODO: Multitasking: shell.
 	   task that prints the time on the screen.
 
 
-
-TODO: Multitasking: ring 3.
-  - update exe (elf) loader to allocate stack.
-  update: use schedule_task; depends todo: - suspend parent scheduling
-  while child process runs; implement ^Z to suspend child and schedule parent.
-  implement job stack.
+v Multitasking: ring 3.
+v update exe (elf) loader to allocate stack.
 
 TODO: implement I/O pipes for IPC: chaining commandline processes.
  
-TODO: string data optimizer:
-  works on .o file (perhaps conversion to ELF and back).
-  works on data between symbol locations section_data_str_(start|end).
-  removes duplicate strings (saves 2k); uses matching suffix strings.
-  Requires symbols to be stored in the .o to find the string references.
-
-  Approach: declare a section .strtab (as a .data area takes about 10kb).
-  This area contains fields of 2 dwords: the string data offset, and the
-  code offset (within the instruction opcode).
-  Also declare the string subsection to be the last one (just before bss).
-  During build, manipulate the .o file: pad the unused space in the .strtab,
-  and update the start of the bss section and all references to the bss section.
-  All .bss data uses labels, which may not be exported if they end with $,
-  so, need to find an option to have those present in the object file, and then
-  removed from the final object file.
-  Another approach is to have objcopy shrink the data section and do the .bss 
-  relocation.
-
 
 TODO: implement .bss
   declare bss start/size constants, and use those in pm kernel to memzero
@@ -422,11 +426,11 @@ TODO: implement .bss
   (even though the 1.44 floppy image still takes 1.44 mb in the iso).
 
 
-BUG: [tcp_connections] gets overwritten
+v [tcp_connections] gets overwritten
 
-BUG: scheduler: [task_stack] gets overwritten with html
+v scheduler: [task_stack] gets overwritten with html
 
-BUG: memleak: netq: does not drop packets when queue is full.
+v memleak: netq: does not drop packets when queue is full.
 	Solution: have empty spot between tail/head always.
 	(other solution: no empty spot, but, when head=tail, check whether
 	the current index is occupied or not; if not, entire q is empty,
@@ -451,7 +455,25 @@ TODO: IDE UDMA Busmastering.
 
 	UPDATE: this failed, reverted.
 
-TODO: reorganize OO with dev, pci, ata etc.
+TODO: PCI BM IDE and ATA
+	At current PCI is not required in order to operate ATA.
+	The PCI code now implements the PIIX4, which (throug hardcodings
+	the ATA ports according to the spec) provides another API access
+	point to ATA. 
+
+	The ata_list_drives that initializes ATA should be bypassed
+	in case an IDE device operating the same ports is initialized.
+	Since the ATA driver supports 8 drives, whereas the IDE driver
+	only supports 4 (and it is expected that if more than 4 drives
+	are available that there will be 2 IDE devices), 
+	the ATA code can then check class_disk or something to see whether
+	the drive is already registered.
+	Another approach is to reuse the current ATA code as is from
+	the IDE driver, which marks the drives as configured,
+	and thus the second call has no effect ("listdrives"->ata_list_drives)
+
+
+v reorganize OO with dev, pci, ata etc.
 
 	Current status: added oo.s with DECLARE_CLASS_BEGIN/END macros.
 	They create a class DECLARATION using a struct relative to SUPER,
@@ -580,25 +602,7 @@ TODO: reorganize OO with dev, pci, ata etc.
 	The 'dev' commandline utility does not work, since [devices]
 	has been removed entirely.
 
-TODO: PCI BM IDE and ATA
-	At current PCI is not required in order to operate ATA.
-	The PCI code now implements the PIIX4, which (throug hardcodings
-	the ATA ports according to the spec) provides another API access
-	point to ATA. 
-
-	The ata_list_drives that initializes ATA should be bypassed
-	in case an IDE device operating the same ports is initialized.
-	Since the ATA driver supports 8 drives, whereas the IDE driver
-	only supports 4 (and it is expected that if more than 4 drives
-	are available that there will be 2 IDE devices), 
-	the ATA code can then check class_disk or something to see whether
-	the drive is already registered.
-	Another approach is to reuse the current ATA code as is from
-	the IDE driver, which marks the drives as configured,
-	and thus the second call has no effect ("listdrives"->ata_list_drives)
-
-
-FIXED: BUG: am79c doesnt work. CSR0 TXON/RXON are not on;
+v BUG: am79c doesnt work. CSR0 TXON/RXON are not on;
 	CSR15(MODE) 0x80 (PORTSEL0) not remembered and set to 0;
 	then init/IDON, after that, CSR15 is 0xf.
 	TODO(done):check with clean checkout.
@@ -704,7 +708,7 @@ TODO: rework mem.s to use paging.
 			...
 
 
-TODO: kernel ring ordering
+v kernel ring ordering
 
 	Order the code and data according to ring.
 
@@ -713,9 +717,9 @@ TODO: kernel ring ordering
 	ring2: IO drivers
 	ring3: unprivileged applications
 
-	This change requires far calls.
+TODO:	 This change requires far calls.
 
-	For full protection, each ring will be code+data, and page
+TODO:	For full protection, each ring will be code+data, and page
 	aligned.
 
 TODO: file system writing
@@ -744,7 +748,7 @@ TODO: dynamic load balanced name/uptime service
 
 
 
-TODO: fs/fs.s: ls / should show mountpoint provided root dir entry.
+v fs/fs.s: ls / should show mountpoint provided root dir entry.
 
 
 TODO: article - 'reinventing the wheel';
@@ -752,18 +756,18 @@ TODO: article - 'reinventing the wheel';
 TODO: cat sourcecode | syntax -f asm | cut -page -oprefix=page%d.html,.svg -print | show 3d
 
 
-DONE: kernel uptime (http) - seems to clip (02h -> 0h)
+v kernel uptime (http) - seems to clip (02h -> 0h)
 
-DONE: cluster uptime: record start date
-DONE: have kernel read cmos at boot and store the value, when the PIT is inited
-and then provide math to get current date - saves CMOS IO access (no CPL0 needed)
-DONE: cluster send kernel revision
+v cluster uptime: record start date
+v have kernel read cmos at boot and store the value, when the PIT is inited and
+  then provide math to get current date - saves CMOS IO access (no CPL0 needed)
+v cluster send kernel revision
 
-FIXED: fix HTTPD memleak: 20 bytes per request, only with Firefox (not with netcat).
+v fix HTTPD memleak: 20 bytes per request, only with Firefox (not with netcat).
 
 TODO: DNS: lowercase query support (62.152.117.90: cLouD.nEoNiCS.Com)
 
-TODO: sometimes calling host <ip> prints HTTP response/requests.
+v: sometimes calling host <ip> prints HTTP response/requests.
 
 TODO: timing: cloudnet: hosts that have been suspended have incorrect time,
 	showing up as uptime of other (just booted) nodes as negative,
@@ -772,10 +776,10 @@ TODO: timing: cloudnet: hosts that have been suspended have incorrect time,
 TODO: HTTPD memory leak on high load.
 
 
-DONE: fix mutex bug
-DONE: fix socket_buffer_read mutex reset.
-DONE: fix occasional scheduling reentrancy.
-DONE: fix memory mutex recursion
+v fix mutex bug
+v fix socket_buffer_read mutex reset.
+v fix occasional scheduling reentrancy.
+v fix memory mutex recursion
 
 TODO: make network buffer allocation asynchronous relative to packet reception.
 
