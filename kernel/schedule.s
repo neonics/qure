@@ -2400,7 +2400,8 @@ cmd_ps$:
 	PUSHSTRING "ps"
 	mov	esi, esp
 	call	cmd_tasks
-	ret	4
+	add	esp, 4
+	ret
 
 cmd_tasks:
 	SEM_SPINLOCK [task_queue_sem]

@@ -316,7 +316,7 @@ net_ipv4_igmp_print:
 0:
 	push_	ebx esi
 	add	esi, 8	# offset of groups
-	lea	ebx, [esi + ecx * 2]	# igmp frame end
+	lea	ebx, [esi + ecx * 8]	# igmp frame end
 0:	cmp	esi, ebx
 	jae	4f	# short packet
 	lodsd
@@ -334,12 +334,14 @@ net_ipv4_igmp_print:
 	lodsd	# mcast addr
 	call	printspace
 	call	net_print_ipv4
-	add	esi, edx	# add aux group data
+	add	esi, edx	# add aux group data + src
 	loop	0b
 	pop_	esi ebx
 	jmp	1f
 # grp: short packet
-4:	pop_	esi ebx
+4:	DEBUG_DWORD esi
+	DEBUG_DWORD ebx
+	pop_	esi ebx
 	jmp	91f
 ###########
 
