@@ -1,7 +1,7 @@
 Free Name Service
 =================
 
-[intro: EnclosedSource.txt|EnclosedSource.html]
+(intro: [EnclosedSource])
 
 The emphasis should not be on a central tracking agency of the kind that knows more than it reveals. The source shows what is sent, aswell as how to retrieve what anyone sent.
 Thus, each instance can mirror the central database, making it so, that any listing in it is able to be contacted for data retrieval. In this way, a phonebook is passed along.

@@ -1,5 +1,4 @@
-Distributed Architecture
-------------------------
+= Distributed Architecture =
 # 2013-09-30?
 
 
@@ -22,14 +21,12 @@ In this setup, only one instance on the lan has the ip, and is called the
 'master'. It may be aware of other instances using some protocol, and could
 forward packets to load balance within a LAN.
 
-[the above is a todo, there is no checks as yet to count the LAN instances]
+[!the above is a todo, there is no checks as yet to count the LAN instances]
 
+	WAN: .cloud
 
-
-WAN: .cloud
-
-subdomain: cloud.neonics.com
-subdomain DNS: cloudns.neonics.com (DYNA record).
+	subdomain: cloud.neonics.com
+	subdomain DNS: cloudns.neonics.com (DYNA record).
 
 The OS currently implements a DNS proxy for cloud.neonics.com,
 returning the address for cloudns.neonics.com, which is the public ip
@@ -44,8 +41,7 @@ by using the DNS update mechanism.
 
 
 
-Deployment
-----------
+== Deployment ==
 
 It is envisioned that QuRe will be deployed on private (non-corporate)
 sites, using modems connected through fiber, the telephone network,
@@ -234,7 +230,7 @@ A script-expression rule for this then might be:
 which would have any node response (sensibly, as it knows the IP
 it takes is a shared virtual IP and thus may be in use).
 
-[Best would be to have the router/gateway provide the service IP
+[!Best would be to have the router/gateway provide the service IP
 in DHCP].
 
 
@@ -274,23 +270,21 @@ Requirements:
  c) cluster uptime: session duration.
 
 Shared Objects
---------------
-The goal of the Cluster is to keep all data alive. The cluster
-uptime then consists of time since the first node booted.
-Taking an OO approach, the cluster maintains objects. 
-The root object itself is the cluster uptime and version.
-Each time a cluster dies, all of the nodes have powered off.
+-------------- 
+The goal of the Cluster is to keep all data alive. The cluster uptime then
+consists of time since the first node booted.  Taking an OO approach, the
+cluster maintains objects.  The root object itself is the cluster uptime and
+version.  Each time a cluster dies, all of the nodes have powered off.
 
-Each cluster keeps persistent track of boot times.
-Cluster nodes might be identifiable by a unique cluster id; their DHCP
-IP will generally change.
-A history then, a graph of the number of online nodes, is attempted
-to be shared and thus kept consistent.
+Each cluster keeps persistent track of boot times.  Cluster nodes might be
+identifiable by a unique cluster id; their DHCP IP will generally change.  A
+history then, a graph of the number of online nodes, is attempted to be shared
+and thus kept consistent.
 
-The cluster history consists of events. The events are numbered.
-History is divided in ages - each age represents the lifetime of
-a cluster. An age then indicates when the first node of a cluster
-boots. 
+The cluster history consists of events. The events are numbered.  History is
+divided in ages - each age represents the lifetime of a cluster. An age then
+indicates when the first node of a cluster boots. 
+
 This information is already available, as the DMZ ip - a shared resource -
 is requested, and claimed. A second node will (ARP) request the same IP,
 but find a response. The first node then knows it was the first,

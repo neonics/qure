@@ -152,24 +152,14 @@ site-src:
 	#[ -d root/src/kernel ] || mkdir -p root/src/kernel
 	#cp -a TODO Makefile 16 bootloader kernel util fonts root/src/kernel
 
-# leave here for now
-TXTDOC=Bootsector Cluster NetFork CloudNet LiquidChristalProcessor \
-	CircularBuffer HostMe Freedom Net TaskSwitching CallingConvention \
-	Filesystem EnclosedSource DNS2 Gittorrent VersionControl OOFS \
-	Security Fork Storage Paging Scheduling ITC GAS GitFS Debugging \
-	Architecture Synchronicity
-HTMLDOC=PersistentCluster
 
 TXTDOC=$(shell util/doctools.pl -d DOC/ -t txt list)
+HTMLDOC=$(shell util/doctools.pl -d DOC/ -t html list)
 
 WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${TXTDOC}))
 DOC_SRC=$(addprefix DOC/, $(addsuffix .txt,${WWW_DOC}))
 HTML_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${HTMLDOC})) \
 	root/www/doc/menu.xml
-
-.PHONY: foo
-foo:
-	@echo "txt DOC: ${TXTDOC}"
 
 HTMLDEPS = util/template.pl util/template.html Makefile
 
@@ -200,10 +190,10 @@ site-doc: root/www/doc.inc
 	@#cp -a DOC/Screenshots/*.png root/www/screenshots/
 	@#cp DOC/* root/src/kernel/DOC/
 
-root/www/doc.inc: $(WWW_DOC) $(HTML_DOC) util/doctools.pl
+root/www/doc.inc: $(WWW_DOC) $(HTML_DOC) util/doctools.pl DOC/.index
 	@echo "  HTMLl $@"
 	@#ls root/www/doc | grep -v -e \.xml\$$ | util/genlinks.pl > root/www/doc.inc
-	@util/doctools.pl -d doc genlinks --mtime --maxhours '7*24' --relpath doc/ > $@
+	@util/doctools.pl -d DOC genlinks --tree --mtime --maxhours '7*24' --relpath doc/ > $@
 
 root/www/doc/index.html: root/www/doc.inc
 	@echo "  HTML  $@"

@@ -13,9 +13,9 @@ kernel.s: Error: attempt to get value of unresolved symbol `L0'
 
 
 
-Error: too many memory references for 'mov'  [on a macro line]
+Error: too many memory references for ''mov'' (on a macro line)
 
-	generally: macro references a macro argument without \
+[!generally: macro references a macro argument without \]
 
 
 kernel.s: Fatal error: Case value 61 unexpected at line 1152 of file "/netrel/src/binutils-2.22.51-2/gas/symbols.c"
@@ -41,7 +41,7 @@ schedule.s:164: Error: here is the start of the unterminated conditional
 	1:	.endif
 
 
-	The .endif is not parsed!
+[!The .endif is not parsed!]
 
 
 Runtime errors
@@ -52,9 +52,9 @@ Runtime errors
 	mov	al, byte ptr [16]
 
 
-  0:   a0 10 00 00 00          mov    al, [0x10]
-  5:   a0 11 00 00 00          mov    al, [0x11]	!!!!
-  a:   a0 10 00 00 00          mov    al, [0x10]
+	0:   a0 10 00 00 00          mov    al, [0x10]
+	5:   a0 11 00 00 00          mov    al, [0x11]	!!!!
+	a:   a0 10 00 00 00          mov    al, [0x10]
 
 
 GAS 2.23 vs 2.22
@@ -62,7 +62,7 @@ GAS 2.23 vs 2.22
 2.23 has .previous.
 2.23 treats .global differently:
 	
-	$ cat test.s
+> cat test.s
 
 	.intel_syntax noprefix
 	.text
@@ -72,7 +72,7 @@ GAS 2.23 vs 2.22
 	bar:	call foo
 
 
-	$ as --32 test.s && objdump -d a.out
+> as --32 test.s && objdump -d a.out
 
 	a.out:     file format elf32-i386
 
@@ -84,7 +84,8 @@ GAS 2.23 vs 2.22
 	00000001 <bar>:
 	   1:	e8 fc ff ff ff       	call   2 <bar+0x1>
 
-	# Without the '.global':
+
+Without the '.global':
 
 	a.out:     file format elf32-i386
 

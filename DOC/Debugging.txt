@@ -29,20 +29,20 @@ The current procedure followed for debugging is:
 Finding code locations:
 -----------------------
 
-    * Exceptions:
+* Exceptions:
 
-    These provide cs:eip and stack information.
-    The eip location is printed as both the segment relative (runtime)
-    offset) or as the physical address depending on whether pmode was
-    entered using a flat code segment.
+  These provide cs:eip and stack information.
+  The eip location is printed as both the segment relative (runtime)
+  offset) or as the physical address depending on whether pmode was
+  entered using a flat code segment.
 
-    * QEMu logging:
+* QEMu logging:
 
-    control-alt-2, type 'log in_asm', control-alt-1, wait for the error
-    condition. Shift back to control-alt-2 and run 'quit', to make sure
-    the logfile is flushed to disk.
+  control-alt-2, type 'log in_asm', control-alt-1, wait for the error
+  condition. Shift back to control-alt-2 and run 'quit', to make sure
+  the logfile is flushed to disk.
 
-    The addresses here are the physical addresses (cs.base + eip).
+The addresses here are the physical addresses (cs.base + eip).
 
 The memory code offset can be found by several means:
 
@@ -65,7 +65,7 @@ The memory code offset can be found by several means:
 Disassembly
 -----------
 
-  the alias 'dk' (and 'dk16' for realmode code) provide a disassembly
+  the alias ''dk'' (and ''dk16'' for realmode code) provide a disassembly
   of the object file which is based on address 0.
 
   Translating the runtime (physical) address to the image address is
@@ -73,7 +73,7 @@ Disassembly
 
 	perl -e 'printf "%x\n", ADDRESS - 0x11200'
 
-  followed by running 'dk' and searching for the address label.
+  followed by running ''dk'' and searching for the address label.
   The opcodes printed in an exception serve to doublecheck.
 
   In the disassembly symbols appear, so scrolling up to find the nearest
@@ -88,7 +88,7 @@ Disassembly
 Adding debug statements
 -----------------------
 
-  Several macros (DEBUG, DEBUG_DWORD, DEBUG_REGSTORE/REGDIFF, BREAKPOINT)
+  Several macros (''DEBUG, DEBUG_DWORD, DEBUG_REGSTORE/REGDIFF, BREAKPOINT'')
   are defined which do not generally alter EFLAGS or other registers.
 
   Since restarting the OS is done within seconds, typing 'DEBUG_DWORD eax'
@@ -100,22 +100,22 @@ Adding debug statements
 Adding shell commands
 ---------------------
 
-  Shell commands can be added by simply adding a 'SHELL_COMMAND "foo", cmd_foo'
-  to the list in shell.s and implementing the method:  cmd_foo: ret
+  Shell commands can be added by simply adding a ''SHELL_COMMAND "foo", cmd_foo''
+  to the list in ''shell.s'' and implementing the method: ''cmd_foo: ret''
 
 
 Detecting memory writes
 -----------------------
 
-The code may enable hardware breakpoints using kernel/debugger/hwdebug.s,
+The code may enable hardware breakpoints using ''kernel/debugger/hwdebug.s'',
 for example:
 
-	mov eax, data_address
-	call breakpoint_enable_memwrite_dword
+	mov     eax, data_address
+	call    breakpoint_memwrite_dword
 
-Alternatively, use the shell command 'breakpoint'.
+Alternatively, use the shell command ''breakpoint''.
 
-  The data address is typically obtained by adding DEBUG_DWORD [something]
+  The data address is typically obtained by adding ''DEBUG_DWORD [something]''
   in the code where this address is set up.
 
   Typically these kinds of breakpoints are only necessary when there is no
@@ -126,11 +126,11 @@ Alternatively, use the shell command 'breakpoint'.
 == Bootloader debugging ==
 
 Tools:
-	alias hdi - shows hex dump of the boot image.
+	''alias hdi'' - shows hex dump of the boot image.
 
-	util/write.cpp - creates the image, including the ramdisk.
+	''util/write.cpp'' - creates the image, including the ramdisk.
 
-There is a BOOTLOADER_DEBUG flag, where higher values represent more
+There is a ''BOOTLOADER_DEBUG'' flag, where higher values represent more
 output and generally more keypresses. Debug levels attempt to accomodate
 not losing any information on the screen. However there are more debug
 sections available that need to be manually enabled once the location

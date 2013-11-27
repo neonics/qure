@@ -43,7 +43,7 @@ Detect source IP lan or not. If not, remote cluster communication. The shared vi
 
 Remote clusters do not receive broadcasts from all local nodes. Thus, localnodes must send their list of peers aswell for the remote cluster to have individual communication. On the other hand, the local node taking care of public communication must summarize and integrate the data to reduce network traffic.
 
-[TODO: Nicname (whois) protocol: radio station broadcasting their own name]
+[!TODO: Nicname (whois) protocol: radio station broadcasting their own name]
 
 Upgrading
 =========
@@ -52,7 +52,7 @@ A local node when broadcasting it's presence (and there is already a node) also 
 Only when the active node becomes the one with the highest kernel revision will it send it's own kernel revision public. Thus, when the public delegation node is locally upgraded.
 The backup nodes will have a lower kernel revision. Once they have all been rebooted, the revision is considered stable. Yet still no upgrade is sent. When local nodes are rebooted, development is resuming. The public node knows the previous incarnation and kernel revision and can count the number of reboots – the node itself remembers this. Thus it can detect which node is in development, and it knows the remote cluster kernel. It can then automatically publish the new kernel by indicating a new stable release in the notification message. Since the remote cluster knows the local (public) IP, it can establish a connection to fetch the data, using some sort of FTP, or perhaps the webserver. Some sort of delegation can take place, say, a hardcoded name field which has to be looked up in DNS, or, an URL in the packet, though this may turn out to be insecure.
 
-Looking up ''download.cloud.neonics.com'', the primary cluster will resolve it to itself alone. Once the second cluster is rebooted, it will contact the primary cluster again as it has stored it on OOFS, and notify it of it's kernel revision. The primary node then will upgrade the kernel revision for the remote cluster. The next time it receives a DNS request for download.[domain], it will return two addresses.
+Looking up ''download.cloud.neonics.com'', the primary cluster will resolve it to itself alone. Once the second cluster is rebooted, it will contact the primary cluster again as it has stored it on OOFS, and notify it of it's kernel revision. The primary node then will upgrade the kernel revision for the remote cluster. The next time it receives a DNS request for ''download.<domain>'', it will return two addresses.
 
 Each node keeps track of how many downloads of the current kernel revision it has served, and thus, how many nodes have upgraded. This field is also communicated to the primary server, doing all DNS requests (for now). It can then sort the nodes according to the load.
 

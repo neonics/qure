@@ -1,8 +1,8 @@
 ITC - Inter Task Communication (also known as IPC)
 
-	NOTE: the term Inter-Task rather than Inter-Process is used as the process
-	concept has not yet been defined in the kernel; as yet, there is no
-	distinction.
+  [!NOTE: the term Inter-Task rather than Inter-Process is used as the process
+  concept has not yet been defined in the kernel; as yet, there is no
+  distinction.]
 
 Task Detection
 --------------
@@ -50,7 +50,7 @@ the connection is stored in the task, the task may or may not choose to maintain
 a list of numbers and when it last saw them.
 A persistent information storage cannot be based on an operating system provided
 number, as the number changes with each task instance.
-[implications on DNA: governmental identity limits cross-lifetime memory].
+(implications on DNA: governmental identity limits cross-lifetime memory).
 Therefore, the persistent identities must be managed by the communication protocol
 itself.
 In such a persistent system, each task can send any number it likes. Let's say
@@ -59,8 +59,8 @@ knowing this, cannot be sure whether the name refers to the task they remember
 by that name. For, when a task is met for the first time, it's name will be unknown,
 and there will be no reason not to associate all communications with that task
 to that name. The only potential issue is that another task - say one also known -
-starts to communicate using that identity. [starting scenario: all tasks have
-unique names and all tasks are known to all tasks; enter a new task].
+starts to communicate using that identity. (starting scenario: all tasks have
+unique names and all tasks are known to all tasks; enter a new task).
 	new task: i am <existing name>?
 	moderator: I am <existing name>!
 	new task: i am <unknown name>

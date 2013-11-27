@@ -1,4 +1,4 @@
-Paging
+= Paging =
 
 Essentially, paging allows to create an arbitrary mapping between linear
 or virtual addresses, and physical addresses. An address is a reference
@@ -17,7 +17,7 @@ physical memory. Assuming the entire physical memory is mapped, there will
 then be duplicate mappings - two or more linear addresses referring to the
 same physical memory.
 
-Swapping
+== Swapping ==
 
 Assuming the starting condition that a single region of physical memory
 is accessible using two virtual addresses, giving different meaning to 
@@ -25,18 +25,18 @@ these addresses can be done by disabling the one that is not currently
 accessed. This is possible since the linear address can be obtained in
 page fault exceptions in the CR2 register.
 
-Other Uses
+== Other Uses ==
 
 * Reserved Linear Addresses
-
-virtual consoles may write to the same linear address, which is either
-mapped to video memory or not, depending on whether the console is active.
+	
+	virtual consoles may write to the same linear address, which is either
+	mapped to video memory or not, depending on whether the console is active.
 
 * Unique address Space
-
-It is possible to offer each process/task its own view of physical memory.
-This allows to decide exactly what is visible for any given process. A mapping
-can be constructed for each process that makes it appear it is the only process.
+	
+	It is possible to offer each process/task its own view of physical memory.
+	This allows to decide exactly what is visible for any given process. A mapping
+	can be constructed for each process that makes it appear it is the only process.
 
 Since the paging architecture is hierarchical, there are several levels on
 which this can be accomplished. At the top level, the pointer to the paging
@@ -99,9 +99,8 @@ UPDATE: the number of TLB cache entries for code or data of the current machine
 (an octa-core (quad core with hyperthreading)) is several 64 or 128.
 In this case it would have a serious impact to reset CR3 on a task switch.
 
-----
-UPDATE: the cr3 switch is implemented, but no difference is noticable,
-likely because a VM switch occurs on each interrupt anyway.
+	UPDATE: the cr3 switch is implemented, but no difference is noticable,
+	likely because a VM switch occurs on each interrupt anyway.
 
 
 MEMORY:

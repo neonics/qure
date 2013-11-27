@@ -1,0 +1,94 @@
+Migrating TCP Connections
+=========================
+* (see [NetFork])
+* (see [CloudNet])
+
+Nodes in a local cluster may want to function as more than backups
+that step in when the DMZ node becomes unavailable.
+
+One specific functionality would be a distribution of content, whereby
+load is balanced according to storage groups limiting potential access
+times and providing for individual threads of development.
+
+The term development also refers to the step of deploying and thus
+updating websites, which is part of the development process. The effect
+of deploying a website translates to a particular dataset being updated.
+Such datasets might want to be distributed among several, but not all,
+nodes. The decision for partial distribution can be made according to
+the criterium that partial datasets must be complete within each node.
+The level at which such data is split into a parallel set is, however,
+not specified, which allows to distribute a single large file among
+several nodes, each defining a dataset as a consecutive address sequence.
+
+HTTP based requests are established over a TCP connection, a popularly
+unfortunate combination. Migrating a connection is not supported in HTTP.
+Redirects are, and this can be used by the DMZ node to return a different
+location. Consider virtual HTTP hosts. A website may be requested from
+the DMZ node. It looks up the node serving it in it's database, and
+constructs an address that indicates both the node and the website.
+For example, ''http://www.example.com/'' might be requested; the resulting
+address might be ''http://www.example.com.qure-2.cloud/''.
+
+When the node is public, meaning that it is not part of the local cluster,
+returning the redirect would suffice. Ofcourse, the chance would be extremely
+small, if the cluster DNS services are used, that such a request would
+be resolved to a cluster that does not host the requested website. It might
+happen that the local nodes hosting the site may be unavailable.
+
+When the website is known to be hosted by a local cluster node, the redirect
+will not solve the issue, for, the node's address will resolve to the DMZ
+node once more, presenting the problem again. Therefore, such redirects
+will not be sent publically for local nodes, as they are designed to operate
+in a unique IP context. Since the node's address will resolve to the same IP,
+the purpose of the redirect is defeated.
+
+The HTTP code keeps buffering input data until the request is complete.
+In the case where manual service communication is attempted, packets
+are often send on line boundaries (such as ''cat | nc''). HTTP diverges
+from the underlying TCP specification by introducing a duplication of
+the ''TCP PSH'' flag functionality, indicating that the data sent is
+complete in order for the server to take a next step, which, in the case
+of HTTP services, is to determine whether it can handle the request.
+
+Luckily, TCP sequences are based on payload size only, and therefore,
+multiple packets can be aggregated and sent in a different number of packets.
+Thus, it is possible to notify another local node that a TCP connection
+is being transferred to it and send it the cached payload. This constitutes
+a replay of the connection so far that is functionally identical but might
+be different in form.
+
+Example:
+
+	Client (nonlocal IP)			Server (DMZ ip)
+	TCP SYN			
+						TCP SYN, ACK 1, SEQ 1
+	TCP ACK 1,SEQ 1,      "GET / HTTP/1.1\r\n"
+						TCP ACK 17, SEQ 1
+	TCP ACK 1,SEQ 17, PSH "Host: www\r\n\r\n"
+						TCP ACK 30, SEQ 1
+
+At this point, 3 packets have been sent, and the 3rd packet sent by the client
+contains both the ''TCP PSH'' flag and the end-of-HTTP-request ''\r\n\r\n''
+marker.
+
+The node, now having determined the ''Host'' for the request and looked up
+the cluster node hosting the site, begins the transfer of the TCP connection.
+
+For this, we introduce a custom TCP option indicating the setup of a redirected
+connection. In the initial stages, the redirecting node must use it's own IP
+address, otherwise the node redirected to will send TCP responses publically.
+
+The redirecting node (the DMZ node) will not have kept track of all the TCP
+packets being communicated as it operates on a streaming socket. It only
+has the payload sent to it so far, and thus also the last ACK number.
+
+The communication begins as follows:
+
+
+	Redirecting DMZ Node			Target node
+	TCP SYN opt=REDIRECT:Client_IP
+						TCP SYN, ACK 1
+	TCP ACK 1, PSH "GET /.....\r\n\r\n"
+						TCP ACK 30
+
+

@@ -7,7 +7,7 @@ pinging < 1ms, even when print on packet within isr.
 
 However, time becomes about 12 ms when the screen needs to be scrolled
 with SCREEN_BUFFER enabled, and half that without screen buffer.
-Using movsd instead of movsd reduces it from 6 to 3. The first ping is
+Using movsd instead of movsw reduces it from 6 to 3. The first ping is
 then 1 ms.
 
 When doing a similar movsw without referencing video memory the ping 
@@ -16,12 +16,11 @@ times become < 1ms again.
 Thus i suspect that on memory access vmware steps in and does a screen update.
 
 
-The screen buffer thing then (besides bypassing referincing hardware mapped 
-memory
-such as 0xb800 in VMware) has another advantage, besides page-up scrolling,
-and that is when it is drawn to screen outside of interrupts. interrupts
-then can still print (or log to file), but the 'real' operation (io, memory)
-is done nonblocking, asynchronous.  (i.e. outside the ISR).
+The screen buffer thing then (besides bypassing referencing hardware mapped 
+memory such as 0xb800 in VMware) has another advantage, besides page-up
+scrolling, and that is when it is drawn to screen outside of interrupts.
+Interrupts then can still print (or log to file), but the 'real' operation
+(io, memory) is done nonblocking, asynchronous.  (i.e. outside the ISR).
 
 There can be a screen update interrupt handler, which can be triggered
 by the ISR itself to indicate screen updates. Then, APIC etc. priorities

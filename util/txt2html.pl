@@ -33,6 +33,7 @@ while ( $ARGV[0] =~ /^-./ )
 
 		$title =~ s@^.*?/@@g;	# strip root of path
 		$title =~ s/\.(txt|html)$//;	# strip suffix
+		$title =~ tr/_/ /;
 		$title =~ s/([[:lower:]])([[:upper:]])/\1 \2/g;
 		$options{title}=$title;
 	} or $ARGV[0] eq '-p' and do {
@@ -59,22 +60,22 @@ $c=~ s@<@&lt;@g;
 
 $c=~ s@\n+([^\n]+)\n=+\n@\n\n<h1>$1</h1>\n\n@g;
 $c=~ s@\n+([^\n]+)\n-+\n@\n\n<h2>$1</h2>\n\n@g;
-$c=~ s@\n+(=+([^\n=]+)=+)\n@\n\n<h1>$2</h1>\n\n@g;
-$c=~ s@\n+(-+([^\n-]+)-+)\n@\n\n<h2>$2</h2>\n\n@g;
+$c=~ s@\n+((=+)([^\n=]+)=*)\n@"\n\n<h".length($2).">$3</h".length($2).">\n\n"@ge;
 #$c=~ s@\n(\*\s+([^\n]+))\n@\n<h3>$2</h3>\n\n@g;
 
 $c=~ s@(\n\t+[^\n]*)\n+(?=\n\t)@$1\n\t@g;
-$c=~ s@\n(\*\s+([^\n]+)\n+((\t[^\n]*\n)+))+@\n<dt>$2</dt>\n<dd>\n$3</dd>\n\n@g;
+$c=~ s@\n(\*\s+([^\n]+)\n+(([^\*]\s+[^\n]*\n)+))@\n<dt>$2</dt>\n<dd>\n$3</dd>\n\n@g;
 
-$c=~ s@''([^']+)''@<code>$1</code>@g;
+$c=~ s@''([^']+)''@'<code>'.&esc($1).'</code>'@ge;
 
 $c=~ s@((\n\t[^\n]*)+\n)@<pre>$1</pre>\n@g;
 $c=~ s@((\n>[^\n]+)+\n)@<pre>$1</pre>\n@g;
+$c=~ s@<dd>\s*<pre>\s*(.*?)\s*</pre>\s*</dd>@<dd>\n\t$1\n</dd>@gs;
 
-$c=~ s@<pre>(.*?)</pre>\n+@'<PRE>'.&esc($1)."</PRE>\n"@ges;
+$c=~ s@<pre>(.*?)</pre>\n+@'<pre>'.&esc($1)."</pre>\n"@ges;
 
 
-sub esc { $_ = shift @_; s/\n/\r/g; return $_; }
+sub esc { $_ = shift @_; "{{PACK ".(unpack "H*", $_)."}}" } #s/(.)/sprintf("%02x",$1)/e; }
 
 # NOTES: pattern:  /(?=X)/:
 #	lookahead:	(?=pat) (?!pat)
@@ -101,7 +102,7 @@ $c=~ s@</li>\n<li>@</li><li>@g;
 $c=~ s@\n(<li>[^\n]+</li>)\n+@<ol type="a">$1</ol>\n@g;
 #1) foo
 #$c=~ s@\n([\d])+\) ([^\n]+\n<([^ >]+)[^>]+>.*?</\3>)@\n$TOK<li>$2</li>@g;
-$c=~ s@\n([\d])+\) ([^\n]+(\n<[^\n]+>|\n\t[^\n]*)*)@"\n<li>".&esc($2)."</li>"@ges;
+$c=~ s@\n([\d])+\) ([^\n]+(\n<[^\n]+>|\n\s+[^\n]*)*)@"\n<li>".&esc($2)."</li>"@ges;
 $c=~ s@li>\n<@li><@g;
 $c=~ s@\n((<li>[^\n]+</li>)+)@\n<ol type="1">$1</ol>\n@g;
 
@@ -129,8 +130,12 @@ $c=~ s@(?<!\t)\[([^\|\]]+)\|([^\]]+)\]@<a href="$2">$1</a>@g;
 $c=~ s@(?<!\t)\[#([^\]]+)\]@<a href="#$1">$1</a>@g;
 # [=label] : anchor definition
 $c=~ s@(?<!\t)\[=([^\]]+)\]@<a name="$1"></a>@g;
-#
+# [!note]
+$c=~ s@(?<!\t)\[!([^\]]+)\]@<div class='note'>$1</div>@g;
 
+
+# [Foo] ; local txt/html doc ref
+$c=~ s@(?<!\t)\[([^\]\.]+)\]@<a href="$1.html">$1</a>@g;
 
 #$c=~ s@\n\n+@\n</p>\n<p>\n@g;
 #$c=~ s@\n([^\n]+\n)+<@\n<p>$1</p>\n<@g;
@@ -156,28 +161,31 @@ while ( $tmp =~ /<h(.)>(.*?)<\/h\1>/ )
 
 $c = $o . $tmp;
 
-my $lev=0;
-my $toc = "<h2>TOC</h2>\n";
-foreach ( @toc ) {
-	while ( $_->{level} < $lev )
+my $toc;
+if ( scalar @toc ) {
+	my $lev=0;
+	$toc = "<h2 class='toc'>TOC</h2>\n";
+	foreach ( @toc ) {
+		while ( $_->{level} < $lev )
+		{
+			$lev --;
+			$toc .= "</ol>";
+		}
+		while ( $_->{level} > $lev )
+		{
+			$lev ++;
+			$toc .= "<ol>";
+		}
+
+		$toc .= "<li>$_->{link}</li>\n";
+	}
+	while ( $lev-- > 0 )
 	{
-		$lev --;
 		$toc .= "</ol>";
 	}
-	while ( $_->{level} > $lev )
-	{
-		$lev ++;
-		$toc .= "<ol>";
-	}
-
-	$toc .= "<li>$_->{link}</li>\n";
-}
-while ( $lev-- > 0 )
-{
-	$toc .= "</ol>";
 }
 
-
+while ($c =~ s@{{PACK (.*?)}}@pack( "H*", $1)@ge){}
 $c=~ tr/\r/\n/;
 done:
 

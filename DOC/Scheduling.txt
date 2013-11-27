@@ -137,7 +137,7 @@ Solution 3, continued
 		mov	cr3, [ebx + task_reg_cr3]
 		mov	[tss_esp0], [ebx + task_reg_esp0]
 
-Checks can be done: [tss_esp0] != [task_reg_esp0]
+Checks can be done: ''[tss_esp0] != [task_reg_esp0]''
 
 	scheduling_enable:
 		# tss already set up.
@@ -211,7 +211,7 @@ a different mapping.
 
 Turns out this code is very similar to malloc_page_phys.
 It can be generalized to take a pointer to the array.
-(code is small: speed/size[extra memrefs])
+(code is small: speed/size (extra memrefs))
 
 	alloc_task_priv_stack:
 
@@ -221,7 +221,7 @@ scan bitstring, calculate offset in bits; multiply by stack size
 NOTE: in this case, all stack pages must be contiguous.
 They don't have to be, if a whole number of stacks fits in one page.
 IF the number of stacks per page is known, then, the bit index
-modulo that will provide an index into [stack_pages].
+modulo that will provide an index into ''[stack_pages]''.
 
 Thus:
 
@@ -397,10 +397,10 @@ Task Switching
 The TSS segment contains all registers. There are two uses for it.
 
 1) on privilege level elevation, the current TSS is examined for the SS0/ESP0.
-Otherwise it seems that the register values are not modified.
+   Otherwise it seems that the register values are not modified.
 2) on calling the selector (any offset is ignored), all registers are loaded
-with the values stored. EFLAGS will contain the NT (next task) flag.
-The TSS LINK field points to the TSS that was suspended.
+   with the values stored. EFLAGS will contain the NT (next task) flag.
+   The TSS LINK field points to the TSS that was suspended.
 
 
 	my_TSS: .space 104	# struct tss

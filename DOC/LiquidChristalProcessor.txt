@@ -123,7 +123,7 @@ compared to a value change from 1 to 0 (discharge). This then allows
 to encode three values in the magnetic field: North-South (positive charge),
 South-North (discharge/negative charge), and neutral or no change.
 
-[edit: 2013-09-30]
+[!edit: 2013-09-30]
 
 Quantum Similarity
 ------------------
@@ -168,7 +168,7 @@ a tetragon (quadrilateral). Since their sum must be one circle, the fourth angle
 deduced. Note that this only allows for one dimension of information: potential distribution.
 To also specify the radial distance of each corner, another dimension (bit) must be added.
 
-[end edit]
+[!end edit]
 
 
 Application

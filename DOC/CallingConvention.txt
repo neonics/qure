@@ -417,8 +417,8 @@ Thus then the yield instruction would reveal to the caller the address
 of the ret/yield.
 
 To simulate this we will have the convention that upon return,
-[esp] contains the caller's next instruction - it's own continuation -,
-whereas [esp - 4] shall contain the continuation of it's children.
+''[esp]'' contains the caller's next instruction - it's own continuation -,
+whereas ''[esp - 4]'' shall contain the continuation of it's children.
 
 The entire stack then becomes the same - addresses above the current
 stack pointer refer to continutations of caller processes,
@@ -467,7 +467,7 @@ Allocate 10 string objects:
 		jmp	[eax]			ret
 
 
-Now, we can also take [ebp] to be the destructor pointer:
+Now, we can also take ''[ebp]'' to be the destructor pointer:
 
 	caller:	push	ebp	# store 'this' base pointer: [esp]
 		call	string	# ebp = base pointer of string
@@ -577,7 +577,7 @@ is that the push and pop are surrounded by IP on the stack,
 and thus a 'ret' cannot be executed with esp the same as when it was
 called. The idea here is to skip the 'pop ebp'.
 
-A jump to [esp] in the middle, would offer ebp as the original
+A jump to ''[esp]'' in the middle, would offer ebp as the original
 value (minus the space on the stack containing the calling address,
 and the caller's ebp). i.e.:
 
@@ -1208,7 +1208,7 @@ Fibonacci Code
 	13
 	
 	
-analyze IP, SP, and [SP] for their patterns - plot -> spiral
+analyze IP, SP, and ''[SP]'' for their patterns - plot -> spiral
 	
 	
 	1 2 3 4 5 6 7 8 9 10 11 12
@@ -1825,7 +1825,7 @@ It can be specified that a MOV can only use a register, or eax.
 The functionality can be exported, and even used by the kernel to expose
 itself.
 
----
+
 Service Directory
 ==================
 

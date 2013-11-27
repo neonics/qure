@@ -5,22 +5,24 @@
 				ring 2: drivers (IO)
 				ring 3: unprivileged
 
-ring1:
-Both scheduler and kernel api have IOPL but do not use it. Ring 0 code is only
-executed through the kernel API, if needed.
+* ring1:
+  Both scheduler and kernel api have IOPL but do not use it. Ring 0 code is only
+  executed through the kernel API, if needed.
 
-Ring 2: It seems to make sense to have drivers have less privilege than the
-kernel api itself, since drivers can be third party, since they are
-unprivileged due to not being ring0, yet have increased privilege only on
-the IO level aswell as memory access.
-The IO permission table can be configured per interrupt handler/driver,
-so that they only have access to the device and perhaps PCI. Ring 1 code does
-have access to all ports. A GPF handler can be installed to be handled
-by ring 1 code when ring2 attempts access, and this can either result in the
-driver being rejected, or masquerading the IO operations, such as PCI reads.
-It is however easier to provide a PCI api method.
+* Ring 2:
+  It seems to make sense to have drivers have less privilege than the
+  kernel api itself, since drivers can be third party, since they are
+  unprivileged due to not being ring0, yet have increased privilege only on
+  the IO level aswell as memory access.
+  The IO permission table can be configured per interrupt handler/driver,
+  so that they only have access to the device and perhaps PCI. Ring 1 code does
+  have access to all ports. A GPF handler can be installed to be handled
+  by ring 1 code when ring2 attempts access, and this can either result in the
+  driver being rejected, or masquerading the IO operations, such as PCI reads.
+  It is however easier to provide a PCI api method.
 
-Ring 3: this code has no access to privileged pages and no IO access.
+* Ring 3:
+  this code has no access to privileged pages and no IO access.
 
 Drivers can reside in ring3, but then they have no access to ring 1 memory,
 unless CR3 is switched out on IRQ and ring 2 API calls.
@@ -92,10 +94,10 @@ rings 1 and 2. (Ring 3 limitation can done using paging). This makes
 for a reserved region of memory at the end of memory. This can be done in
 layers, each lower ring number having further access.
 
-Ring 0:	[0-4Gb]
-Ring 1: [2Mb-3Gb]
-Ring 2: [3Mb-2Gb]
-Ring 3: [4Mb-1Gb].
+	Ring 0:	[0-4Gb]
+	Ring 1: [2Mb-3Gb]
+	Ring 2: [3Mb-2Gb]
+	Ring 3: [4Mb-1Gb].
 
 The kernel starts at 1Mb. The symbols 2Mb indicate the start of ring 0
 code called by ring 1, followed by ring 1 code. 3Mb/4Mb idem.
@@ -109,9 +111,3 @@ memory. Therefore, this code must offer the table for validation before
 the kernel enables it. This allows ring0 to provide both code and data
 access protection of the kernel (as long as the ringed code and data
 are page aligned).
-
-
-
-
-
-

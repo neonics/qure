@@ -277,7 +277,7 @@ Paging
  (to be really secure, a vararg method such as printf should evaluate all pointers
  to see if they refer to the task address space. Paging would allow this,
  by having a special mapping: the library code, it's static data, and the task.
- See [Paging|Paging.html] for more.)
+ See [Paging] for more.)
 
 Selector Overflow
 -----------------
@@ -384,4 +384,4 @@ at certain privilege levels in the IDT.
 The first 19 interrupts are reserved for the kernel, as they are exception handlers.
 The kernel determines when these are triggered, and therefore should not be used
 directly by tasks, unless there is an agreement.
-(See [ITC|ITC.html], legacy name: IPC)
+(See [ITC], legacy name: IPC)

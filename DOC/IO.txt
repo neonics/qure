@@ -1,69 +1,69 @@
-# http://www.trinityos.com/HARDWARE/irqs-dma-ioports.txt
-# http://www.os2site.com/sw/info/memory/ports.txt
+	# http://www.trinityos.com/HARDWARE/irqs-dma-ioports.txt
+	# http://www.os2site.com/sw/info/memory/ports.txt
 
-Input Output ports
+= Input Output ports =
 
-00 - 1F		First DMA Controller (8237 A-5)
-20 - 3F 	Master PIC (8259A)
-40 - 5F		PIT - Programmable Interval Timer (8254)
-60 - 6F		Keyboard (8042)
-70 - 7F		RTC - Real Time Clock, NMI mask
-80 - 9F		DMA Page Register (74LS612)
-	87	DMA Channel 0
-	83	DMA Channel 1
-	82	DMA Channel 2
-	81	DMA Channel 3
-	82	DMA Channel 4
-	8B	DMA Channel 5
-	89	DMA Channel 6
-	8A	DMA Channel 7
-	8F	Refresh
-A0 - BF		Slave PIC
-C0 - DF		Second DMA controller
-F0		Clear FPU (80287 coprocessor) busy
-F1		Reset FPU
-F8 - FF		Math Coprocessor 80287
-F0 - F5		PCjr Disk Controller
-F8 - FF		Reserved for future microprocessor extensions
-100 - 10f	POS - Programmable Option Select (PS/2)
-110 - 1EF 	System I/O channel
-140 - 15f	Secondary SCSI Host Adapter
-170 - 177	Secondary Parallel ATA Disk Controller
-1F0 - 1F7	Primary Parallel ATA Disk Controller
-200 - 20F	Game port
-210 - 217	Expansion Unit
-220 - 233	Sound Blaster / Sound Cards
-278 - 27F	LPT2
-280 - 29F	LCD on legacy pc (Wyse)
-2B0 - 2DF	Alternate EGA (Enhanced Graphic Adapter) display control
-2E8 - 2EF	COM4
-2E1		GPIB/IEEE-488 Adapter 0
-2E2 - 2E3	Data acquisition
-2F8 - 2FF	COM2
-300 - 31F	Prototype Card / Novel NE1000 Ethernet / AMD Am7990 NIC = IRQ 5
-320 - 323	ST-506 compatible HDD interface
-330 - 331	MPU401 MIDI Processing Unit
-340 - 35F	Primary SCSI
-370 - 377	Secondary Floppy Disk Drive controller
-378 - 37F	LPT1
-380 - 38C	Secondary Binary SDLC (Synchronouse Data Link Control) adapter
-388 - 389	Adlib soundcard
-3A0 - 389	Primary Binary SDLC (Synchronouse Data Link Control) adapter
-3B0 - 3BB	MDA (Monochrome Display Adapter) control
-3BC - 3BF	MDA LPT parallel port
-3C0 - 3CF	EGA (Enhanced Graphics Adapter) display control
-3D0 - 3DF	CGA (Color Graphics Adapter)
-3E8 - 3EF	COM3
-3F0 - 3F7	Primary Floppy, Primary IDE (slave, 3F6-3F9)
-3F8 - 3FF	COM1
-CF8 - CFC	PCI Configuration Space
+	00 - 1F		First DMA Controller (8237 A-5)
+	20 - 3F 	Master PIC (8259A)
+	40 - 5F		PIT - Programmable Interval Timer (8254)
+	60 - 6F		Keyboard (8042)
+	70 - 7F		RTC - Real Time Clock, NMI mask
+	80 - 9F		DMA Page Register (74LS612)
+		87	DMA Channel 0
+		83	DMA Channel 1
+		82	DMA Channel 2
+		81	DMA Channel 3
+		82	DMA Channel 4
+		8B	DMA Channel 5
+		89	DMA Channel 6
+		8A	DMA Channel 7
+		8F	Refresh
+	A0 - BF		Slave PIC
+	C0 - DF		Second DMA controller
+	F0		Clear FPU (80287 coprocessor) busy
+	F1		Reset FPU
+	F8 - FF		Math Coprocessor 80287
+	F0 - F5		PCjr Disk Controller
+	F8 - FF		Reserved for future microprocessor extensions
+	100 - 10f	POS - Programmable Option Select (PS/2)
+	110 - 1EF 	System I/O channel
+	140 - 15f	Secondary SCSI Host Adapter
+	170 - 177	Secondary Parallel ATA Disk Controller
+	1F0 - 1F7	Primary Parallel ATA Disk Controller
+	200 - 20F	Game port
+	210 - 217	Expansion Unit
+	220 - 233	Sound Blaster / Sound Cards
+	278 - 27F	LPT2
+	280 - 29F	LCD on legacy pc (Wyse)
+	2B0 - 2DF	Alternate EGA (Enhanced Graphic Adapter) display control
+	2E8 - 2EF	COM4
+	2E1		GPIB/IEEE-488 Adapter 0
+	2E2 - 2E3	Data acquisition
+	2F8 - 2FF	COM2
+	300 - 31F	Prototype Card / Novel NE1000 Ethernet / AMD Am7990 NIC = IRQ 5
+	320 - 323	ST-506 compatible HDD interface
+	330 - 331	MPU401 MIDI Processing Unit
+	340 - 35F	Primary SCSI
+	370 - 377	Secondary Floppy Disk Drive controller
+	378 - 37F	LPT1
+	380 - 38C	Secondary Binary SDLC (Synchronouse Data Link Control) adapter
+	388 - 389	Adlib soundcard
+	3A0 - 389	Primary Binary SDLC (Synchronouse Data Link Control) adapter
+	3B0 - 3BB	MDA (Monochrome Display Adapter) control
+	3BC - 3BF	MDA LPT parallel port
+	3C0 - 3CF	EGA (Enhanced Graphics Adapter) display control
+	3D0 - 3DF	CGA (Color Graphics Adapter)
+	3E8 - 3EF	COM3
+	3F0 - 3F7	Primary Floppy, Primary IDE (slave, 3F6-3F9)
+	3F8 - 3FF	COM1
+	CF8 - CFC	PCI Configuration Space
 
 
 = Plug And Play =
 
-IEEE 1394 (FireWire)
-PCI, Mini PCI
-PCI Express, Mini PCI Express
-PCMCIA, PC Card, ExpressCard
-USB
+	IEEE 1394 (FireWire)
+	PCI, Mini PCI
+	PCI Express, Mini PCI Express
+	PCMCIA, PC Card, ExpressCard
+	USB
 

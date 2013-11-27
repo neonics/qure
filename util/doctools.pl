@@ -2,7 +2,7 @@
 
 %options = (
 	dir	=> '.',
-	type	=> 'txt'
+	type	=> undef	# 'txt' or 'html'
 );
 
 while ( $ARGV[0] =~ /^-/ )
@@ -14,16 +14,16 @@ while ( $ARGV[0] =~ /^-/ )
 	or die "unknown option: $opt";
 }
 
-grep { $_ eq $options{type} } qw/txt html/ or die "unknown type: $options{type}";
+grep { $_ eq $options{type} } qw/txt html/ or die "unknown type: $options{type}" if defined $options{type};
 $options{dir}=~s@/$@@;
 
 my $command = shift @ARGV;
 
 $command eq 'list' and do {
-	print strip_type( get_index() );
+	print strip_type( map { $_->{n}."\n" } grep {!$_->{label}} get_index() );
 } or $command eq 'genlinks' and do {
 	print genlinks( get_index() );
-} or die "unknown command: $command";
+} or die "unknown command: $command\ncommands: list genlinks";
 
 
 sub get_index {
@@ -37,11 +37,17 @@ sub get_index {
 sub process_index {
 	@_ = grep { ! /^\s*#/ } @_;	# no comment
 	@_ = map { s/#.*$//; $_ } @_;
-	@_ = map { s/^\s+|\s+$//; $_ } @_;
-	@_ = map { s/\s*$/\n/; $_ } @_;
-	@_ = grep { /\.$options{type}$/ } @_;
-	@_ = grep { my $a=$_; chomp $a; -f $options{dir}."/".$a
-		or do { warn "WARNING: missing $options{dir}/$_"; 0} } @_;
+	@_ = map { s/\s*$//; $_ } @_;
+	@_ = grep { /[^\s]+/ } @_;
+	# normalize tree indent
+	my $ld = 0, $ldn = 0;
+	@_ = map { s/^(\s+)//; my $d=0+length($1); $ldn = $d==0?0: $d > $ld ? $ldn + 1 : $d < $ld ? $ldn -1 : $ldn; $ld=$d;
+		{ n=>$_, d=>$ldn } } @_;
+	#map { printf "%d %s\n", $_->{d}, $_->{n}} @_;
+	@_ = grep { $_->{n}=~ /\.$options{type}$/ } @_ if $options{type};
+	@_ = map { $_->{n} =~ /^=/ and $_->{label}=$'; $_ } @_;
+	@_ = grep { my $a=$_->{n}; chomp $a; $_->{label} || -f $options{dir}."/".$a
+		or do { warn "WARNING: missing $options{dir}/$_->{n}"; 0} } @_;
 }
 
 sub strip_type {
@@ -49,64 +55,70 @@ sub strip_type {
 }
 
 
+sub reptag {
+	my ( $count, $val, $baseindent ) = @_;
+	my $ret = ""; while ( $count-->0 ) { $ret .= ( "  " x ($baseindent+1+$count) ) . $val; } $ret;
+}
+
 sub genlinks
 {
-	my %cmdopts = (
-		mode	=> 'plain',
+	my %opts = (
+		mtime	=> 0,
 		maxhours=> '7 * 24',
-		relpath	=> ''
+		relpath	=> '',
+		tree	=> 0
 	);
 
 	while ( scalar @ARGV ) {
 		$_ = shift @ARGV;
-		$_ eq '--mtime' and $cmdopts{mode} = 'mtime' or
-		$_ eq '--relpath' and $cmdopts{relpath} = shift @ARGV || die "--relpath requires argument" or
+		$_ eq '--mtime' and $opts{mtime} = 1 or
+		$_ eq '--relpath' and $opts{relpath} = shift @ARGV || die "--relpath requires argument" or
 		$_ eq '--maxhours' and
-			$cmdopts{maxhours} = shift @ARGV || die "--maxhours requires argument"
+			$opts{maxhours} = shift @ARGV || die "--maxhours requires argument" or
+		$_ eq '--tree' and $opts{tree} = 1
 		or die "unknown argument to genlinks: $_";
 	}
 
-	$cmdopts{mode} eq 'mtime' and genlinks_labels( \%cmdopts ) or
-	$cmdopts{mode} eq 'plain' and genlinks_plain( \%cmdopts, @_ )
-	or die "unknown mode $cmdopts{mode}.";
-}
+	%docs = $opts{mtime} ? getmtime( $options{dir} ) : undef;
+	my $lastdepth = 0;
 
-sub genlinks_labels
-{
-	my %opts = %{ shift @_ };
-	%docs = getmtime( 'DOC/' );
-
-	#map { printf "%-40s  [%s] %s\n", $_, $docs{$_}{mod}, $docs{$_}{mtime}; }
-	#sort { $docs{$a} cmp $docs{$b} }
-	#keys %docs;
-
-
-#########################################################
-#
-
-	@l=`ls root/www/doc/*.html`;#<>;
-	chomp @l;
 	join('',
 	"<ul id='doclist'>\n",
 		(map{
-			my $h = $_;
-			$h=~ s@^root/www/doc/@@;
-			my $t = $h;
-			$t =~ s@\.html$@.txt@;
-			my $foo = $docs{'DOC/'.$t};
-			$foo = $docs{'DOC/'.$h} unless defined $foo;
-
-			my $modstring = defined $foo
+			my $modstring = "";
+			$opts{mtime} and do {
+				my $foo = $docs{'DOC/'.$_->{n}};
+				$modstring = defined $foo
 				? " mtime=\"$foo->{mtime}\" mod=\"$foo->{mod}\""
 				: " mtime=\"today\" mod='N'";
-			$h =~ /^(.*?)\.html$/;
-			"  <li><a href=\"doc/$h\"$modstring>$1</a></li>\n"
+			};
+
+			my $pfx;
+			my $indent = "  ";
+			if ( $opts{tree} ) {
+				$pfx .= reptag( $_->{d} - $lastdepth, "<ul>\n",  $lastdepth );
+				$pfx .= reptag( $lastdepth - $_->{d}, "</ul>\n", $lastdepth-1 );
+				$lastdepth = $_->{d};
+				$indent = '  ' x (1+$_->{d});
+			}
+
+			$_->{n} =~ /^(.*?)\.(txt|html)$/;
+			my $f = $1;
+			my $t = $f; $t=~ tr/_/ /;
+
+			$_->{label} && !$opts{tree} ? () :
+			( $pfx, $indent,
+				"<li>",
+				$_->{label} ? $_->{label} : "<a href=\"doc/$f.html\"$modstring>$t</a>",
+				"</li>\n"
+			)
 		}
 		grep { ! /index\.html/ }
-		@l),
-	"</ul>\n").
+		@_),
+		$opts{tree} ? reptag( $lastdepth, "</ul>\n" ) : "",
+	"</ul>\n",
+	!$opts{mtime} ? "" : <<EOF );
 
-	<<EOF;
 <style type="text/css">
 span.new { margin-left: 1em; background-color: #0f0; font-style: italic; font-size: smaller}
 span.updated { margin-left: 1em; background-color: yellow; font-style: italic; font-size: smaller}
@@ -199,18 +211,6 @@ addlabels( 'doclist', $opts{maxhours});
 EOF
 
 }
-
-sub genlinks_plain
-{
-	my %opts = %{ shift @_ };
-	chomp @_;
-	join('',
-		"<ul>\n",
-		(map{ /^(.*?)\.html$/; "  <li><a href=\"$opts{relpath}$_\">$1</a></li>\n" } @_),
-		"</ul>\n"
-	);
-}
-
 
 
 # Retrieves the last modification time of documents.
