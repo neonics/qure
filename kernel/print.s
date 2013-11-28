@@ -1313,6 +1313,13 @@ _s_printhex8:
 	pop	edx
 	ret	4
 
+# out: ah = color
+getcolor:
+	call	console_get	# out: eax
+	movzx	eax, byte ptr [eax + console_screen_color]
+	xchg	ah, al
+	ret
+
 .if VIRTUAL_CONSOLES
 _s_setcolor:
 	push	dx
@@ -1498,6 +1505,18 @@ __print:
 
 
 ######################### PRINT BINARY ####################
+# in: ecx = nr of bits to print
+# in: edx = value
+nprintbin:
+	push	ecx
+	and	ecx, 31
+	mov	ch, cl	# backup
+	neg	cl
+	add	cl, 32
+	rol	edx, cl
+	shr	ecx, 8	# restore
+	jmp	0f
+# rest: in: edx = value
 printbin32:
 	push	ecx
 	mov	ecx, 32

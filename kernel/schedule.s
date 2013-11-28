@@ -2623,52 +2623,10 @@ mov edx, [eax + ebx + task_stack0_top]
 	.endif
 
 	mov	edx, [eax + ebx + task_regs + task_reg_eip]
+	call debug_printsymbol_short
+	call newline
 
-	.if TASK_PRINT_SOURCE_LINE
-	call	debug_getsource
-	jc	1f
-	PUSHCOLOR TASK_PRINT_BG_COLOR | 9
-	call	nprint
-	push	edx
-	mov	edx, eax
-	printchar_ ':'
-	call	printdec32
-	pop	edx
-	POPCOLOR
-	call	printspace
-1:
-	.endif
-
-	call	debug_getsymbol
-	jc	1f
-	pushcolor TASK_PRINT_BG_COLOR | 14
-	call	nprint
-	call	newline
-	popcolor
-	jmp	9f
-1:	# no exact match, also print offset
-	push_	eax ebx
-	call	debug_get_preceeding_symbol
-	jc	1f
-	pushcolor TASK_PRINT_BG_COLOR | 13
-	call	nprint
-	push	edx
-	mov	edx, ecx
-	call	strlen_
-	sub	edx, ecx
-	cmp	edx, 1+4
-	pop	edx
-	jb	2f
-	sub	edx, eax
-	printchar_ '+'
-	cmp	edx, 0xff	# try not to line-wrap
-	ja	3f
-	call	printhex2
-2:	popcolor
-1:	call	newline
-	pop_	ebx eax
-
-9:	popad
+	popad
 	ret
 
 3:	call	printhex4	# meaningful relative offsets are usually < 64k

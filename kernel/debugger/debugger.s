@@ -463,61 +463,109 @@ debug_getsource:
 
 # in: edx = address
 debug_printsymbol:
-	push_	eax esi edx
-
-	sub	edx, [reloc$] 		# relocation; stabs 0-based.
+	cmp	edx, [reloc$] 		# relocation; stabs 0-based.
 	jb	9f			# symbol preceeds kernel
 
-	call	debug_getsource
-	jc	1f
+	call	debug_printsource
 
-	push	edx
-	add	edx, [reloc$]
-	mov	edx, eax
-	mov	ah, 11
-	call	printc
-	printcharc_ 7, ':'
-	call	printdec32
-	call	printspace
-	pop	edx
+	pushad	# only esp and ebp are not used
+	call	getcolor
+	and	ah, 0xf0
+	mov	cl, ah	# backup
+	or	ah, 14
 
-1:
-	add	edx, [reloc$]
 	call	debug_getsymbol
 	jc	1f
-	pushcolor 14
-	call	print
-	popcolor
-	jmp	9f
+	call	printc
+	jmp	2f
 
-1:	push	edi
-	push	ebx
-	call	debug_get_preceeding_symbol
-	jc	8f
+1:	call	debug_get_preceeding_symbol
+	jc	2f
 
-	pushcolor 13
+	or	cl, 13
+	pushcolor cl
 	call	print
+	and	cl, 0xf7
+	color	cl
 	print	" + "
 	sub	edx, eax
 	call	printhex4
 
-	printc 7, " | "
+	and	cl, 0xf0
+	or	cl, 7
+	printc cl, " | "
+	and	cl, 0xf0
+	or	cl, 13&7
+	color	cl
 	add	edx, eax
 	sub	edx, ebx
 	neg	edx
 	call	printhex4
-	print	" - "
+	printc	cl, " - "
+	or	cl, 0x08
+	mov	ah, cl
 	mov	esi, edi
-	call	print
+	call	printc
 	popcolor
 
-8:	pop	ebx
-	pop	edi
+2:	popad
+9:	ret
 
-9:	pop_	edx esi eax
+
+# in: edx = address
+debug_printsymbol_short:
+	cmp	edx, [reloc$] 		# relocation; stabs 0-based.
+	jb	9f			# symbol preceeds kernel
+
+	call	debug_printsource
+
+	pushad	# ebp/esp not used
+	call	debug_get_preceeding_symbol	# out: eax esi, ebx edi
+	jc	1f
+
+	sub	edx, eax
+	call	getcolor
+	and	ah, 0xf0
+	or	ah, 13
+	call	printc
+	bsr	ecx, edx
+	jz	1f
+	and	ah, 0xf7
+	add	ecx, 3
+	shr	ecx, 2
+	printcharc_ ah, '+'
+	pushcolor ah
+	call	nprinthex
+	popcolor
+
+1:	popad
+
+9:	ret
+
+
+
+# in: edx = address
+debug_printsource:
+	push_	eax edx esi
+	sub	edx, [reloc$]
+	jb	1f
+	call	debug_getsource
+	jc	1f
+
+	add	edx, [reloc$]
+	mov	edx, eax
+	call	getcolor
+	and	ah, 0xf0
+	or	ah, 11
+	call	printc
+	and	ah, 0xf0
+	or	ah, 7
+	printcharc_ ah, ':'
+	call	printdec32
+	call	printspace
+
+1:	pop_	esi edx eax
 	ret
-
-
 
 
 .section .strings
@@ -665,28 +713,30 @@ debugger_print_mutex$:
 	call	debugger_printcalc_mutex$
 1:
 
+	mov	ecx, NUM_MUTEXES
 	printc_ 11, "mutex: "
 	mov	edx, [mutex]
-	call	printbin8
+	call	nprintbin
 	call	newline
 	mov	ebx, edx
 
-	mov	ecx, NUM_MUTEXES
 	mov	esi, offset mutex_owner
 	mov	edi, offset mutex_names
 ########
 0:	mov	edx, NUM_MUTEXES
 	sub	edx, ecx
-	call	printdec32
 	mov	eax, 1
 	xchg	edx, ecx
 	shl	eax, cl
 	xchg	edx, ecx
+
 	test	ebx, eax
 	mov	ah, 7
 	jz	3f
 	mov	ah, 15
-3:	printcharc_ ah, ':'
+3:	pushcolor ah
+	call	printdec32
+	printchar_ ':'
 
 	xchg	esi, edi
 	push	ecx
@@ -699,6 +749,7 @@ debugger_print_mutex$:
 	loop	2b
 1:	pop	ecx
 	xchg	esi, edi
+	popcolor
 
 	printchar_ '='
 	lodsd
@@ -715,7 +766,7 @@ debugger_print_mutex$:
 	or	edx, edx
 	jz	1f
 	call	printspace
-	call	debug_printsymbol
+	call	debug_printsymbol_short
 1:	call	newline
 
 	# print release
@@ -733,9 +784,10 @@ debugger_print_mutex$:
 	mov	edx, [mutex_unlock_time + eax * 4]
 	call	printhex8
 	call	printspace
-	cmpd	[mutex_released + eax * 4], 0
+	mov	edx, [mutex_released + eax * 4]
+	or	edx, edx
 	jz	1f
-	call	debug_printsymbol
+	call	debug_printsymbol_short
 1:	call	newline
 
 	dec	ecx
