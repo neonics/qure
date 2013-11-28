@@ -2579,20 +2579,35 @@ mov edx, [eax + ebx + task_stack0_top]
 .endif
 
 	.if 1
-		pushcolor 0xf0
-		push_ eax ebx
 #		DEBUG_WORD [eax+ebx + task_tsc_stop],"v"
 #		DEBUG_DWORD [eax+ebx + task_tsc_stop+4],"v"
 #		DEBUG_WORD [eax+ebx + task_tsc],"^"
 #		DEBUG_DWORD [eax+ebx + task_tsc+4],"^"
+		push	eax
 		mov	edx, [eax + ebx + task_time]
 		mov	eax, [eax + ebx + task_time+4]
 #		shld	edx, eax, 8
 #		shl	eax, 8
+		push	edi
+		sub	esp, 32
+		mov	edi, esp
+		call	sprint_time_ms_40_24
+		movw	[edi], ' '
+		sub	edi, esp
 
-		call	print_time_ms_40_24
-		pop_ ebx eax
-		popcolor
+		push	ecx
+		mov	ecx, 9
+		sub	ecx, edi
+		jle	11f
+	10:	call	printspace
+		loop	10b
+	11:	pop	ecx
+
+		push	esp
+		call	_s_print
+		add	esp, 32
+		pop	edi
+		pop	eax
 	.elseif 0
 		push_ eax ebx
 		#call	printdec32

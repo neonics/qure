@@ -351,8 +351,19 @@ COLOR_STACK_SIZE = 4
 .endm
 
 .macro sPRINTCHAR c
-	mov	byte ptr [edi], \c
+	IS_REG8 _, \c
+	.if _
+	.ifc \c,al
+		stosb
+	.else
+		mov	byte ptr [edi], \c
+		inc	edi
+	.endif
+	movb	[edi], 0
+	.else
+	mov	word ptr [edi], \c & 0xff
 	inc	edi
+	.endif
 .endm
 
 .macro PRINTCHARc col, c
@@ -1460,6 +1471,7 @@ sprint:	push	esi
 1:	lodsb
 	test	al, al
 	jnz	0b
+	mov	[edi], al
 
 	pop	esi
 	ret
