@@ -220,12 +220,12 @@ SHELL_COMMAND "keycode"		cmd_keycode
 .if VIRTUAL_CONSOLES
 SHELL_COMMAND "consoles"	cmd_consoles
 .endif
-SHELL_COMMAND "sha1"		cmd_sha1
-SHELL_COMMAND "base64"		cmd_base64
 SHELL_COMMAND "classes"		cmd_classes
 SHELL_COMMAND "objects"		cmd_objects
-SHELL_COMMAND "ph"		cmd_ping_host
 SHELL_COMMAND_CATEGORY "experimental"
+SHELL_COMMAND "ph"		cmd_ping_host
+SHELL_COMMAND "sha1"		cmd_sha1
+SHELL_COMMAND "base64"		cmd_base64
 SHELL_COMMAND "svga"		cmd_svga
 SHELL_COMMAND "xml"		cmd_xml
 SHELL_COMMAND "play"		cmd_play

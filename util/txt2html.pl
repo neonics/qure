@@ -64,7 +64,8 @@ $c=~ s@\n+((=+)([^\n=]+)=*)\n@"\n\n<h".length($2).">$3</h".length($2).">\n\n"@ge
 #$c=~ s@\n(\*\s+([^\n]+))\n@\n<h3>$2</h3>\n\n@g;
 
 $c=~ s@(\n\t+[^\n]*)\n+(?=\n\t)@$1\n\t@g;
-$c=~ s@\n(\*\s+([^\n]+)\n+(([^\*]\s+[^\n]*\n)+))@\n<dt>$2</dt>\n<dd>\n$3</dd>\n\n@g;
+$c=~ s@\n(\*\s+([^\n]+)\n*?((\n(?!\*|\S)[^\n]*)+))@"\n<dt>$2</dt>\n<dd>".&trim($3)."</dd>\n\n"@ge;
+$c=~ s@((<dt>.*?</dt>\n<dd>.*?</dd>\n*)+)@<dl>\n$1</dl>\n\n@gs;
 
 $c=~ s@''([^']+)''@'<code>'.&esc($1).'</code>'@ge;
 
@@ -74,7 +75,7 @@ $c=~ s@<dd>\s*<pre>\s*(.*?)\s*</pre>\s*</dd>@<dd>\n\t$1\n</dd>@gs;
 
 $c=~ s@<pre>(.*?)</pre>\n+@'<pre>'.&esc($1)."</pre>\n"@ges;
 
-
+sub trim { $_=$_[0]; s/^\s+//; s/\s*$//; $_ }
 sub esc { $_ = shift @_; "{{PACK ".(unpack "H*", $_)."}}" } #s/(.)/sprintf("%02x",$1)/e; }
 
 # NOTES: pattern:  /(?=X)/:
@@ -192,7 +193,8 @@ done:
 @l=	grep {length($_) }
 	split (/\n\n+/, $c);
 
-$c = join( "\n", (map { /^(<([^>\n]+)>.*?<\/\2>|<[^\n>]+\/>)/ ? "$_\n" : "<p>$_</p>\n" } @l) );
+#$c = join( "\n", (map { /^(<([^>\n]+)>.*?<\/\2>|<\/?[^\n>]+\/?>|<d[lt]>.*?<\/dd>)$/s ? "$_\n" : "<p>{{{$_}}}</p>\n" } @l) );
+$c = join( "\n", (map { /^<.*?>$/s ? "$_\n" : "<p>$_</p>\n" } @l) );
 
 if ( $template )
 {

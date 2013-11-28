@@ -38,20 +38,20 @@ Finding code locations:
 
 * QEMu logging:
 
-  control-alt-2, type 'log in_asm', control-alt-1, wait for the error
-  condition. Shift back to control-alt-2 and run 'quit', to make sure
-  the logfile is flushed to disk.
+  control-alt-2, type ''log in_asm'', control-alt-1, wait for the error
+  condition. Shift back to control-alt-2 and run ''quit'', to make sure
+  the logfile (''qemu.log'') is flushed to disk.
 
 The addresses here are the physical addresses (cs.base + eip).
 
 The memory code offset can be found by several means:
 
-  The kernel load address is the base of cs and can be
-  found with the shell command 'gdt', or with 'mem -k -a'.
+  The kernel load address is the base of ''cs'' and can be
+  found with the shell command ''gdt'', or with ''mem -k -a''.
   It is also printed during kernel boot. However this information
   scrolls out of place, so recompiling with DEBUG set to a higher
-  level, enabling keystrokes (see kernel.s), or DEBUG_KERNEL_REALMODE
-  (see realmode.s), allows to note the address.
+  level, enabling keystrokes (see kernel.s), or ''DEBUG_KERNEL_REALMODE''
+  (see ''realmode.s''), allows to note the address.
 
   The load offset depends on the bootloader size aswell as entries
   in the RAMDISK before the kernel image. At current, the kernel
@@ -59,13 +59,13 @@ The memory code offset can be found by several means:
   a higher segment aligned to 16kb or so, so that small bootloader
   changes won't change the address.
 
-  At current this address is 0x0011200.
+  At current this address is ''0x0013000''.
 
 
 Disassembly
 -----------
 
-  the alias ''dk'' (and ''dk16'' for realmode code) provide a disassembly
+  The alias ''dk'' (and ''dk16'' for realmode code) provide a disassembly
   of the object file which is based on address 0.
 
   Translating the runtime (physical) address to the image address is
@@ -96,6 +96,250 @@ Adding debug statements
   make && qemu, allow for equally fast debugging as can be done with
   an IDE.
 
+Shell
+=====
+
+Useful shell commands for Debugging
+---------------------
+The following commands can be found in the debugging section of the ''help'' command.
+
+* ''int 3''
+  invokes the debugger. Press key:
+  * 'c' to continue and return to the shell
+  * 'm' to inspect mutexes
+  * 'p' to show the process list
+  * 's' to show the schedule (same as ''ps'' in the shell)
+  * 't' to trace (experimental)
+
+* ''breakpoint''
+  set a code or memory write breakpoint
+
+* ''gpf''
+  generate a protection fault - the legacy way to invoke the debugger.
+
+* ''debug''
+  a temporary 'hack' command: sets a breakpoint and triggers it.
+
+* ''pic''
+  shows the PIC mask, the IRQ's and the address of the ISR.
+
+* ''ints''
+  show the interrupt count per interrupt - note that as of this writing,
+  IRQs are not counted.
+
+* ''int''
+  generate an interrupt.
+
+* ''gdt''
+  prints the Global Descriptor Table.
+
+* ''irq''
+  prints the IRQ sharing handler matrix. At current the kernel is compiled to
+  support up to 8 ISRs per IRQ.
+
+* ''cr''
+  prints the contents of the Control Registers ''CR0, CR2, CR3'' and ''CR4''.
+
+* ''sline''
+  prints the source line for a given hexadecimal address.
+
+* ''sym''
+  for a hex address, prints the source line and symbol name;
+  for a symbol name, prints the address.
+
+* ''paging''
+  prints the page directory and page tables for either the current task or
+  a given pid. Takes an optional argument "''usage''" which shows only the
+  pages that have been accessed.
+
+* ''ramdisk''
+  Show the contents of the ramdisk.
+
+* ''inspect_str''
+  Print the contents at the given memory address (length must also be supplied).
+
+* ''keycode''
+  Prints the keycode and character for keypresses.
+
+* ''consoles''
+  prints the PID, screen and keyboard buffer addresses, cursor locations,
+  and TLS pointers for all active consoles.
+  (Note: alt-<DIGIT> will select a console).
+
+* ''classes''
+  Prints the class data for all known classes, specifically the extension
+  hierarchy, the virtual methods, their overrides, and their implementations.
+  Can be filtered by classname.
+
+* ''objects''
+  Shows all instantiated objects and their class hierarchy. Can be filtered by classname.
+ 
+* ''obj''
+  Show the PCI object counters. These counters are used to construct device names.
+ 
+* ''mem''
+  Various memory information, such as reserved/allocated/free memory, the
+  ''malloc'' linked list handles, the extended BIOS/ACPI memory map, and the
+  kernel code and data layout.
+
+Hardware
+--------
+
+* ''dev''
+  shows the PCI and ISA devices in brief format.
+
+* ''lspci''
+  re-run the PCI query and device object initialisation routines while
+  printing detailed information. (not recommended generally!).
+
+* ''pcibus''
+  print all PCI devices and PCI bus mappings.
+  Note that ''dev'' and ''lspci'' don't print/record all PCI Bridge devices,
+  only Function 1.
+
+* ''drivers''
+  lists all available PCI drivers.
+
+* ''disks''
+  shows all known ATA/ATAPI drives.
+
+* ''listdrives''
+  rescans the ATA buses.
+
+* ''nics''
+  Shows the configured Network Interface Cards (what you'd expect ''ifconfig'' to do).
+
+
+Partitions and File Systems
+---------------------------
+* ''mount'', ''ls'', ''cd'', ''pwd'', ''cat'', ''touch'', ''mkdir''
+  The usual.
+
+* ''fdisk''
+  Partition table editor. Can also copy the bootloader.
+
+* ''partinfo''
+  Show detailed partition info for supported filesystems.
+
+* ''listfs''
+  Show supported filesystems (the in-memory ''root'' filesystem,
+  ''FAT12/16, ISO9660, SFS, OOFS'')
+
+* ''lsof''
+  Show open file handlers from the FS layer.
+
+* ''fat_handles''
+  Show detailed FAT handle information for open files on FAT
+
+* ''oofs''
+  Database manager for the OOFS file system.
+
+Networking
+-----------
+* ''nics''
+  As said, lists the network cards and their IP's, aswell as hardware specific
+  information from the driver.
+
+* ''ifconfig''
+  Configure a NIC's IP, netmask, and online status. (In 'Oldskool' mode also
+  allows to set up the gateway and automatically update the routing tables).
+
+* ''route''
+   Route table editor. See ''kernel/nic.s'' for usage.
+
+* ''ifup'', ''ifdown''
+  Invokes the ''nic_api_if(up|down)'' methods on the given NIC. Can also
+  be achieved with ''ifconfig ethX up|down''
+
+* ''netdump''
+  Network packet analyzer.
+
+* ''ping'', ''hostname'', ''netstat'', ''arp'', ''icmp'', ''traceroute''
+  The usual.
+
+* ''dhcp''
+  Configure a NIC using DHCP.
+
+* ''zconf''
+  Zero-Configuration networking. This is called on boot, and can be used to
+  reset the network configuration to it's defaults.
+
+* ''iproute''
+  Shows what route would be used to communicate with the given IP.
+
+* ''netstat''
+  Shows various network information, such as queues, buffers, sessions etc.
+
+
+Task Control
+------------
+The following commands can be found in the 'tasks' section of the ''help'' command.
+
+* ''top'', ''ps'', ''kill''
+  similar to *NIX.
+
+* ''bg''
+  mark the given task as suspended (non-schedulable).
+
+* ''fg''
+  resume the given task.
+
+* ''init''
+  executes all non-comment lines in ''/et/init.rc''.
+
+* ''exe''
+  loads and executes a PE/COFF binary.
+
+* ''elf''
+  loads and executes an Elf binary.
+
+* ''fork''
+  On each invocation, starts a new clock 'console widget'. These need to be terminated
+  with ''kill'' and can be suspended and resumed with ''bg'' and ''fg''.
+
+
+
+Experimental commands:
+----------------------
+* ''ph''
+  ping the VM host (local hardcoded IP for now) once, to fill the ARP table.
+
+* ''p''
+  ping the gateway.
+
+* ''shutdown''
+  ACPI shutdown, if detected.
+
+* ''reboot''
+  generate a triple fault causing a reboot.
+
+* ''sha1''
+  calculates the SHA1 hash of the first argument.
+
+* ''base64''
+  Encodes and then decodes the first argument as base64.
+
+* ''vmcheck''
+  Detects whether the kernel runs in a virtual machine, and if so, establishes
+  communication using the VMWare backdoor protocol, which is partially supported
+  by QEmu and possibly others aswell.
+
+* ''vmx''
+  Detects hardware VMX support. (only tested in a VM, where it always fails).
+
+* ''cloud''
+  Cluster management.
+
+* ''gfx''
+  Enter/exit graphics mode.
+
+* ''play''
+  Play a WAVE audio file.
+
+* ''uptime'', ''date''
+  As expected.
+
+
 
 Adding shell commands
 ---------------------
@@ -104,8 +348,7 @@ Adding shell commands
   to the list in ''shell.s'' and implementing the method: ''cmd_foo: ret''
 
 
-Detecting memory writes
------------------------
+= Detecting memory writes =
 
 The code may enable hardware breakpoints using ''kernel/debugger/hwdebug.s'',
 for example:
@@ -123,7 +366,7 @@ Alternatively, use the shell command ''breakpoint''.
 
 
 
-== Bootloader debugging ==
+= Bootloader debugging =
 
 Tools:
 	''alias hdi'' - shows hex dump of the boot image.
