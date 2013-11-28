@@ -430,8 +430,6 @@ key_enter$:
 	call	newline
 
 	call	cmdline_history_add
-	mov	eax, [ebx + cmdline_history]
-	mov	edx, [eax + buf_index]
 	mov	[ebx + cmdline_history_current], edx
 
 	xor	ecx, ecx
@@ -927,8 +925,8 @@ cmdline_history_add:
 	# append a pointer to the appended data to the array
 
 	mov	edi, [ebx + cmdline_history]
-	mov	esi, [edi + buf_index]
-	cmp	esi, [edi + buf_capacity]
+	mov	edx, [edi + buf_index]
+	cmp	edx, [edi + buf_capacity]
 	jae	0f	# if below, assume 4 bytes available
 
 	add	[edi + buf_index], dword ptr 4
@@ -937,7 +935,8 @@ cmdline_history_add:
 	mov	[ebx + cmdline_buf + eax], byte ptr 0
 	lea	eax, [ebx + cmdline_buf]
 	call	strdup
-	mov	[edi + esi], eax
+	mov	[edi + edx], eax
+	add	edx, 4	# have it point past the last
 
 	clc
 	ret
@@ -960,8 +959,8 @@ cmdline_history_add:
 
 	# eax = &buf[0]
 	mov	edi, eax
-	mov	esi, [edi + buf_index]
-	sub	esi, 4
+	mov	edx, [edi + buf_index]
+	sub	edx, 4
 
 	jmp	1b
 
