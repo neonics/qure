@@ -688,7 +688,7 @@ cluster_ping:
 # in: eax + esi = node
 cluster_reboot_node:
 	printc 0xf0, "rebooting node: "
-	push_	esi edx eax
+	pushad	# only ebp/esp not used
 	lea	edx, [eax + esi + node_node_hostname]
 	push	edx
 	call	_s_println
@@ -748,7 +748,7 @@ cluster_reboot_node:
 	NET_BUFFER_SEND
 	jc	91f
 
-9:	pop_	eax edx esi
+9:	popad
 	ret
 91:	printlnc 4, "net_buffer get/send error"
 	jmp	9b
