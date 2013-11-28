@@ -998,9 +998,9 @@ net_print_drop_msg$:
 	printc 4, "net: packet dropped: "
 	ret
 
-8:	call	net_print_drop_msg$
+8:	MUTEX_UNLOCK NET
+	call	net_print_drop_msg$
 	printlnc 4, "mdup error"
-	MUTEX_UNLOCK NET
 	jmp	0b
 
 ########################################################
