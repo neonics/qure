@@ -972,6 +972,13 @@ cloudnet_handle_packet:
 	ARRAY_ENDL
 	printc 12, " cloud rx ping: unknown node: "
 	call	net_print_ip
+	# send hello to the unknown node
+	pushad
+	mov	edx, eax
+	mov	eax, [cluster_node]
+	call	[eax + send]
+	popad
+
 	jmp	2f
 
 1:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_RX
