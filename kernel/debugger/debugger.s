@@ -761,6 +761,13 @@ debugger_print_mutex$:
 	sub	eax, ecx
 	mov	edx, [mutex_lock_time + eax * 4]
 	call	printhex8
+	call	printspace
+
+	mov	edx, [mutex_lock_task + eax * 4]
+	add	edx, [task_queue]
+	mov	edx, [edx + task_pid]
+	call	printhex4
+
 
 	mov	edx, [esi - 4]
 	or	edx, edx
@@ -783,6 +790,12 @@ debugger_print_mutex$:
 	call	printspace
 	mov	edx, [mutex_unlock_time + eax * 4]
 	call	printhex8
+	call	printspace
+
+	mov	edx, [mutex_unlock_task + eax * 4]
+	add	edx, [task_queue]
+	mov	edx, [edx + task_pid]
+	call	printhex4
 	call	printspace
 	mov	edx, [mutex_released + eax * 4]
 	or	edx, edx

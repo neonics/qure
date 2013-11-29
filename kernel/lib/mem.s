@@ -1241,42 +1241,26 @@ malloc_:
 ########
 	push	ebp
 	lea	ebp, [esp + 4]
-1:	MUTEX_LOCK MEM locklabel=1f
-	DEBUG "MREALLOC mutex fail"
-	pushad
-	mov	edx, [esp + 32]
-	call debug_printsymbol; call newline
-	call	debugger_print_mutex$
-	popad
-	jmp 1b
-1:
-	.if MEM_DEBUG2
-		DEBUG "[", 0x6f
-	.endif
  	push	ebx
 	push	ecx
 	push	esi
 	push	edi
 
+	MUTEX_SPINLOCK MEM
 	lea	esi, [mem_handles]
 	call	handle_get_by_base	# in: esi, eax; out: ebx
 	jc	0f
-	mov	esi, [esi + handles_ptr]
 
+	mov	esi, [esi + handles_ptr]
 	test	[esi + ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	jnz	1f
 
 0:	printc 4, "mrealloc: unknown pointer "
-	push	edx
-	mov	edx, eax
-	call	printhex8
-	printc 4, " called from: "
-	mov	edx, [esp + 5*4]
-	call	printhex8
-	call	printspace
-	call	debug_printsymbol
+	push	eax
+	call	_s_printhex8
 	call	newline
-	pop	edx
+	stc
+	STACKTRACE ebp, 0
 
 	jmp	0f
 1:
@@ -1391,7 +1375,6 @@ malloc_:
 	jz	1f
 	mov	edi, eax
 	rep	movsb
-
 1:	pop	esi
 	or	[ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 

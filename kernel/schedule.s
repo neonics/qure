@@ -194,6 +194,7 @@ SCHEDULE_STRUCT_SIZE = .
 
 .data
 task_queue_sem:	.long -1	# -1: scheduling disabled
+.global scheduler_current_task_idx
 scheduler_current_task_idx: .long -1
 scheduler_prev_task_idx: .long -1	# for debug
 

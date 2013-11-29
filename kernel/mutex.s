@@ -18,6 +18,8 @@ _MUTEX_LOCAL = 0	# experimental feature
 .global mutex_released
 .global mutex_lock_time
 .global mutex_unlock_time
+.global mutex_lock_task
+.global mutex_unlock_task
 .global mutex_fail
 .global mutex_name_SCHEDULER
 .global mutex_name_SCREEN
@@ -52,6 +54,8 @@ mutex_owner:	.space 4 * NUM_MUTEXES
 mutex_released:	.space 4 * NUM_MUTEXES
 mutex_lock_time:.space 4 * NUM_MUTEXES
 mutex_unlock_time:.space 4 * NUM_MUTEXES
+mutex_lock_task:.space 4 * NUM_MUTEXES
+mutex_unlock_task:.space 4 * NUM_MUTEXES
 
 .section .strings
 mutex_names:
@@ -177,6 +181,8 @@ __MUTEX_DECLARE = 1
 	1991:	popd	[mutex_owner + MUTEX_\name * 4]
 		pushd	[clock]
 		popd	[mutex_lock_time + MUTEX_\name * 4]
+		pushd	[scheduler_current_task_idx]
+		popd	[mutex_lock_task + MUTEX_\name * 4]
 	1992:
 	.endif
 
@@ -209,6 +215,8 @@ __MUTEX_DECLARE = 1
 	1999:	popd	[mutex_released + MUTEX_\name * 4]
 		pushd	[clock]
 		popd	[mutex_unlock_time + MUTEX_\name * 4]
+		pushd	[scheduler_current_task_idx]
+		popd	[mutex_unlock_task + MUTEX_\name * 4]
 	.endif
 .endm
 
@@ -252,6 +260,8 @@ MUTEX_SPINLOCK_TIMEOUT=1000000	# implies MUTEX_ASSERT
 	1999:	popd	[mutex_owner + MUTEX_\name * 4]
 		pushd	[clock]
 		popd	[mutex_lock_time + MUTEX_\name * 4]
+		pushd	[scheduler_current_task_idx]
+		popd	[mutex_lock_task + MUTEX_\name * 4]
 	.endif
 	.if MUTEX_SPINLOCK_TIMEOUT
 		pop	ecx
