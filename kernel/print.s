@@ -689,6 +689,7 @@ COLOR_STACK_SIZE = 4
 .global _s_printhex8
 .global sprintdec32
 .global sprintdec8
+.global printlnc
 
 ###############################################################################
 # structures, data, code

@@ -980,51 +980,42 @@ int 3
 1:
 	MUTEX_SPINLOCK_ NET
 	call	net_rx_queue_newentry	# out: eax + edx
-	jnc	1f
-	MUTEX_UNLOCK_ NET
+	jc	91f
 
-	incd	[ebx + nic_rx_dropped]
+	# we have a queue entry - set it up.
 
-########################################################
-9:	call	net_print_drop_msg$
-	printlnc 4, "queue full"
-
-0:	pop	esi
-	pop	edx
-	pop	eax
-	ret
-
-net_print_drop_msg$:
-	printc 4, "net: packet dropped: "
-	ret
-
-8:	MUTEX_UNLOCK NET
-	call	net_print_drop_msg$
-	printlnc 4, "mdup error"
-	jmp	0b
-
-########################################################
-# we have a queue entry - set it up.
-# NOTE: mutex locked!
-1:	call	mdup	# in: esi, ecx; out: esi
-net_rx_pkt:	# Debug symbol
-	jc	8b
-
+	call	mdup	# in: esi, ecx; out: esi
+net_rx_pkt$:	# debug symbol for malloc handles
+	jc	92f
 	pushad
 	lea	edi, [eax + edx + net_rx_queue_args]
 	mov	esi, esp
 	mov	ecx, 8
 	rep	movsd
-#	mov	[edi-4], eax
-#	mov	[edi-12], edx
-#	mov	[edi-28], esi
 	popad
 	mov	[eax + edx + net_rx_queue_status], dword ptr NET_RX_QUEUE_STATUS_SCHEDULED
+	call	net_rx_queue_schedule
+########################################################
+
+0:	MUTEX_UNLOCK NET
 	pop	esi
 	pop	edx
 	pop	eax
-	MUTEX_UNLOCK_ NET
-	# fallthrough
+	ret
+
+90:	printc 4, "net: packet dropped: "
+	mov	ah, 4
+	call	printlnc
+	jmp	0b
+
+91:	incd	[ebx + nic_rx_dropped]
+	LOAD_TXT "queue full"
+	jmp	90b
+
+92:	LOAD_TXT "mdup error"
+	jmp	90b
+
+########################################################
 .data SECTION_DATA_BSS
 net_rx_queue_scheduled$:.byte 0
 netq_sem:	.long 0
@@ -1032,10 +1023,9 @@ netq_sem:	.long 0
 net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 	lock inc dword ptr [netq_sem]	# notify scheduler
 
-# TODO: dont sched if still running. use local mutex.
 	cmp	byte ptr [net_rx_queue_scheduled$], 1
 	jz	1f
-	lock inc	byte ptr [net_rx_queue_scheduled$]
+	lock inc byte ptr [net_rx_queue_scheduled$]
 
 	PUSH_TXT "netq"
 	push	dword ptr 0#TASK_FLAG_TASK#TASK_FLAG_RESCHEDULE # flags
@@ -1047,15 +1037,12 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 	# use KAPI because it requires page mapping and CR3 is not
 	# modified for normal (network) interrupts.
 	KAPI_CALL schedule_task
-	.if NET_RX_QUEUE_DEBUG
-		setc	al
-		DEBUG_BYTE al
-	.endif
-	jnc	1f
-#	call	0f
-	DEBUG_BYTE [net_rx_queue_scheduled$]
+	jc	91f
+1:	ret
+
+91:	DEBUG_BYTE [net_rx_queue_scheduled$]
 	printlnc 4, "schedule error"	# task already scheduled: happens often
-1:	ret	# BUG: edx = [esp] = 00100900
+	ret	# BUG: edx = [esp] = 00100900
 
 
 net_check_reboot_packet:
