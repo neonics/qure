@@ -12,16 +12,21 @@ MUTEX_ASSERT = 1
 # Mutex - mutual exclusion
 #
 .global mutex
+# to be hidden
 .global mutex_owner
 .global mutex_released
 .global mutex_lock_time
 .global mutex_unlock_time
 .global mutex_lock_task
 .global mutex_unlock_task
-.global mutex_fail
 .global mutex_lock_seq
 .global mutex_unlock_seq
 .global mutex_seq
+##
+.global mutex_fail
+.global mutex_record_lock
+.global mutex_record_unlock
+
 .global mutex_name_SCHEDULER
 .global mutex_name_SCREEN
 .global mutex_name_MEM
@@ -91,6 +96,39 @@ mutex_fail:
 	call	mutex_print
 	call	cmd_ps$
 	ret	4
+
+# in: [esp] = MUTEX_\name * 4
+mutex_record_lock:
+	push_	eax edx
+	mov	eax, [esp + 12]	# MUTEX_\name * 4
+	mov	edx, [esp + 8]	# call address
+	mov	[mutex_owner + eax], edx
+	mov	edx, [clock]
+	mov	[mutex_lock_time + eax], edx
+	mov	edx, [scheduler_current_task_idx]
+	mov	[mutex_lock_task + eax], edx
+	incd	[mutex_seq]
+	mov	edx, [mutex_seq]
+	mov	[mutex_lock_seq + eax], edx
+	pop_	edx eax
+	ret	4
+
+mutex_record_unlock:
+	# for now just copy/paste code (could save some space here)
+	push_	eax edx
+	mov	eax, [esp + 12]	# MUTEX_\name * 4
+	mov	edx, [esp + 8]	# call address
+	mov	[mutex_released + eax], edx
+	mov	edx, [clock]
+	mov	[mutex_unlock_time + eax], edx
+	mov	edx, [scheduler_current_task_idx]
+	mov	[mutex_unlock_task + eax], edx
+	incd	[mutex_seq]
+	mov	edx, [mutex_seq]
+	mov	[mutex_unlock_seq + eax], edx
+	pop_	edx eax
+	ret	4
+
 
 # in: [esp] = MUTEX_ bit number
 mutex_lock:
@@ -270,15 +308,8 @@ __MUTEX_DECLARE = 1
 
 	.if MUTEX_DEBUG
 		jc	1992f
-		call	1991f
-	1991:	popd	[mutex_owner + MUTEX_\name * 4]
-		pushd	[clock]
-		popd	[mutex_lock_time + MUTEX_\name * 4]
-		pushd	[scheduler_current_task_idx]
-		popd	[mutex_lock_task + MUTEX_\name * 4]
-		incd	[mutex_seq]
-		pushd	[mutex_seq]
-		popd	[mutex_lock_seq + MUTEX_\name * 4]
+		pushd	MUTEX_\name * 4
+		call	mutex_record_lock
 	1992:
 	.endif
 
@@ -304,15 +335,8 @@ __MUTEX_DECLARE = 1
 		DEBUG "UNLOCK \name";call .+5;call _s_printhex8;
 	.endif
 	.if MUTEX_DEBUG
-		call	1999f
-	1999:	popd	[mutex_released + MUTEX_\name * 4]
-		pushd	[clock]
-		popd	[mutex_unlock_time + MUTEX_\name * 4]
-		pushd	[scheduler_current_task_idx]
-		popd	[mutex_unlock_task + MUTEX_\name * 4]
-		incd	[mutex_seq]
-		pushd	[mutex_seq]
-		popd	[mutex_unlock_seq + MUTEX_\name * 4]
+		pushd	MUTEX_\name * 4
+		call	mutex_record_unlock
 	.endif
 .endm
 
@@ -350,19 +374,12 @@ MUTEX_SPINLOCK_TIMEOUT=100	# implies MUTEX_ASSERT
 	.if MUTEX_TRACE
 		DEBUG "LOCK \name";call .+5;call _s_printhex8;
 	.endif
-	.if MUTEX_DEBUG
-		call	1999f
-	1999:	popd	[mutex_owner + MUTEX_\name * 4]
-		pushd	[clock]
-		popd	[mutex_lock_time + MUTEX_\name * 4]
-		pushd	[scheduler_current_task_idx]
-		popd	[mutex_lock_task + MUTEX_\name * 4]
-		incd	[mutex_seq]
-		pushd	[mutex_seq]
-		popd	[mutex_lock_seq + MUTEX_\name * 4]
-	.endif
 	.if MUTEX_SPINLOCK_TIMEOUT
 		pop	ecx
+	.endif
+	.if MUTEX_DEBUG
+		pushd	MUTEX_\name * 4
+		call	mutex_record_lock
 	.endif
 .endm
 
