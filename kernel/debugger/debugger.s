@@ -531,8 +531,8 @@ debug_printsymbol_short:
 	bsr	ecx, edx
 	jz	1f
 	and	ah, 0xf7
-	add	ecx, 3
-	shr	ecx, 2
+	add	ecx, 4	# 3 for shift + 1 for 0-base bit offset correction
+	shr	ecx, 2	# 2
 	printcharc_ ah, '+'
 	pushcolor ah
 	call	nprinthex
