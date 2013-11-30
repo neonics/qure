@@ -21,6 +21,9 @@ _MUTEX_LOCAL = 0	# experimental feature
 .global mutex_lock_task
 .global mutex_unlock_task
 .global mutex_fail
+.global mutex_lock_seq
+.global mutex_unlock_seq
+.global mutex_seq
 .global mutex_name_SCHEDULER
 .global mutex_name_SCREEN
 .global mutex_name_MEM
@@ -56,6 +59,9 @@ mutex_lock_time:.space 4 * NUM_MUTEXES
 mutex_unlock_time:.space 4 * NUM_MUTEXES
 mutex_lock_task:.space 4 * NUM_MUTEXES
 mutex_unlock_task:.space 4 * NUM_MUTEXES
+mutex_seq:	.long 0
+mutex_lock_seq:	.space 4 * NUM_MUTEXES
+mutex_unlock_seq:.space 4 * NUM_MUTEXES
 
 .section .strings
 mutex_names:
@@ -84,7 +90,7 @@ mutex_fail:
 2:	pushd	[esp + 4]
 	call	_s_println
 	STACKTRACE 0,0
-	call	debugger_print_mutex$
+	call	mutex_print
 	call	cmd_ps$
 	ret	4
 
@@ -95,6 +101,146 @@ mutex_unlock:
 	ret
 mutex_spinlock:
 	ret
+
+
+
+################################################################
+# Printing mutexes
+.data SECTION_DATA_BSS
+mutex_col_width$: .byte 0
+.text32
+mutex_calc_col_width$:
+	# calculate mutex name width
+	xor	edx, edx
+	mov	eax, NUM_MUTEXES
+	mov	esi, offset mutex_names
+0:	call	strlen_
+	cmp	ecx, edx
+	jb	1f
+	mov	edx, ecx
+	stc
+1:	adc	esi, ecx
+	dec	eax
+	jnz	0b
+	inc	edx
+	mov	[mutex_col_width$], dl
+	ret
+
+mutex_print:
+	push_	eax ebx ecx edx esi edi
+
+	cmp	byte ptr [mutex_col_width$], 0
+	jnz	1f
+	call	mutex_calc_col_width$
+1:
+
+	mov	ecx, NUM_MUTEXES
+	printc_ 11, "mutex: "
+	mov	edx, [mutex]
+	call	nprintbin
+	call	newline
+	mov	ebx, edx
+
+	mov	esi, offset mutex_owner
+	mov	edi, offset mutex_names
+########
+0:	mov	edx, NUM_MUTEXES
+	sub	edx, ecx
+	mov	eax, 1
+	xchg	edx, ecx
+	shl	eax, cl
+	xchg	edx, ecx
+
+	test	ebx, eax
+	mov	ah, 7
+	jz	3f
+	mov	ah, 15
+3:	pushcolor ah
+	call	printdec32
+	printchar_ ':'
+
+	xchg	esi, edi
+	push	ecx
+	movzx	ecx, byte ptr [mutex_col_width$]
+	add	ecx, esi
+	call	print_
+	sub	ecx, esi
+	jbe	1f
+2:	call	printspace
+	loop	2b
+1:	pop	ecx
+	xchg	esi, edi
+	popcolor
+
+	printchar_ '='
+	lodsd
+	mov	edx, eax
+	call	printhex8
+	call	printspace
+
+	mov	eax, NUM_MUTEXES
+	sub	eax, ecx
+	mov	edx, [mutex_lock_time + eax * 4]
+	call	printhex8
+	call	printspace
+
+	mov	edx, [mutex_lock_task + eax * 4]
+	add	edx, [task_queue]
+	mov	edx, [edx + task_pid]
+	call	printhex4
+	call	printspace
+	mov	edx, [mutex_lock_seq + eax * 4]
+	call	printhex8
+
+	mov	edx, [esi - 4]
+	or	edx, edx
+	jz	1f
+	call	printspace
+	call	debug_printsymbol_short
+1:	call	newline
+
+	# print release
+	push	ecx
+	movzx	ecx, byte ptr [mutex_col_width$]
+	add	ecx, 2
+2:	call	printspace
+	loop	2b
+	pop	ecx
+	mov	eax, NUM_MUTEXES
+	sub	eax, ecx
+	mov	edx, [mutex_released + eax * 4]
+	call	printhex8
+	call	printspace
+	mov	edx, [mutex_unlock_time + eax * 4]
+	call	printhex8
+	call	printspace
+
+	mov	edx, [mutex_unlock_task + eax * 4]
+	add	edx, [task_queue]
+	mov	edx, [edx + task_pid]
+	call	printhex4
+	call	printspace
+	mov	edx, [mutex_unlock_seq + eax * 4]
+	call	printhex8
+	call	printspace
+	mov	edx, [mutex_released + eax * 4]
+	or	edx, edx
+	jz	1f
+	call	debug_printsymbol_short
+1:	call	newline
+
+	dec	ecx
+	jnz	0b
+#	loop	0b
+########
+	pop_	edi esi edx ecx ebx eax
+	ret
+
+################################################################
+
+
+
+
 .endif
 
 .ifndef __MUTEX_DECLARE
@@ -183,6 +329,9 @@ __MUTEX_DECLARE = 1
 		popd	[mutex_lock_time + MUTEX_\name * 4]
 		pushd	[scheduler_current_task_idx]
 		popd	[mutex_lock_task + MUTEX_\name * 4]
+		incd	[mutex_seq]
+		pushd	[mutex_seq]
+		popd	[mutex_lock_seq + MUTEX_\name * 4]
 	1992:
 	.endif
 
@@ -217,6 +366,9 @@ __MUTEX_DECLARE = 1
 		popd	[mutex_unlock_time + MUTEX_\name * 4]
 		pushd	[scheduler_current_task_idx]
 		popd	[mutex_unlock_task + MUTEX_\name * 4]
+		incd	[mutex_seq]
+		pushd	[mutex_seq]
+		popd	[mutex_unlock_seq + MUTEX_\name * 4]
 	.endif
 .endm
 
@@ -227,7 +379,7 @@ __MUTEX_DECLARE = 1
 .endm
 
 
-MUTEX_SPINLOCK_TIMEOUT=1000000	# implies MUTEX_ASSERT
+MUTEX_SPINLOCK_TIMEOUT=100	# implies MUTEX_ASSERT
 
 .macro MUTEX_SPINLOCK name
 	.if MUTEX_SPINLOCK_TIMEOUT
@@ -262,6 +414,9 @@ MUTEX_SPINLOCK_TIMEOUT=1000000	# implies MUTEX_ASSERT
 		popd	[mutex_lock_time + MUTEX_\name * 4]
 		pushd	[scheduler_current_task_idx]
 		popd	[mutex_lock_task + MUTEX_\name * 4]
+		incd	[mutex_seq]
+		pushd	[mutex_seq]
+		popd	[mutex_lock_seq + MUTEX_\name * 4]
 	.endif
 	.if MUTEX_SPINLOCK_TIMEOUT
 		pop	ecx

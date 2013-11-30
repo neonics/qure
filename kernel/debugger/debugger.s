@@ -683,132 +683,7 @@ printflags$:
 	loop	2b
 	ret
 
-#####################################################################
-# Printing mutexes
-.data SECTION_DATA_BSS
-debugger_mutex_col_width$:	.byte 0
-.text32
-debugger_printcalc_mutex$:
-	# calculate mutex name width
-	xor	edx, edx
-	mov	eax, NUM_MUTEXES
-	mov	esi, offset mutex_names
-0:	call	strlen_
-	cmp	ecx, edx
-	jb	1f
-	mov	edx, ecx
-	stc
-1:	adc	esi, ecx
-	dec	eax
-	jnz	0b
-	inc	edx
-	mov	[debugger_mutex_col_width$], dl
-	ret
-
-debugger_print_mutex$:
-	push_	eax ebx ecx edx esi edi
-
-	cmp	byte ptr [debugger_mutex_col_width$], 0
-	jnz	1f
-	call	debugger_printcalc_mutex$
-1:
-
-	mov	ecx, NUM_MUTEXES
-	printc_ 11, "mutex: "
-	mov	edx, [mutex]
-	call	nprintbin
-	call	newline
-	mov	ebx, edx
-
-	mov	esi, offset mutex_owner
-	mov	edi, offset mutex_names
-########
-0:	mov	edx, NUM_MUTEXES
-	sub	edx, ecx
-	mov	eax, 1
-	xchg	edx, ecx
-	shl	eax, cl
-	xchg	edx, ecx
-
-	test	ebx, eax
-	mov	ah, 7
-	jz	3f
-	mov	ah, 15
-3:	pushcolor ah
-	call	printdec32
-	printchar_ ':'
-
-	xchg	esi, edi
-	push	ecx
-	movzx	ecx, byte ptr [debugger_mutex_col_width$]
-	add	ecx, esi
-	call	print_
-	sub	ecx, esi
-	jbe	1f
-2:	call	printspace
-	loop	2b
-1:	pop	ecx
-	xchg	esi, edi
-	popcolor
-
-	printchar_ '='
-	lodsd
-	mov	edx, eax
-	call	printhex8
-	call	printspace
-
-	mov	eax, NUM_MUTEXES
-	sub	eax, ecx
-	mov	edx, [mutex_lock_time + eax * 4]
-	call	printhex8
-	call	printspace
-
-	mov	edx, [mutex_lock_task + eax * 4]
-	add	edx, [task_queue]
-	mov	edx, [edx + task_pid]
-	call	printhex4
-
-
-	mov	edx, [esi - 4]
-	or	edx, edx
-	jz	1f
-	call	printspace
-	call	debug_printsymbol_short
-1:	call	newline
-
-	# print release
-	push	ecx
-	movzx	ecx, byte ptr [debugger_mutex_col_width$]
-	add	ecx, 2
-2:	call	printspace
-	loop	2b
-	pop	ecx
-	mov	eax, NUM_MUTEXES
-	sub	eax, ecx
-	mov	edx, [mutex_released + eax * 4]
-	call	printhex8
-	call	printspace
-	mov	edx, [mutex_unlock_time + eax * 4]
-	call	printhex8
-	call	printspace
-
-	mov	edx, [mutex_unlock_task + eax * 4]
-	add	edx, [task_queue]
-	mov	edx, [edx + task_pid]
-	call	printhex4
-	call	printspace
-	mov	edx, [mutex_released + eax * 4]
-	or	edx, edx
-	jz	1f
-	call	debug_printsymbol_short
-1:	call	newline
-
-	dec	ecx
-	jnz	0b
-#	loop	0b
-########
-	pop_	edi esi edx ecx ebx eax
-	ret
+##############################################################
 
 DEBUGGER_SWAP_CR3 = 0
 
@@ -974,7 +849,7 @@ debugger:
 	pop	esi
 	jmp	0b
 
-69:	call	debugger_print_mutex$
+69:	call	mutex_print
 	jmp	0b
 
 # mode
