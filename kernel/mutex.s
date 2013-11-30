@@ -7,8 +7,6 @@ MUTEX_DEBUG = 1	# registers lock owners
 MUTEX_TRACE = 0	# 1=print lock/unlock
 MUTEX_ASSERT = 1
 
-_MUTEX_LOCAL = 0	# experimental feature
-
 .if DEFINE
 ################################################################
 # Mutex - mutual exclusion
@@ -97,9 +95,9 @@ mutex_fail:
 # in: [esp] = MUTEX_ bit number
 mutex_lock:
 	ret
-mutex_unlock:
-	ret
 mutex_spinlock:
+	ret
+mutex_unlock:
 	ret
 
 
@@ -256,57 +254,6 @@ __MUTEX_DECLARE = 1
 
 
 
-
-.macro MUTEX_LOCAL_TEST name
-.if _MUTEX_LOCAL
-	push	eax
-	call	tls_get
-	bt	[eax + tls_mutex], MUTEX_\name
-	pop	eax
-.endif
-.endm
-
-.macro MUTEX_LOCAL_SETC_ name
-.if _MUTEX_LOCAL
-	push	eax
-	call	tls_get
-	.print "MUTEX_\name"
-	or	dword ptr [eax + tls_mutex], 1<< MUTEX_\name
-	pop	eax
-.endif
-.endm
-
-
-.macro MUTEX_LOCAL_SETC name
-.if _MUTEX_LOCAL
-	jnc	109f
-	MUTEX_LOCAL_SETC_ \name
-	stc
-109:
-.endif
-.endm
-
-.macro MUTEX_LOCAL_CLEARC_ name
-.if _MUTEX_LOCAL
-	push	eax
-	call	tls_get
-	and	dword ptr [eax + tls_mutex], 1#~(1<< MUTEX_\name)
-	pop	eax
-.endif
-.endm
-
-
-.macro MUTEX_LOCAL_CLEARC name
-.if _MUTEX_LOCAL
-	jc	109f
-	MUTEX_LOCAL_CLEARC_ \name
-	stc
-109:
-.endif
-.endm
-
-
-
 # out: CF = 1: fail, mutex was already locked.
 .macro MUTEX_LOCK name, nolocklabel=0, locklabel=0
 	lock bts dword ptr [mutex], MUTEX_\name
@@ -335,8 +282,6 @@ __MUTEX_DECLARE = 1
 	1992:
 	.endif
 
-	MUTEX_LOCAL_SETC \name
-
 	.ifnc 0,\nolocklabel
 	jc	\nolocklabel
 	.endif
@@ -358,7 +303,6 @@ __MUTEX_DECLARE = 1
 	.if MUTEX_TRACE
 		DEBUG "UNLOCK \name";call .+5;call _s_printhex8;
 	.endif
-	MUTEX_LOCAL_CLEARC_ \name
 	.if MUTEX_DEBUG
 		call	1999f
 	1999:	popd	[mutex_released + MUTEX_\name * 4]
@@ -406,7 +350,6 @@ MUTEX_SPINLOCK_TIMEOUT=100	# implies MUTEX_ASSERT
 	.if MUTEX_TRACE
 		DEBUG "LOCK \name";call .+5;call _s_printhex8;
 	.endif
-	MUTEX_LOCAL_SETC_ \name
 	.if MUTEX_DEBUG
 		call	1999f
 	1999:	popd	[mutex_owner + MUTEX_\name * 4]
