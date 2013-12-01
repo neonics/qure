@@ -57,12 +57,12 @@ DEFINE=0
 .include "mutex.s"
 .include "print.s"
 DEFINE=1
-.include "mutex.s"
 include "print.s", print
 include "debugger/export.s", debug
 include "pmode.s", pmode
 include "paging.s", paging
 include "kapi/kapi.s", kapi
+.include "mutex.s"
 include "pit.s", pit
 include "keyboard.s", keyboard
 include "console.s", console

@@ -4,38 +4,23 @@
 .intel_syntax noprefix
 
 MUTEX_DEBUG = 1	# registers lock owners
-MUTEX_TRACE = 0	# 1=print lock/unlock
-MUTEX_ASSERT = 1
+MUTEX_ASSERT = 1	# values 0 (no check) to 3 (invoke debugger)
+# 0: no checks;
+# 1: check & print mutex name and caller address
+# 2: also print the mutexes and process list
+# 3: and finally, invoke debugger
+
+MUTEX_SPINLOCK_TIMEOUT=100	# number of yields; 0=no timeout.
+
 
 .if DEFINE
 ################################################################
 # Mutex - mutual exclusion
 #
 .global mutex
-# to be hidden
-.global mutex_owner
-.global mutex_released
-.global mutex_lock_time
-.global mutex_unlock_time
-.global mutex_lock_task
-.global mutex_unlock_task
-.global mutex_lock_seq
-.global mutex_unlock_seq
-.global mutex_seq
-##
-.global mutex_fail
-.global mutex_record_lock
-.global mutex_record_unlock
-
-.global mutex_name_SCHEDULER
-.global mutex_name_SCREEN
-.global mutex_name_MEM
-.global mutex_name_KB
-.global mutex_name_FS
-.global mutex_name_NET
-.global mutex_name_TCP_CONN
-.global mutex_name_SOCK
-.global mutex_name_TIME
+.global mutex_lock
+.global mutex_spinlock
+.global mutex_unlock
 
 
 .data SECTION_DATA_SEMAPHORES
@@ -53,6 +38,7 @@ mutex:		.long 0 # -1	# 32 mutexes, initially unlocked #locked.
 	MUTEX_TIME	= 8
 
 	NUM_MUTEXES	= 9
+
 .if DEFINE
 
 .data SECTION_DATA_BSS
@@ -66,41 +52,128 @@ mutex_seq:	.long 0
 mutex_lock_seq:	.space 4 * NUM_MUTEXES
 mutex_unlock_seq:.space 4 * NUM_MUTEXES
 
-.section .strings
+.data
 mutex_names:
-mutex_name_SCHEDULER:	.asciz "SCHEDULER"
-mutex_name_SCREEN:	.asciz "SCREEN"
-mutex_name_MEM:		.asciz "MEM"
-mutex_name_KB:		.asciz "KB"
-mutex_name_FS:		.asciz "FS"
-mutex_name_NET:		.asciz "NET"
-mutex_name_TCP_CONN:	.asciz "TCP_CONN"
-mutex_name_SOCK:	.asciz "SOCK"
-mutex_name_TIME:	.asciz "TIME"
+STRINGPTR "SCHEDULER"
+STRINGPTR "SCREEN"
+STRINGPTR "MEM"
+STRINGPTR "KB"
+STRINGPTR "FS"
+STRINGPTR "NET"
+STRINGPTR "TCP_CONN"
+STRINGPTR "SOCK"
+STRINGPTR "TIME"
 
-.tdata
-tls_mutex: .long 0
-.tdata_end
 
 .text32
-# in: [esp] = offset to mutex_name_*
+
+# in: [esp] = MUTEX_\name bit number
+mutex_lock:
+	push	eax
+	mov	eax, [esp + 8]
+	lock bts dword ptr [mutex], eax
+
+.if MUTEX_ASSERT
+	jnc	1f
+	call	mutex_fail$
+1:
+.endif
+
+.if MUTEX_DEBUG
+	pop	eax
+	jmp	mutex_record_lock$
+.else
+	pop	eax
+	ret	4
+.endif
+
+
+
+# in: [esp] = MUTEX_\name bit number
+mutex_spinlock:
+	push	eax
+	mov	eax, [esp + 8]
+.if MUTEX_SPINLOCK_TIMEOUT
+	push	ecx
+	mov	ecx, MUTEX_SPINLOCK_TIMEOUT
+.endif
+	jmp	1f
+
+.if MUTEX_SPINLOCK_TIMEOUT
+2:	call	mutex_fail$
+	mov	ecx, MUTEX_SPINLOCK_TIMEOUT
+.endif
+
+0:
+.if MUTEX_SPINLOCK_TIMEOUT
+	dec	ecx
+	jz	2b
+.endif
+	YIELD
+
+1:	lock bts dword ptr [mutex], eax
+	jc	0b
+.if MUTEX_SPINLOCK_TIMEOUT
+	pop	ecx
+.endif
+
+.if MUTEX_DEBUG
+	pop	eax
+	jmp	mutex_record_lock$
+.else
+	pop	eax
+	ret	4
+.endif
+
+
+
+# in: [esp] = MUTEX_\name
+mutex_unlock:
+	push	eax
+	mov	eax, [esp + 8]	# mutex bit
+
+	lock btr dword ptr [mutex], eax
+
+.if MUTEX_ASSERT
+	jc	1f
+	call	mutex_fail$
+1:
+.endif
+
+.if MUTEX_DEBUG
+	pop	eax
+	jmp	mutex_record_unlock$
+.else
+	pop	eax
+	ret	4
+.endif
+
+########################################################
+
+# in: eax = MUTEX_\name bit
 # in: CF according to btr/bts expectation
-mutex_fail:
+mutex_fail$:
 	jc	1f
 	printc 0x4f, "failed to release lock "
 	jmp	2f
 1:	printc 0x4f, "failed to acquire lock "
-2:	pushd	[esp + 4]
+2:	pushd	[mutex_names + eax * 4]
 	call	_s_println
-	STACKTRACE 0,0
-	call	mutex_print
-	call	cmd_ps$
-	ret	4
+	STACKTRACE 4, 0	# 4: eax
+	.if MUTEX_ASSERT > 1
+		call	mutex_print
+		call	cmd_ps$
+	.endif
+	.if MUTEX_ASSERT > 2
+		int 3
+	.endif
+	ret
 
 # in: [esp] = MUTEX_\name * 4
-mutex_record_lock:
+mutex_record_lock$:
 	push_	eax edx
 	mov	eax, [esp + 12]	# MUTEX_\name * 4
+	shl	eax, 2
 	mov	edx, [esp + 8]	# call address
 	mov	[mutex_owner + eax], edx
 	mov	edx, [clock]
@@ -111,12 +184,14 @@ mutex_record_lock:
 	mov	edx, [mutex_seq]
 	mov	[mutex_lock_seq + eax], edx
 	pop_	edx eax
+	clc	# previous mutex value
 	ret	4
 
-mutex_record_unlock:
+mutex_record_unlock$:
 	# for now just copy/paste code (could save some space here)
 	push_	eax edx
 	mov	eax, [esp + 12]	# MUTEX_\name * 4
+	shl	eax, 2	# smaller opcodes than eax * 4
 	mov	edx, [esp + 8]	# call address
 	mov	[mutex_released + eax], edx
 	mov	edx, [clock]
@@ -127,16 +202,8 @@ mutex_record_unlock:
 	mov	edx, [mutex_seq]
 	mov	[mutex_unlock_seq + eax], edx
 	pop_	edx eax
+	stc	# previous mutex value
 	ret	4
-
-
-# in: [esp] = MUTEX_ bit number
-mutex_lock:
-	ret
-mutex_spinlock:
-	ret
-mutex_unlock:
-	ret
 
 
 
@@ -148,16 +215,14 @@ mutex_col_width$: .byte 0
 mutex_calc_col_width$:
 	# calculate mutex name width
 	xor	edx, edx
-	mov	eax, NUM_MUTEXES
+	mov	ecx, NUM_MUTEXES
 	mov	esi, offset mutex_names
-0:	call	strlen_
-	cmp	ecx, edx
+0:	lodsd
+	call	strlen
+	cmp	eax, edx
 	jb	1f
-	mov	edx, ecx
-	stc
-1:	adc	esi, ecx
-	dec	eax
-	jnz	0b
+	mov	edx, eax
+1:	loop	0b
 	inc	edx
 	mov	[mutex_col_width$], dl
 	ret
@@ -195,7 +260,8 @@ mutex_print:
 	call	printdec32
 	printchar_ ':'
 
-	xchg	esi, edi
+	push	esi
+	mov	esi, [mutex_names + edx * 4]
 	push	ecx
 	movzx	ecx, byte ptr [mutex_col_width$]
 	add	ecx, esi
@@ -205,7 +271,7 @@ mutex_print:
 2:	call	printspace
 	loop	2b
 1:	pop	ecx
-	xchg	esi, edi
+	pop	esi
 	popcolor
 
 	printchar_ '='
@@ -294,25 +360,8 @@ __MUTEX_DECLARE = 1
 
 # out: CF = 1: fail, mutex was already locked.
 .macro MUTEX_LOCK name, nolocklabel=0, locklabel=0
-	lock bts dword ptr [mutex], MUTEX_\name
-
-	.if MUTEX_ASSERT
-	.ifnc \nolocklabel,0
-		jnc	1990f
-		pushd	offset mutex_name_\name
-		call	mutex_fail
-		int 3
-	1990:
-	.endif
-	.endif
-
-	.if MUTEX_DEBUG
-		jc	1992f
-		pushd	MUTEX_\name * 4
-		call	mutex_record_lock
-	1992:
-	.endif
-
+	pushd	MUTEX_\name
+	call	mutex_lock
 	.ifnc 0,\nolocklabel
 	jc	\nolocklabel
 	.endif
@@ -323,21 +372,8 @@ __MUTEX_DECLARE = 1
 
 # out: CF = 1: it was locked (ok); 0: another thread unlocked it (err)
 .macro MUTEX_UNLOCK name
-	lock btr dword ptr [mutex], MUTEX_\name
-	.if MUTEX_ASSERT
-		jc	1990f
-		pushd	offset mutex_name_\name
-		call	mutex_fail
-		int 3
-	1990:
-	.endif
-	.if MUTEX_TRACE
-		DEBUG "UNLOCK \name";call .+5;call _s_printhex8;
-	.endif
-	.if MUTEX_DEBUG
-		pushd	MUTEX_\name * 4
-		call	mutex_record_unlock
-	.endif
+	pushd	MUTEX_\name
+	call	mutex_unlock
 .endm
 
 .macro MUTEX_UNLOCK_ name
@@ -347,40 +383,9 @@ __MUTEX_DECLARE = 1
 .endm
 
 
-MUTEX_SPINLOCK_TIMEOUT=100	# implies MUTEX_ASSERT
-
 .macro MUTEX_SPINLOCK name
-	.if MUTEX_SPINLOCK_TIMEOUT
-		push	ecx
-		mov	ecx, MUTEX_SPINLOCK_TIMEOUT
-	.endif
-	jmp	1990f
-	.if MUTEX_SPINLOCK_TIMEOUT
-	1994:	pushd	offset mutex_name_\name
-		call	mutex_fail
-	.if MUTEX_ASSERT
-		int 3
-	.endif
-		mov	ecx, MUTEX_SPINLOCK_TIMEOUT
-	.endif
-1999:
-	.if MUTEX_SPINLOCK_TIMEOUT
-		dec	ecx
-		jz	1994b
-	.endif
-	YIELD
-1990:	lock bts dword ptr [mutex], MUTEX_\name
-	jc	1999b
-	.if MUTEX_TRACE
-		DEBUG "LOCK \name";call .+5;call _s_printhex8;
-	.endif
-	.if MUTEX_SPINLOCK_TIMEOUT
-		pop	ecx
-	.endif
-	.if MUTEX_DEBUG
-		pushd	MUTEX_\name * 4
-		call	mutex_record_lock
-	.endif
+	pushd	MUTEX_\name
+	call	mutex_spinlock
 .endm
 
 .macro MUTEX_SPINLOCK_ name
