@@ -4,8 +4,8 @@ clean:
 	@echo "  CLEAN"
 	@rm -f kernel.bin kernel.obj kernel.stabs kernel.sym kernel.dep \
 		kernel.obj.r kernel.obj.reloc.txt kernel.obj.map \
-		kernel.obj.obj0.map kernel.obj0 kernel.obj0.r \
-		kernel.o ring2.o export.h kapi/export.h \
+		kernel.obj.obj0.map kernel.obj0 kernel.obj0.r kernel.obj.1 \
+		kernel.o ring2.o ring2_.o export.h kapi/export.h \
 		|| true
 	@echo "  CLEAN fs/oofs"
 	@make -s -C fs/oofs $@
