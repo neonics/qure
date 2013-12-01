@@ -244,7 +244,7 @@ DEBUG_DWORD \r
 
 .macro ASSERT_ARRAY_IDX index, arrayref, elsize, mutex=0
 	.ifnc 0,\mutex
-	MUTEX_SPINLOCK_ \mutex
+	MUTEX_SPINLOCK \mutex
 	.endif
 	push_txt "\arrayref"
 	push	\elsize
@@ -252,7 +252,7 @@ DEBUG_DWORD \r
 	push	\index
 	call	debug_assert_array_index
 	.ifnc 0,\mutex
-	MUTEX_UNLOCK_ \mutex
+	MUTEX_UNLOCK \mutex
 	.endif
 .endm
 

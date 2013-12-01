@@ -131,6 +131,7 @@ mutex_spinlock:
 mutex_unlock:
 	push	eax
 	mov	eax, [esp + 8]	# mutex bit
+	pushf
 
 	lock btr dword ptr [mutex], eax
 
@@ -139,6 +140,7 @@ mutex_unlock:
 	call	mutex_fail$
 1:
 .endif
+	popf
 
 .if MUTEX_DEBUG
 	pop	eax
@@ -189,10 +191,11 @@ mutex_record_lock$:
 
 mutex_record_unlock$:
 	# for now just copy/paste code (could save some space here)
+	pushf
 	push_	eax edx
-	mov	eax, [esp + 12]	# MUTEX_\name * 4
+	mov	eax, [esp + 16]	# MUTEX_\name * 4
 	shl	eax, 2	# smaller opcodes than eax * 4
-	mov	edx, [esp + 8]	# call address
+	mov	edx, [esp + 12]	# call address
 	mov	[mutex_released + eax], edx
 	mov	edx, [clock]
 	mov	[mutex_unlock_time + eax], edx
@@ -202,7 +205,7 @@ mutex_record_unlock$:
 	mov	edx, [mutex_seq]
 	mov	[mutex_unlock_seq + eax], edx
 	pop_	edx eax
-	stc	# previous mutex value
+	popf
 	ret	4
 
 
@@ -282,9 +285,9 @@ mutex_print:
 
 	mov	eax, NUM_MUTEXES
 	sub	eax, ecx
-	mov	edx, [mutex_lock_time + eax * 4]
-	call	printhex8
-	call	printspace
+#	mov	edx, [mutex_lock_time + eax * 4]
+#	call	printhex8
+#	call	printspace
 
 	mov	edx, [mutex_lock_task + eax * 4]
 	add	edx, [task_queue]
@@ -313,9 +316,9 @@ mutex_print:
 	mov	edx, [mutex_released + eax * 4]
 	call	printhex8
 	call	printspace
-	mov	edx, [mutex_unlock_time + eax * 4]
-	call	printhex8
-	call	printspace
+#	mov	edx, [mutex_unlock_time + eax * 4]
+#	call	printhex8
+#	call	printspace
 
 	mov	edx, [mutex_unlock_task + eax * 4]
 	add	edx, [task_queue]
@@ -370,29 +373,16 @@ __MUTEX_DECLARE = 1
 	.endif
 .endm
 
-# out: CF = 1: it was locked (ok); 0: another thread unlocked it (err)
 .macro MUTEX_UNLOCK name
 	pushd	MUTEX_\name
 	call	mutex_unlock
 .endm
-
-.macro MUTEX_UNLOCK_ name
-	pushf
-	MUTEX_UNLOCK \name
-	popf
-.endm
-
 
 .macro MUTEX_SPINLOCK name
 	pushd	MUTEX_\name
 	call	mutex_spinlock
 .endm
 
-.macro MUTEX_SPINLOCK_ name
-	pushf
-	MUTEX_SPINLOCK \name
-	popf
-.endm
 
 #####################################################################
 # Semaphores (shared variable)

@@ -305,8 +305,9 @@ tcp_conn_print_state$:
 # in: edx = ip frame pointer
 # in: esi = tcp frame pointer
 # out: eax = tcp_conn array index (add volatile [tcp_connections])
+# out: CF
 net_tcp_conn_get:
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	push	ecx
 	push	edx
 	mov	ecx, [esi + tcp_sport]
@@ -316,7 +317,7 @@ net_tcp_conn_get:
 	jz	0f
 	ARRAY_ENDL
 9:	stc
-0:	MUTEX_UNLOCK_ TCP_CONN
+0:	MUTEX_UNLOCK TCP_CONN
 	pop	edx
 	pop	ecx
 	ret
@@ -326,8 +327,9 @@ net_tcp_conn_get:
 # in: ebx = local ipv4
 # in: edi = handler
 # out: eax = tcp_conn index
+# out: CF
 net_tcp_conn_newentry:
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	push_	ecx edi edx eax
 
 	call	get_time_ms
@@ -395,7 +397,7 @@ net_tcp_conn_newentry:
 	mov	[edx + tcp_conn_recv_buf_len], dword ptr 0
 
 9:	pop_	eax edx edi ecx
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 	ret
 
 91:	printlnc 4, "tcp: can't allocate buffers"
@@ -424,8 +426,9 @@ net_tcp_conn_newentry_from_packet:
 # in: edx = ip frame pointer
 # in: esi = tcp frame pointer
 # in: ecx = tcp frame len (incl header)
+# (out: CF = undefined)
 net_tcp_conn_update:
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	.if NET_TCP_CONN_DEBUG > 1
 		DEBUG "tcp_conn update"
@@ -463,12 +466,12 @@ net_tcp_conn_update:
 	pop	ebx
 	pop	edx
 	pop	eax
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 	ret
 
 
 net_tcp_conn_list:
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	ARRAY_LOOP	[tcp_connections], TCP_CONN_STRUCT_SIZE, esi, ebx, 9f
 	printc	11, "tcp/ip "
 
@@ -801,14 +804,14 @@ net_ipv4_tcp_handle:
 	movzx	ebx, word ptr [esi + tcp_sport]	# in: ebx = peer port
 	xchg	bl, bh
 	mov	edx, [edx + ipv4_src]		# in: edx = peer ip
-#	MUTEX_SPINLOCK_ TCP_CONN
+#	MUTEX_SPINLOCK TCP_CONN
 	call	net_sock_deliver_accept		# out: edx = peer sock idx
 	# the deliver may trigger an IRQ due to the socket user sending a
 	# packet, however, the tcp_conn_sock field is only used on receiving
 	# packets, which are queued.
 #	mov	eax, [tcp_connections]
 #	mov	[eax + ecx + tcp_conn_sock], edx
-#	MUTEX_UNLOCK_ TCP_CONN
+#	MUTEX_UNLOCK TCP_CONN
 
 1:	ret
 
@@ -860,6 +863,7 @@ net_ipv4_tcp_handle:
 # in: edx = ip frame
 # in: esi = tcp frame
 # in: ecx = tcp frame len
+# (out: CF = undefined)
 net_tcp_handle:
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE, TCP_CONN
 	.if NET_TCP_DEBUG
@@ -890,7 +894,7 @@ net_tcp_handle:
 	jz	0f
 
 	# FIN
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	push	eax
 	add	eax, [tcp_connections]
 
@@ -912,7 +916,7 @@ net_tcp_handle:
 	# byte not allowed - using word.
 	bts	word ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_ACK_TX_SHIFT
 	pop	eax
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 	jc	9f	# don't ack: already sent FIN
 	# havent sent fin, rx'd fin: tx fin ack
 
@@ -956,7 +960,7 @@ net_tcp_handle:
 	cmp	[esi + tcp_flags + 1], byte ptr (TCP_FLAG_SYN)|(TCP_FLAG_ACK)
 	jnz	1f
 	# got a SYN+ACK for a known connection: must be one we initiated.
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	push_	eax edx
 	add	eax, [tcp_connections]
 
@@ -970,7 +974,7 @@ net_tcp_handle:
 	mov	[eax + tcp_conn_remote_seq], edx
 2:	
 	pop_	edx eax
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 
 	pushad
 	call	net_tcp_conn_send_ack
@@ -995,6 +999,7 @@ net_tcp_handle:
 # in: eax = tcp_conn array index
 # in: edx = ipv4 frame
 # These two will point to the PSH data (accumulated)
+# (out: CF = undefined)
 ## in: esi = tcp payload
 ## in: ecx = tcp payload len
 tcp_rx_sock:
@@ -1010,12 +1015,12 @@ tcp_rx_sock:
 #printchar ':'
 #call printdec32
 	mov	edx, IP_PROTOCOL_TCP << 16
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	add	eax, [tcp_connections]
 	mov	dx, [eax + tcp_conn_remote_port]
 	xchg	dl, dh
 	mov	eax, [eax + tcp_conn_remote_addr]
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 	call	net_socket_find_remote
 	jc	9f
 #	DEBUG "Got socket"
@@ -1028,11 +1033,11 @@ tcp_rx_sock:
 jmp 0b
 	.else
 
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	add	eax, [tcp_connections]
 	mov	eax, [eax + tcp_conn_sock]
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 	call	net_socket_write
 	.endif
 	ret
@@ -1054,7 +1059,7 @@ net_tcp_handle_payload$:
 	jz	0f	# no payload
 	add	esi, edx	# esi points to payload
 
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	push	eax
 	add	eax, [tcp_connections]
@@ -1090,7 +1095,7 @@ net_tcp_handle_payload$:
 
 
 	pop	eax
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 	# send ack
 	push	eax
 	call	net_tcp_conn_send_ack
@@ -1103,6 +1108,7 @@ net_tcp_handle_payload$:
 
 # in: eax = tcp_conn array index
 # in: edx = ipv4 frame
+# (out: CF = undefined)
 net_tcp_handle_psh:
 	push	ecx
 	push	edx
@@ -1119,7 +1125,7 @@ net_tcp_handle_psh:
 
 	# call handler
 
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	mov	edi, [tcp_connections]
 	add	edi, eax
@@ -1136,7 +1142,7 @@ net_tcp_handle_psh:
 	.endif
 
 	mov	edi, [edi + tcp_conn_handler]
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 
 or	edi, edi
 jz	9f
@@ -1148,12 +1154,12 @@ jz	9f
 	call	edi	# in: eax = tcp conn idx; edx=ipv4; esi=data; ecx=data len
 	popad
 	# the push has copied ALL data, so we clear the buffer.
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	mov	edi, [tcp_connections]
 	add	edi, eax
 	sub	[edi + tcp_conn_recv_buf_len], ecx	# should be 0
 	mov	[edi + tcp_conn_recv_buf_start], dword ptr 0
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 
 0:	pop	esi
 	pop	edx
@@ -1171,8 +1177,9 @@ jz	9f
 # in: esi = tcp packet
 # out: eax = -1 if the ACK is for the FIN
 # side-effect: send_buf free'd.
+# (out: CF = undefined)
 net_tcp_conn_update_ack:
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	push	edx
 	push	eax
 	push	ebx
@@ -1215,7 +1222,7 @@ net_tcp_conn_update_ack:
 	pop	ebx
 	pop	eax
 	pop	edx
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 	ret
 
 
@@ -1246,7 +1253,7 @@ net_tcp_sendbuf:
 	push	ebx
 	push	edx
 ########
-0:	MUTEX_SPINLOCK_ TCP_CONN
+0:	MUTEX_SPINLOCK TCP_CONN
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	mov	ebx, [tcp_connections]
 	add	ebx, eax
@@ -1323,7 +1330,7 @@ net_tcp_sendbuf_flush_partial$:
 
 	push_	ebx ecx edx esi edi
 
-0:	MUTEX_SPINLOCK_ TCP_CONN
+0:	MUTEX_SPINLOCK TCP_CONN
 
 	mov	ebx, [tcp_connections]
 	add	ebx, eax
@@ -1357,8 +1364,7 @@ net_tcp_sendbuf_flush_partial$:
 	mov	ecx, edx
 	shr	ecx, 2
 	rep	movsd
-2:	MUTEX_UNLOCK_ TCP_CONN
-
+2:	MUTEX_UNLOCK TCP_CONN
 
 	jecxz	1f
 
@@ -1380,7 +1386,7 @@ net_tcp_sendbuf_flush:
 	push	ecx
 	push	ebx
 
-0:	MUTEX_SPINLOCK_ TCP_CONN
+0:	MUTEX_SPINLOCK TCP_CONN
 
 	mov	ebx, [tcp_connections]
 	add	ebx, eax
@@ -1397,7 +1403,7 @@ net_tcp_sendbuf_flush:
 	add	[ebx + tcp_conn_send_buf_start], ecx
 	jmp	2f
 1:	mov	[ebx + tcp_conn_send_buf_start], dword ptr 0
-2:	MUTEX_UNLOCK_ TCP_CONN
+2:	MUTEX_UNLOCK TCP_CONN
 
 	jecxz	1f
 	mov	dx, TCP_FLAG_PSH # | 1 << 8	# nocopy
@@ -1457,7 +1463,7 @@ net_tcp_send:
 	jc	9f
 	push	edi
 
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	push	esi
 	push	edx
 	push	ecx
@@ -1592,7 +1598,7 @@ net_tcp_send:
 	jz	1f
 	or	dh, TCP_CONN_STATE_FIN_ACK_TX
 1:	or	[eax + tcp_conn_state], dh
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 ########
 	# send packet
 
@@ -1748,6 +1754,7 @@ net_tcp_tx_rst$:
 # in: edx = ip frame
 # in: esi = tcp frame
 # in: ecx = tcp frame len
+# (out: CF = undefined)
 net_tcp_handle_syn$:
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
 	pushad
@@ -1794,7 +1801,7 @@ net_tcp_handle_syn$:
 
 	mov	eax, [esi + tcp_seq]
 	bswap	eax
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 		push	edx
 		mov	edx, [ebp - 4]
 		add	edx, [tcp_connections]
@@ -1859,7 +1866,7 @@ net_tcp_handle_syn$:
 	pop	eax
 	add	eax, [tcp_connections]
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_SYN_ACK_TX | TCP_CONN_STATE_SYN_TX
-	MUTEX_UNLOCK_ TCP_CONN
+	MUTEX_UNLOCK TCP_CONN
 
 0:	pop	ebp
 	popad
@@ -2100,7 +2107,7 @@ net_tcp_cleanup:
 	sub	edi, TCP_CONN_CLEAN_TIMEOUT
 	js	10f
 
-	MUTEX_SPINLOCK_ TCP_CONN
+	MUTEX_SPINLOCK TCP_CONN
 	ARRAY_LOOP	[tcp_connections], TCP_CONN_STRUCT_SIZE, esi, ebx, 9f
 
 	cmp	byte ptr [esi + ebx + tcp_conn_state], -1

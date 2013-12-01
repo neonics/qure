@@ -978,7 +978,7 @@ jb 1f
 printc 4, "net_rx_packet: packet size too large: ";DEBUG_DWORD ecx
 int 3
 1:
-	MUTEX_SPINLOCK_ NET
+	MUTEX_SPINLOCK NET
 	call	net_rx_queue_newentry	# out: eax + edx
 	jc	91f
 
@@ -1088,10 +1088,10 @@ net_check_reboot_packet:
 
 
 net_rx_queue_handler:
-	MUTEX_SPINLOCK_ NET
+	MUTEX_SPINLOCK NET
 	call	net_rx_queue_get
 	jnc	1f
-	MUTEX_UNLOCK_ NET
+	MUTEX_UNLOCK NET
 
 	call	net_tcp_cleanup
 
@@ -1110,14 +1110,14 @@ net_rx_queue_handler:
 	mov	eax, [net_rx_queue]
 	mov	[eax + edx + net_rx_queue_status], dword ptr 0
 
-	MUTEX_UNLOCK_ NET
+	MUTEX_UNLOCK NET
 
 	call	net_rx_packet_task
 	jmp	net_rx_queue_handler
 
 
 net_rx_queue_print:
-	MUTEX_SPINLOCK_ NET
+	MUTEX_SPINLOCK NET
 	call	net_rx_queue_print_
 	MUTEX_UNLOCK NET
 	ret

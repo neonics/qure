@@ -1072,7 +1072,7 @@ malloc_aligned:
 # in: ebp = caller return stack ptr
 # in: edx = physical alignment (power of 2)
 malloc_aligned_:
-	MUTEX_SPINLOCK_ MEM
+	MUTEX_SPINLOCK MEM
 	push_	ebx esi
 
 	lea	esi, [mem_handles]
@@ -1111,7 +1111,7 @@ malloc:
 # out: CF = out of mem
 malloc_:
 #DEBUG_REGSTORE
-	MUTEX_SPINLOCK_ MEM
+	MUTEX_SPINLOCK MEM
 
 	.if MEM_DEBUG2
 		DEBUG_DWORD eax,"malloc("
@@ -1199,7 +1199,7 @@ malloc_:
 		DEBUG_DWORD eax,")"
 		call mem_validate_handles
 	.endif
-	MUTEX_UNLOCK_ MEM
+	MUTEX_UNLOCK MEM
 #DEBUG_REGDIFF
 	ret	# WEIRD BUG: 0x001008f0 on stack (called from mdup@net.s:685)
 
@@ -1367,9 +1367,9 @@ malloc_:
 	mov	esi, eax
 
 	mov	eax, edx
-	MUTEX_UNLOCK_ MEM
+	MUTEX_UNLOCK MEM
 	call	\malloc\()_
-	MUTEX_SPINLOCK_ MEM
+	MUTEX_SPINLOCK MEM
 	# copy
 	or	ecx, ecx	# shouldnt happen if malloc checks for it.
 	jz	1f
@@ -1383,7 +1383,7 @@ malloc_:
 		DEBUG "<", 0x6f; call mem_validate_handles;
 	.endif
 
-	MUTEX_UNLOCK_ MEM
+	MUTEX_UNLOCK MEM
 	push	eax
 	mov	eax, [esi + ebx + handle_base]
 	.if MEM_DEBUG2
@@ -1401,7 +1401,7 @@ malloc_:
 	.endif
 ########
 
-0:	MUTEX_UNLOCK_ MEM
+0:	MUTEX_UNLOCK MEM
 1:	pop	edi
 	pop	esi
 	pop	ecx
@@ -1458,7 +1458,7 @@ mreallocz_:
 #	DEBUG "mreallocz";DEBUG_DWORD esi;DEBUG_DWORD edi;DEBUG_DWORD edx
 # XXX get old size: copied from mfree_; TODO: refactor;
 
-	MUTEX_SPINLOCK_ MEM
+	MUTEX_SPINLOCK MEM
 		mov	ecx, [mem_numhandles]
 		jecxz	1f
 		mov	esi, [mem_handles]
@@ -1483,7 +1483,7 @@ mreallocz_:
 		jb	3f		# old size < new size
 		mov	edx, esi
 	3:
-	MUTEX_UNLOCK_ MEM
+	MUTEX_UNLOCK MEM
 
 	mov	esi, [esp]
 	mov	edi, eax
@@ -1526,7 +1526,7 @@ mfree:
 	ret
 
 mfree_:
-	MUTEX_SPINLOCK_ MEM
+	MUTEX_SPINLOCK MEM
 	.if MEM_DEBUG2
 		DEBUG "["
 		DEBUG_DWORD eax,"mfree"
@@ -1541,7 +1541,7 @@ mfree_:
 		call mem_validate_handles
                 DEBUG "]"
         .endif
-	MUTEX_UNLOCK_ MEM
+	MUTEX_UNLOCK MEM
 	STACKTRACE ebp
 	ret
 
