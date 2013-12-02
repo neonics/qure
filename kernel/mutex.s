@@ -76,6 +76,7 @@ mutex_lock:
 .if MUTEX_ASSERT
 	jnc	1f
 	call	mutex_fail$
+	STACKTRACE 4, 0	# 4: eax
 1:
 .endif
 
@@ -101,6 +102,7 @@ mutex_spinlock:
 
 .if MUTEX_SPINLOCK_TIMEOUT
 2:	call	mutex_fail$
+	STACKTRACE 8, 0	# 8: eax, ecx
 	mov	ecx, MUTEX_SPINLOCK_TIMEOUT
 .endif
 
@@ -138,6 +140,7 @@ mutex_unlock:
 .if MUTEX_ASSERT
 	jc	1f
 	call	mutex_fail$
+	STACKTRACE 4, 0
 1:
 .endif
 	popf
@@ -161,7 +164,6 @@ mutex_fail$:
 1:	printc 0x4f, "failed to acquire lock "
 2:	pushd	[mutex_names + eax * 4]
 	call	_s_println
-	STACKTRACE 4, 0	# 4: eax
 	.if MUTEX_ASSERT > 1
 		call	mutex_print
 		call	cmd_ps$
