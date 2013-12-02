@@ -1,12 +1,100 @@
-other-assemblers/	other-assemblers (FASM etc. sources)
-  bootloader-fasm.asm	first attempt
-bootloader.s		bootloader source
-root/			the root of the OS filesystem, the boot disk
-os.iso			main output: bootdisk
 Makefile		automate building
-build/			temporary build files
+os.iso			main output: bootdisk
+build/			temporary build files (not in repository)
 TODO			Compromises: current status, feature, optimization
-.git/			version control
-util/			build assistance
 FILES			this file
-NOTES|HISTORY|git log	...
+.git/			version control
+
+bootloader/		bootloader source
+16/			16 bit shared code used by bootloader
+
+kernel/			kernel sources
+  *.s			core system: pmode/idt/gdt/paging/scheduling etc
+  debugger/		Debugger interface and debugging routines
+  exe/			ELF and PE/COFF loading; libc facade.
+  fs/			Filesystems (ISO9660, FAT16, SFS, OOFS)
+  kapi/			Kernel API access routines
+  lib/			buffer, handles, memory, strings, arrays etc
+  net/			Internet Protocols; network routing and services
+  nic/			AM79c971, I8254, RTL8139, (ne2k uncommitted)
+  pcibridge/		Intel 440 and PIIX soutbridge drivers
+  sound/		SB16 and ES1371 sound drivers
+  usb/			USB legacy, EHCI, OHCI drivers (experimental)
+  vbox/			VirtualBox guest driver / video driver
+  vmware/		VMWare guest driver / video driver
+
+lib/			base64, SHA1, crc32, sort, huffman, gzip, xml
+
+fonts/			graphics mode fonts
+
+sandbox/		various experiments (mostly not committed)
+  exe/			C/C++ Elf/COFF test applications
+
+
+root/			the root of the OS filesystem, the boot disk
+  hello.txt		file to test 'cat'
+  www/			HTTPD web root
+    doc/		generated: HTML documentation (from DOC/*.(txt|html))
+    download/os.iso	Generated during build: embedded iso for download
+    www.*/		domain hosting (optionally generated during build)
+  boot/ (*)		generated during build; contains boot.img
+  etc/ (uncommitted)	contains init.rc for the shell 'init' command;
+
+util/			build assistance and various scripts
+
+ *BUILD*
+  checksymbols.pl	(*OBSOLETE since using ld*) checks for presence of
+  			unresolved symbols in unlinked object files
+  write.cpp		boot floppy image and RAMDISK generation
+
+  reloc.pl		parse/generate compressed relocation tables for RAMDISK
+  stabs.pl		parse/generate source line tables for RAMDISK
+  symbtab.pl		generate symbol table for RAMDISK
+  stringdata.pl		extract and analyze string data for optimization
+
+  font.cpp		generate assembly source from AngelCode bitmap fonts
+
+ *SITE*
+  doctools.pl		interface to DOC/*.(txt|html): list and TOC generation
+  txt2html.pl		conversion routine; includes template.pl functionality
+  template.pl		generate html page
+  template.html		page template used by txt2html.pl/template.pl
+
+ *VM*
+  adm			management interface (perl script);
+  			"adm vm" : virtual machine/cluster management.
+
+ *DEV/REFERENCE*
+  symtab.cpp		C version of symbol table parsing
+  coff.cpp		parse COFF files - development aid to verify format
+  iso9660.cpp		parse ISO file
+  malloc.cpp		prototype memory management
+
+ *TEST*
+  flood.pl		UDP packet flooder to test kernel stability
+
+ *uncommitted*
+    chs2lba.pl
+    dec2hex.sh
+    bin2hex.sh
+    hex2bin.sh
+    hex2str.sh
+    mkdoshdd.sh
+
+
+DOC/			Documents
+  *.txt, *.html		Architecture, design, notes, ideas: published on site
+  Specs/		Third party specifications downloaded from public sites
+  Screenshots/		Some screenshots from early development stages
+  memio/		IRQ, DMA, IO port references
+
+vm/			virtual machine cluster templates - (see ''util/adm vm'')
+  vmware/		VMWare virtual machines
+    qure-template/	VM template configuration and empty disk
+      qure.vmdk		disk descriptor
+      qure-s001.vmdk	empty 512mb disk
+      qure.vmx		configuration file
+      qure.vmxf		extended configuration file
+      qure.vmsd		'disk backing' empty file (snapshots?)
+    cluster/		base directory for local cluster virtual machines
+      qure-<N>/		VM instances: copies of qure-template/* with qure.vmx modified.
