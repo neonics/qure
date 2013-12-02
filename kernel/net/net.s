@@ -984,6 +984,81 @@ int 3
 
 	# we have a queue entry - set it up.
 
+	# ** NOTE **
+	# It is possible that a task using mem functions (lib/mem.s) is suspended
+	# while holding a lock. In that case the mdup's spinlock will yield,
+	# causing the NIC IRQ handler to be suspended. Since the IRQ sharing
+	# code sends EOI to the PIC before calling the handlers, another interrupt
+	# may occur. This interrupt will not be processed until EFLAGS.IF is true,
+	# which occurs not only when the IRQ handler calling this method IRET's,
+	# but also when another task it scheduled that has interrupts enabled -
+	# which is the case by default.
+	# This method then is reentrant, and will cause MUTEX_SPINLOCK timeouts
+	# for NET if the MEM mutex is locked at this point.
+	#
+	# In theory, using round robin scheduling, the task holding the lock will
+	# get scheduled again and will release it. Only when another task acquires
+	# the lock and is suspended before this task is scheduled again will
+	# the problem persist.
+	#
+	# However, it appears that is more often the case than one would expect.
+	#
+	# More advanced mutex aware scheduling would record the fact that a task
+	# is suspended (YIELD) because it failed to acquire a mutex.
+	# The scheduler would prioritize to schedule the task that holds the lock,
+	# and be notified when it is released. At this point it would take over
+	# once more and schedule the task attempting to hold the lock.
+	#
+	# An approach relying entirely on the hook in acquiring a mutex would
+	# be aware that another task had already attempted to acquire the lock
+	# and failed to do so, and suspend the new task until the old task
+	# had acquired and released the lock: a first-come-first-serve basis.
+	#
+	# Since the timeout only occurs when both NET and MEM are locked,
+	# another solution could be attempted. For, the NET mutex is only
+	# used in this file, whereas the MEM mutex is used throughout the
+	# kernel and all it's tasks, as they all share the same heap. This is
+	# indeed insecure as any task could corrupt all other tasks and even
+	# the kernel, however, it allows for testing the kernel's integrity.
+	#
+	# A solution preventing both task and kernel corruption aswell as
+	# making the NET mutex depend on the global MEM mutex is to have
+	# memory allocation per task, and to have a per task MEM mutex.
+	# (the recently removed 'local mutex' code).
+	#
+	# As yet there is no concept of threads-within-a-process implemented,
+	# as all tasks are seen as kernel threads. The most straighforward
+	# way then is to have per-task memory management, which may prevent
+	# tasks from referring to each others' data if the heap is mapped
+	# to the same address for each task. What is supported however, if
+	# the kernel heap is distinct from task heap, is for a task to share
+	# and expose it's data with the kernel.
+	#
+	# Such memory allocation would use the same mechanism as is used for
+	# allocating the privileged stack for tasks, which means that the kernel
+	# has access to the memory of all tasks simultaneously as each page
+	# has a different physical address, and the kernel's view of the memory
+	# is through identity mapping.
+	# This then would allow each task to indicate whether it's memory is to
+	# be private within the task context, or public, accessible to other tasks.
+	# This then would mean that there have to be two pages and thus two pools
+	# of memory allocation. A flag can be passed to indicate which type of
+	# memory is to be allocated.
+	#
+	# Regardless of all of the above, at current interrupts, which require
+	# privilege elevation, run in the context of the task they interrupted.
+	# Suspending the thread of execution would also suspend the interrupted
+	# task, as it won't continue until the interrupt has completed.
+	#
+	# This then is why it can occur that the NET mutex remains locked,
+	# as in those cases it is the interrupted task that has acquired the
+	# lock, and it will not be scheduled to execute, because when it is,
+	# it is the interrupt that will run.
+	#
+	# Therefore, interrupts must execute within their own task context
+	# so that they can be scheduled individually, independent of the
+	# task they interrupt.
+	# 
 	call	mdup	# in: esi, ecx; out: esi
 net_rx_pkt$:	# debug symbol for malloc handles
 	jc	92f
