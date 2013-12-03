@@ -1106,8 +1106,17 @@ am79c971_isr:
 	and	dword ptr [ebx + nic_rx_desc_h], (1<<LOG2_RX_BUFFERS)-1
 
 	push	eax
-	call	net_rx_packet	# esi, ecx
+	call	net_rx_packet	# esi, ecx -> esi
 	pop	eax
+	.if SWSTYLE == 2
+	mov	[eax + 12], esi	# update packet buffer
+	push	edx
+	GDT_GET_BASE edx, ds
+	add	edx, esi
+	mov	[eax + 0], edx	# physical buffer address
+	pop	edx
+	.else
+	.endif
 	mov	[eax + 4 + 2], word ptr 0x8000  # flags = OWN
 #	mov	[eax + 8], dword ptr 0 # clear packet size
 

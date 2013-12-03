@@ -584,7 +584,13 @@ i8254_isr:
 		xchg	dx, [edi + rdesc_status]
 
 		mov	dx, [edi + rdesc_errors]
+
+		push_	edi eax
 		call	net_rx_packet
+		pop_	eax edi
+
+		add	esi, eax	# relocation
+		mov	[edi + rdesc_addr], esi	# replace packet buffer
 		popad
 
 	cmp	edi, esi

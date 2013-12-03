@@ -564,8 +564,15 @@ rtl8139_isr:
 		printlnc 0xf5, "DONE"
 	.endif
 
+	.if !IRQ_SHARING
+	# NOTE! design flaw?
+	# first EOI is sent to PIC in the shared IRQ handler;
+	# then IRQ is acknowledged to NIC;
+	# then packet is read
+	# then CAPR isupdated.
 	mov	ebx, [rtl8139_isr_dev]
 	PIC_SEND_EOI [ebx + dev_irq]
+	.endif
 
 	pop	ds
 	pop	es

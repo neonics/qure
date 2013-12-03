@@ -961,6 +961,7 @@ popcolor
 # in: ebx = nic
 # in: esi = packet (ethernet frame)
 # in: ecx = packet len
+# out: esi = new packet buffer (at current: the same as input)
 # effect: appends a copy of the packet to net_rx_queue
 net_rx_packet:
 	push	eax
