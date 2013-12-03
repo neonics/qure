@@ -30,7 +30,10 @@ sub get_index {
 	process_index (
 		-f $options{dir}."/.index"
 		? `cat $options{dir}/.index`
-		: map {	s/^$options{dir}\///; $_ } `ls $options{dir}/*.$options{type}`
+		: map {	s/^$options{dir}\///; $_ }
+		(defined $options{type}
+		? `ls $options{dir}/*.$options{type}`
+		: `ls $options{dir}`)
 	)
 }
 
