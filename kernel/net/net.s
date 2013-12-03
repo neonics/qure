@@ -12,23 +12,6 @@ NET_IPV4_DEBUG = NET_DEBUG
 
 NET_RX_QUEUE_MIN_SIZE = 8
 
-CPU_FLAG_I = (1 << 9)
-CPU_FLAG_I_BITS = 9
-
-# out: CF = IF
-.macro IN_ISR
-	push	edx
-	pushfd
-	pop	edx
-	.if NET_DEBUG > 1
-		DEBUG "FLAGS:"
-		call printbin16
-	.endif
-	shr	edx, CPU_FLAG_I_BITS
-	pop	edx
-.endm
-
-
 #############################################################################
 	.macro PRINT_IP initoffs
 		mov	al, '.'
@@ -1095,6 +1078,7 @@ net_rx_pkt$:	# debug symbol for malloc handles
 .data SECTION_DATA_BSS
 net_rx_queue_scheduled$:.byte 0
 netq_sem:	.long 0
+ethdump_val$:	.byte 0
 .text32
 net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 	lock inc dword ptr [netq_sem]	# notify scheduler
@@ -1102,6 +1086,13 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 	cmp	byte ptr [net_rx_queue_scheduled$], 1
 	jz	1f
 	lock inc byte ptr [net_rx_queue_scheduled$]
+
+	push_	esi edi eax
+	LOAD_TXT "ethdump", esi
+	LOAD_TXT "0", edi
+	mov	eax, offset net_ethdump_var_changed$
+	call	shell_variable_set
+	pop_	eax edi esi
 
 	PUSH_TXT "netq"
 	push	dword ptr 0#TASK_FLAG_TASK#TASK_FLAG_RESCHEDULE # flags
@@ -1119,6 +1110,23 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 91:	DEBUG_BYTE [net_rx_queue_scheduled$]
 	printlnc 4, "schedule error"	# task already scheduled: happens often
 	ret	# BUG: edx = [esp] = 00100900
+
+net_ethdump_var_changed$:
+	#DEBUG "net: var changed: "
+	#DEBUGS [eax + env_var_label]
+	#DEBUG "="
+	#DEBUGS [eax + env_var_value]
+	push_	esi eax
+	mov	esi, [eax + env_var_value]
+	call	atoi_
+	jc	91f
+	cmp	eax, 9
+	ja	91f
+	mov	[ethdump_val$], al
+0:	pop_	eax esi
+	ret
+91:	printc 4, "illegal value for var ethdump: not 0..9"
+	jmp	0b
 
 
 net_check_reboot_packet:
@@ -1261,15 +1269,8 @@ net_rx_queue_print_:
 # in: ecx = packet len
 # side-effect: esi freed.
 net_rx_packet_task:
-	push	esi
-	push	eax
-	push	edx
-	LOAD_TXT "ethdump"
-	call	shell_variable_get
-	pop	edx
-	pop	eax
-	pop	esi
-	jc	1f
+	cmpb	[ethdump_val$], 0
+	jz	1f
 
 	push	esi
 	push	ecx
