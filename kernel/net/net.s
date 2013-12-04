@@ -742,12 +742,14 @@ net_rx_queue_status:	.long 0
 	NET_RX_QUEUE_STATUS_FREE	= 0	# 
 	NET_RX_QUEUE_STATUS_RESERVED	= 1	# net_rx_queue_getentry sets this
 	NET_RX_QUEUE_STATUS_SCHEDULED	= 2	# queue entry is configured.
+net_rx_queue_buf:	.long 0		# index into net_rx_buffer / ptr
 net_rx_queue_args:	.space 8*4	# pushad; eax+edx, esi,ecx
 NET_RX_QUEUE_STRUCT_SIZE = .
 .data SECTION_DATA_BSS
 net_rx_queue:		.long 0
 net_rx_queue_head:	.long 0
 net_rx_queue_tail:	.long 0
+net_rx_buffer:		.long 0	# receive packet buffer containing copies
 .text32
 
 #
@@ -814,8 +816,37 @@ net_rx_queue_newentry:
 	xor	edx, edx			# return index
 	jmp	2f
 
-# this'll append - assuming tail = [eax+array_index]
-1:	ARRAY_NEWENTRY [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, NET_RX_QUEUE_MIN_SIZE, 9f
+################################################################################
+# this will be called when the queue has not been allocated.
+# (and potentially when the queue is expanded).
+#
+1:	or	eax, eax
+	jnz	1f
+	# queue is not set up. Allocate a buffer to contain the packet data.
+	mov	eax, 1500 * NET_RX_QUEUE_MIN_SIZE
+	call	malloc
+	jnc	10f
+	printc 12, "cannot allocate rx packet buffers"
+	stc
+	jmp	9f
+10:	mov	[net_rx_buffer], eax
+	mov	edx, eax
+
+	mov	ecx, NET_RX_QUEUE_STRUCT_SIZE
+	mov	eax, NET_RX_QUEUE_MIN_SIZE
+	call	array_new	# eax,ecx -> eax
+	jc	9f
+	mov	[net_rx_queue], eax
+	mov	ecx, NET_RX_QUEUE_MIN_SIZE
+10:	mov	[eax + net_rx_queue_buf], edx
+	add	eax, NET_RX_QUEUE_STRUCT_SIZE
+	add	edx, 1500
+	loop	10b
+	# array_newentry will simply increase array_index.
+################################################################################
+
+1: # this'll append - assuming tail = [eax+array_index]
+	ARRAY_NEWENTRY [net_rx_queue], NET_RX_QUEUE_STRUCT_SIZE, NET_RX_QUEUE_MIN_SIZE, 9f
 2:	add	ecx, edx
 	cmp	ecx, [eax + array_capacity]
 	jb	1f
@@ -1043,9 +1074,25 @@ int 3
 	# so that they can be scheduled individually, independent of the
 	# task they interrupt.
 	# 
-	call	mdup	# in: esi, ecx; out: esi
-net_rx_pkt$:	# debug symbol for malloc handles
-	jc	92f
+#########
+#	call	mdup	# in: esi, ecx; out: esi
+#net_rx_pkt$:	# debug symbol for malloc handles
+#	jc	92f
+#########
+push_ esi edi ecx edx
+# get preallocated buffer location
+mov edi, [eax + edx + net_rx_queue_buf]
+# copy
+mov dl, cl
+shr ecx, 2
+rep movsd
+mov cl, dl
+and cl, 3
+rep movsb
+pop_ edx ecx edi esi
+# have esi be the new packet source
+mov esi, [eax + edx + net_rx_queue_buf]
+#########
 	pushad
 	lea	edi, [eax + edx + net_rx_queue_args]
 	mov	esi, esp
@@ -1172,10 +1219,12 @@ net_check_reboot_packet:
 
 
 net_rx_queue_handler:
+	cli
 	MUTEX_SPINLOCK NET
 	call	net_rx_queue_get
 	jnc	1f
 	MUTEX_UNLOCK NET
+	sti
 
 	call	net_tcp_cleanup
 
@@ -1195,6 +1244,7 @@ net_rx_queue_handler:
 	mov	[eax + edx + net_rx_queue_status], dword ptr 0
 
 	MUTEX_UNLOCK NET
+	sti
 
 	call	net_rx_packet_task
 	jmp	net_rx_queue_handler
@@ -1281,7 +1331,7 @@ net_rx_packet_task:
 1:	push	esi
 	call	net_handle_packet
 	pop	eax
-	call	mfree
+#	call	mfree
 	ret
 
 ############################################################################

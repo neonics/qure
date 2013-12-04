@@ -438,5 +438,82 @@ The iret thus functions as a YIELD, and the next invocation of the TSS will cont
 after the iret.
 
 
-------------------
-generating exceptions through int in cpl3 puts an extra dword on the stack!!
+# generating exceptions through int in cpl3 puts an extra dword on the stack!!
+
+
+
+
+
+= Network Scheduling =
+
+The flow of execution on packet reception as signalled by an interrupt request
+is as follows.
+
+The current task is interrupted by the processor who injects a virtual call
+saving flags, code segment and code offset on the stack. If a privilege level
+change occurs, the stack is switched first; in this case the top of the stack
+will contain the stackpointer to the unprivileged stack. It then transfers
+control of execution as described in the interrupt table.
+
+If IRQ sharing is enabled, which it is by default, the IRQ handler first
+acknowledges the interrupt and then consecutively calls all handlers registered
+for the particular interrupt number, while keeping interrupts disabled, thus
+assuring serialized event handling.
+
+This will invoke the interrupt service routine for the network card. It will
+determine the location in memory of any received packets and call the network
+packet handler ''net_rx_packet''.
+
+The network packet handler will copy the packet contents and record the arrival
+of the packet in a packet queue. It then signals a semaphore that the packet
+queue is not empty. 
+
+Since multiple packets may have arrived before the network interface card's
+interrupt service routine acknowledges the interrupt, the network packet handler
+may be invoked any number of times by the NIC ISR for a single interrupt.
+The triggering of the semaphore does not come into effect until the scheduler
+gains control. This will happen when any interrupt returns.
+
+Once the network card driver has reported all packets, it's service routine will
+return control to the IRQ handler. As said, it will invoke the scheduler.
+
+The scheduler, implementing a circular schedule, will proceed to iterate through
+the available tasks, checking the conditions for scheduling, one of which involves
+comparing the value of a memory address with zero, representing an indication of
+available data. Note that these are not read/write locks, but are nevertheless
+also called semaphores, as they have one unique value that prevents task execution.
+
+The ''netq'' task, which yields on the queue size, will then get scheduled to run.
+It proceeds to acquire a mutex for the queue, removes the head of the queue,
+releases the mutex, and processes the packet using a multilevel protocol handler
+lookup table.
+It then loops to it's beginning, yielding on the queue size. This means that
+if the queue size is nonzero, the process repeats, otherwise the scheduler is
+informed to not schedule the task until the queue is not empty.
+
+The operation to remove the head of the queue is a system operation in that it
+requires interrupts to be disabled while the mutex is reserved. This prevents
+the task from being interrupted. If the task were to be interrupted while it
+held the ''NET'' (packet queue) mutex, the network card's interrupt service routine
+would not be able to acquire the lock and queue the packet. Using a spinlock,
+it would yield, and thereby also yielding the ''netq'' task, effectively disabling
+network packet reception.
+
+Note that clearing the interrupt flag is a privileged operation, whereas acquiring
+mutexes is not. Such measures are only required when a mutex is shared with an
+interrupt handler.
+
+The ''netq'' task, just like any task, runs with interrupts enabled. Only interrupt
+handlers run with interrupts disabled. Thus, only removing the head of the queue
+is a privileged operation, whereas filtering the packet is done with interrupts
+enabled.
+
+Packets may be handled by the kernel directly, such as TCP connections; may
+be handled by the socket layer, or may be delegated to custom protocol handlers.
+
+The socket layer, an API to abstract the protocol and expose the payload, has it's
+own mutex, to control synchronicity between read-write operation pairs across
+the kernel boundary.
+
+
+
