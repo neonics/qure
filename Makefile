@@ -165,17 +165,14 @@ HTMLDEPS = util/template.pl util/template.html Makefile
 
 root/www/doc/%.html: DOC/%.txt util/txt2html.pl $(HTMLDEPS)
 	@[ -d root/www/doc ] || mkdir root/www/doc
+	@[ -d root/www/doc/notes ] || mkdir root/www/doc/notes
 	@echo "  HTML  $@"
-	@##util/txt2html.pl -t web/doc.htmlt $< | xmllint - > $@
-	@#echo '$${CONTENT}' > _tmp_template.html
 	@util/txt2html.pl \
-		--rawtitle $< \
+		--rawtitle $(lastword $(subst /, ,$<)) \
 		-t util/template.html \
-		-p ../www.neonics.com/ \
+		-p `echo $(patsubst %,../,$(subst /, ,$(dir $<)))|sed -e 's/ //g'`www.neonics.com/ \
 		--onload "template( null, '../www.neonics.com/', [], 'menu.xml');" \
 		$< > $@
-	@#util/template.pl -t util/template.html -p ../www.neonics.com/ $@.tmp > $@
-	@#rm _tmp_template.html $@.tmp
 
 root/www/doc/%.html: DOC/%.html $(HTMLDEPS)
 	@echo "  HTML  $@"

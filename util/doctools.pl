@@ -107,7 +107,7 @@ sub genlinks
 
 			$_->{n} =~ /^(.*?)\.(txt|html)$/;
 			my $f = $1;
-			my $t = $f; $t=~ tr/_/ /;
+			my $t = $f; $t=~ tr/_/ /; $t =~ s@^.*?/(?=[^/]+$)@@;
 
 			$_->{label} && !$opts{tree} ? () :
 			( $pfx, $indent,

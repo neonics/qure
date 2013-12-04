@@ -61,6 +61,8 @@ CloudNet.txt
   Cluster.txt
 
 =Notes
+  notes/BootImage.txt
+  notes/Scheduling.txt
   CallingConvention.txt
   Memory.txt
   TaskSwitching.txt

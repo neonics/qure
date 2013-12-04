@@ -1,0 +1,219 @@
+Booting
+=======
+
+Bootsector:
+
+16 bit real mode, uses BIOS to load more sectors (sector1).
+
+
+Sector1:
+
+16 bit real mode entry point.
+Currently implements calls to BIOS.
+
+
+
+Protected Mode:
+
+I wonder whether calling 16 bit code (with a far return) is possible
+in protected mode. The segment is marked 16 bit, and thus the instructions
+are interpreted as such. As long as no segment changes are done...
+
+Check v8086 mode, and real-mode gates to call bios, until the OS
+can interact with the chipsets directly.
+
+============================================
+
+Idea 1: have 16, 32 and 64 bit kernels loaded. Rename bootloader to 16 bit kernel.
+
+=======================================
+
+
+KFS - Kernel File System
+------------------------
+
+Attempts to solve the loadable module problem: code suitable for modules,
+such as ATA drivers, would need to be loaded using the BIOS, and thus
+be part of the kernel image.
+
+The solution is to export a Kernel File System that appears at a mount
+point in the root filesystem. This is not required for ISO9660 images,
+but is nice for HDD.
+
+- Loadable Modules -
+
+The advantage of having a module is that the code can be independently compiled
+and updated from the kernel. Thus, higher programming languages can be used.
+
+- Backward compatability -
+
+As with the BIOS loading the bootsector, which uses the BIOS to load
+the rest of the bootloader, which then loads the kernel, 
+so does the kernel load it's modules.
+
+The current approach is to have the (boot) loader implement a simple filesystem
+that follows the loader image in the next sector on disk. 
+The bootloader loads the first image within the filesystem.
+
+	------------------
+	Bootsector 
+	  load bootloader
+	------------------
+	Bootloader
+	  Gather BIOS info
+	  load first ramdisk image
+	------------------
+	RAMDISK header
+	  (offset,length)*
+	---------------
+	Kernel
+	  realmode
+	    16 bit code to switch to pmode
+	    32 bit pmode init code
+	      gdt, idt, pic, pit, keyboard
+	  ----
+	  kmain
+	    pci
+	    bios
+	    cmos
+	    ata
+	    (shell)
+	    (iso9660)
+	---------------
+
+The new idea is then this:
+
+	==============
+	bootsector
+	==============
+	bootloader
+	==============
+	RAMDISK header
+	==============
+	First RAMDISK image
+	  -----------
+	  Kernel
+	    realmode
+	    pmode
+	    init preloaded modules
+	  -----------
+	  KFS Header
+	  -----------
+	    ata
+	  -----------
+	    iso9660
+	  -----------
+	==============  
+	    pci
+	  -----------
+
+
+	/kfs
+	  modules/
+
+Approach 1 is to have a loaded/, unloaded/, preloaded/, and loadonstart/
+directories. One could do a  mv loaded/foo.mod unloaded/.
+
+Approach 2 is to have a preload/ and loaded/ directories,
+where putting a module in the preload/ will change the kernel image which
+contains the first few modules. To load a module, move or copy it to the
+loaded/ folder - when load is triggered and fails, the file will not be there.
+To unload a module simply delete it from loaded/.
+
+Approach 3 is to assign attributes to the module files.
+To load a module:  chmod +x module    Unload: chmod -x
+To auto-load a module: chmod +r module
+To make a module preload: chmod +w module
+Or perhaps other types of attributes...
+
+There should be no need to mark the order in which modules should be loaded,
+as their binary form should indicate what libraries are required. Each
+module then exports some API functionality as a library with the same name
+as the kernel. 
+
+Another approach is to have the dependency and order information stored
+in the KFS itself. 
+
+
+	============
+	Bootsector
+	============
+	Bootloader
+	============
+	KFS Header
+	-----------
+	  kernel image
+	  module*
+	============
+
+The bootloader would have a minimal 16 bit KFS implementation.
+Images would be marked as a kernel, allowing for several versions of
+the kernel.
+
+
+When booting from CDROM there is little use for KFS, as some modules,
+including the KFS code, would need to be on the emulated floppy image,
+and some others in the ISO9660 filesystem.
+
+The CDROM filesystem itself allows for re-use of the same data.
+
+On the harddisk, the partition (if those are used at the bios level)
+can reserve some space for the kernel and the modules. This space
+is accessed then using the KFS, which preserves an ordering of the data
+that is usable by the bootloader, i.e., contiguous sectors for all files,
+and keeping the bootsector and bootloader in defined places.
+
+The bootsector itself might even use the KFS header to find the bootloader.
+
+
+So:
+
+Sector 0: bootsector
+Sector 1: KFS header
+Sector 2..N: bootloader, kernel image, and modules.
+
+The KFS header then has 4 types of files to manage:
+- bootloader (around 5 sectors)
+- kernel (43kb)
+- modules
+- other
+
+Special boot entry sections need to be recorded, where it is specified
+what modules to load for a certain kernel version.
+
+
+Using the MBR approach, the KFS can be anywhere on the disk.
+
+
+KFS Header:
+  Bootloader location (RBA/LBA, sectors)
+  Kernel | Module
+
+
+If the KFS is always the sector following the bootsector,
+the data for the bootloader location can be stored in the bootsector,
+as it is now.
+
+Approach then:
+- update the bootloader (sector1) code to work from RAMDISK to KFS.
+- bootloader is not passed information whether it is the MBR or a partition
+- thus the absolute CHS/LBA needs to be recorded in the bootsector.
+
+
+Currently the bootsector:
+- knows at compiletime the size of the bootloader,
+- finds the first bootable partition,
+- assumes it is sector0 of that partition,
+- and loads the rest of the bootloader.
+
+The idea is to keep the code for both loaders the same, so, the Partition Table
+must serve a different purpose depending on whether the bootsector is the MBR
+or not.
+
+Since officially only values 0 and 128 are allowed for the status byte
+in a partition table entry, using other values here to indicate the bootsector
+resides in a partition allows to reuse the partition table data to indicate
+the location and size of the bootloader code, instead of chainloading.
+
+
+

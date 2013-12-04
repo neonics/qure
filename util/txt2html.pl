@@ -58,6 +58,7 @@ $c = "\n".join "", @l;
 $c=~ s@&@&amp;@g;
 $c=~ s@<@&lt;@g;
 
+# Headings
 $c=~ s@\n+([^\n]+)\n=+\n@\n\n<h1>$1</h1>\n\n@g;
 $c=~ s@\n+([^\n]+)\n-+\n@\n\n<h2>$1</h2>\n\n@g;
 $c=~ s@\n+((=+)([^\n=]+)=*)\n@"\n\n<h".length($2).">$3</h".length($2).">\n\n"@ge;
@@ -103,9 +104,14 @@ $c=~ s@</li>\n<li>@</li><li>@g;
 $c=~ s@\n(<li>[^\n]+</li>)\n+@<ol type="a">$1</ol>\n@g;
 #1) foo
 #$c=~ s@\n([\d])+\) ([^\n]+\n<([^ >]+)[^>]+>.*?</\3>)@\n$TOK<li>$2</li>@g;
-$c=~ s@\n([\d])+\) ([^\n]+(\n<[^\n]+>|\n\s+[^\n]*)*)@"\n<li>".&esc($2)."</li>"@ges;
+#$c=~ s@\n(\d+)\) ([^\n]+(\n<[^\n]+>|\n\s+[^\n]*)*)@"\n<li>".&esc($2)."</li>"@ges;
+#$c=~ s@\n(\d+)\) ([^\n]+\n((?!<[^\n]+>|\d+\) ).*?\n)*)@"\n<li>".&esc($2)."</li>"@ges;
+# WORKS:
+# while ($c=~ s@\n(\d+)\) ([^\n]+(\n( +[^\n]*)*)*)@"\n<li>".&esc($2)."</li>\n\n"@ges){}
+$c=~ s@\n(\d+)\) ([^\n]+(\n +[^\n]*|\n(?!\d+\) ))*)@"\n<li>".&esc($2)."</li>"@ges;
 $c=~ s@li>\n<@li><@g;
 $c=~ s@\n((<li>[^\n]+</li>)+)@\n<ol type="1">$1</ol>\n@g;
+
 
 # level 3:
 #    * foo
@@ -156,7 +162,7 @@ while ( $tmp =~ /<h(.)>(.*?)<\/h\1>/ )
 	push @toc, {link=>"<a href='#toc$id'>$2</a>", level=>$1};
 	$tmp = $';
 #	$_ = $&; s/<h(.)>/<h\1 id='toc$id'>/; $o.=$_;
-	$o.=$` . "<a name='toc$id'\/>" . $&;
+	$o.=$` . "<a name='toc$id'></a>" . $&;
 	$id++;
 }
 
@@ -186,15 +192,16 @@ if ( scalar @toc ) {
 	}
 }
 
+done:
 while ($c =~ s@{{PACK (.*?)}}@pack( "H*", $1)@ge){}
 $c=~ tr/\r/\n/;
-done:
 
 @l=	grep {length($_) }
 	split (/\n\n+/, $c);
 
 #$c = join( "\n", (map { /^(<([^>\n]+)>.*?<\/\2>|<\/?[^\n>]+\/?>|<d[lt]>.*?<\/dd>)$/s ? "$_\n" : "<p>{{{$_}}}</p>\n" } @l) );
-$c = join( "\n", (map { /^<.*?>$/s ? "$_\n" : "<p>$_</p>\n" } @l) );
+#$c = join( "\n", (map { /^<.*?>$/s ? "$_\n" : "<p>{{{$_}}}</p>\n" } @l) );
+$c = join( "\n", (map { /^<|>$/s ? "$_\n" : "<p>$_</p>\n" } @l) );
 
 if ( $template )
 {
