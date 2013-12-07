@@ -1,127 +1,130 @@
-FLAGS
+= FLAGS =
 
-[ID VIP]  [VIF AC VM RF]  [0 NT IOPL]  [OF DF IF TF]  [SF ZF 0 AF]  [0 PF 1 CF]
-                     1          0             2             0             6
+	[ID VIP]  [VIF AC VM RF]  [0 NT IOPL]  [OF DF IF TF]  [SF ZF 0 AF]  [0 PF 1 CF]
 
+	0 	CF 	Carry flag 			S
+	1 	1 	Reserved 	 
+	2 	PF 	Parity flag 			S
+	3 	0 	Reserved 	 
+	4 	AF 	Adjust flag 			S
+	5 	0 	Reserved 	 
+	6 	ZF 	Zero flag 			S
+	7 	SF 	Sign flag 			S
+	8 	TF 	Trap flag (single step)		X
+	9 	IF 	Interrupt enable flag 		C
+	10 	DF 	Direction flag 			C
+	11 	OF 	Overflow flag 			S
+	12:13 	IOPL 	I/O privilege level 		X	(286+ only; always 1 on 8086 and 186) 
+	14 	NT 	Nested task flag 		X	(286+ only; always 1 on 8086 and 186)
+	15 	1/0	Reserved				(1 on 8086 and 186, should be 0 above)
 
-0 	CF 	Carry flag 	S
-1 	1 	Reserved 	 
-2 	PF 	Parity flag 	S
-3 	0 	Reserved 	 
-4 	AF 	Adjust flag 	S
-5 	0 	Reserved 	 
-6 	ZF 	Zero flag 	S
-7 	SF 	Sign flag 	S
-8 	TF 	Trap flag (single step) 	X
-9 	IF 	Interrupt enable flag 	C
-10 	DF 	Direction flag 	C
-11 	OF 	Overflow flag 	S
-12:13 	IOPL 	I/O privilege level (286+ only) always 1 on 8086 and 186 	X
-14 	NT 	Nested task flag (286+ only) always 1 on 8086 and 186 	X
-15 	1/0	Reserved	1 on 8086 and 186, should be 0 above
-
-EFLAGS
-16 	RF 	Resume flag (386+ only) 	X
-17 	VM 	Virtual 8086 mode flag (386+ only) 	X
-18 	AC 	Alignment check (486SX+ only) 	X
-19 	VIF 	Virtual interrupt flag (Pentium+) 	X
-20 	VIP 	Virtual interrupt pending (Pentium+) 	X
-21 	ID 	Able to use CPUID instruction (Pentium+) 	X
+	EFLAGS
+	16 	RF 	Resume flag 			X	(386+)
+	17 	VM 	Virtual 8086 mode flag 		X	(386+)
+	18 	AC 	Alignment check 		X	(486SX+)
+	19 	VIF 	Virtual interrupt flag 		X 	(586+)
+	20 	VIP 	Virtual interrupt pending 	X 	(586+)
+	21 	ID 	CPUID instruction available 	X 	(586+)
 
 
 
-
-
-
-16 bit, 9 bits used: 6 status flags, 3 control flags
+Low 16 bit: 9 bits used: 6 status flags, 3 control flags
 
 status flags:
 
-PF	low byte has even number of bits
-ZF
-SF
-AF	aux carry: unsigned overflow for low nybble / carry for bit 3
-CF
-OF	
+* PF	low byte has even number of bits
+* ZF
+* SF
+* AF	aux carry: unsigned overflow for low nybble / carry for bit 3
+* CF
+* OF	
 
 control flags:
 
-TF	Trap Flag
-IF	Interrupt flag
-DF	Direction flag
+* TF	Trap Flag
+* IF	Interrupt flag
+* DF	Direction flag
 
 
-flags:  ODITSZAP
-	64921817
+	flags:  ODITSZAPC
+		649218173
 
-
-
-	64  1	 | 11 / 2
+	6    	3| 9
+	 4  1    | 5
 	  9	 | 9
 	   2   7 | 9
 	     81  | 9
 
 
+== Flag Instructions ==
+
+[http://www.mathemainzel.info/files/x86asmref.html#ja]
+
+	OR / CMP /TEST (AF CF OF PF SF ZF )    o---szapc
 
 
-http://www.mathemainzel.info/files/x86asmref.html#ja
+	CMP		x   x   x    x   x
+			Z   C   S    O   P
+	JNE/JNZ		0			unsigned
+	JE/JZ		1			unsigned
+	JAE/JNB/JNC	    0
+	JB/JNAE/JC	    1			unsigned		
+	JNS		        0		signed
+	JS		        1
+	JNO		             0		signed
+	JO		             1		signed
+	JNP/JPO		                 0	unsigned
+	JP/JPE		                 1	unsigned
 
-OR / CMP /TEST   (AF CF OF PF SF ZF )    o---szap
-
-
-CMP		x   x   x    x   x
-		Z   C   S    O   P
-JNE/JNZ		0			unsigned
-JE/JZ		1			unsigned
-JAE/JNB/JNC	    0
-JB/JNAE/JC	    1			unsigned		
-JNS		        0		signed
-JS		        1
-JNO		             0		signed
-JO		             1		signed
-JNP/JPO		                 0	unsigned
-JP/JPE		                 1	unsigned
-
-JA/JNBE		0 & 0			unsigned
-JBE/JNA		1 | 1			unsigned
-JG/JNLE		0 &     s == o		signed
-JLE/JNG		1 |	s != o		signed
-JGE/JNL			s == o		signed
-JL/JNGE			s != o		signed (unsigned on webpage)
+	JA/JNBE		0 & 0			unsigned
+	JBE/JNA		1 | 1			unsigned
+	JG/JNLE		0 &     s == o		signed
+	JLE/JNG		1 |	s != o		signed
+	JGE/JNL			s == o		signed
+	JL/JNGE			s != o		signed (unsigned on webpage)
 
 
-
-SETS
-SETNS
-SETC
-SETNC
-SETO
-SETNO
-SETP  / SETPE
-SETNP / SETPO
-
-
+	SETS
+	SETNS
+	SETC
+	SETNC
+	SETO
+	SETNO
+	SETP  / SETPE
+	SETNP / SETPO
 
 
 ##########################################################################
 
 Flag modifications:
 
-0 = cleared / reset
-1 = set
-* = set according to result of operation
-? = undefined
-  = unaffected
+* ''0'' = cleared / reset
+* ''1'' = set
+* ''*'' = set according to result of operation
+* ''?'' = undefined
+* '' '' = unaffected
  
 Note: IF, VIP, VIF, AC, VM, RF: unaffected
 
-Instruction	| NT |IOPL| OF | DF | IF | TF | SF | ZF | AF | PF | CF
-	OR	|    |    | 0  |    |    |    | *  | *  | ?  | *  | 0
-	XOR	|    |    | 0  |    |    |    | *  | *  | ?  | *  | 0
-	TEST	|    |    | 0  |    |    |    | *  | *  | ?  | *  | 0
-	CMP	|    |    | *  |    |    |    | *  | *  | *  | *  | *
+	Instruction	| NT |IOPL| OF | DF | IF | TF | SF | ZF | AF | PF | CF
+		OR	|    |    | 0  |    |    |    | *  | *  | ?  | *  | 0
+		XOR	|    |    | 0  |    |    |    | *  | *  | ?  | *  | 0
+		TEST	|    |    | 0  |    |    |    | *  | *  | ?  | *  | 0
+		CMP	|    |    | *  |    |    |    | *  | *  | *  | *  | *
+
+
+
+CMOVcc: 686+
+
+		cmp	bl, 1			cmp	bl, 1
+		jb	0f			cmovae	[edi], eax
+		mov	[edi], eax
+	0:
+
 
 ##########################################################################
+
+= Repeat / Loop ''ecx'' =
 
 ecx == 0:
 
@@ -133,110 +136,104 @@ ecx == 0:
 
 ##########################################################################
 
+= Default memory selector =
+
 	# ebp first: default ss
-        mov     eax, [ebp + esi]
-        mov     eax, ds:[ebp + esi]
-        mov     eax, ss:[ebp + esi]
-        nop
+	mov     eax, [ebp + esi]
+	mov     eax, ds:[ebp + esi]
+	mov     eax, ss:[ebp + esi]
+	nop
 	# non-ebp first: default ds
-        mov     eax, [esi + ebp]
-        mov     eax, ds:[esi + ebp]
-        mov     eax, ss:[esi + ebp]
+	mov     eax, [esi + ebp]
+	mov     eax, ds:[esi + ebp]
+	mov     eax, ss:[esi + ebp]
 
 
 
-    d75f:       8b 44 35 00             mov    eax,DWORD PTR [ebp+esi*1+0x0]
-    d763:       3e 8b 44 35 00          mov    eax,DWORD PTR ds:[ebp+esi*1+0x0]
-    d768:       8b 44 35 00             mov    eax,DWORD PTR [ebp+esi*1+0x0]
-    d76c:       90                      nop
-    d76d:       8b 04 2e                mov    eax,DWORD PTR [esi+ebp*1]
-    d770:       8b 04 2e                mov    eax,DWORD PTR [esi+ebp*1]
-    d773:       36 8b 04 2e             mov    eax,DWORD PTR ss:[esi+ebp*1]
-
-
-
-CMOVcc: 686+
-
-	cmp	bl, 1			cmp	bl, 1
-	jb	0f			cmovae	[edi], eax
-	mov	[edi], eax
-0:
+	d75f:       8b 44 35 00             mov    eax,DWORD PTR [ebp+esi*1+0x0]
+	d763:       3e 8b 44 35 00          mov    eax,DWORD PTR ds:[ebp+esi*1+0x0]
+	d768:       8b 44 35 00             mov    eax,DWORD PTR [ebp+esi*1+0x0]
+	d76c:       90                      nop
+	d76d:       8b 04 2e                mov    eax,DWORD PTR [esi+ebp*1]
+	d770:       8b 04 2e                mov    eax,DWORD PTR [esi+ebp*1]
+	d773:       36 8b 04 2e             mov    eax,DWORD PTR ss:[esi+ebp*1]
 
 
 
 #######################################################################
 
-Control Registers:
+= Control Registers =
 
-CR0:	System Control Flags for Operating Mode and Processor States
- 31 | 30 | 29 | 28 .. 19 | 18 | 17 | 16 | 15 .. 6 |  5 |  4 |  3 |  2 |  1 | 0
- PG | CD | NW | reserved | AM | rsv| WP | reserved| NE | ET | TS | EM | MP | PE
+* CR0:	System Control Flags for Operating Mode and Processor States
 
-PG 31	Paging
-CD 30	Cache DIsable
-NW 29	Not Write-Through
---
-AM 18	Alignment Mask (+EFLAGS.AC + CPL=3 + (pmode|v86mode))
---
-WP 16	Write protect (read-only pages; overrides U/S bit (sect 4.1.3/4.6))
---
-NE 5	Numeric Error - x87 FPU errors; 1: native reporting; 0: legacy PC-style
-ET 4	Extension Type; res in Pentium,P4,Xeon,P6; fixed to 1 in P4, Xeon, P6
-	in 386/486 enables 387 DX math copro instructions
-TS 3	Task Switched - used by x87 FPU/MMX/SSEx/SSSE3 instructions (see EM)
-EM 2	Emulation - clear: x87 FPU present; affects MMX/SSE/SSE2/SSE3/SSSE3/SSE4
-MP 1	Monitor Coprocessor; controls WAIT/FWAIT with CR0.TS
-PE 0	Protected mode enable
+	 31 | 30 | 29 | 28 .. 19 | 18 | 17 | 16 | 15 .. 6 |  5 |  4 |  3 |  2 |  1 | 0
+	 PG | CD | NW | reserved | AM | rsv| WP | reserved| NE | ET | TS | EM | MP | PE
 
-
-CR1 - reserved
-
-CR2 - page-fault linear address
-
-CR3 - Paging
-
-  31(63) ... 12 | 11 .. 5 |   4 |   3 |  2 .. 0
-  page dir base | reservd | PCD | PWT | reseved
-
-PCD 4	Page-level Cache Disable
-PWT 3	Page-level Write-Through
+	PG 31	Paging
+	CD 30	Cache DIsable
+	NW 29	Not Write-Through
+	--
+	AM 18	Alignment Mask (+EFLAGS.AC + CPL=3 + (pmode|v86mode))
+	--
+	WP 16	Write protect (read-only pages; overrides U/S bit (sect 4.1.3/4.6))
+	--
+	NE 5	Numeric Error - x87 FPU errors; 1: native reporting; 0: legacy PC-style
+	ET 4	Extension Type; res in Pentium,P4,Xeon,P6; fixed to 1 in P4, Xeon, P6
+		in 386/486 enables 387 DX math copro instructions
+	TS 3	Task Switched - used by x87 FPU/MMX/SSEx/SSSE3 instructions (see EM)
+	EM 2	Emulation - clear: x87 FPU present; affects MMX/SSE/SSE2/SSE3/SSSE3/SSE4
+	MP 1	Monitor Coprocessor; controls WAIT/FWAIT with CR0.TS
+	PE 0	Protected mode enable
 
 
-CR4 - Architectural Extensions
+* CR1 - reserved
 
- ..21 | 20 |19 | 18    | 17  | 16     |15 | 14 | 13 |12..11| 10       |9     |
- resvd|SMEP|rsv|OSXSAVE|PCIDE|FSGSBASE|rsv|SMXE|VMXE| rsv  |OSXMMEXCPT|OSFXSR|
+* CR2 - page-fault linear address
 
- |   8 |  7  | 6   |  4  | 4  |  3  |  2  |  1  |  0
- | PCE | PGE | MCE | MAE | PSE | DE | TSD | PVI | VME 
+* CR3 - Paging
 
+	31(63) ... 12 | 11 .. 5 |   4 |   3 |  2 .. 0
+	page dir base | reservd | PCD | PWT | reseved
 
-VME  0	Virtual-8086 Mode Extensions
-PVI  1	Protected-Mode Virtual Interrupts: enable use of pmode VIF flag
-TSD  2	Time-Stamp disable: RDTSC/RDTSCP restrict to privilege level 0 when 1.
-DE   3	Debugging Extensions: set: DR4/DR5 cause #UD; clear: alias to DR6/7
-PSE  4	Page-Size extensions: enable 4Mb pages in 32bit paging; else 4kb
-PAE  5	Physical Address Extension; paging uses > 32 bit addresses.
-MCE  6	Machine-Check enable; enables Machine Check exceptoin
-PGE  7	Page Global Enable (P6+): no page flush from TLB (transl lookaside) on
-	task switch or write to CR3
-PCE  8	Performance-Monitoring counter enable; unrestrict RDPMC instr to CPL0
---
-OSXFXSR	9	Operating System Support for FXSAVE and FXRSTOR
-SXMMEXCPT 10	Operating system sypport for unmasked SIMD floating pt excepts
---
-VMXE	13	enable VMX - virtual machine extensions
-SMXE	14	5enable SMX (safer mode extensions) operation
---
-FSGSBASE 16	enable instr: (RD|WR)(FS|GS)BASE
-PCIDE	17	PCID-Enable bit: process-context identifiers(IA-32e mode)
-OSXSAVE	18	XSAVE and processor extended states enable bit
---
-SMEP	20	Supervisor-mode execution prevention
+	PCD 4	Page-level Cache Disable
+	PWT 3	Page-level Write-Through
 
 
+* CR4 - Architectural Extensions
 
-CR8 (64 bit mode): Task Priority Register
+	..21 | 20 |19 | 18    | 17  | 16     |15 | 14 | 13 |12..11| 10       |9     |
+	resvd|SMEP|rsv|OSXSAVE|PCIDE|FSGSBASE|rsv|SMXE|VMXE| rsv  |OSXMMEXCPT|OSFXSR|
+
+	|   8 |  7  | 6   |  4  | 4  |  3  |  2  |  1  |  0
+	| PCE | PGE | MCE | MAE | PSE | DE | TSD | PVI | VME 
+
+
+	VME  0	Virtual-8086 Mode Extensions
+	PVI  1	Protected-Mode Virtual Interrupts: enable use of pmode VIF flag
+	TSD  2	Time-Stamp disable: RDTSC/RDTSCP restrict to privilege level 0 when 1.
+	DE   3	Debugging Extensions: set: DR4/DR5 cause #UD; clear: alias to DR6/7
+	PSE  4	Page-Size extensions: enable 4Mb pages in 32bit paging; else 4kb
+	PAE  5	Physical Address Extension; paging uses > 32 bit addresses.
+	MCE  6	Machine-Check enable; enables Machine Check exceptoin
+	PGE  7	Page Global Enable (P6+): no page flush from TLB (transl lookaside) on
+		task switch or write to CR3
+	PCE  8	Performance-Monitoring counter enable; unrestrict RDPMC instr to CPL0
+	--
+	OSXFXSR	9	Operating System Support for FXSAVE and FXRSTOR
+	SXMMEXCPT 10	Operating system sypport for unmasked SIMD floating pt excepts
+	--
+	VMXE	13	enable VMX - virtual machine extensions
+	SMXE	14	5enable SMX (safer mode extensions) operation
+	--
+	FSGSBASE 16	enable instr: (RD|WR)(FS|GS)BASE
+	PCIDE	17	PCID-Enable bit: process-context identifiers(IA-32e mode)
+	OSXSAVE	18	XSAVE and processor extended states enable bit
+	--
+	SMEP	20	Supervisor-mode execution prevention
+
+
+
+* CR8 (64 bit mode): Task Priority Register
 	priority threshold value for external interrupts
 
-TPL	0:3	Task Priority Level
+	TPL	0:3	Task Priority Level

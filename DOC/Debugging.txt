@@ -29,14 +29,14 @@ The current procedure followed for debugging is:
 Finding code locations:
 -----------------------
 
-* Exceptions:
+- Exceptions:
 
   These provide cs:eip and stack information.
   The eip location is printed as both the segment relative (runtime)
   offset) or as the physical address depending on whether pmode was
   entered using a flat code segment.
 
-* QEMu logging:
+- QEMu logging:
 
   control-alt-2, type ''log in_asm'', control-alt-1, wait for the error
   condition. Shift back to control-alt-2 and run ''quit'', to make sure
@@ -103,7 +103,7 @@ Useful shell commands for Debugging
 ---------------------
 The following commands can be found in the debugging section of the ''help'' command.
 
-* ''int 3''
+- ''int 3''
   invokes the debugger. Press key:
   * 'c' to continue and return to the shell
   * 'm' to inspect mutexes
@@ -111,73 +111,73 @@ The following commands can be found in the debugging section of the ''help'' com
   * 's' to show the schedule (same as ''ps'' in the shell)
   * 't' to trace (experimental)
 
-* ''breakpoint''
+- ''breakpoint''
   set a code or memory write breakpoint
 
-* ''gpf''
+- ''gpf''
   generate a protection fault - the legacy way to invoke the debugger.
 
-* ''debug''
+- ''debug''
   a temporary 'hack' command: sets a breakpoint and triggers it.
 
-* ''pic''
+- ''pic''
   shows the PIC mask, the IRQ's and the address of the ISR.
 
-* ''ints''
+- ''ints''
   show the interrupt count per interrupt - note that as of this writing,
   IRQs are not counted.
 
-* ''int''
+- ''int''
   generate an interrupt.
 
-* ''gdt''
+- ''gdt''
   prints the Global Descriptor Table.
 
-* ''irq''
+- ''irq''
   prints the IRQ sharing handler matrix. At current the kernel is compiled to
   support up to 8 ISRs per IRQ.
 
-* ''cr''
+- ''cr''
   prints the contents of the Control Registers ''CR0, CR2, CR3'' and ''CR4''.
 
-* ''sline''
+- ''sline''
   prints the source line for a given hexadecimal address.
 
-* ''sym''
+- ''sym''
   for a hex address, prints the source line and symbol name;
   for a symbol name, prints the address.
 
-* ''paging''
+- ''paging''
   prints the page directory and page tables for either the current task or
   a given pid. Takes an optional argument "''usage''" which shows only the
   pages that have been accessed.
 
-* ''ramdisk''
+- ''ramdisk''
   Show the contents of the ramdisk.
 
-* ''inspect_str''
+- ''inspect_str''
   Print the contents at the given memory address (length must also be supplied).
 
-* ''keycode''
+- ''keycode''
   Prints the keycode and character for keypresses.
 
-* ''consoles''
+- ''consoles''
   prints the PID, screen and keyboard buffer addresses, cursor locations,
   and TLS pointers for all active consoles.
   (Note: alt-<DIGIT> will select a console).
 
-* ''classes''
+- ''classes''
   Prints the class data for all known classes, specifically the extension
   hierarchy, the virtual methods, their overrides, and their implementations.
   Can be filtered by classname.
 
-* ''objects''
+- ''objects''
   Shows all instantiated objects and their class hierarchy. Can be filtered by classname.
  
-* ''obj''
+- ''obj''
   Show the PCI object counters. These counters are used to construct device names.
  
-* ''mem''
+- ''mem''
   Various memory information, such as reserved/allocated/free memory, the
   ''malloc'' linked list handles, the extended BIOS/ACPI memory map, and the
   kernel code and data layout.
@@ -185,89 +185,89 @@ The following commands can be found in the debugging section of the ''help'' com
 Hardware
 --------
 
-* ''dev''
+- ''dev''
   shows the PCI and ISA devices in brief format.
 
-* ''lspci''
+- ''lspci''
   re-run the PCI query and device object initialisation routines while
   printing detailed information. (not recommended generally!).
 
-* ''pcibus''
+- ''pcibus''
   print all PCI devices and PCI bus mappings.
   Note that ''dev'' and ''lspci'' don't print/record all PCI Bridge devices,
   only Function 1.
 
-* ''drivers''
+- ''drivers''
   lists all available PCI drivers.
 
-* ''disks''
+- ''disks''
   shows all known ATA/ATAPI drives.
 
-* ''listdrives''
+- ''listdrives''
   rescans the ATA buses.
 
-* ''nics''
+- ''nics''
   Shows the configured Network Interface Cards (what you'd expect ''ifconfig'' to do).
 
 
 Partitions and File Systems
 ---------------------------
-* ''mount'', ''ls'', ''cd'', ''pwd'', ''cat'', ''touch'', ''mkdir''
+- ''mount'', ''ls'', ''cd'', ''pwd'', ''cat'', ''touch'', ''mkdir''
   The usual.
 
-* ''fdisk''
+- ''fdisk''
   Partition table editor. Can also copy the bootloader.
 
-* ''partinfo''
+- ''partinfo''
   Show detailed partition info for supported filesystems.
 
-* ''listfs''
+- ''listfs''
   Show supported filesystems (the in-memory ''root'' filesystem,
   ''FAT12/16, ISO9660, SFS, OOFS'')
 
-* ''lsof''
+- ''lsof''
   Show open file handlers from the FS layer.
 
-* ''fat_handles''
+- ''fat_handles''
   Show detailed FAT handle information for open files on FAT
 
-* ''oofs''
+- ''oofs''
   Database manager for the OOFS file system.
 
 Networking
 -----------
-* ''nics''
+- ''nics''
   As said, lists the network cards and their IP's, aswell as hardware specific
   information from the driver.
 
-* ''ifconfig''
+- ''ifconfig''
   Configure a NIC's IP, netmask, and online status. (In 'Oldskool' mode also
   allows to set up the gateway and automatically update the routing tables).
 
-* ''route''
+- ''route''
    Route table editor. See ''kernel/nic.s'' for usage.
 
-* ''ifup'', ''ifdown''
+- ''ifup'', ''ifdown''
   Invokes the ''nic_api_if(up|down)'' methods on the given NIC. Can also
   be achieved with ''ifconfig ethX up|down''
 
-* ''netdump''
+- ''netdump''
   Network packet analyzer.
 
-* ''ping'', ''hostname'', ''netstat'', ''arp'', ''icmp'', ''traceroute''
+- ''ping'', ''hostname'', ''netstat'', ''arp'', ''icmp'', ''traceroute''
   The usual.
 
-* ''dhcp''
+- ''dhcp''
   Configure a NIC using DHCP.
 
-* ''zconf''
+- ''zconf''
   Zero-Configuration networking. This is called on boot, and can be used to
   reset the network configuration to it's defaults.
 
-* ''iproute''
+- ''iproute''
   Shows what route would be used to communicate with the given IP.
 
-* ''netstat''
+- ''netstat''
   Shows various network information, such as queues, buffers, sessions etc.
 
 
@@ -275,25 +275,25 @@ Task Control
 ------------
 The following commands can be found in the 'tasks' section of the ''help'' command.
 
-* ''top'', ''ps'', ''kill''
+- ''top'', ''ps'', ''kill''
   similar to *NIX.
 
-* ''bg''
+- ''bg''
   mark the given task as suspended (non-schedulable).
 
-* ''fg''
+- ''fg''
   resume the given task.
 
-* ''init''
+- ''init''
   executes all non-comment lines in ''/et/init.rc''.
 
-* ''exe''
+- ''exe''
   loads and executes a PE/COFF binary.
 
-* ''elf''
+- ''elf''
   loads and executes an Elf binary.
 
-* ''fork''
+- ''fork''
   On each invocation, starts a new clock 'console widget'. These need to be terminated
   with ''kill'' and can be suspended and resumed with ''bg'' and ''fg''.
 
@@ -301,42 +301,42 @@ The following commands can be found in the 'tasks' section of the ''help'' comma
 
 Experimental commands:
 ----------------------
-* ''ph''
+- ''ph''
   ping the VM host (local hardcoded IP for now) once, to fill the ARP table.
 
-* ''p''
+- ''p''
   ping the gateway.
 
-* ''shutdown''
+- ''shutdown''
   ACPI shutdown, if detected.
 
-* ''reboot''
+- ''reboot''
   generate a triple fault causing a reboot.
 
-* ''sha1''
+- ''sha1''
   calculates the SHA1 hash of the first argument.
 
-* ''base64''
+- ''base64''
   Encodes and then decodes the first argument as base64.
 
-* ''vmcheck''
+- ''vmcheck''
   Detects whether the kernel runs in a virtual machine, and if so, establishes
   communication using the VMWare backdoor protocol, which is partially supported
   by QEmu and possibly others aswell.
 
-* ''vmx''
+- ''vmx''
   Detects hardware VMX support. (only tested in a VM, where it always fails).
 
-* ''cloud''
+- ''cloud''
   Cluster management.
 
-* ''gfx''
+- ''gfx''
   Enter/exit graphics mode.
 
-* ''play''
+- ''play''
   Play a WAVE audio file.
 
-* ''uptime'', ''date''
+- ''uptime'', ''date''
   As expected.
 
 

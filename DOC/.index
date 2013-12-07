@@ -1,9 +1,12 @@
 # AI_Paging.txt
-Architecture.txt
-  Freedom.txt
+=Building an Operating System
+  ExecutionEnvironment.txt
   Bootsector.txt
-    Storage.txt
-    Net.txt
+  Abstraction.txt
+
+Architecture.txt
+  Storage.txt
+  Net.txt
   CircularBuffer.txt
   Scheduling.txt
     Synchronicity.txt
@@ -63,9 +66,10 @@ CloudNet.txt
 =Notes
   notes/BootImage.txt
   notes/Scheduling.txt
-  CallingConvention.txt
-  Memory.txt
-  TaskSwitching.txt
+  notes/CallingConvention.txt
+  notes/AddressSpaceLimitations.txt
+  notes/TaskSwitching.txt
   =Reference
     IO.txt
     Paging.txt
+    Assembly.txt

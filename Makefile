@@ -181,7 +181,7 @@ root/www/doc/%.html: DOC/%.html $(HTMLDEPS)
 root/www/doc/menu.xml: root/www/doc-menu.xml
 	@cp $< $@
 
-site-doc: root/www/doc.inc
+site-doc: root/www/doc.inc root/www/doc/index.html
 	@#[ -d root/src/kernel/DOC ] || mkdir -p root/src/kernel/DOC
 	@#[ -d root/www/screenshots ] || mkdir -p root/www/screenshots
 	@#cp -a DOC/Screenshots/*.png root/www/screenshots/

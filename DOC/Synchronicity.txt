@@ -47,7 +47,7 @@ needed to distinguish between two sides.
 One side - the negative side of zero - represents the WRITE locks, as only a single
 value (-1) is allowed. On the positive side all values are allowed, representing
 READ locks, for, once a READ lock is acquired, the data is guaranteed to not
-be modified (depending on the guarantee that only semaphore-locked is used 
+be modified (depending on the guarantee that only semaphore-locked code is used 
 to access the data), and thus further READ locks merely prolong the period of
 no-change.
 
@@ -73,6 +73,7 @@ One tasks will receive the lock, whereas the others, having attempted to lock,
 determine that it is already taken, and undo their operation by performing
 the inverse, whereafter they yield to the scheduler referring to the semaphore,
 thereby requesting not to be scheduled until the value is neutral.
+[!not really true - they are scheduled when the value is nonzero; scheduling semaphores, as explained elsewhere, are different than read-write semaphores]
 
 Efficient tasks will yield after returning a lock, informing the scheduler
 that potentially a lock is opened. It can then, being efficient, determine

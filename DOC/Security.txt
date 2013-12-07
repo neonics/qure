@@ -5,11 +5,11 @@
 				ring 2: drivers (IO)
 				ring 3: unprivileged
 
-* ring1:
+- Ring1:
   Both scheduler and kernel api have IOPL but do not use it. Ring 0 code is only
   executed through the kernel API, if needed.
 
-* Ring 2:
+- Ring 2:
   It seems to make sense to have drivers have less privilege than the
   kernel api itself, since drivers can be third party, since they are
   unprivileged due to not being ring0, yet have increased privilege only on
@@ -21,7 +21,7 @@
   driver being rejected, or masquerading the IO operations, such as PCI reads.
   It is however easier to provide a PCI api method.
 
-* Ring 3:
+- Ring 3:
   this code has no access to privileged pages and no IO access.
 
 Drivers can reside in ring3, but then they have no access to ring 1 memory,

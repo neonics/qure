@@ -54,8 +54,9 @@ So, doing away with all that - a free foundation.
 
 They mention in their salespitch the benefits of cloud management standards:
 
-* quicker 'time to value', whatever that means
-* shorter deployment cycles
+- quicker 'time to value'
+        whatever that means
+- shorter deployment cycles
  
  	Disagree.
  	In a distributed cloud environment, any item inserted in the cloud
@@ -66,11 +67,11 @@ They mention in their salespitch the benefits of cloud management standards:
  	Deployment cycles, which occur after product finalization,
  	are always the same and thus not shorter.
 
-* lower risk and costs
+- lower risk and costs
   	nonsense.
-* vendor choice
+- vendor choice
   	as if having no cloud management standards would prevent that.
-* foundation for innovation
+- foundation for innovation
   	innovation is not done by setting standards, as they are meant
  	to limit deviation from the norm, which is the opposite of innovation.
 
@@ -85,7 +86,7 @@ not one that offers only script interpretation but one that can host
 an operating system.
 
 At current qemu and QuRe load about as fast as flash, and with a VMX service
-that needs to be started once this load is negligible. The OS is small
+that needs to be started once, this load is negligible. The OS is small
 enough to be downloaded from the website as it is about 60kb, leaving
 plenty of room for custom applications. The runtime footprint of the OS itself
 is about 300kb (including DNS, HTTP, E-Mail, Persistence), and the runtime

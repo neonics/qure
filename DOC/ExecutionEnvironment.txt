@@ -340,8 +340,9 @@ as provide mass-memory move operations.
 
 
 
+= Overcoming Limitations =
 
-= Initial Limitation: ROM code =
+== Initial Limitation: ROM code ==
 
 * BIOS ROM: only programs stored in ROM can be executed.
 
@@ -354,7 +355,7 @@ a bootsector or a network boot protocol, together with the information
 and ability to read more data from the boot device.
 
 
-= Second Limitation: Bootsector Code =
+== Second Limitation: Bootsector Code ==
 
 * 512 bytes of code (sector)
  	Transcended using the help of the BIOS, providing:
@@ -366,15 +367,15 @@ and ability to read more data from the boot device.
  	aswell as the functionality that allowed to load the first 512 bytes,
  	and other sectors.
 
-= Second Limitation: Memory range =
+== Third Limitation: Memory range ==
 
 * 1MB of memory accessible using 20 bits linear addressing.
  	Or, 'real mode'. The CPU offers the ability to change it's
  	operational mode to protected mode, long mode, what have you.
 	
-= Third Limitation: Device Functionality =
+== Fourth Limitation: Device Functionality ==
 
--- Replicating BIOS functionality --
+=== Replicating BIOS functionality ===
  	The Protected Mode however might break certain BIOS'es that are
  	designed to only function in real mode.
  	Thus, device drivers are needed to replace BIOS functionality,

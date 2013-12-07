@@ -1,42 +1,42 @@
 = ISO9660 Image Booting =
 
-* Floppy Emulation
+- Floppy Emulation
 
-	genisoimage -b IMAGE
+    genisoimage -b IMAGE
 
-	This argument is required for all ISO9660 image booting.
-	If the image size equals a traditional floppy disk,
-	i.e. 144*10240, floppy emulation is used.
+    This argument is required for all ISO9660 image booting.
+    If the image size equals a traditional floppy disk,
+    i.e. 144*10240, floppy emulation is used.
 
-	The bootdevice (register dx) is 0, the first floppy. Any real
-	floppy drives present are shifted.
+    The bootdevice (register ''dx'') is 0, the first floppy. Any real
+    floppy drives present are shifted.
 
-* No Emulation
+- No Emulation
 
-	genisoimage -no-emul-boot -boot-load-size SECTORS
+    genisoimage -no-emul-boot -boot-load-size SECTORS
 
-	No emulation. Able to specify a number of sectors to be loaded
-	by the BIOS. The entire boot image is stored on disk, even
-	if it is larger than the number of sectors.
+    No emulation. Able to specify a number of sectors to be loaded
+    by the BIOS. The entire boot image is stored on disk, even
+    if it is larger than the number of sectors.
 
-	The bootdevice is E0, however, the specification says
-	it will be between 81 and FF. However, the harddisks
-	are also shifted forward...
-	If there is one harddisk present, 81 indicates the cd.
-	If there are two harddisks present, 81 may indicate
-	the second harddisk, or the disk image. 80 then can
-	indicate the first harddisk, or the image.
+    The bootdevice is E0, however, the specification says
+    it will be between 81 and FF. However, the harddisks
+    are also shifted forward...
+    If there is one harddisk present, 81 indicates the cd.
+    If there are two harddisks present, 81 may indicate
+    the second harddisk, or the disk image. 80 then can
+    indicate the first harddisk, or the image.
 
-* HDD Emulation
+- HDD Emulation
 
-	Not tested.
+    Not tested.
 
 
 A bootloader that would work regardless, would not rely on BIOS,
-or the ISO format, to have the boot image stored succeeding the first sector.
+or the ISO9660 format, to have the boot image stored succeeding the first sector.
 
-On an ISO image we can safely assume that the image is contiguous,
-and access it using the BIOS and the drive identifier in register dl.
+On an ISO9660 image we can safely assume that the image is contiguous,
+and access it using the BIOS and the drive identifier in register ''dl''.
 
 On a harddisk, the sectors after sector 0 are undefined. The partition
 table present in the bootsector (which is then called MBR), indicates
@@ -57,14 +57,13 @@ in case the boot device is a floppy or a harddisk (or USB, NIC etc..)
 
 = Segmentation =
 
-First attempt then is to have the bootloader code load the succeeding
-sectors.
+The first attempt then is to have the bootloader code load the sectors following
+the boot sector.
 
 The bootsector should know the size of the entire boot image.
-
-This can be done by having one source file, bootloader.S,
-which defines a label equalling the number of sectors.
-Also this allows to use the same address space for the entire image.
+This can be done by having one source file, ''bootloader.s'',
+which defines a symbol equalling the number of sectors.
+This would also allow to use the same address space for the entire image.
 
 A second sourcefile may define itself as at origin 512.
 They cannot then be included, if the second uses GNU AS, and
@@ -207,7 +206,7 @@ it references 32 bit addresses, will not be relocated.
 
 It executes the kernel by setting cs, ds to the address of where the kernel is
 loaded (either sector or page boundary). The realmode kernel entrypoint thus
-becomes address 0. [the kernel adjusts for this if necessary].
+becomes address 0. (the kernel adjusts for this if necessary).
 
 Kernel
 ------

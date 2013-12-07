@@ -15,13 +15,13 @@ If not, another IP is chosen.
 The machine that is not using the gateway's forward IP regularly pings the IP,
 and when there is no response, reconfigures itself with the IP.
 
-'Master/Slave'
+== 'Master/Slave' ==
 
-In this setup, only one instance on the lan has the ip, and is called the
-'master'. It may be aware of other instances using some protocol, and could
-forward packets to load balance within a LAN.
+In this setup, only one instance on the LAN has obtained the public IP, and is
+called the 'master' or DMZ node. It is aware of other instances using a multicast
+protocol, and could forward packets to load balance within a LAN.
+See also [MigratingTCP].
 
-[!the above is a todo, there is no checks as yet to count the LAN instances]
 
 	WAN: .cloud
 
@@ -30,7 +30,7 @@ forward packets to load balance within a LAN.
 
 The OS currently implements a DNS proxy for cloud.neonics.com,
 returning the address for cloudns.neonics.com, which is the public ip
-of the (so far) only instance running the OS.
+of the (so far) only cluster running the OS.
 
 The model can serve other domains aswell, and illustrates how updates
 can propagate.
@@ -65,17 +65,18 @@ to handle the requests.
 There are a number of options for a protocol that allows the machines to
 be aware of each other.
 First, some sort of broadcast is necessary:
-- the broadcast IP for the subnet
-- multicast (224.0.0.0/4)
+* the broadcast IP for the subnet
+* multicast (224.0.0.0/4)
 
 Second, a protocol is needed:
-- multicast group membership: IGMP
-- netbios
-- DNS
+* multicast group membership: IGMP
+* netbios
+* DNS
 
-A particular multiast group number can be reserved for cloud based services,
+A particular multicast group number can be reserved for cloud based services,
 where membership of the group, made known by group reports, indicates
 the presence of cloud machines.
+[update: this is implemented; the reserved IP is ''224.0.0.123'']
 
 Netbios is proprietary and shall not be used.
 
@@ -84,9 +85,9 @@ SSDP is HTTP over multicast.
 
 For IPv6, there is NDP (neighbour discovery protocol), which is ICMPv6,
 used for:
-- router sollicitation/advertisement
-- neighbour sollicitation/advertisement
-- redirect
+* router sollicitation/advertisement
+* neighbour sollicitation/advertisement
+* redirect
 
 
 Router Configuration
@@ -108,9 +109,9 @@ broadcast anyway.
 Basic operation behind a firewall/gateway
 -----------------------------------------
 Assumptions:
-- All machines know the IP to which the service ports are forwarded;
-- All machines are aware of each other through the LAN awareness protcol
-- One machine is elected to handle requests, which is known by all machines.
+* All machines know the IP to which the service ports are forwarded;
+* All machines are aware of each other through the LAN awareness protcol
+* One machine is elected to handle requests, which is known by all machines.
 
 Then, all machines monitor the requests, and can take action when the response
 is not forthcoming within a timeout period.
@@ -169,7 +170,7 @@ A host daemon can participate in the protocol. It can then configure
 all VM's using network messages.
 It can also start new VM's and recycle existing ones that do not respond.
 
-VMs can be started in 'nogui' mode (vmrun -T player start file.vmx [no]gui).
+VMs can be started in 'nogui' mode (''vmrun -T player start file.vmx [no]gui'').
 
 
 Virtual / Shared IP
@@ -177,7 +178,7 @@ Virtual / Shared IP
 The DMZ ip will be configured as a virtual service ip.
 
 Each cluster node will be configured over the network to support
-the DMZ ip.  [at first a single IP, will be made a list later]
+the DMZ ip.  [note: at first a single IP, will be made a list later]
 
 
 Bootstrap Node
@@ -236,8 +237,8 @@ in DHCP].
 
 mDNS
 ----
-A fixed addressing scheme - say '.cloud' or '.localcluster' 
-can provide SRV records.
+A fixed addressing scheme - say ''.cloud'' or ''.localcluster''
+can provide DNS ''SRV'' records.
 
 The DNS then can serve as a simplified LDAP system, where information
 is stored in nodes - an object hierarchy.
@@ -248,7 +249,7 @@ Custom Protocol
 Requirements:
 
 1) Maintain Cluster Knowledge
- a) broadcast on boot [COMPLETE]
+ a) broadcast on boot [status:COMPLETE]
  b) multicast PING
 	
 	Multicast (notes from cisco)
@@ -269,8 +270,9 @@ Requirements:
 
  c) cluster uptime: session duration.
 
+
 Shared Objects
--------------- 
+--------------
 The goal of the Cluster is to keep all data alive. The cluster uptime then
 consists of time since the first node booted.  Taking an OO approach, the
 cluster maintains objects.  The root object itself is the cluster uptime and

@@ -23,7 +23,9 @@ $command eq 'list' and do {
 	print strip_type( map { $_->{n}."\n" } grep {!$_->{label}} get_index() );
 } or $command eq 'genlinks' and do {
 	print genlinks( get_index() );
-} or die "unknown command: $command\ncommands: list genlinks";
+} or $command eq 'unlisted' and do {
+	print difflist();
+} or die "unknown command: $command\ncommands:\n\tlist\n\tgenlinks\n\tunlisted\n";
 
 
 sub get_index {
@@ -57,6 +59,19 @@ sub strip_type {
 	map { s/\.$options{type}$//; $_ } @_;
 }
 
+sub difflist {
+	-f $options{dir}."/.index" or die "no index";
+	my @index =
+		sort
+		map { $_->{n}."\n" } grep { !$_->{label} }
+		process_index( `cat $options{dir}/.index` );
+	my @files = sort `ls $options{dir}`;
+
+	# slow solution: O(n^2)
+	my @unlisted =
+		grep {my $f=$_; !grep{$_ eq $f} @index}
+		@files;
+}
 
 sub reptag {
 	my ( $count, $val, $baseindent ) = @_;

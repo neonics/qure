@@ -27,16 +27,16 @@ page fault exceptions in the CR2 register.
 
 == Other Uses ==
 
-* Reserved Linear Addresses
+- Reserved Linear Addresses
 	
-	virtual consoles may write to the same linear address, which is either
-	mapped to video memory or not, depending on whether the console is active.
+  virtual consoles may write to the same linear address, which is either
+  mapped to video memory or not, depending on whether the console is active.
 
-* Unique address Space
+- Unique address Space
 	
-	It is possible to offer each process/task its own view of physical memory.
-	This allows to decide exactly what is visible for any given process. A mapping
-	can be constructed for each process that makes it appear it is the only process.
+  It is possible to offer each process/task its own view of physical memory.
+  This allows to decide exactly what is visible for any given process. A mapping
+  can be constructed for each process that makes it appear it is the only process.
 
 Since the paging architecture is hierarchical, there are several levels on
 which this can be accomplished. At the top level, the pointer to the paging

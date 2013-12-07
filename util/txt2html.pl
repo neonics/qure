@@ -59,34 +59,51 @@ $c=~ s@&@&amp;@g;
 $c=~ s@<@&lt;@g;
 
 # Headings
+#
+# Heading 1
+# =========
 $c=~ s@\n+([^\n]+)\n=+\n@\n\n<h1>$1</h1>\n\n@g;
+# Heading 2
+# ---------
 $c=~ s@\n+([^\n]+)\n-+\n@\n\n<h2>$1</h2>\n\n@g;
+# === Heading N ===
 $c=~ s@\n+((=+)([^\n=]+)=*)\n@"\n\n<h".length($2).">$3</h".length($2).">\n\n"@ge;
-#$c=~ s@\n(\*\s+([^\n]+))\n@\n<h3>$2</h3>\n\n@g;
 
+# strip empty lines from indented text
 $c=~ s@(\n\t+[^\n]*)\n+(?=\n\t)@$1\n\t@g;
-$c=~ s@\n(\*\s+([^\n]+)\n*?((\n(?!\*|\S)[^\n]*)+))@"\n<dt>$2</dt>\n<dd>".&trim($3)."</dd>\n\n"@ge;
+
+# definition lists
+# - item
+#   description
+$c=~ s@\n(\-\s+([^\n]+)\n*?((\n(?!\-|\S)[^\n]*)+))@"\n<dt>$2</dt>\n<dd>".&trim($3)."</dd>\n\n"@ge;
 $c=~ s@((<dt>.*?</dt>\n<dd>.*?</dd>\n*)+)@<dl>\n$1</dl>\n\n@gs;
 
-$c=~ s@''([^']+)''@'<code>'.&esc($1).'</code>'@ge;
+# ''code''
+$c=~ s@''([^']+)''@'<code>'.&esc(keepspace($1)).'</code>'@ge;
 
+# <tab>Preformatted text
 $c=~ s@((\n\t[^\n]*)+\n)@<pre>$1</pre>\n@g;
+# > preformatted text
 $c=~ s@((\n>[^\n]+)+\n)@<pre>$1</pre>\n@g;
+# pre/dd fixup
 $c=~ s@<dd>\s*<pre>\s*(.*?)\s*</pre>\s*</dd>@<dd>\n\t$1\n</dd>@gs;
 
+# preserve preformatted text: prevent further substitution
 $c=~ s@<pre>(.*?)</pre>\n+@'<pre>'.&esc($1)."</pre>\n"@ges;
 
+
 sub trim { $_=$_[0]; s/^\s+//; s/\s*$//; $_ }
-sub esc { $_ = shift @_; "{{PACK ".(unpack "H*", $_)."}}" } #s/(.)/sprintf("%02x",$1)/e; }
+sub keepspace { $_=$_[0]; s/ /&nbsp;/g; $_ }
+sub esc { $_ = shift @_; "{{PACK ".(unpack "H*", $_)."}}" }
 
 # NOTES: pattern:  /(?=X)/:
 #	lookahead:	(?=pat) (?!pat)
 #	lookbehind:	(?<=,   (?<!
 
-$TOK="<!---->";
 
 # level 2
 # a)
+# $TOK="<!---->";
 #$c=~ s@\n ([a-z])+\) ([^\n]+)@\n$TOK<li>$2</li>@g;
 #$c=~ s@\n(($TOK<li>[^\n]+</li>\n)+)@\n<ol type="a">$1</ol>\n@g;
 #$c=~ s@$TOK@@g;
@@ -127,7 +144,7 @@ $c=~ s@\n(<li>[^\n]+</li>)\n@ <ul>$1</ul>\n@g;
 
 # level 1
 #*foo
-$c=~ s@\n\* ([^\n]+)@\n<li>$1</li>@g;
+$c=~ s@\n+\* ([^\n]+)@\n<li>$1</li>@g;
 $c=~ s@\n((<li>[^\n]+</li>\n)+)@\n<ul>\n$1</ul>\n@g;
 
 # [label|site]
@@ -140,16 +157,22 @@ $c=~ s@(?<!\t)\[=([^\]]+)\]@<a name="$1"></a>@g;
 # [!note]
 $c=~ s@(?<!\t)\[!([^\]]+)\]@<div class='note'>$1</div>@g;
 
+# [http://....]  (same as [label|site] but without 'label|')
+$c=~ s@(?<!\t)\[(https?://.*?)\]@<a href="$1">$1</a>@g;
+
+# [type: message]
+$c=~ s@(?<!\t)\[(\S+?):\s*(.*?)\]@<span class='n $1'>$1: $2</span>@g;
 
 # [Foo] ; local txt/html doc ref
 $c=~ s@(?<!\t)\[([^\]\.]+)\]@<a href="$1.html">$1</a>@g;
 
-#$c=~ s@\n\n+@\n</p>\n<p>\n@g;
-#$c=~ s@\n([^\n]+\n)+<@\n<p>$1</p>\n<@g;
 
-
+# preserve hardlines in paragraphs
 $c=~ s@\n([^<\n]{1,60})\n([^<\n]{70,}\n)@\n$1<br/>\n$2@g;
 
+
+# unpack
+while ($c =~ s@{{PACK (.*?)}}@pack( "H*", $1)@ge){}
 
 ###########
 # generate a TOC:
@@ -192,8 +215,6 @@ if ( scalar @toc ) {
 	}
 }
 
-done:
-while ($c =~ s@{{PACK (.*?)}}@pack( "H*", $1)@ge){}
 $c=~ tr/\r/\n/;
 
 @l=	grep {length($_) }
@@ -243,12 +264,3 @@ print $toc if $options{toc};
 print $c;
 };
 
-
-exit;
-
-done2:
-	$c=~ tr/\r/\n/;
-	goto done;
-done3:
-	$c=~ tr/\r/!/;
-	goto done;
