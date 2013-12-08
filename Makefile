@@ -128,10 +128,13 @@ build/coff.exe: util/coff.cpp
 
 #	root/www/download/os.iso.gz
 
-.PHONY: site-init site www-neonics
+.PHONY: site-init site www-neonics site-check
 
-site:	site-init site-doc www-neonics
+site:	site-init site-doc www-neonics site-check
 
+site-check:
+	@echo "  LINKCHK"
+	@util/linkchecker.pl root/www/doc/
 
 site-init:
 	@[ -d root/www/download ] || mkdir -p root/www/download || true
@@ -163,6 +166,7 @@ HTML_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${HTMLDOC})) \
 
 HTMLDEPS = util/template.pl util/template.html Makefile
 
+root/www/doc/%.html: RP = $(shell echo $(patsubst %,../,$(subst /, ,$(dir $<)))|sed -e 's/ //g')www.neonics.com/
 root/www/doc/%.html: DOC/%.txt util/txt2html.pl $(HTMLDEPS)
 	@[ -d root/www/doc ] || mkdir root/www/doc
 	@[ -d root/www/doc/notes ] || mkdir root/www/doc/notes
@@ -170,8 +174,8 @@ root/www/doc/%.html: DOC/%.txt util/txt2html.pl $(HTMLDEPS)
 	@util/txt2html.pl \
 		--rawtitle $(lastword $(subst /, ,$<)) \
 		-t util/template.html \
-		-p `echo $(patsubst %,../,$(subst /, ,$(dir $<)))|sed -e 's/ //g'`www.neonics.com/ \
-		--onload "template( null, '../www.neonics.com/', [], 'menu.xml');" \
+		-p ${RP} \
+		--onload "template( null, '${RP}', [], 'menu.xml');" \
 		$< > $@
 
 root/www/doc/%.html: DOC/%.html $(HTMLDEPS)

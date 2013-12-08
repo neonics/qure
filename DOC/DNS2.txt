@@ -282,7 +282,7 @@ Any IPV4 node then, has multiple IPV6 addresses.
 
 	 1337 : [service]:[routing version]:[routing mask]:[reserved]:[routing] :i.p.v.4.
 
-The [service] will be a service number. [reserved] will be the space reserved for larger service numbers, and for larger routing prefixes.
+The ''[service]'' will be a service number. ''[reserved]'' will be the space reserved for larger service numbers, and for larger routing prefixes.
 
 The first registry service instance allocates to itself the address:
 

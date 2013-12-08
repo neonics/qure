@@ -150,7 +150,7 @@ serves as an alias and is identical in function to an unauthorized name.
 
 When a task shares it's authentication, all tasks are able to send messages
 authenticated as each other, and thus does not serve it's function.
-[pubkey crypto].
+(pubkey crypto).
 
 All tasks monitor all communication, and can detect messages appearing to originating
 from them while knowing they do not. Therefore, in such a community, simply sending

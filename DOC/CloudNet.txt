@@ -395,7 +395,7 @@ no packet handling, is still at least partially operational, and could
 broadcast a message indicating it has halted processing, unless the exception
 occurred in a critical path.
 
-Vice versa, using the scheme as described in [Alert|Alert.txt], minimal reception
+Vice versa, using the scheme as described in [Alert], minimal reception
 might be enabled, such as a kind of 'wake-on-lan' packets which could trigger
 a reboot. If the network card is configurable to detect certain kinds of packets,
 then the network card interrupt service routine would probably be able to detect

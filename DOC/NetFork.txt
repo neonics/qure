@@ -15,7 +15,7 @@ Dynamic Wildcard subdomains.
 Using existing DNS structures: hosting providers use such, where they return the same address for any subdomain – a catch-all. This is not dynamic. May use SOA redirect for subdomain – return DNS redirect, which is then consulted. This allows for a one step delegation, where the root dns server has a list of regions and the clusters in those regions, and can use any IP address of such a cluster as a subdomain NS. The DNS node of that cluster, has more up-to-date information on local network topology, and can better decide which of it's cluster nodes should handle the request.
 A multistep delegation method may make use of a name-path, such as ''CNAME a.b.c.d.TLD''.
 
-The clusternode knows all the nodes that carry the site, as it does itself, and can return a sorted IP list. [reminds me of my earliest network code in C using sockets at the university – hobbytime – where i would do a loop over all the addresses returned from a name lookup and attempt to connect to them in turn until success].
+The clusternode knows all the nodes that carry the site, as it does itself, and can return a sorted IP list. [note: reminds me of my earliest network code in C using sockets at the university – hobbytime – where i would do a loop over all the addresses returned from a name lookup and attempt to connect to them in turn until success].
 
 Breaking out of localnet
 ========================

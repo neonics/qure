@@ -3,7 +3,7 @@ Simple File System
 
 Sectors are relative to the partition. Sector 0 is the first sector of the filesystem.
 
-Block [blocksize= 512 bytes]
+Block (blocksize= 512 bytes)
 -----
 type: byte
 start:  48-bit LBA (128 petabyte)
@@ -259,7 +259,7 @@ Each region table entry consists of 3 values:
 	 0  1  2  3  4  5  6  7  8  9  10
 
 Upon writing the fourth sector of file A, it is seen that the next
-sector is occupied ([x] at 3).
+sector is occupied (''[x]'' at 3).
 The first region is extracted: LBA 0, len 3.
 
 	Region table:
@@ -614,7 +614,7 @@ smaller than a sector, and thus require different code than the tail, which
 is generally larger than a sector.
 
 The base class' save method then will be the code for the head, which inserts
-itself into an array - a larger context. [can be a 'nop' by managing a 'dirty' bit].
+itself into an array - a larger context (can be a 'nop' by managing a 'dirty' bit).
 
 A second base class, will be able to manage the tail or attachment. This will be a
 sector cache service.

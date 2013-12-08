@@ -340,7 +340,7 @@ This would require that the stack selector base be different from the code
 selector base.
 Using the 'D'own mode, the top of the stack can be set, allowing for overlap
 between stack and code. I am uncertain as to which direction the addressing
-space really takes: FFFFFFFF is top, or 00000000? And ss:[1] is SEL_ss.base-1?
+space really takes: FFFFFFFF is top, or 00000000? And ''ss:[1]'' is ''SEL_ss.base-1''?
 
 The code selector limit can be set to the end of .bss. This would exclude
 the stack and mallocced memory, but would still allow code to be exected

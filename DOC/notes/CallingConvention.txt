@@ -4,7 +4,7 @@ Notes on Calling Conventions
 [Skip to english|#stack]
 
 
-[2012-03-02]
+# 2012-03-02
 	# enter ARG1, 0
 	enter:  push    ebp
 		mov     ebp, esp
@@ -1033,7 +1033,7 @@ return - automatic destructor event chaining on the call stack.
 
 yield:	is like a ret, except it doesnt change the stack pointer.
 without base pointers, in a pure calling stack,
-yield = call .+0 ; jmp [esp]
+''yield = call .+0 ; jmp [esp]''
 
 the call .+0 pushes the next instruction as the continuation.
 The yield then returns and yields the address of the continuation
@@ -1697,7 +1697,7 @@ on a 'cloudy gass' of stack.
 
 
 -----------------------------------------
-[2013-06-30]
+[date: 2013-06-30]
 
 CPL3 API
 ========
@@ -1754,7 +1754,7 @@ Solution 1
 Retrieve the API address by decompiling the calling instruction.
 This may prove tricky, since one can jump to an api using a memory
 reference through a register. Or, may use push(x3)/retf, at which point
-the stack may have been overwritten - the data will be at [esp - 4],
+the stack may have been overwritten - the data will be at ''[esp - 4]'',
 and any interrupt will overwrite it. A trap gate may disable interrupts.
 The stack will have to be made reserved immediately.
 Anyway, it's not going to guarantee anything.
