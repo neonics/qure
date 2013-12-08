@@ -319,7 +319,9 @@ handle_print_2$:
 #	mov	edx, ebx
 #	sub	edx, esi	# sub handles_ptr to get index
 #	HOTOI edx
+pushcolor 8
 	call	printdec32
+popcolor
 .if 1	# padding
 	push	ecx
 	mov	ecx, eax
@@ -360,6 +362,27 @@ handle_print_2$:
 	call	printspace
 	mov	edx, [ebx + handle_caller]
 	call	printhex8
+.if 1
+	mov	edx, [ebx + handle_fs_next]
+	HOTOI	edx
+	push	edx
+
+	mov	edx, [ebx + handle_fs_prev]
+	HOTOI	edx
+	push	edx
+
+	mov	edx, [ebx + handle_fa_next]
+	HOTOI	edx
+	push	edx
+
+	mov	edx, [ebx + handle_fa_prev]
+	HOTOI	edx
+	push	edx
+
+	PUSH_TXT "\\c\x08 %4d %4d %4d %4d\\c\x07 "
+	call	printf
+	add	esp, 4 * 5
+.else
 
 	call	printspace
 	mov	edx, [ebx + handle_fa_prev]
@@ -379,6 +402,7 @@ handle_print_2$:
 	HOTOI	edx
 	call	printdec32
 	call	printspace
+.endif
 
 	mov	edx, [ebx + handle_caller]
 	push	ebx
@@ -470,7 +494,11 @@ handles_print_ll:
 	mov	ecx, [esi + handles_num]	# inf loop check
 	jmp	1f
 
-0:	add	ebx, [esi + handles_ptr]
+0:	
+	mov	edx, ebx	# calculate handle index
+	HOTOI edx
+
+	add	ebx, [esi + handles_ptr]
 
 	.if MEM_PRINT_HANDLES == 2
 	call	handle_print_2$

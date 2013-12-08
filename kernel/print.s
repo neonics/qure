@@ -2506,9 +2506,15 @@ printf:
 	jecxz	3f
 	# get decimal places
 		push_ edx ecx
-		mov eax, edx
-		mov ebx, 10
 		xor ecx, ecx
+		mov eax, edx
+		or eax, eax
+		jns 10f
+		neg eax
+		inc ecx
+		10:
+
+		mov ebx, 10
 		10:
 		inc ecx
 		xor edx,edx
