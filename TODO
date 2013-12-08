@@ -784,3 +784,10 @@ v fix memory mutex recursion
 TODO: make network buffer allocation asynchronous relative to packet reception.
 
 DONE?: fix debugger interference with scheduler mutex on network traps
+
+TODO: httpd: downloading files: don't read entire file into mem at once.
+	ISSUE: is.iso.gz is over 700kb; this much memory is allocated, and twice that
+	if there are two concurrent requests.
+	ISSUE: to evaluate www expressions in html files, it is easiest to have the
+	entire file loaded. If this is not the case, special care must be taken to
+	handle expressions split on the buffer boundary.

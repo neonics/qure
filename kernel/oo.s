@@ -1199,6 +1199,14 @@ class_invoke_virtual:
 	pop	edx
 	# instanceof prints if edx or eax are wrong; keeps silent if not extends
 	jc	91f
+
+	# verify the method is implemented
+	push	edx
+	mov	edx, [esp + 8 + 4]	# method index
+	cmp	[eax + edx], dword ptr 0
+	pop	edx
+	jz	92f
+
 	# macro INVOKEVIRTUAL provides compiletime checking for api method
 	# using class_api_ naming convention.
 
@@ -1253,8 +1261,33 @@ class_invoke_virtual:
 	call	newline
 	stc
 	jmp	9b
+92:	printc 12, "invokevirtual: "
+	# get the method name from the classdef
+	push	edx
+	mov	edx, [esp + 8 + 8]	# class decl ptr
+	pushd	[edx + class_name]
+	call	_s_print
+	printchar '.'
 
+	mov	edx, [esp + 8 + 4]	# method index
+	push_	ecx eax
+	mov	eax, [esp + 8 + 8 + 8]	# class decl ptr
 
+	neg	edx
+	mov	ecx, edx
+	lea	edx, [ecx + edx * 2 - 12] # * 12 -12 (mptr struct size)
+	add	edx, [eax + class_decl_mptr]
+	pop_	eax ecx
+	pushd	[edx + 4]	# 4: name ptr
+	call	_s_print
+	pop	edx
+
+	printc 12, " not implemented in "
+	pushd	[eax + obj_class]
+	call	class_print_classname
+	call	newline
+	stc
+	jmp	9b
 
 
 .if 0 # Disabled for now - tested to work
@@ -1478,8 +1511,8 @@ _print_methods$:
 	mov	edx, ecx
 	call	printdec32
 	pop	edx
-	call newline
-	push_	eax esi edx
+	call	newline
+	push_	eax esi edx	# STACKREF!
 	mov	esi, [esi] # + class_decl_mptr]
 8:
 	########################
@@ -1505,6 +1538,14 @@ _print_methods$:
 	call	printspace
 	jmp	3f
 2:	movzx	edx, dx
+.if OBJ_VPTR_COMPACT
+	not	edx	# neg edx; dec edx
+	push	eax
+	mov	eax, [esp + 8] # get orig esi
+	mov	eax, [eax + 4]	# get count
+	add	edx, eax
+	pop	eax
+.endif
 	shl	edx, 2
 	add	edx, [ebx + class_object_vptr]
 	call	printhex8
@@ -1706,7 +1747,7 @@ OBJ_STRUCT_SIZE = .
 		.section .classdef$mo
 			mptr_\name\()_\offs\()_flags:	.word CLASS_METHOD_FLAG_OVERRIDE
 			mptr_\name\()_\offs\()_idx:	.word _vptr_\name
-			mptr_\name\()_\offs\()_target:	.long \name
+			mptr_\name\()_\offs\()_name:	.long \name
 			mptr_\name\()_\offs:		.long \offs
 		.struct _STRUCT_OFFS
 		_DECL_CLASS_OVERRIDE_MCOUNT = _DECL_CLASS_OVERRIDE_MCOUNT + 1
@@ -1717,7 +1758,7 @@ OBJ_STRUCT_SIZE = .
 		.section .classdef$md
 			mptr_\name\()_flags:	.word CLASS_METHOD_FLAG_DECLARE
 			mptr_\name\()_idx:	.word _DECL_CLASS_DECL_MCOUNT
-			mptr_\name\()_target:	.long 999b
+			mptr_\name\()_name:	.long 999b
 			mptr_\name:		.long \offs
 
 		.section .classdef$vptr
