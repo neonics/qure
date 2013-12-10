@@ -1523,11 +1523,198 @@ DEBUG "fs_create"
 KAPI_DECLARE fs_write
 	ret
 
+# in: eax = path
 KAPI_DECLARE fs_delete
-	ret
+	pushad
+	DEBUG "delete"
+	DEBUGS eax
 
-KAPI_DECLARE fs_move
+	call	fs_open	# eax -> eax
+	jc	91f
+
+	push	eax	# backup
+
+	LOCK_READ [fs_handles_sem]
+	add	eax, [fs_handles$]
+
+	# in: edi = fs dir entry struct
+	lea	edi, [eax + fs_handle_dirent]
+
+	# in: ebx = parent/current directory handle (-1 for root)
+	mov	ebx, [eax + fs_handle_dir]
+
+	# in: eax = fs_instance
+	mov	eax, [eax + fs_handle_mtab_idx]
+	add	eax, [mtab]
+	mov	eax, [eax + mtab_fs_instance]
+	UNLOCK_READ [fs_handles_sem]
+
+	INVOKEVIRTUAL fs delete
+	jc	93f
+63:
+	pop	eax
+
+	call	fs_close	# invalidate/release handle
+	jc	92f
+
+	#printlnc 4, "not implemented"
+9:	popad
 	ret
+91:	printlnc 4, "fs_delete: no such file or directory"
+	stc
+	jmp	9b
+92:	printlnc 4, "fs_delete: close error"
+	stc
+	jmp	9b
+93:	printlnc 4, "fs_delete error"
+	jmp	63b
+
+# in: eax = source path
+# in: edx = target path
+KAPI_DECLARE fs_move
+	pushad
+	DEBUG "move"
+	DEBUGS eax
+	DEBUG "->"
+	DEBUGS edx
+
+	# open source
+	call	fs_open	# eax -> eax
+	jc	91f
+	mov	esi, eax	# backup
+
+	# target can be:
+	# - existing file
+	# - nonexisting file in existing directory
+	# - nonexisting directory in existing directory
+	# - existing directory
+
+	# common: parent must exist.
+	mov	eax, edx
+	call	strlen	# eax->eax
+	mov	ecx, eax
+	lea	edi, [edx + ecx]	 # end of path
+	# strip trailing /
+	cmpb	[edi-1], '/'
+	jnz	1f
+	dec	edi
+	movb	[edi], 0
+	dec	ecx
+1:
+
+	# first try to open the target
+	mov	eax, edx
+	call	fs_open	# eax
+	jc	1f	# target doesn't exist.
+	# check if the target is a file.
+	DEBUG "target opened"
+
+	push	eax
+	LOCK_READ [fs_handles_sem]
+	add	eax, [fs_handles$]
+	mov	ebx, [eax + fs_handle_dirent + fs_dirent_posix_perm]
+	or	ebx, ebx
+	jz	2f	# no posix info
+	# check the type: must be dir
+	and	ebx, POSIX_TYPE_MASK
+	cmp	ebx, POSIX_TYPE_DIR
+	mov	ebx, 0
+	jz	3f
+	inc	ebx
+	jmp	3f
+
+2:	testb	[eax + fs_handle_dirent + fs_dirent_attr], FS_DIRENT_ATTR_DIR
+	mov	ebx, 0
+	jz	3f
+	inc	ebx
+
+3:	# is dir (ebx=0)
+	UNLOCK_READ [fs_handles_sem]
+	pop	eax
+	# ebx = 0: is dir;  else: not dir
+	call	fs_close
+
+	# if the target is a dir, we move the file into it.
+	DEBUG "target is directory: OK"
+	jmp	2f	# continue
+
+1:	DEBUG "target doesn't exist"
+
+	mov	al, '/'
+	std	# backwards scan
+	repnz	scasb
+	cld
+	jnz	94f
+	DEBUGS edx
+	mov	byte ptr [edi + 1], 0	# mark as end of path
+	DEBUGS edx
+
+	mov	eax, edx
+	call	fs_open
+	mov	byte ptr [edi + 1], '/'		# restore path
+	jc	95f
+	# parent dir opened.
+	call	fs_close
+	# parent dir closed.
+
+2:	mov	eax, esi
+	push	eax	# backup: source handle
+
+	LOCK_READ [fs_handles_sem]
+	add	eax, [fs_handles$]
+
+	# verify file can be deleted
+	# for now, check if the file system is writable.
+	mov	ebx, [mtab]
+	add	ebx, [eax + fs_handle_mtab_idx]
+	DEBUG "src mtab: "
+	DEBUGS [ebx + mtab_mountpoint]
+
+
+
+	# in: edi = fs dir entry struct
+	lea	edi, [eax + fs_handle_dirent]
+
+	# in: ebx = parent/current directory handle (-1 for root)
+	mov	ebx, [eax + fs_handle_dir]
+
+	# in: eax = fs_instance
+	mov	eax, [eax + fs_handle_mtab_idx]
+	add	eax, [mtab]
+	mov	eax, [eax + mtab_fs_instance]
+	UNLOCK_READ [fs_handles_sem]
+
+	# in: esi = target name
+	mov	esi, edx
+
+	INVOKEVIRTUAL fs move
+	jc	93f
+63:
+	pop	eax
+
+	call	fs_close	# invalidate/release handle
+	jc	92f
+
+9:	popad
+	ret
+91:	printlnc 4, "fs_move: no such file or directory"
+	stc
+	jmp	9b
+92:	printlnc 4, "fs_move: close error"
+	stc
+	jmp	9b
+93:	printlnc 4, "fs_move error"
+	jmp	63b
+94:	printlnc 4, "fs_move: illegal target path (no /)"
+	stc
+	jmp	9b
+95:	printc 4, "fs_move: target parent directory does not exist: "
+	push	edx
+	call	_s_println
+	stc
+	jmp	9b
+	
+
 
 
 # cmd_lsof
@@ -1682,6 +1869,7 @@ fs_stat_:
 	call	SEL_kernelCall:0
 # in: eax = path string
 # out: ecx = file size
+# out: al = file/directory attributes XXX TODO posix
 # out: CF = 0: exists; 1: does not exist.
 KAPI_DECLARE fs_stat
 fs_stat:

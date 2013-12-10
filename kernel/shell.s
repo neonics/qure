@@ -135,6 +135,8 @@ SHELL_COMMAND "pwd",		cmd_pwd$
 SHELL_COMMAND "cat",		cmd_cat$
 SHELL_COMMAND "touch",		cmd_touch$
 SHELL_COMMAND "mkdir",		cmd_mkdir$
+SHELL_COMMAND "rm",		cmd_rm$
+SHELL_COMMAND "mv",		cmd_mv$
 #
 SHELL_COMMAND "disks",		cmd_disks_print$
 SHELL_COMMAND "listdrives",	ata_list_drives
@@ -216,6 +218,7 @@ SHELL_COMMAND "vmcheck"		cmd_vmcheck
 SHELL_COMMAND "vmx"		cmd_vmx
 SHELL_COMMAND "ramdisk"		cmd_ramdisk
 SHELL_COMMAND "inspect_str"	cmd_inspect_str
+SHELL_COMMAND "inspect_hex"	cmd_inspect_hex
 SHELL_COMMAND "keycode"		cmd_keycode
 .if VIRTUAL_CONSOLES
 SHELL_COMMAND "consoles"	cmd_consoles
@@ -1474,12 +1477,6 @@ cmd_cat$:
 
 	# make path
 
-	.if 0
-	.data
-	88: .asciz "/b/FDOS/SOURCE/KERNEL/CLEAN.BAT/"
-	.text32
-	.else
-	# works:
 	.data
 	88: .space MAX_PATH_LEN
 	.text32
@@ -1494,14 +1491,6 @@ cmd_cat$:
 	mov	esi, eax
 	call	fs_update_path
 	jc	9f
-	.endif
-
-	.if SHELL_DEBUG_FS
-	printc 8, "PATH: "
-	mov	esi, offset 88b
-	call	print
-	call	newline
-	.endif
 
 	mov	eax, offset 88b
 	KAPI_CALL fs_openfile
@@ -1581,6 +1570,95 @@ cmd_touch$:
 	ret
 9:	printlnc 4, "usage: touch <filename>"
 	ret
+
+# in: edi = dest buffer
+# in: ebx = shell
+# in: eax = relative path
+# out: eax = edi/dest buffer
+_make_path$:
+	lea	esi, [ebx + shell_cwd]
+	mov	ecx, MAX_PATH_LEN
+	rep	movsb
+	sub	edi, MAX_PATH_LEN
+	mov	esi, eax
+	mov	eax, edi	# backup/return
+	call	fs_update_path
+	ret
+
+cmd_rm$:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	91f
+
+	push	ebp
+	mov	ebp, esp
+	sub	esp, MAX_PATH_LEN
+
+	mov	edi, esp
+	call	_make_path$	# in: eax, ebx, edi
+	jc	92f
+
+	KAPI_CALL fs_stat	# eax -> ecx=filesize,CF=0=exists
+	jc	93f
+
+	mov	eax, esp
+	KAPI_CALL fs_delete
+	jc	94f
+
+0:	mov	esp, ebp
+	pop	ebp
+	ret
+
+91:	printlnc 12, "usage: rm <file_or_directory>"
+	ret
+92:	printlnc 4, "fs_update_path error"
+	jmp	0b
+93:	printlnc 4, "no such file or directory"
+	jmp	0b
+94:	printlnc 4, "fs_delete error"
+	jmp	0b
+
+
+# requires 2kb stack
+cmd_mv$:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	91f
+	mov	edx, eax	# from
+	lodsd
+	or	eax, eax
+	jz	91f
+
+
+	push	ebp
+	mov	ebp, esp
+	sub	esp, MAX_PATH_LEN
+
+	mov	edi, esp
+	call	_make_path$	# in: eax, ebx, edi
+	jc	92f
+
+	xchg	eax, edx
+	sub	esp, MAX_PATH_LEN
+	mov	edi, esp
+	call	_make_path$
+	jc	92f
+
+	# edx = target path
+	# eax = source path
+
+	KAPI_CALL fs_move
+
+0:	mov	esp, ebp
+	pop	ebp
+	ret
+
+91:	printlnc 12, "usage: mv <from> <to>"
+	ret
+92:	printlnc 4, "fs_update_path error"
+	jmp	0b
 
 #####################################
 cmd_int_count:
@@ -2823,18 +2901,52 @@ cmd_inspect_str:
 	or	eax, eax
 	jz	91f
 	call	htoi
-	jc	9f
+	jc	91f
 	mov	edx, eax
 	lodsd
 	or	eax, eax
 	jz	91f
 	call	htoi
-	jc	9f
+	jc	91f
 	mov	ecx, eax
 	mov	esi, edx
 	call	nprintln
+	ret
+91:	printlnc 4, "usage: inspect_str <hex_addr> <hex_len>"
+	ret
+
+cmd_inspect_hex:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	91f
+	call	htoi
+	jc	91f
+	mov	edx, eax
+	lodsd
+	or	eax, eax
+	jnz	1f
+	mov	ecx, 1
+	jmp	2f
+1:	call	htoi
+	jc	91f
+	mov	ecx, eax
+	jecxz	9f
+2:	mov	esi, edx
+0:	mov	edx, esi
+	pushcolor 8
+	call	printhex8
+	printchar_ ':'
+	popcolor
+	call	printspace
+	lodsd
+	mov	edx, eax
+	call	printhex8
+	call	printspace
+	loop	0b
+
 9:	ret
-91:	printlnc 4, "usage: t <hex_addr> <hex_len>"
+91:	printlnc 12, "usage: inspect_hex <hex_addr> [hex_len]"
 	ret
 
 cmd_keycode:
