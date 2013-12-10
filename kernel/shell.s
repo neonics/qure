@@ -219,6 +219,7 @@ SHELL_COMMAND "vmx"		cmd_vmx
 SHELL_COMMAND "ramdisk"		cmd_ramdisk
 SHELL_COMMAND "inspect_str"	cmd_inspect_str
 SHELL_COMMAND "inspect_hex"	cmd_inspect_hex
+SHELL_COMMAND "call"		cmd_call
 SHELL_COMMAND "keycode"		cmd_keycode
 .if VIRTUAL_CONSOLES
 SHELL_COMMAND "consoles"	cmd_consoles
@@ -1027,7 +1028,7 @@ cmd_quit$:
 	KAPI_CALL fs_close
 
 	mov	eax, ebx
-	call	mfree
+	call	class_deleteinstance
 
 	pop	ebp
 	ret
@@ -2948,6 +2949,46 @@ cmd_inspect_hex:
 9:	ret
 91:	printlnc 12, "usage: inspect_hex <hex_addr> [hex_len]"
 	ret
+
+cmd_call:
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	9f
+	call	htoi
+	jc	1f
+	mov	edx, eax
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+	call	newline
+
+0:	printlnc 0xf0, "CALLING"
+	push	ebp
+	call	edx
+	pop	ebp
+	ret
+
+1:	# not hex, so assume symbol name
+	mov	esi, eax
+	call	print
+	print ": "
+	mov	edx, esi
+	call	debug_findsymboladdr
+	jc	1f
+	call	printhex8
+	call	newline
+	jmp	0b
+
+1:	printlnc 4, "not found"
+	ret
+
+9:	printlnc 4, "usage: sym hex_address"
+	ret
+
+
+
+9:	ret
 
 cmd_keycode:
 	printlnc 15, "Press any key; ESC to quit"
