@@ -285,6 +285,8 @@ net_service_tcp_http:
 
 1:	cmpw	[edx], '/' | 'D' << 8	# gzip test
 	jnz	1f
+	cmpb	[edx + 2], 0	# avoid prefix matches
+	jnz	1f
 
 	call	www_gzip_test
 
