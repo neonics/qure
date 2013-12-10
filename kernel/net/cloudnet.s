@@ -519,10 +519,18 @@ cluster_add_node:
 	mov	ecx, eax
 
 	ARRAY_LOOP [cluster_nodes], NODE_SIZE, eax, edx, 1f
+.if 0	# check IP (may change due to DHCP - not reliable)
 	cmp	ecx, [eax + edx + node_addr]
+.else	# check MAC
+	mov	ebx, [edi]
+	cmp	ebx, [eax + edx + node_mac]
+	jnz	0f
+	mov	bx, [edi + 4]
+	cmp	bx, [eax + edx + node_mac + 4]
+.endif
 	lea	ebx, [eax + edx]
 	jz	2f
-	ARRAY_ENDL
+0:	ARRAY_ENDL
 	jmp	1f
 2:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_UPDATE
 	jb	2f
