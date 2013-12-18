@@ -96,6 +96,41 @@ Adding debug statements
   make && qemu, allow for equally fast debugging as can be done with
   an IDE.
 
+Using GDB Remote Debugging
+==========================
+For VMWare, add the line
+	debugStub.listen.guest32 = "TRUE"
+to the .vmx file. Note that it uses port 8832.
+
+See [http://www.reactos.org/wiki/GDB] for more details.
+
+The .gdbinit file contains the setup required:
+	cd kernel/
+	file kernel.obj.debug
+	target remote localhost:8832
+	continue
+The ''cd'' line makes sure that the source files can be located.
+The ''file'' line designates the binary that is executing in the VM.
+The ''target'' line specifies the debugging connection to the VM.
+The ''continue'' line makes sure that the kernel continues to run once GDB is
+running.
+
+All this allows to simply run ''gdb'' in the top level project directory.
+You will notice on the first run, that there are likely errors due to the
+''.gdbinit'' not being executed. GDB will say what to do; add a line like this
+to ~/.gdbinit:
+	add-auto-load-safe-path /cygdrive/c/code/qure/.gdbinit
+
+
+To quit the debugger without terminating the VM, first type ''control-C'',
+followed by ''detach'' before running ''quit'' in GDB.
+
+The ''kernel/Makefile'' produces the ''kernel/kernel.obj.debug'', which is
+adjusted: it is a copy of ''kernel/kernel.obj'' with the VMA/LMA/image addresses
+adjusted to the kernel load address (currently ''0x13000''). The ''.stab'' section
+has also been modified using ''build/coff'', since this is not supported by objcopy.
+
+
 Shell
 =====
 

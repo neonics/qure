@@ -8,6 +8,9 @@ extendedConfigFile = "qure.vmxf"
 nvram = "qure.nvram"
 guestOS = "other"
 
+;allows to run gdb using the .gdbinit
+;debugStub.listen.guest32 = "TRUE"
+
 bios.bootDelay = "0000"
 
 guestinfo.hostname = "qure-X"

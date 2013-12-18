@@ -100,6 +100,13 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 		--image-base 0 \
 		-o $@ $(KERNEL_OBJECTS) #$^
 
+	@# create debug version
+	@objcopy --change-addresses 0x13000 --debugging kernel.obj kernel.obj.debug
+
+	@#update stabs
+	@../build/coff kernel.obj.debug --adjust-source 0x13000
+
+
 KLIB_SRC = lib/mem.s lib/handles.s \
 		lib/ll.s lib/string.s lib/buffer.s lib/token.s lib/hash.s
 

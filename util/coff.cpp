@@ -58,7 +58,7 @@ void error( const char * msg )
 	if (errno)
 		perror( msg );
 	else
-		printf( msg );
+		printf( "%s\n", msg );
 	exit(1);
 }
 
@@ -81,6 +81,8 @@ void print_usage( char ** argv )
 			"        <elementsize> and removes trailing padding by updating the section size.\n"
 			"        This allows to split structured arrays over multiple object files.\n\n"
 //			"      --section-align <sectionname> <elementsize>\n"
+			"      --relocate-source <addr>\n"
+			"        adjusts the addresses in .stab (source lines)\n\n"
 	);
 }
 
@@ -98,6 +100,7 @@ int main(int argc, char ** argv)
 	char * rempad_sections[10];
 	int rempad_elsize[10];
 	int rempad_idx=0;
+	int adjust_source = 0;
 
 	for ( int i = 1; i < argc; i++ )
 	{
@@ -108,9 +111,11 @@ int main(int argc, char ** argv)
 				if ( strcmp( argv[i], "-v" )==0 )
 					verbose=1;
 				else
+				{
 					printf( "unknown option: %s\n", argv[i] );
 					print_usage( argv );
 					exit(1);
+				}
 			}
 			else
 				objfilename = argv[i];
@@ -129,6 +134,12 @@ int main(int argc, char ** argv)
 						n, s );
 
 				rempad_idx++;
+			}
+			else if ( strcmp( "--adjust-source", argv[i] ) == 0 )
+			{
+				if ( i+1 >= argc ) error( "--adjust-source takes <addr>" );
+				if ( sscanf( argv[++i], "%x", &adjust_source ) != 1 )
+					error( "invalid hex" );
 			}
 			else
 			{
@@ -164,7 +175,7 @@ int main(int argc, char ** argv)
 		printf("Flags: %x\n", h->h_flags);
 	}
 
-	sectionhdr* sec = (sectionhdr*) (buf + sizeof(filehdr));
+	sectionhdr* sec = (sectionhdr*) (buf + sizeof(filehdr) + h->h_opthdr);
 
 	if ( verbose )
 		printf("SECTION nr vaddr    size     name         flags\n");
@@ -202,6 +213,61 @@ int main(int argc, char ** argv)
 					if ( verbose )
 						printf("newflags:%08x",newflags);
 				}
+			}
+
+		}
+
+		if ( strcmp( ".stab", sname ) == 0 )
+		{
+			// reverse engineer...
+
+			#pragma pack(1)
+			struct STAB {
+				unsigned long sfile;	// index into .stabstr when linenr == 0
+				unsigned short code;	// 0x44: SLINE; 0x84: SOL; 0x64: SO
+				unsigned short linenr;
+				unsigned long addr;
+			};
+
+			STAB * slp = (struct STAB*)(buf + sec[i].s_sectionptr);
+			unsigned char * stb = buf + sec[i].s_sectionptr;
+
+
+			if ( verbose )
+			{
+				// find .stabstr
+				const char * stabstr = NULL;
+				for ( int k = 0; k < h->h_nsections; k++)
+				{
+					if ( strcmp( ".stabstr", getname( sec[k].s_name, h) ) == 0 )
+						stabstr = (const char*)buf + sec[k].s_sectionptr;
+				}
+				if ( stabstr == NULL )
+					printf(" !WARN! no .stabstr" );
+
+				printf( " %x ", sec[i].s_sectionptr );
+
+				for ( int k = 0; k < sec[i].s_size / 12; k ++ )
+				{
+					printf("%4d: ", k);
+					printf("%08x %04x %5d %08x",
+						slp[k].sfile, slp[k].code, slp[k].linenr, slp[k].addr);
+
+					printf(" %s\n", slp[k].linenr==0
+						? (stabstr == NULL ? "<..>" : stabstr + slp[k].sfile )
+						:""
+					);
+				}
+			}
+
+			if ( adjust_source != 0 )
+			{
+				for ( int k = 0; k < sec[i].s_size / 12; k ++ )
+					slp[k].addr += adjust_source;
+
+				printf(" SEEK %d  WRITE %d", sec[i].s_sectionptr, sec[i].s_size );
+				lseek( handle, sec[i].s_sectionptr, SEEK_SET );
+				write( handle, slp, sec[i].s_size );
 			}
 		}
 
