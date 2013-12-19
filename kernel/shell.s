@@ -1982,6 +1982,7 @@ cmd_gpf:
 	pop	ebp
 	ret
 
+.global cmd_colors
 cmd_colors:
 	xor	al, al
 0:	COLOR	al

@@ -5,7 +5,7 @@
 
 VID_DEBUG = 1
 
-VID_STARTUP_CHECK = 0
+VID_STARTUP_CHECK = 2
 
 VMSVGA2_DEBUG = 0
 
@@ -430,6 +430,16 @@ vmwsvga2_init:
 9:	call	newline
 
 .if VID_STARTUP_CHECK
+	call	vmwsvga2_startup_check
+.endif
+
+	clc
+	pop	edx
+	pop_	eax edx ebp
+	ret
+
+.if VID_STARTUP_CHECK
+vmwsvga2_startup_check:
 	# TEST: set video mode.
 	# set up the fifo
 	push	fs
@@ -546,13 +556,13 @@ vmwsvga2_init:
 
 	call	newline
 
-	# this will automatically sync/flush on vid mem write,
-	# as the FIFO doesn't work as expected yet.
+	# this will automatically sync/flush on vid mem write.
 	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_TRACES
 	jz	1f
 jmp	1f
 	VID_WRITE TRACES, 1
 1:
+	VID_WRITE TRACES, 0	# no speed increase, FIFO works.
 	push	es
 	mov	edi, SEL_flatDS
 	mov	es, edi
@@ -573,7 +583,7 @@ mov [vidb], dword ptr 4
 
 push	dword ptr [screen_update]
 
-	mov	[curfont], dword ptr offset font_4k_courier #_courier56
+	mov	[curfont], dword ptr offset fonts4k #_courier56
 	mov	[fontwidth], dword ptr 8
 	mov	[fontheight], dword ptr 16
 	mov	[gfx_printchar_ptr], dword ptr offset gfx_printchar_8x16
@@ -607,17 +617,89 @@ mov	[screen_update], dword ptr offset gfx_txt_screen_update
 .endif
 .endif
 
-.if 0
-0:xor eax,eax
-call keyboard
-	push	edx
-	mov dx, ax; call printhex4
-	call	printhex4
-	pop	edx
+
+.if 1
+pushad
+.data SECTION_DATA_BSS
+vidtst_clock: .long 0
+vidtst_frames: .long 0
+.text32
+
+
+	mov	eax, [clock]
+	mov	[vidtst_clock], eax
+0:
+	mov	ah, 1#KB_PEEK
+	call	keyboard
+	jz	1f
+	xor	ah, ah
+	call	keyboard
+
+	cmp	ax, K_ENTER
+	jz	0f
+
+	push	eax
+	call	_s_printhex8
+	call	printspace
+
+1:	call	fillscreen$
+
+	mov	edx, [vidtst_frames]
+	call	printhex8
+	call	printspace
+	mov	eax, edx	# frames (since start)
+
+	mov	edx, [clock]
+	sub	edx, [vidtst_clock]
+	call	printhex8
+	call	printspace
+.if 1
+	mov	ecx, edx	# clocks (since start)
+
+	mov	esi, eax	# frames (backup
+	inc	esi	# prevent / 0
+
+	# FPS: frames / seconds
+
+	# 32:32 period (ms)
+	mov	edx, [pit_timer_period]
+	mov	eax, [pit_timer_period+4]
+	shrd	eax, edx, 8
+	shr	edx, 8
+	# mul with clocks
+	imul	ecx
+
+	# frames / time
+	# trunc to milliseconds:
+	shrd	eax, edx, 24	# eax now milliseconds, edx=0 (presumably)
+	mov	ecx, eax	# time
+	xor	edx, edx
+	mov	eax, esi	# frames
+	mov	esi, 1000
+	imul	esi	# 1000 * frames: corrects ms
+	cmp ecx, 100
+	jb 1f
+	div	ecx		# frames / time
+
+	mov	edx, eax
+	call	printdec32	# fps
+1:
+	# refresh measurement
+	cmpd	[vidtst_frames], 1000
+	jb	1f
+	mov	[vidtst_frames], dword ptr 0
+	mov	eax, [clock]
+	mov	[vidtst_clock], eax
+1:
+.endif
+
+	call	newline
 
 	call	svga_fifo_cmd_update_full
-cmp ax, K_ENTER
-jnz 0b
+	incd	[vidtst_frames]
+	jmp	0b
+0:
+popad
 .endif
 
 pop	dword ptr [screen_update]
@@ -629,11 +711,32 @@ pop	dword ptr [screen_update]
 	#VID_WRITE HEIGHT, [ebx+vmwsvga2_txtmode_h]
 	#VID_WRITE BITS_PER_PIXEL, [ebx+vmwsvga2_txtmode_bpp]
 
-.endif	# VID_STARTUP_CHECK
-	clc
-	pop	edx
-	pop_	eax edx ebp
 	ret
+
+.data SECTION_DATA_BSS
+fillscreen_color: .long 0x12345678
+.text32
+fillscreen$:
+#ret
+	push_	es edi eax ecx
+	mov	edi, SEL_flatDS
+	mov	es, edi
+#	mov	edi, [ebx + vid_fb_addr]
+#mov [vidfbuf], edi
+mov edi, [vidfbuf]
+add eax, [fillscreen_color]
+rol eax, 7
+xor [fillscreen_color], eax
+	#mov	eax, 0x00ff8822
+	mov	ecx, 1024 * 768
+#	cld
+	rep	stosd
+	pop_	ecx eax edi es
+	ret
+
+.endif	# VID_STARTUP_CHECK
+
+
 
 
 vmwsvga2_hook_isr:
@@ -688,9 +791,6 @@ vmwsvga2_isr:
 
 	DEBUG_DWORD eax,"IRQ FLAGS"
 
-	.if VMSVGA2_DEBUG
-		call	newline
-	.endif
 ########################################################################
 9:
 .if !IRQ_SHARING
@@ -948,8 +1048,8 @@ cmd_gfx:
 
 	mov	dx, [ebx + dev_io]
 
-	VID_WRITE WIDTH, 1600#1024
-	VID_WRITE HEIGHT, 900#768
+	VID_WRITE WIDTH, 1024 # 1600#1024
+	VID_WRITE HEIGHT, 768 #900#768
 	VID_WRITE BITS_PER_PIXEL, 32
 
 	VID_WRITE ENABLE, 1	# even without writing w/h it'll switch mode
