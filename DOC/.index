@@ -20,10 +20,12 @@ Architecture.txt
 # arp.txt
 # Assembler.txt
 # Assembly.txt
-CloudNet.txt
+=Networking
+ CloudNet.txt
   NetFork.txt
   Gittorrent.txt
   MigratingTCP.txt
+ Transparency.txt
 # Compiler.txt
 # Compression.txt
 # Compression2.txt
@@ -71,5 +73,7 @@ CloudNet.txt
   notes/TaskSwitching.txt
   =Reference
     IO.txt
+    Interrupts.txt
     Paging.txt
     Assembly.txt
+    IP.txt

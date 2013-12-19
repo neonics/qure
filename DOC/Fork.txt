@@ -88,3 +88,6 @@ The 0x45 sums to 9, an ending or yielding. Both 69 and 96 sum to 6, in this cont
 a beginning (or an ending). 69->6, 0x45->9; 96->6, 0x60->0x6.
 
 
+Implementation
+--------------
+See [Transparency#Fork] for an implementation of ''fork''.

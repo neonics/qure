@@ -1,0 +1,307 @@
+Transparent Proxy
+=================
+
+Buffered packet filter
+-----------
+TCP Handoff is described in [MigratingTCP], allowing for a buffered packet filter.
+This filter acts as a delay, following protocol until enough information is gathered
+to determine a response.
+
+The response is not measured in terms of responding to the host initiating the
+connection, but the response to the network. Defining it this way allows to
+describe handing off HTTP requests to other local hosts based on the URL.
+After having replayed the connection to the designated local host, the packets
+arriving from then on will simply be marked as to be forwarded to the host.
+
+We're assuming a dumb router, which is only capable of forwarding a port to a
+single IP. The DMZ node then will assume all incoming connections are meant for
+it, and process them.
+
+= Stacked Protocol Handler =
+
+Ethernet
+--------
+The only installed packet handler is the Ethernet protocol handler.
+This handler filters packets based on the target MAC address, as follows.
+There must be a NIC with that MAC, and the packet must have arrived on that NIC.
+The current implementation optimizes for broadcast and multicast MAC addresses.
+As yet it passes through all multicast packets, although the NICs support a
+multicast address array through the IGMP protocol implementation.
+The source MAC is ignored by the Ethernet packet handler, but offered for
+processing to delegate handlers.
+The protocol field of the Ethernet frame then serves as a key in a table of
+delegate handlers.
+
+ARP
+---
+The ARP implementation is responsible for binding the NIC's primary IP address 
+to the network. This means that the network will receive a response to the request
+for the MAC of that IP.
+
+DHCP
+----
+Besides static IP configuration, a DHCP client is provided, which will transmit
+a DHCP request and configure the network address in the NIC, which results in
+the route table being updated.
+
+IP
+--
+The IP protocol filter is similar to the Ethernet one, as it verifies that the
+target IP is associated with the NIC on which the packet is received, and filters
+on broadcast and multicast IP addresses.
+
+TCP and UDP filter
+---
+These protocol handlers will accept connections on ports that have a handler
+installed, using a ''socket'' object buffering the packet data, in the case of UDP,
+and the stream data in the case of TCP. The difference is that in the case of TCP,
+a read will return all buffered consecutive data so far, whereas in the case of UDP,
+each read will return the payload of a single received packet.
+It will receive by default, but not send. No limitation is imposed on which end is
+expected to initiate information transmission.
+
+Events
+------
+Network events are offered in the form of method calls on the socket API.
+To register a TCP payload protocol handler, a socket must be allocated,
+parameterized with the desired protocol address (which is both the protocol
+number aswell as the target IP address and port). Once this socket is allocated,
+the filter is installed. The first event that can be expected on streaming
+sockets, indicating the kernel will buffer data in both directions, is the connect
+event. Once the API method ''socket_accept'' is called, the thread is suspended, and
+the return address on the stack will be used as the handler address. In a sense,
+then, this is event handling, as the kernel API to register the handler has
+the side effect of suspending the thread, interpreting the method call return
+address as the handler address.
+
+Such protocol handlers cannot be installed by the kernel thread itself unless
+it wants to yield until a connection is initiated. This then requires to schedule
+a task, or, fork a thread. Fork is as yet not implemented, but it would go like
+this:
+
+[=Fork]
+	fork:
+		pushstring "thread"
+		pushd	FLAG_TASK
+		pushd	offset 1f
+		pushd	cs
+		call	schedule_task
+		xor	eax, eax
+		ret
+	1:	mov	eax, [ebx + task_pid]
+		ret
+
+	call_fork:
+		call	fork
+		or	eax, eax
+		jnz	child
+	parent:
+
+The ''accept'' event handler provides the hook for protocols where the server
+is expected to initiate content transmission, such as SMTP.
+
+The second type of handler is the content received handler, or ''socket_peek''.
+It takes both a minimum payload size and a timeout. This allows to handle multiple
+sockets in a single thread. It either returns timeout, or the pointer to the
+buffered data and it's length.
+This handler allows for protocols to expect data transmission initiation from
+the originating address, aswell as expecting data at any time during the protocol.
+
+Services
+--------
+==DNS==
+As yet, the ''cloud.neonics.com'' domain is automatically configured from another
+address (''cloudns.neonics.com''), and any requests for it's nameservers and IP
+will be handled to point to itself. The ''cloudns'' lookup is done as it is an
+IP address configured to represent the public IP using a ''DYNA'' record at the
+domain registrar's DNS service.
+
+This address need not be configurable for other clusters, as it only serves to
+offer an initial response for any incoming DNS lookups for ''cloud.neonics.com''.
+Other clusters will respond with the primary cluster (my laptop)'s public IP
+address. 
+
+[TODO:]
+What is left to do, besides caching and forwarding any requests thereby
+becoming a clustered DNS cache (see more in [DNS2]), is to allow other clusters
+to append their public IP to the list of ''NS'' records in their response. This
+requires first, that the public IP needs to be determined, and second, that DNS
+data is shared across clusters.
+
+Determining the public IP will either require a third party service, or any other
+cluster. Since WAN clusters are meant to provide backup for each other, the local
+public IP needs to be persisted once it is determined, as it cannot be retrieved
+by secondary clusters when the primary cluster is offline, thereby not being able
+to redirect DNS traffic to themselves.
+
+===Bootstrapping DNS===
+As yet, the primary cluster will need to be online for any requests to propagate
+to secondary clusters, since clustered domains such as ''www.neonics.com'' 
+have a ''CNAME'' to ''cloud.neonics.com'' which the DNS protocol handler answers
+with the primary cluster's public IP.
+Once a second cluster is online, the primary cluster's DNS handler will append
+the second cluster's IP to the response, thereby propagating two DNS servers
+for the domain. 
+
+As yet, ''cloud.neonics.com'' is an ''NS'' record for ''cloudns.neonics.com''.
+The trick is in using an ''NS'' record for the WAN cluster, which interposes
+a second query. A DNS client looking up the address of ''cloud.neonics.com''
+will find it is an NS record, and attempt to resolve the NS record. Once it has,
+it will then ask the resolved IP for the address of ''cloud.neonics.com'', which
+may point elsewhere than to the ''NS'' of the domain, as is the case with all
+commercial domains.
+
+To bootstrap the ''cloud.'' domain, it merely needs to point to a clustered name.
+We will thus rename the ''cloud.'' domain to ''steam.'', as in bootstrapping a
+cloud, and reserve ''cloud.'' for the distributed domain. This domain will then
+refer to the ''steam.'' domain. The primary cluster will no longer lookup
+the address for ''cloudns'', as only a single ''DYNA'' record is supported
+for commercial domains, but it will instead lookup ''steam''. 
+As usual, it will append it's own public IP to the list it has resolved (where
+actually right now they are the same). This will make all nodes return all
+cluster IP's for ''steam'', and will still allow ''cloud'' to have a smaller
+timeout and become adjusted depending on the online clusters.
+
+So:
+
+	cloudns.neonics.com	DYNA	primary_ip
+	steam.neonics.com	NS	cloudns.neonics.com
+	cloud.neonics.com	NS	steam.neonics.com
+
+With only the primary cluster online, a client will resolve:
+
+	target		what		response
+	------------------------------------------------
+	registrar	cloud?		NS steam
+	registrar	steam?		NS cloudns
+	registrar	cloudns?	A <public_ip>
+	<public_ip>	steam?		A <cluster_ips>
+	<cluster_ips>	cloud?		A <cluster_ip>
+
+Remember that in step 4, after the NS for steam is resolved, that NS is asked
+to resolve the address for steam, just like it is now (while it is still called
+cloud). It will then have the address of the nameserver for cloud, rather than
+the address of cloud, as it is now. This extra step is not needed with a single
+cluster.
+
+[note: perhaps this will not work after all and is merely another level of
+indirection. It appears that the path to the A record is always followed.]
+
+Again:
+	target		what		response
+	------------------------------------------------
+	registrar	cloud?		NS cloudns
+	registrar	cloudns?	A <public_ip>
+	<public_ip>	cloud?		A <cluster_ips>
+
+This will not allow to propate multiple IP's for a single name until the primary
+cluster is contacted. In the first case with the steam inference, the queries
+will also be cached, usually by the ISP. A second run then, will result in
+''cloud'' being resolved as ''NS steam'' as usual, which will no longer
+have to be looked up. 
+This is also the case in the 3-query case, where when the registrar cache (the ISP)
+is asked for ''A cloud'', it will have the ''A'' records cached for the ''NS''
+of the cloud. It will also cache the addresses for the cloud, but these can be
+delivered with a quick timeout. It may even require another subdomain.
+
+
+
+
+==ARP==
+
+==SMTP==
+When TCP handoff is implemented, this handler can forward connections to specific
+mail servers. At current it only verifies protocol correctness, and does not
+validate the data. It is able to present an email as a whole, by sending the
+buffered from and to addresses, then forwarding the stream when the message body
+is being sent, and take back control when it detects the end-of-message token.
+This then requires the SMTP protocol handler to remain in place, and will not use
+TCP data replay in that sense since the content will be stripped from SMTP protocol
+actions. Yet it need not buffer any data except the sender and recipient.
+Upon data reception, it scans for the end-of-message-marker, and forwards the
+data up to then, or all of it when it is not found. It also implements a timeout,
+at which point it can terminate with an abort token. This can either be the end
+of line token followed by a status token, say, 'commit' or 'abort', or can be
+handled at the TCP level, by not sending a PSH, and terminating the connection
+with a RST instead of a FIN. This latter option would cause partial messages to
+be discarded, depending on the implementation of the handler SMTP delegates to.
+
+As yet no SMTP events are implemented, since the file system write operations
+are unfinished, which will be their primary implementation.
+
+== HTTP ==
+The HTTP protocol handler simply buffers all incoming data until a request complete
+token is received. It then parses the request, extracting supported tags,
+among which are the HTTP 0.9 request method and URI, and the HTTP 1.1 Host and E-Tag
+values.
+At current the host is treated as a filesystem directory, but it can easily be
+treated as a key in a hashtable of cluster nodes or IP addresses. For example,
+a designated domain might indicate local cluster nodes. Further, the URI could be
+used, where certain paths refer to constant data in terms of session context,
+and can thus be load-balanced.
+The E-Tag can be a SHA1 hash referring to a torrent file or a GitFS blob or simply
+encode a predetermined action, such as indicating the type of request, the
+identifier for the hosts that manage the request, etc. 
+
+[note: not sure if a HTTP 304 Not Modified response allows to update the E-Tag;
+if it does, it can be used to encode session information and refresh a timeout
+value]
+Using this way, if a session has already been established, further HTTP requests
+can be offered load balanced, and arrive at a different node. It will then extract
+the cluster node that is handling the session and forward the packets to it.
+This then allows to use cookie-based routing, requiring no cluster communication
+to distribute session data.
+
+For instance, if several nodes run the same websites, and use ''SSI'', then
+static content can be separated from expressions, and served by the local node,
+thereby offering a caching service - since it was chosen to handle the request by
+the DMZ balancer - and all dynamic data, indicated by ''${'' and ''}'' tokens,
+will be passed on to the node managing the session. That node then effectively
+becomes the database, offering session based data, which is data that has a
+different form depending on earlier data received.
+
+A fallback may be in place, where the session node is not responding to the highest
+priority message, a cluster ping response. Note that at current no incoming
+packet priority is implemented. This can be done at the IP layer which could
+proxy for a thread pool. 
+The fallback would have to share the session data. Since the same database is used
+across all nodes, all that is needed to be shared on the cluster is the state
+information that determines the form of the dynamic data. This then means all
+data that has an effect on the result.
+Such data can be organized in pieces. For instance, a persisted username injected
+into a page may only depend on a user id. This user id then is associated with 
+a distributed session. Any further piece of dynamic content will then register
+all other keys needed for the session, divided into two classes: persistent
+and transient. Persistent means what it says, and transient means the validity
+of the data is limited by the session scope, such as number of requests this
+session.
+
+If a piece of data concatenates the username and another field, it could have
+a new key for them both, or register the new field under the same key.
+Each expression on a webpage then becomes a key into a cached piece of data.
+This way, a single request can be monitored for all pieces occurring together,
+grouping all keys together into a single page and storing this as a cache
+on the cluster. This then forms the actual database use, and thus the actual
+database, as driven by page requests.
+
+
+== SIP ==
+At current only a HTTP-like filter is in place, which parses a complete request
+and sends a ''SIP/2.0/501 Not Implemented'' response, or a ''408 Request Timeout''.
+This allows to implement ''VOIP'' using routing protocols described above.
+
+Embedded
+========
+Due to the relatively small memory footprint of the kernel, it can easily be used
+on an embedded system, as long as it is i386 compatible. This would allow it to
+function as a smart gateway for a local cluster. It need not replace the WAN router,
+but would take over all incoming network filtering, and, could be used as the
+WAN gateway instead of the router, although no packet forwarding is as yet
+implemented.
+
+The advantage of this system is that it can be run in a virtual machine, which
+uses very little memory, as virtually all of it is the overhead of the virtual
+machine (for VMWare Player around 5Mb/11Mb/24Mb). This then means, that a
+dedicated server can run several instances of the kernel, and that any LAN node
+can serve as a backup gateway.
+

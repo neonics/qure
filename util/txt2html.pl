@@ -161,10 +161,11 @@ $c=~ s@(?<!\t)\[!([^\]]+)\]@<div class='note'>$1</div>@g;
 $c=~ s@(?<!\t)\[(https?://.*?)\]@<a href="$1">$1</a>@g;
 
 # [type: message]
-$c=~ s@(?<!\t)\[(\S+?):\s*(.*?)\]@<span class='n $1'>$1: $2</span>@g;
+$c=~ s@(?<!\t)\[(\S+?):\s*(.*?)\]@<span class='n $1'>$1: $2</span>@gs;
 
 # [Foo] ; local txt/html doc ref
-$c=~ s@(?<!\t)\[([^\]\.]+)\]@<a href="$1.html">$1</a>@g;
+# [Foo#anchor] aswell
+$c=~ s@(?<!\t)\[([^\]\.#]+)(#[^\]\.]*)?\]@<a href="$1.html$2">$1</a>@g;
 
 
 # preserve hardlines in paragraphs
