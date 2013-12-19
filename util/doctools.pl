@@ -1,8 +1,13 @@
 #!/usr/bin/perl
+#
+# To see the documentation, run:
+#
+#  pod2man doctools.pl | nroff -man
 
 %options = (
 	dir	=> '.',
-	type	=> undef	# 'txt' or 'html'
+	type	=> undef,	# 'txt' or 'html'
+	ignoremissing => 0
 );
 
 while ( $ARGV[0] =~ /^-/ )
@@ -10,7 +15,8 @@ while ( $ARGV[0] =~ /^-/ )
 	my $opt = shift @ARGV;
 
 	$opt eq '-d' and $options{dir} = shift @ARGV || die "$opt: expect value" or
-	$opt eq '-t' and $options{type} = shift @ARGV || die "$opt: expect value"
+	$opt eq '-t' and $options{type} = shift @ARGV || die "$opt: expect value" or
+	$opt eq '-i' and $options{ignoremissing} = 1
 	or die "unknown option: $opt";
 }
 
@@ -25,8 +31,101 @@ $command eq 'list' and do {
 	print genlinks( get_index() );
 } or $command eq 'unlisted' and do {
 	print difflist();
-} or die "unknown command: $command\ncommands:\n\tlist\n\tgenlinks\n\tunlisted\n";
+} or die <<"EOF";
+unknown command: $command
 
+Usage:	$0 [options] <command> [command args]
+
+
+options:
+	-d <dir>	document directory; defaults to current directory
+	-t <type>	filter on file extensions ("html", "txt"); default none
+	-i		ignore missing files
+
+commands:\n\tlist genlinks unlisted
+See the POD documentation for more (pod2man doctools.pl | nroff -man)
+EOF
+
+=pod
+
+=head1 SYNOPSIS
+
+doctools.pl [options] <command> [command args]
+
+=head2 OPTIONS
+
+-d <dir>	document directory; defaults to current directory
+
+-t <type>	filter on file extensions ("html", "txt"); default none
+
+-i		ignore missing files from the index. Without this option,
+		missing files will not be listed or placed in the TOC.
+
+=head2 COMMANDS
+
+list		lists files. This is useful to construct dynamic
+		dependencies in Makefiles.
+
+genlinks	generate a HTML TOC of all the files.
+ --mtime	fetch modification time from Git for all files, store them
+		in the TOC, and include Javascript to calculate 'new',
+		'updated', and 'tobeadded' labels.
+ --tree		preserve tree structure from the indentation in index.
+ --maxhours <h> maximum file age to be considered new/updated, default 1w.
+
+unlisted	lists files in the directory not present in the index.
+		this option requires there to be an index.
+
+=head1 DESCRIPTION
+
+When no .index file is present in the document directory, the directory will
+be examined for matching files, by default .html and .txt unless -t <type> is
+given. When a .index file is present, only the files listed there will be used.
+
+=head1 .index FORMAT
+
+The .index file lists all .txt and .html files from the DOC directory that are
+managed by this tool. Lines are stripped of comments (#). Empty lines are ignored.
+Indentation is used to generate a tree structure: only indentation increments
+are considered, not the depth itself per se.
+Labels can be included by prefixing them with '='.
+
+For example:
+
+	=Foo
+	  bar.txt
+	    baz.html	# comment
+	    bax.txt
+	  doc.txt
+	  =Grouping
+	   one.txt
+	    two.txt
+
+will produce:
+
+	<ul id="doclist">
+	  <li>Foo
+	    <ul>
+	      <li><a href="bar.html">bar</a></li>
+	      <ul>
+	      	<li><a href="baz.html">baz</a></li>
+	      	<li><a href="bax.html">bax</a></li>
+	      </ul>
+	      <li><a href="doc.html">doc</a></li>
+	      <li>Grouping
+	        <ul>
+		  <li><a href="one.html">one</a>
+		    <ul>
+		      <li><a href="two.html">two</a></li>
+		    </ul>
+		  </li>
+		</ul>
+	      </li>
+	    </ul>
+	  </li>
+
+(NOTE: at current, nested <ul> elements will appear under <ul> rather than <li>)
+=cut
 
 sub get_index {
 	process_index (
@@ -52,7 +151,7 @@ sub process_index {
 	@_ = grep { $_->{n}=~ /\.$options{type}$/ } @_ if $options{type};
 	@_ = map { $_->{n} =~ /^=/ and $_->{label}=$'; $_ } @_;
 	@_ = grep { my $a=$_->{n}; chomp $a; $_->{label} || -f $options{dir}."/".$a
-		or do { warn "WARNING: missing $options{dir}/$_->{n}"; 0} } @_;
+		or do { warn "WARNING: missing $options{dir}/$_->{n}"; $options{ignoremissing}} } @_;
 }
 
 sub strip_type {
