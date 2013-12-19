@@ -21,7 +21,8 @@ map {
 
 		$l=~ /^#/ and 1 or
 		$l=~ /^http:/ and 1 or do {
-			$msg .= check( $_, $p, $2 );
+			$l =~ s/#.*//;
+			$msg .= check( $_, $p, $l );
 		}
 	}
 
