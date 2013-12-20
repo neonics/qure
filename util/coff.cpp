@@ -265,7 +265,6 @@ int main(int argc, char ** argv)
 				for ( int k = 0; k < sec[i].s_size / 12; k ++ )
 					slp[k].addr += adjust_source;
 
-				printf(" SEEK %d  WRITE %d", sec[i].s_sectionptr, sec[i].s_size );
 				lseek( handle, sec[i].s_sectionptr, SEEK_SET );
 				write( handle, slp, sec[i].s_size );
 			}
