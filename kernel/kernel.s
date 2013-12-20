@@ -210,22 +210,6 @@ include "dma.s", dma
 	.global page_directory_phys
 	.global paging_idmap_memrange
 
-	# gfx / vmware/svga2
-	.global vidw; .extern vidw
-	.global vidh; .extern vidh
-	.global vidb; .extern vidb
-	.global vidbpp; .extern vidbpp
-	.global vidfbuf; .extern vidfbuf
-	.global curfont
-	.global fonts4k
-	.global fontwidth
-	.global fontheight
-	.global gfx_printchar_ptr
-	.global gfx_printchar_8x16
-
-	.global gfx_txt_screen_update
-	.global default_screen_update	# from print.s
-
 	# gdt
 	.global GDT
 
@@ -351,13 +335,7 @@ kmain:
 	call	debug_load_symboltable	# a simple reference check and pointer calculation.
 
 	# Flush keyboard buffer
-0:	mov	ah, KB_PEEK
-	call	keyboard
-	jz	0f
-	xor	ah, ah
-	call	keyboard
-	jmp	0b
-0:	# keyboard buffer flushed
+	call	keyboard_flush
 
 .if SHOWOFF
 	mov	[pit_print_timer$], byte ptr 1

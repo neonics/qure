@@ -85,6 +85,8 @@ vid_fb_addr:	.long 0
 vid_fb_size:	.long 0
 vid_fifo_addr:	.long 0
 vid_fifo_size:	.long 0
+DECLARE_CLASS_METHOD vid_api_gfx_mode, 0
+DECLARE_CLASS_METHOD vid_api_txt_mode, 0
 DECLARE_CLASS_END vid
 ###############################
 DECLARE_CLASS_BEGIN sound, dev_pci

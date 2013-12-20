@@ -3,13 +3,17 @@
 .intel_syntax noprefix
 ##############################################################################
 
-VID_DEBUG = 1
+VID_DEBUG = 0
 
-VID_STARTUP_CHECK = 2
+VID_STARTUP_CHECK = 0	# 1=default; 2=keypress; 3=FPS test
 
 VMSVGA2_DEBUG = 0
 
 SVGA_FIFO_DEBUG = 0
+
+# for testing:
+SCREEN_WIDTH = 1024
+SCREEN_HEIGHT = 768
 
 .text32
 ############################################################################
@@ -23,6 +27,8 @@ vmwsvga2_txtmode_bpp:		.byte 0
 vmwsvga2_txtmode_w:		.long 0
 vmwsvga2_txtmode_h:		.long 0
 DECLARE_CLASS_METHOD dev_api_constructor, vmwsvga2_init, OVERRIDE
+DECLARE_CLASS_METHOD vid_api_gfx_mode, vmwsvga2_gfx_mode, OVERRIDE
+DECLARE_CLASS_METHOD vid_api_txt_mode, vmwsvga2_txt_mode, OVERRIDE
 DECLARE_CLASS_END vmwsvga2
 
 DECLARE_PCI_DRIVER VID_VGA, vmwsvga2, 0x15ad, 0x0405, "vmwsvga2", "VMWare SVGa II"
@@ -438,59 +444,82 @@ vmwsvga2_init:
 	pop_	eax edx ebp
 	ret
 
-.if VID_STARTUP_CHECK
-vmwsvga2_startup_check:
-	# TEST: set video mode.
-	# set up the fifo
+########################################################
+# Video Mode
+
+# in: eax = vid
+vmwsvga2_txt_mode:
+	push	edx
+	mov	dx, [eax + dev_io]
+	VID_WRITE ENABLE, 0
+	pop	edx
+	ret
+
+# in: eax = vid
+vmwsvga2_gfx_mode:
+	push_	eax ebx edx
+	mov	ebx, eax
+
+	mov	dx, [ebx + dev_io]
+	VID_WRITE WIDTH, SCREEN_WIDTH
+	VID_WRITE HEIGHT, SCREEN_HEIGHT
+	VID_WRITE BITS_PER_PIXEL, 32
+	VID_WRITE ENABLE, 1	# even without writing w/h it'll switch mode
+
+	VID_READ BITS_PER_PIXEL
+	push	eax
+	mov	[vidbpp], eax
+	shr	eax, 3
+	mov	[vidb], eax
+	VID_READ HEIGHT
+	mov	[vidh], eax
+	push	eax
+	VID_READ WIDTH
+	mov	[vidh], eax
+	push	eax
+	call	gfx_set_geometry
+
+	printc 10, "VideoMode: "
+	pushd	[vidw]
+	call	_s_printdec32
+	printchar 'x'
+	pushd	[vidh]
+	call	_s_printdec32
+	printchar 'x'
+	pushd	[vidbpp]
+	call	_s_printdec32
+	call	printspace
+	pushd	[vidb]
+	call	_s_printdec32
+	print " bytes/pixel "
+	pushd	[vidsize]
+	call	_s_printdec32
+	print " pixels "
+	mov	eax, [vidsize]
+	movzx	edx, byte ptr [vidb]
+	imul	edx
+	xor	edx, edx
+	call	print_size
+	call	newline
+
+	mov	edx, [ebx + dev_io]
+
+
+	# init fifo
 	push	fs
-	mov	eax, SEL_flatDS	# fifo out of range of kernel DS
-	mov	fs, eax
-		# set vid mode - doesn't have to be in the 'fs' block,
-		# but needs to happen before the fifo enable.
+	VID_WRITE CONFIG_DONE, 0	# disable fifo
 
-		mov	dx, [ebx + dev_io]
+	mov	edx, SEL_flatDS	# fifo out of range of kernel DS
+	mov	fs, edx
 
-		VID_READ WIDTH
-		mov	[ebx + vmwsvga2_txtmode_w], eax
-		VID_READ HEIGHT
-		mov	[ebx + vmwsvga2_txtmode_h], eax
-		VID_READ BITS_PER_PIXEL
-		mov	[ebx + vmwsvga2_txtmode_bpp], al
-
-		VID_WRITE WIDTH, 1024
-		VID_WRITE HEIGHT, 768
-		VID_WRITE BITS_PER_PIXEL, 32
-
-		VID_WRITE ENABLE, 1	# even without writing w/h it'll switch mode
-
-		VID_READ BYTES_PER_LINE
-		DEBUG_DWORD eax,"pitch"
-
-		call	newline
-
-	mov	edi, [ebx + vid_fifo_addr]
-
-	VID_WRITE CONFIG_DONE, 0
-
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_MIN], "FIFO min"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_MAX], "FIFO max"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_NEXT_CMD], "FIFO next"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_STOP], "FIFO stop"
-		call	newline
+	mov	edx, [ebx + vid_fifo_addr]
 
 	mov	eax, SVGA_FIFO_NUM_REGS * 4
-	mov	fs:[edi + SVGA_FIFO_MIN], eax
-	mov	fs:[edi + SVGA_FIFO_NEXT_CMD], eax
-	mov	fs:[edi + SVGA_FIFO_STOP], eax
+	mov	fs:[edx + SVGA_FIFO_MIN], eax
+	mov	fs:[edx + SVGA_FIFO_NEXT_CMD], eax
+	mov	fs:[edx + SVGA_FIFO_STOP], eax
 	mov	eax, [ebx + vid_fifo_size]
-	mov	fs:[edi + SVGA_FIFO_MAX], eax
-
-		println "POST FIFO init:"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_MIN], "FIFO min"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_MAX], "FIFO max"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_NEXT_CMD], "FIFO next"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_STOP], "FIFO stop"
-		call	newline
+	mov	fs:[edx + SVGA_FIFO_MAX], eax
 
 	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_EXTENDED_FIFO
 	jz	1f
@@ -498,88 +527,70 @@ vmwsvga2_startup_check:
 #	mov	[edi + SVGA_FIFO_GUEST_3D_HWVERSION], SVGA3D_HWVERSION_CURRENT
 1:
 
+	.if VID_DEBUG
+		print "POST FIFO init:"
+		call	svga_fifo_print$
+	.endif
+
 	# enable FIFO
-	DEBUG "enable FIFO"
 	mov	dx, [ebx + dev_io]
 	VID_WRITE CONFIG_DONE, 1
-
-	# this value can only be read after fifo enable.
-	print "FIFO Capabilities: "
-	mov	eax, [ebx + vid_fifo_addr]
-	mov	eax, fs:[eax + SVGA_FIFO_CAPABILITIES]
-	mov	[ebx + vmwsvga2_fifo_capabilities], eax
-	DEBUG_DWORD eax
-	PRINTFLAG eax, SVGA_FIFO_CAP_FENCE, "FENCE "
-	PRINTFLAG eax, SVGA_FIFO_CAP_ACCELFRONT, "ACCELFRONT "
-	PRINTFLAG eax, SVGA_FIFO_CAP_PITCHLOCK, "PITCHLOCK "
-	PRINTFLAG eax, SVGA_FIFO_CAP_VIDEO, "VIDEO "
-	PRINTFLAG eax, SVGA_FIFO_CAP_CURSOR_BYPASS_3, "CURSOR_BYPASS_3 "
-	PRINTFLAG eax, SVGA_FIFO_CAP_ESCAPE, "ESCAPE "
-	PRINTFLAG eax, SVGA_FIFO_CAP_RESERVE, "RESERVE "
-	PRINTFLAG eax, SVGA_FIFO_CAP_SCREEN_OBJECT, "SCREEN_OBJECT "
-	PRINTFLAG eax, SVGA_FIFO_CAP_GMR2, "GMR2 "
-	PRINTFLAG eax, SVGA_FIFO_CAP_SCREEN_OBJECT_2, "SCREEN_OBJECT_2 "
-	PRINTFLAG eax, SVGA_FIFO_CAP_DEAD, "DEAD "
-
-	call	newline
-
-
-	# do an IRQ sanity check
-	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_IRQMASK
-	jz	1f
-	DEBUG "Test IRQFLag for FENCE"
-	VID_WRITE IRQMASK, SVGA_IRQFLAG_ANY_FENCE
-
-	call	svga_fifo_insert_fence
-		println "POST FIFO FENCE:"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_MIN], "FIFO min"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_MAX], "FIFO max"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_NEXT_CMD], "FIFO next"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_STOP], "FIFO stop"
-
-	# original behaviour:
-	# write to SYNC (which sets BUSY to 1), then poll BUSY, to drain the FIFO.
-
-	# advice: do not write REG_SYNC unless FIFO_BUSY is false.
-	VID_WRITE SYNC, 1
-	mov	dword ptr fs:[edi + SVGA_FIFO_BUSY], 1	# advised
-
-0:	VID_READ BUSY	# triggers async exec of FIFO commands
-	DEBUG_DWORD eax,"BUSY.."
-	or	eax, eax
-	jnz	0b
-
 	VID_WRITE IRQMASK, 0
+	pop	fs
 
-	# TODO: check if there was an IRQ.
-1:	pop	fs
 
-	call	newline
+#	# this will automatically sync/flush on vid mem write.
+#	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_TRACES
+#	jz	1f
+#jmp	1f
+#	VID_WRITE TRACES, 1
+#1:
+	VID_WRITE TRACES, 0	# no speed increase; FIFO works.
 
-	# this will automatically sync/flush on vid mem write.
-	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_TRACES
-	jz	1f
-jmp	1f
-	VID_WRITE TRACES, 1
-1:
-	VID_WRITE TRACES, 0	# no speed increase, FIFO works.
-	push	es
-	mov	edi, SEL_flatDS
-	mov	es, edi
-	mov	edi, [ebx + vid_fb_addr]
-mov [vidfbuf], edi
+	mov	eax, [ebx + vid_fb_addr]
+	mov	[vidfbuf], eax
+	pop_	edx ebx eax
+	ret
+
+##########################################################
+# Video Startup Checks
+#
+.if VID_STARTUP_CHECK
+vmwsvga2_startup_check:
+mov ebx, [vmwsvga_dev]
+	# read textmode resolution
+	mov	dx, [ebx + dev_io]
+	VID_READ WIDTH
+	mov	[ebx + vmwsvga2_txtmode_w], eax
+	VID_READ HEIGHT
+	mov	[ebx + vmwsvga2_txtmode_h], eax
+	VID_READ BITS_PER_PIXEL
+	mov	[ebx + vmwsvga2_txtmode_bpp], al
+	.if VID_DEBUG
+		DEBUG "textmode:"
+		DEBUG_DWORD [ebx + vmwsvga2_txtmode_w], "w"
+		DEBUG_DWORD [ebx + vmwsvga2_txtmode_h], "h"
+		DEBUG_DWORD [ebx + vmwsvga2_txtmode_bpp], "bpp"
+	.endif
+
+
+	# enter graphics mode
+	mov	eax, ebx
+	INVOKEVIRTUAL vid gfx_mode
+
+	.if VID_DEBUG
+	call	svga_fifo_print_capabilities$
+	.endif
+	call	svga_verify_fifo_irq$
+
+
+	# Clear screen
+
 	mov	eax, 0x00ff8822
-	mov	ecx, 1024 * 768
-	cld
-	rep	stosd
-	pop	es
+	call	gfx_cls
 
 
-mov [vidw], dword ptr 1024
-mov [vidh], dword ptr 768
-mov [vidbpp], dword ptr 4*8
-mov [vidb], dword ptr 4
-
+	# Test console printing
 
 push	dword ptr [screen_update]
 
@@ -589,9 +600,8 @@ push	dword ptr [screen_update]
 	mov	[gfx_printchar_ptr], dword ptr offset gfx_printchar_8x16
 mov	[screen_update], dword ptr offset gfx_txt_screen_update
 
-	DEBUG_DWORD edi,"FB addr"
-	DEBUG_DWORD ecx,"screensize"
-	call	newline
+
+	######################
 	pushad
 	call	cmd_colors
 	mov ecx, 80
@@ -604,27 +614,41 @@ mov	[screen_update], dword ptr offset gfx_txt_screen_update
 	1:	loop	0b
 	popad
 
-.if 1
 	call	svga_fifo_cmd_update_full
-.if 0
-	VID_WRITE SYNC, 1
-	#mov	dword ptr fs:[edi + SVGA_FIFO_BUSY], 1	# advised
-	# causes a hang.
-0:	VID_READ BUSY	# triggers async exec of FIFO commands
-	DEBUG_DWORD eax,"BUSY"
-	or	eax, eax
-	jnz	0b
-.endif
-.endif
+
+	######################
 
 
-.if 1
-pushad
+	.if VID_STARTUP_CHECK > 2
+	call	vmwsvga_test_fps
+	.else
+	.if VID_STARTUP_CHECK > 1
+	call	vmwsvga_test_font_blit
+
+	printlnc 0xb0, "press a key to continue"
+	call	svga_fifo_cmd_update_full
+	xor	eax, eax
+	call	keyboard
+	.endif
+	.endif
+
+pop	dword ptr [screen_update]
+	call	newline
+
+	# disable SVGA, return to VGA. (textmode!)
+	mov	eax, ebx
+	INVOKEVIRTUAL vid txt_mode
+	ret
+
+
+###########################################################################
+.if VID_STARTUP_CHECK > 2
 .data SECTION_DATA_BSS
 vidtst_clock: .long 0
 vidtst_frames: .long 0
 .text32
-
+vmwsvga_test_fps:
+	pushad
 
 	mov	eax, [clock]
 	mov	[vidtst_clock], eax
@@ -698,44 +722,145 @@ vidtst_frames: .long 0
 	call	svga_fifo_cmd_update_full
 	incd	[vidtst_frames]
 	jmp	0b
-0:
-popad
-.endif
 
-pop	dword ptr [screen_update]
-	call	newline
-
-	# disable SVGA, return to VGA. (textmode!)
-	VID_WRITE ENABLE, 0
-	#VID_WRITE WIDTH, [ebx+vmwsvga2_txtmode_w]
-	#VID_WRITE HEIGHT, [ebx+vmwsvga2_txtmode_h]
-	#VID_WRITE BITS_PER_PIXEL, [ebx+vmwsvga2_txtmode_bpp]
-
+0:	popad
 	ret
 
+##################################################
+
+.endif	# VID_STARTUP_CHECK > 2
+.if VID_STARTUP_CHECK > 1
 .data SECTION_DATA_BSS
 fillscreen_color: .long 0x12345678
 .text32
 fillscreen$:
-#ret
-	push_	es edi eax ecx
-	mov	edi, SEL_flatDS
-	mov	es, edi
-#	mov	edi, [ebx + vid_fb_addr]
-#mov [vidfbuf], edi
-mov edi, [vidfbuf]
-add eax, [fillscreen_color]
-rol eax, 7
-xor [fillscreen_color], eax
-	#mov	eax, 0x00ff8822
-	mov	ecx, 1024 * 768
-#	cld
-	rep	stosd
-	pop_	ecx eax edi es
+	push	eax
+	add	eax, [fillscreen_color]
+	rol	eax, 7
+	xor	[fillscreen_color], eax
+	call	gfx_cls
+	pop	eax
 	ret
 
+
+vmwsvga_test_font_blit:
+	call	svga_font_init
+#xor eax,eax; call keyboard
+	mov	eax, 0
+	call	svga_screen_define
+
+	mov	eax, 0x00ff0022
+	call	gfx_cls
+	print	"Screen defined - press key"
+	call	svga_fifo_cmd_update_full
+	xor	eax,eax; call keyboard
+	mov	eax, 0
+	call	svga_screen_destroy
+
+	# nothing renders after this point....
+	mov	eax, 0x002200ff
+	call	gfx_cls
+	call	svga_fifo_cmd_update_full
+
+	push fs
+	mov edx,SEL_flatDS
+	mov fs,edx
+	mov edx,[ebx+dev_io]
+	mov edi,[ebx+vid_fifo_addr]
+	call svga_fifo_sync$
+	pop fs
+
+
+	call	svga_font_deinit
+	ret
+.endif
 .endif	# VID_STARTUP_CHECK
 
+
+#############################################################################
+
+
+.if VID_DEBUG
+svga_fifo_print_capabilities$:
+	push	fs
+	mov	eax, SEL_flatDS	# fifo out of range of kernel DS
+	mov	fs, eax
+	mov	eax, [ebx + vid_fifo_addr]
+
+	# this value can only be read after fifo enable.
+	print "FIFO Capabilities: "
+	mov	eax, fs:[eax + SVGA_FIFO_CAPABILITIES]
+	mov	[ebx + vmwsvga2_fifo_capabilities], eax
+	DEBUG_DWORD eax
+	PRINTFLAG eax, SVGA_FIFO_CAP_FENCE, "FENCE "
+	PRINTFLAG eax, SVGA_FIFO_CAP_ACCELFRONT, "ACCELFRONT "
+	PRINTFLAG eax, SVGA_FIFO_CAP_PITCHLOCK, "PITCHLOCK "
+	PRINTFLAG eax, SVGA_FIFO_CAP_VIDEO, "VIDEO "
+	PRINTFLAG eax, SVGA_FIFO_CAP_CURSOR_BYPASS_3, "CURSOR_BYPASS_3 "
+	PRINTFLAG eax, SVGA_FIFO_CAP_ESCAPE, "ESCAPE "
+	PRINTFLAG eax, SVGA_FIFO_CAP_RESERVE, "RESERVE "
+	PRINTFLAG eax, SVGA_FIFO_CAP_SCREEN_OBJECT, "SCREEN_OBJECT "
+	PRINTFLAG eax, SVGA_FIFO_CAP_GMR2, "GMR2 "
+	PRINTFLAG eax, SVGA_FIFO_CAP_SCREEN_OBJECT_2, "SCREEN_OBJECT_2 "
+	PRINTFLAG eax, SVGA_FIFO_CAP_DEAD, "DEAD "
+	call	newline
+	pop	fs
+	ret
+.endif
+
+
+# do an IRQ sanity check
+#
+# in: fs = flat segment
+# in: ebx = video device
+# destroys: eax ecx edi
+# PRECONDITION: FIFO enabled (VID_WRITE CONFIG_DONE, 1)
+svga_verify_fifo_irq$:
+
+######
+	push	fs
+	mov	eax, SEL_flatDS	# fifo out of range of kernel DS
+	mov	fs, eax
+
+	print "Verify FIFO IRQ: "
+	test	dword ptr [ebx + vmwsvga2_capabilities], SVGA_CAP_IRQMASK
+	jz	91f
+
+	mov	ecx, [vmwsvga2_irq_count]
+
+	mov	dx, [ebx + dev_io]
+	VID_WRITE IRQMASK, SVGA_IRQFLAG_ANY_FENCE
+
+	call	svga_fifo_insert_fence
+
+	mov	edi, [ebx + vid_fifo_addr]
+
+	.if VID_DEBUG
+		DEBUG "POST FIFO FENCE:"
+		call	svga_fifo_print$
+	.endif
+
+	# original behaviour:
+	# write to SYNC (which sets BUSY to 1), then poll BUSY, to drain the
+	# FIFO.
+
+	# in: ebx, dx, fs:edi
+	call	svga_fifo_sync$
+
+	VID_WRITE IRQMASK, 0
+	cmp	ecx, [vmwsvga2_irq_count]
+	jz	92f
+
+	OK
+0:	pop	fs
+	ret
+
+92:	printlnc 12, "Error - no IRQ"
+	jmp	0b
+	ret
+
+91:	printlnc 12, "No IRQ capability"
+	jmp	0b
 
 
 
@@ -766,6 +891,7 @@ vmwsvga2_hook_isr:
 .data
 vmwsvga2_isr_irq: .byte 0
 vmwsvga2_isr_dev: .long 0	# direct memory address of device object
+vmwsvga2_irq_count: .long 0
 .text32
 vmwsvga2_isr:
 	pushad
@@ -783,13 +909,12 @@ vmwsvga2_isr:
 	jz	9f	# not for us
 	out	dx, eax	# (?) mark as handled
 
-	.if 1#VMSVGA2_DEBUG
+	incd	[vmwsvga2_irq_count]
+
+	.if VMSVGA2_DEBUG
 		printc 0xf5, "VID ISR"
+		DEBUG_DWORD eax,"IRQ FLAGS"
 	.endif
-
-
-
-	DEBUG_DWORD eax,"IRQ FLAGS"
 
 ########################################################################
 9:
@@ -804,6 +929,32 @@ vmwsvga2_isr:
 	iret
 
 ############################################################################
+svga_fifo_print$:
+	DEBUG "FIFO"
+	DEBUG_DWORD fs:[edi+SVGA_FIFO_MIN], "min"
+	DEBUG_DWORD fs:[edi+SVGA_FIFO_MAX], "max"
+	DEBUG_DWORD fs:[edi+SVGA_FIFO_NEXT_CMD], "next"
+	DEBUG_DWORD fs:[edi+SVGA_FIFO_STOP], "stop"
+	call	newline
+	ret
+
+# in: ebx = dev
+# in: fs:edi = fifo start
+# in: dx = dev io
+svga_fifo_sync$:
+	# advice: do not write REG_SYNC unless FIFO_BUSY is false.
+	VID_WRITE SYNC, 1
+	mov	dword ptr fs:[edi + SVGA_FIFO_BUSY], 1	# advised
+	# causes a hang.
+
+0:	VID_READ BUSY	# triggers async exec of FIFO commands
+	.if VID_DEBUG
+		DEBUG_DWORD eax,"BUSY.."
+	.endif
+	or	eax, eax
+	jnz	0b
+	ret
+
 
 # in: ebx = device
 svga_fifo_insert_fence:
@@ -813,7 +964,6 @@ svga_fifo_insert_fence:
 
 	mov	eax, 8
 	call	svga_fifo_reserve$
-	DEBUG_DWORD edi,"FIFO RESERVE"
 	mov	dword ptr fs:[edi + 0], SVGA_CMD_FENCE
 	mov	dword ptr fs:[edi + 4], 1	# fence id; 0 = no fence # TODO: inc fence
 
@@ -851,7 +1001,6 @@ svga_fifo_cmd_update:
 	pop	es
 
 	call	svga_fifo_commit$
-inc dword ptr fifo_updates$
 	pop_	edi fs eax edx
 	pop	ebp
 	ret
@@ -874,7 +1023,6 @@ svga_fifo_cmd_update_full:
 	mov	dword ptr fs:[edi + 16], 768	# h
 
 	call	svga_fifo_commit$
-inc dword ptr fifo_updates$
 	pop_	edi fs eax edx
 	ret
 
@@ -986,12 +1134,137 @@ svga_fifo_commit$:
 	# off driver sets reserved to 0 HERE - we did it before.
 	mov	fs:[esi + SVGA_FIFO_RESERVED], dword ptr 0
 
+	incd	[fifo_updates$]
+
 1:	pop_	eax esi
 	ret
 
 9:	printc 4, "FIFO commit: no reservation"
 	jmp	1b
 
+
+#############################################################################
+# Font
+.data
+svga_font_ptr:	.long 0
+.text32
+svga_font_init:
+	mov	eax, 128 * 4 * 8*16	# 65kb
+	call	mallocz
+	jc	9f
+	mov	[svga_font_ptr], eax
+	mov	edi, eax
+	mov	esi, [curfont]
+	mov	ecx, 128 * 16	# 128 chars, 16 scanlines per char
+0:	lodsb
+	mov	dl, al
+	.rept 8			# 8 dwords for 1 char scanline
+	xor	eax, eax
+	add	dl, dl		# set carry to highest bit
+	sbb	eax, 0		# edx = bit ? -1 : 0
+	stosd
+	.endr
+	loop	0b
+	clc
+9:	ret
+
+svga_font_deinit:
+	xor	eax, eax
+	xchg	eax, [svga_font_ptr]
+	or	eax, eax
+	jz	9f
+	call	mfree
+0:	ret
+
+# in: al = char
+# in: edx = fg color
+# in: ebx = bg color
+svga_font_draw_8x16:
+	movzx	eax, al
+	shl	eax, 3+4 + 2	# 8x16 pixels * dword
+	add	eax, [svga_font_ptr]
+
+	# in: eax = svgaguest ptr
+	# in: ? = width in pixels
+	# in: ? = format (color depth)
+	call	svga_fifo_define_gmrfb	# adds gmrfb as current
+
+	# in: blit origin x,y
+	# in: blit dest x1,y1,x2,y2
+	# in: screen id
+	call	svga_fifo_blit_from_gmrfb	# blit current gmr fb
+	ret
+
+
+svga_fifo_define_gmrfb:
+	ret
+
+svga_fifo_blit_from_gmrfb:
+	mov	eax, 5*4
+	call	svga_fifo_reserve$
+	mov	dword ptr fs:[edi + 0], SVGA_CMD_BLIT_GMRFB_TO_SCREEN
+	mov	dword ptr fs:[edi + 4], 0	# x
+	mov	dword ptr fs:[edi + 8], 0	# y
+	mov	dword ptr fs:[edi + 12], 1024	# w
+	mov	dword ptr fs:[edi + 16], 768	# h
+
+	call	svga_fifo_commit$
+	ret
+
+#####################################
+# Screens
+.struct 0
+svga_screen_struct_size:.long 0
+svga_screen_id:		.long 0
+svga_screen_flags:	.long 0
+	SVGA_SCREEN_HAS_ROOT		= 1<<0
+	SVGA_SCREEN_IS_PRIMARY		= 1<<1
+	SVGA_SCREEN_FULLSCREEN_HINT	= 1<<2
+svga_screen_width:	.long 0
+svga_screen_height:	.long 0
+svga_screen_x:		.long 0	# root; ignored if flags.HAS_ROOT == 0
+svga_screen_y:		.long 0
+SVGA_SCREEN_STRUCT_SIZE = .
+
+.text32
+# in: eax = screen id
+svga_screen_define:
+	push_	fs edi edx
+	mov	edx, SEL_flatDS
+	mov	fs, edx
+	mov	edx, eax
+	mov	eax, 4 + SVGA_SCREEN_STRUCT_SIZE
+	call	svga_fifo_reserve$
+	mov	dword ptr fs:[edi + 0], SVGA_CMD_DEFINE_SCREEN
+	mov	dword ptr fs:[edi + 4 + svga_screen_struct_size], SVGA_SCREEN_STRUCT_SIZE
+	mov	dword ptr fs:[edi + 4 + svga_screen_id], edx
+	mov	dword ptr fs:[edi + 4 + svga_screen_flags], 0b11 # root,primary
+	mov	dword ptr fs:[edi + 4 + svga_screen_width], 500#SCREEN_WIDTH / 2
+	mov	dword ptr fs:[edi + 4 + svga_screen_height], 100# SCREEN_HEIGHT /2
+	mov	dword ptr fs:[edi + 4 + svga_screen_x], 100
+	mov	dword ptr fs:[edi + 4 + svga_screen_y], 100
+	call	svga_fifo_commit$
+	pop_	edx edi fs
+	ret
+
+# in: eax = screen id
+svga_screen_destroy:
+	push_	fs edi edx
+	mov	edx, SEL_flatDS
+	mov	fs, edx
+	mov	edx, eax	# screen id
+	mov	eax, 8
+	call	svga_fifo_reserve$
+	mov	dword ptr fs:[edi + 0], SVGA_CMD_DESTROY_SCREEN
+	mov	dword ptr fs:[edi + 4], edx
+	call	svga_fifo_commit$
+	pop_	edx edi fs
+	ret
+
+gmr_definecontinuous:
+#	VID_WRITE GMR_ID, 
+#	VID_WRITE GMR_DESCRIPTOR, ppn
+	ret
 
 #############################################################################
 .data
@@ -1040,56 +1313,9 @@ cmd_gfx:
 	mov	[esi + eax * 4], edx	# map FIFO
 	mov	[esi + ecx * 4], ebx	# map FB
 
-1:	mov	ebx, [vmwsvga_dev]
-
-	push	fs
-	mov	eax, SEL_flatDS	# fifo out of range of kernel DS
-	mov	fs, eax
-
-	mov	dx, [ebx + dev_io]
-
-	VID_WRITE WIDTH, 1024 # 1600#1024
-	VID_WRITE HEIGHT, 768 #900#768
-	VID_WRITE BITS_PER_PIXEL, 32
-
-	VID_WRITE ENABLE, 1	# even without writing w/h it'll switch mode
-
-	VID_WRITE CONFIG_DONE, 0
-	# init fifo
-	mov	edi, [ebx + vid_fifo_addr]
-
-	mov	eax, SVGA_FIFO_NUM_REGS * 4
-	mov	fs:[edi + SVGA_FIFO_MIN], eax
-	mov	fs:[edi + SVGA_FIFO_NEXT_CMD], eax
-	mov	fs:[edi + SVGA_FIFO_STOP], eax
-	mov	eax, [ebx + vid_fifo_size]
-	mov	fs:[edi + SVGA_FIFO_MAX], eax
-
-		println "POST FIFO init:"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_MIN], "FIFO min"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_MAX], "FIFO max"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_NEXT_CMD], "FIFO next"
-		DEBUG_DWORD fs:[edi+SVGA_FIFO_STOP], "FIFO stop"
-		call	newline
-
-	# enable FIFO
-	mov	dx, [ebx + dev_io]
-	VID_WRITE CONFIG_DONE, 1
-	VID_WRITE IRQMASK, 0
-	pop	fs
-
-
-	mov	edi, [ebx + vid_fb_addr]
-	mov	[vidfbuf], edi
-
-	VID_READ WIDTH
-	mov	[vidw], eax #dword ptr 1024
-	VID_READ HEIGHT
-	mov	[vidh], eax #dword ptr 768
-	VID_READ BITS_PER_PIXEL
-	mov	[vidbpp], eax#dword ptr 4*8
-	shr	eax, 3
-	mov	[vidb], eax#dword ptr 4
+1:
+	mov	eax, [vmwsvga_dev]
+	INVOKEVIRTUAL vid gfx_mode
 
 	mov	eax, [screen_update]
 	mov	[screen_update_old], eax
@@ -1111,9 +1337,8 @@ init_textmode$:
 	mov	eax, [screen_update_old]
 	mov	[screen_update], eax
 	# disable SVGA, return to VGA. (textmode!)
-	mov	ebx, [vmwsvga_dev]
-	mov	dx, [ebx + dev_io]
-	VID_WRITE ENABLE, 0
+	mov	eax, [vmwsvga_dev]
+	INVOKEVIRTUAL vid txt_mode
 	println	"entered text mode"
 	jmp	0b
 
@@ -1164,11 +1389,10 @@ cmd_svga:
 	mov	fs, eax
 	mov	ebx, [vmwsvga_dev]
 	mov	edi, [ebx + vid_fifo_addr]
-	DEBUG_DWORD fs:[edi+SVGA_FIFO_MIN], "FIFO min"
-	DEBUG_DWORD fs:[edi+SVGA_FIFO_MAX], "FIFO max"
-	DEBUG_DWORD fs:[edi+SVGA_FIFO_NEXT_CMD], "FIFO next"
-	DEBUG_DWORD fs:[edi+SVGA_FIFO_STOP], "FIFO stop"
-	call	newline
+
+	.if VID_DEBUG
+		call	svga_fifo_print$
+	.endif
 	DEBUG_DWORD [fifo_updates$]
 	call	newline
 

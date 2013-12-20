@@ -928,8 +928,10 @@ k_get$:
 
 	cmp	dword ptr [task_queue_sem], -1
 	jnz	1f
-
+	pushf
+	sti
 	hlt
+	popf
 	jmp	k_get$
 
 1:	# scheduling enabled
@@ -1018,3 +1020,14 @@ int32_16h_keyboard:
 	pop	ebp
 
 	iret
+
+keyboard_flush:
+###################################
+0:	mov	ah, KB_PEEK
+	call	keyboard
+	jz	0f
+	mov	ah, KB_GET
+	call	keyboard
+	jmp	0b
+0:	ret
+

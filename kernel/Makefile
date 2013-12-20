@@ -151,7 +151,7 @@ FS_API_SRC = fs.s partition.s
 
 FS_IMPL_SRC = fs/iso9660.s fs/fat.s fs/sfs.s fs/fs_oofs.s
 
-GFX_SRC = gfx.s ../fonts/courier56.s
+GFX_SRC = gfx.s gfx_vbe.s ../fonts/courier56.s
 
 LIB_SRC = ../lib/sha.s ../lib/base64.s ../lib/xml.s ../lib/browser.s \
 	../lib/crc32.s ../lib/gzip.s

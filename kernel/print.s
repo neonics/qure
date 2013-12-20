@@ -690,6 +690,7 @@ COLOR_STACK_SIZE = 4
 .global sprintdec32
 .global sprintdec8
 .global printlnc
+.global default_screen_update
 
 ###############################################################################
 # structures, data, code
