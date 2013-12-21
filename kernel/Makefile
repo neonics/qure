@@ -1,11 +1,12 @@
-all: kernel.bin Makefile
+all: kernel.bin Makefile srcref
 
 clean:
 	@echo "  CLEAN"
-	@rm -f kernel.bin kernel.obj kernel.stabs kernel.sym kernel.dep \
+	@rm -rf kernel.bin kernel.obj kernel.stabs kernel.sym kernel.dep \
 		kernel.obj.r kernel.obj.reloc.txt kernel.obj.map \
 		kernel.obj.obj0.map kernel.obj0 kernel.obj0.r kernel.obj.1 \
 		kernel.o ring2.o ring2_.o export.h kapi/export.h \
+		../root/www/doc/src/ \
 		|| true
 	@echo "  CLEAN fs/oofs"
 	@make -s -C fs/oofs $@
@@ -156,17 +157,8 @@ GFX_SRC = gfx.s gfx_vbe.s ../fonts/courier56.s
 LIB_SRC = ../lib/sha.s ../lib/base64.s ../lib/xml.s ../lib/browser.s \
 	../lib/crc32.s ../lib/gzip.s
 
-ring0.o: ring0.s
-	@echo "  AS   $@"
-	@$(AS) -o $@ $<
-	@$(call FIXUP,$@)
 
-ring1.o: ring1.s
-	@echo "  AS   $@"
-	@$(AS) -o $@ $<
-	@$(call FIXUP,$@)
-
-ring2_.o: ring2.s defines.s macros.s $(DBG_SRC) print.s \
+RING2_SRC = ring2.s defines.s macros.s $(DBG_SRC) print.s \
 		gdt.s mutex.s oo.s schedule.s \
 		lib/hash.s \
 		export.h \
@@ -182,6 +174,19 @@ ring2_.o: ring2.s defines.s macros.s $(DBG_SRC) print.s \
 		$(USB_SRC) \
 		nic.s $(NIC_SRC) \
 		$(NET_SRC)
+
+
+ring0.o: ring0.s
+	@echo "  AS   $@"
+	@$(AS) -o $@ $<
+	@$(call FIXUP,$@)
+
+ring1.o: ring1.s
+	@echo "  AS   $@"
+	@$(AS) -o $@ $<
+	@$(call FIXUP,$@)
+
+ring2_.o: $(RING2_SRC)
 	@echo "  AS    $@"
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
@@ -230,6 +235,34 @@ export.h: kernel.o Makefile ../.git
 kapi/export.h: kernel.o Makefile
 	@echo ".include \"kapi/kapi.s\"" > $@
 	@echo "_KAPI_COUNTER=`nm $< | grep ' A KAPI_' | wc -l`" >> $@
+
+
+#################################################################################
+# Source Reference
+
+REFSRC = $(sort $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s $(FS_API_SRC) $(NET_SRC) $(GFX_SRC) $(LIB_SRC) $(RING2_SRC))
+REFDIR = ../root/www/doc/src
+
+REFFILES = $(addprefix ${REFDIR}/, $(addsuffix .html, $(subst /,_,$(REFSRC))))
+
+.PHONY: srcref
+srcref: $(REFDIR) $(REFDIR)/src.ref $(REFFILES)
+
+$(REFDIR):
+	[ -d $@ ] || mkdir $@
+
+$(REFFILES) $(REFDIR)/index.html: $(REFSRC)
+$(REFDIR)/src.ref: $(REFSRC) 
+	@echo "  REF   $?"
+	@../util/fmtsrc.pl --dir ../root/www/doc/src/ \
+		--template ../util/template.html \
+		-p ../../www.neonics.com/ \
+		--title "Source Reference" \
+		--menuxml menu.xml \
+		--tagline "Use The Source" \
+		$?
+
+#################################################################################
 
 .PHONY: FORCE
 FORCE: ;

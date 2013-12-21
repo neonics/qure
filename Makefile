@@ -162,7 +162,7 @@ HTMLDOC=$(shell util/doctools.pl -d DOC/ -t html list)
 WWW_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${TXTDOC}))
 DOC_SRC=$(addprefix DOC/, $(addsuffix .txt,${WWW_DOC}))
 HTML_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${HTMLDOC})) \
-	root/www/doc/menu.xml
+	root/www/doc/menu.xml root/www/doc/src/menu.xml
 
 HTMLDEPS = util/template.pl util/template.html Makefile
 
@@ -183,6 +183,10 @@ root/www/doc/%.html: DOC/%.html $(HTMLDEPS)
 	@util/template.pl -t util/template.html -p ../www.neonics.com/ $< > $@
 
 root/www/doc/menu.xml: root/www/doc-menu.xml
+	@cp $< $@
+
+root/www/doc/src/menu.xml: root/www/doc-src-menu.xml
+	@[ -d root/www/doc/src ] || mkdir root/www/doc/src
 	@cp $< $@
 
 site-doc: root/www/doc.inc root/www/doc/index.html
