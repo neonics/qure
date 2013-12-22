@@ -1,53 +1,17 @@
 #!/usr/bin/perl
-$ARGV[0] or die "usage : txt2html [-t template] <txtfile> [out.html]\n\n"
-	."\t -t\ttemplate file: default: a builtin xhtml header/footer.\n"
-	."\t\tspecify 'none' for no header/footer\n";
 
-%options;	# toc title RP
-$options{tagline}='Conscious Computing';
+use FindBin;
+use lib $FindBin::Bin;
+use Template;
 
-while ( $ARGV[0] =~ /^-./ )
-{
-	$ARGV[0] eq '-t' and do {
-		shift @ARGV;
-		if ( $ARGV[0] eq 'none' )
-		{
-			$template = '${CONTENT}';
-			shift @ARGV;
-		}
-		else
-		{
-			open IN, $_ = shift @ARGV or die "can't open template $_: $!";
-			$template = join("", (<IN>) );
-			close IN;
-		}
-	} or $ARGV[0] eq '--toc' and do {
-		$options{toc} = 1;
-		shift @ARGV;
-	} or $ARGV[0] eq '--title' and do {
-		shift @ARGV;
-		$options{title} = shift @ARGV;
-	} or $ARGV[0] eq '--rawtitle' and do {
-		shift @ARGV;
-		my $title = shift @ARGV;
+$ARGV[0] or do {
+	print "Usage : $0 [options] <txtfile> [out.html]\n\noptions:\n";
+	Template::usage();
+	exit;
+};
 
-		$title =~ s@^.*?/@@g;	# strip root of path
-		$title =~ s/\.(txt|html)$//;	# strip suffix
-		$title =~ tr/_/ /;
-		$title =~ s/([[:lower:]])([[:upper:]])/\1 \2/g;
-		$options{title}=$title;
-	} or $ARGV[0] eq '-p' and do {
-		shift @ARGV;
-		$options{RP} = shift @ARGV;
-	} or $ARGV[0] eq '--onload' and do {
-		shift @ARGV;
-		$options{onload} = shift @ARGV;
-	} or $ARGV[0] eq '--tagline' and do {
-		shift @ARGV;
-		$options{tagline} = shift @ARGV;
-	} or die "unknown option: $ARGV[0]";
-
-}
+my $t = new Template();
+@ARGV = $t->args( @ARGV );
 
 open IN, $ARGV[0] or die "can't open $ARG[0]: $!";
 @l = <IN>;
@@ -176,45 +140,6 @@ $c=~ s@\n([^<\n]{1,60})\n([^<\n]{70,}\n)@\n$1<br/>\n$2@g;
 while ($c =~ s@{{PACK (.*?)}}@pack( "H*", $1)@ge){}
 
 ###########
-# generate a TOC:
-my $tmp = $c;
-my $o="";
-my $id=0;
-my @toc;
-while ( $tmp =~ /<h(.)>(.*?)<\/h\1>/ )
-{
-	push @toc, {link=>"<a href='#toc$id'>$2</a>", level=>$1};
-	$tmp = $';
-#	$_ = $&; s/<h(.)>/<h\1 id='toc$id'>/; $o.=$_;
-	$o.=$` . "<a name='toc$id'></a>" . $&;
-	$id++;
-}
-
-$c = $o . $tmp;
-
-my $toc;
-if ( scalar @toc ) {
-	my $lev=0;
-	$toc = "<h2 class='toc'>TOC</h2>\n";
-	foreach ( @toc ) {
-		while ( $_->{level} < $lev )
-		{
-			$lev --;
-			$toc .= "</ol>";
-		}
-		while ( $_->{level} > $lev )
-		{
-			$lev ++;
-			$toc .= "<ol>";
-		}
-
-		$toc .= "<li>$_->{link}</li>\n";
-	}
-	while ( $lev-- > 0 )
-	{
-		$toc .= "</ol>";
-	}
-}
 
 $c=~ tr/\r/\n/;
 
@@ -225,43 +150,15 @@ $c=~ tr/\r/\n/;
 #$c = join( "\n", (map { /^<.*?>$/s ? "$_\n" : "<p>{{{$_}}}</p>\n" } @l) );
 $c = join( "\n", (map { /^<|>$/s ? "$_\n" : "<p>$_</p>\n" } @l) );
 
-if ( $template )
-{
-	 $template =~ s/\$\{ONLOAD\}/$options{onload}/g;
-	 $template =~ s/\$\{CONTENT\}/$c/g;
-	 $template =~ s/\$\{TITLE\}/$options{title}/g;
-	 $template =~ s/\$\{TOC\}/$toc/g;
-	 $template =~ s/\$\{TAGLINE\}/$options{tagline}/g;
-	 $template =~ s/\$\{RP\}/$options{RP}/g;
-	 $c = $template;
-}
-else {
-$c=<<"EOF";
-<?xml version="1.0"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html>
-  <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-    <title>$title</title>
-  </head>
-  <body>
-<h1>$title</h1>
-$toc
-$c
-  </body>
-</html>
-EOF
-}
+
 
 $ARGV[1] and do {
 #-f $ARGV[1] and die "$ARGV[1] exists.";
 open OUT, ">", $ARGV[1] or die;
-print OUT $toc if $options{toc};
-print OUT $c;
+print OUT $t->process( $c );
 close OUT;
 }
 or do {
-print $toc if $options{toc};
-print $c;
+print $t->process( $c );
 };
 

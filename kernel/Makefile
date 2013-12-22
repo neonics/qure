@@ -249,7 +249,7 @@ REFFILES = $(addprefix ${REFDIR}/, $(addsuffix .html, $(subst /,_,$(REFSRC))))
 srcref: $(REFDIR) $(REFDIR)/src.ref $(REFFILES)
 
 $(REFDIR):
-	[ -d $@ ] || mkdir $@
+	[ -d $@ ] || mkdir -p $@
 
 $(REFFILES) $(REFDIR)/index.html: $(REFSRC)
 $(REFDIR)/src.ref: $(REFSRC) 
@@ -257,7 +257,7 @@ $(REFDIR)/src.ref: $(REFSRC)
 	@../util/fmtsrc.pl --dir ../root/www/doc/src/ \
 		--template ../util/template.html \
 		-p ../../www.neonics.com/ \
-		--title "Source Reference" \
+		--title "Source Reference:" \
 		--menuxml menu.xml \
 		--tagline "Use The Source" \
 		$?

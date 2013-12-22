@@ -2,41 +2,42 @@
 #
 # Format assembly source code.
 
+use FindBin;
+use lib $FindBin::Bin;
+use Template;
+
 my ($PATH) = $0=~/^(.*)\/[^\/]*$/;
 
 $VERBOSE = 0;
 
 $dir="./";
 $incremental = 1;
-# template arguments:
-$template=undef;
-$tpath=undef;
-$menuxml=undef;
-$tagline=undef;
-$title=undef;
+
+$template = undef;	# Template object
 
 while ( $ARGV[0] =~ /^-/ )
 {
 	$_ = shift @ARGV;
 
-	$_ eq "--dir" and $dir = shift @ARGV
+	$_ eq '-h' || $_ eq '--help' and usage()
+
+	or $_ eq "--dir" and $dir = shift @ARGV
 	or $_ eq '-v' and $VERBOSE++
 	or $_ eq "-i" and $incremental = 1	# TODO
-	or $_ eq "--template" and $template = shift @ARGV
-	or $_ eq "-p" and $tpath = shift @ARGV
-	or $_ eq "--menuxml" and do {$menuxml = shift @ARGV;1}
-	or $_ eq "--tagline" and $tagline = shift @ARGV
-	or $_ eq "--title" and $title = shift @ARGV
+
+	or $_ eq "--template" and do {
+		$template = new Template;
+		@ARGV = $template->args( "-t", @ARGV );
+	}
+
 	or die "Unknown option: $_";
 }
 
-$template_args = join(' ',
-	$template ? "-t $template" : "",
-	$tpath ? "-p $tpath" : "",
-	$tagline ? "--tagline \"$tagline\"" : "",
-	defined $menuxml ? "--menuxml \"$menuxml\"" : "",
-#	$title ? "--title \"$title\"" : ""
-);
+defined $template or do {
+	$template = new Template;
+	$template->args( "--template", "none" );
+};
+
 
 # unique  (not needed if $^ is used in makefile)
 #my %infiles; foreach (@ARGV) { $infiles{$_}=1; }; @ARGV = keys %infiles; print "INFILES: @ARGV\n";
@@ -54,47 +55,59 @@ while ( scalar @ARGV ) { push @files, process_source( shift @ARGV ); }
 
 writeref("${dir}src.ref", @ref);
 
-openfile( OUT, "${dir}index.html", "Index" );
-
-
-sub openfile {
-	my ($handle, $filename, $sourcename) = @_;
-
-	if ( defined $template ) {
-		open $handle, "|$PATH/template.pl $template_args --title \"$title $sourcename\" - > $filename"
-		or die "cannot execute $PATH/template.pl: $!";
-	} else {
-		open $handle, ">", $filename
-		or die "cannot create $filename: $!";
-	}
-	return OUT;
-}
-
-print OUT map { my $b=$_; $b=~tr@/@_@; "<a href='$b.html'>$_</a><br/>\n" }
+writehtml( "${dir}index.html", "Index",
+	map { my $b=$_; $b=~tr@/@_@; "<a href='$b.html'>$_</a><br/>\n" }
 	sort {$a cmp $b}
-	uniq( map { $_->{file} } @ref );
-close OUT;
-
+	uniq( map { $_->{file} } @ref )
+);
 
 foreach ( @files ) {
 	my $f = $_->{file}; $f=~tr@/@_@;
-	openfile( OUT, $dir.$f.".html", $_->{file});
-
-	$VERBOSE and print "Writing ${dir}$f.html\n";
 
 	# add references
 	$_->{content} =~ s@(<span class="glabelref">\s*)([^<\s]+)(\s*</span>)@$1.getref($_, "$2").$3@ge;
 	$_->{content} =~ s@(<span class="glabeldecl">\s*)([^<\s]+)(\s*</span>)@$1.getref($_, "$2").$3@ge;
 
-	print OUT $_->{content};
-
-	close OUT;
+	writehtml( $dir.$f.".html", $_->{file}, $_->{content} );
 }
 printf "Processing %40s [100%]\n", "";
 
 
 ############################################################################
 # Utility
+
+sub usage {
+	print <<"EOF";
+Usage: $0 [options] [template-options] <file.s> [out.html]
+
+options:
+	-h --help	this help message (<file.s> can be omitted)
+	--dir <dir>	the output directory; defaults to '.'
+	-v		increase verbosity
+	-i		incremental; uses src.ref in <dir>
+	--template <..>	begin template arguments; the rest of the options will
+			be passed on to the Template argument parser.
+
+template-options: the first option MUST be --template (and not -t)!
+EOF
+	Template::usage();
+	exit 1;
+}
+
+
+sub writehtml {
+	my ($filename, $title, @content) = @_;
+
+	$VERBOSE and print "Writing HTML: $filename, $title\n";
+
+	open OUT, ">", $filename or die "can't write $filename: $!";
+	print OUT $template->process( join('', @content),
+		{ title => $template->{title}." ".$title }
+	);
+	close OUT;
+}
+
+
 
 sub uniq {
 	my %h=();

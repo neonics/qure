@@ -219,7 +219,7 @@ www-neonics: $(WWW_N_SRC)
 
 
 site-clean:
-	@rm -rf root/www/screenshots root/www/download root/src/
+	@rm -rf root/www/screenshots root/www/download root/www/doc/ root/src/
 
 .PHONY: FORCE
 FORCE: ;
