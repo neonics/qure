@@ -164,7 +164,7 @@ DOC_SRC=$(addprefix DOC/, $(addsuffix .txt,${WWW_DOC}))
 HTML_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${HTMLDOC})) \
 	root/www/doc/menu.xml root/www/doc/src/menu.xml
 
-HTMLDEPS = util/template.pl util/template.html Makefile
+HTMLDEPS = util/template.pl util/template.html util/Template.pm Makefile
 
 root/www/doc/%.html: RP = $(shell echo $(patsubst %,../,$(subst /, ,$(dir $<)))|sed -e 's/ //g')www.neonics.com/
 root/www/doc/%.html: DOC/%.txt util/txt2html.pl $(HTMLDEPS)

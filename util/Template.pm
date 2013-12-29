@@ -14,7 +14,8 @@ sub new {
 		menuxml	=> undef,
 		title	=> "",
 		tagline	=> undef,#"Conscious Computing",
-		styles	=> []
+		styles	=> [],
+		css	=> []
 	}, ref($_[0]) || $_[0];
 }
 
@@ -24,6 +25,7 @@ sub usage {
 	-t <t>		template file to use. Specify 'none' for a minimal
 			HTML5 wrapper; 'default' for the builtin template.html.
 	--template <t>	alias for -t
+	--css <uri>	add custom css
 	-x <xml>	specify dynamic XML content URI to load at runtime.
 	-s <s>		specify XSL stylesheet; more than one allowed.
 	--cid <cid>	specify element ID to receive dynamic content
@@ -46,6 +48,7 @@ sub args {
 		my $a = shift @args;
 		$a eq '-t' || $a eq '--template'
 			and do { $self->{templatefile} = shift @args;1 } or
+		$a eq '--css' and do { push $self->{css}, shift @args or die "--css requires argument" } or
 		$a eq '-x' and do { $self->{xml} = shift @args;1} or
 		$a eq '-s' and do { push $self->{styles}, shift @args;1} or
 		$a eq '--cid' and do { $self->{cid} = shift @args;1 } or
@@ -78,6 +81,7 @@ sub args {
 <html>
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+${CSS}
     <title>${TITLE}</title>
   </head>
   <body>
@@ -125,6 +129,10 @@ sub process {
 	$self->_fill( "RP",	$opts{relpath} );
 	$self->_fill( "TITLE",	$opts{title} );
 	$self->_fill( "TAGLINE",$opts{tagline} );
+	$self->_fill( "CSS",    join("\n",
+		map { "    <link rel='stylesheet' type='text/css' href='$opts{relpath}$_'/>" }
+		@{$opts{css}} )
+	);
 
 	$self->{content};
 }
