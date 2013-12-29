@@ -341,6 +341,7 @@ sub getmtime {
 	$c=`git log --format=format:'%ai' --name-status -- $path`;
 	@l=split(/\n\n/, $c);
 
+
 	%docs;
 
 	map
@@ -350,6 +351,14 @@ sub getmtime {
 
 		map {
 			my ($mod, $name) = /(.)\s+(.*)/ or die "illegal line: $_";
+
+			# when calling this on repo/foo/docs/ from repo/foo,
+			# the files will be named repo/foo/docs/X.
+			# strip the path prefix:
+
+			$name =~ /^(.*?\/)?($options{dir}.*)$/ and do { $name = $2; 1}
+			or die "weird path: $name; expect it to be in $options{dir}";
+
 
 			if ( $name =~ m@$options{dir}/[^/]+$@ ) {
 				$docs{$name} = {
