@@ -380,7 +380,7 @@ function Matrix()
 Matrix.prototype = new Array(16);
 
 
-function Point(x=0, y=0, z=0, w=0)
+function Point(x, y, z, w)
 {
 	if ( typeof( x ) === 'undefined' ) x=0;
 	if ( typeof( y ) === 'undefined' ) y=0;
