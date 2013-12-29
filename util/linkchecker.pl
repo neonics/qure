@@ -12,7 +12,9 @@ my $errors;
 chomp @l;
 map {
 	my ($p) = /^(.*?)\/[^\/]+$/ or die;
-	my $c = `cat $_`;
+	open IN, "<", "$_" or do { warn "cannot read $_: $!"; next; };
+	my $c = join( '', <IN> );
+	close IN;
 
 	my $msg = "";
 	while ( $c=~ /href=(['"])(.*?)\1/ ) {
