@@ -204,7 +204,7 @@ sub genlinks
 		(map{
 			my $modstring = "";
 			$opts{mtime} and do {
-				my $foo = $docs{'DOC/'.$_->{n}};
+				my $foo = $docs{$options{dir}.'/'.$_->{n}};
 				$modstring = defined $foo
 				? " mtime=\"$foo->{mtime}\" mod=\"$foo->{mod}\""
 				: " mtime=\"today\" mod='N'";
@@ -226,7 +226,7 @@ sub genlinks
 			$_->{label} && !$opts{tree} ? () :
 			( $pfx, $indent,
 				"<li>",
-				$_->{label} ? $_->{label} : "<a href=\"doc/$f.html\"$modstring>$t</a>",
+				$_->{label} ? $_->{label} : "<a href=\"$opts{relpath}$f.html\"$modstring>$t</a>",
 				"</li>\n"
 			)
 		}
@@ -351,7 +351,7 @@ sub getmtime {
 		map {
 			my ($mod, $name) = /(.)\s+(.*)/ or die "illegal line: $_";
 
-			if ( $name =~ m@DOC/[^/]+$@ ) {
+			if ( $name =~ m@$options{dir}/[^/]+$@ ) {
 				$docs{$name} = {
 					mtime => $date,
 					mod => $mod
