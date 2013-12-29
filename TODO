@@ -791,3 +791,49 @@ TODO: httpd: downloading files: don't read entire file into mem at once.
 	ISSUE: to evaluate www expressions in html files, it is easiest to have the
 	entire file loaded. If this is not the case, special care must be taken to
 	handle expressions split on the buffer boundary.
+ 
+TODO: cmdline history: initial history nr '40' should be 0. MAY (has on occassion) cause GPF,
+	as it prints wrong data.
+
+TODO: mutex SOCK fails on high packet load
+
+TODO: improve VMWare GFX speed
+
+TODO: implement USB protocols for webcam
+
+TODO: better COFF/ELF binary execution
+
+TODO: implement GZIP
+
+TODO: implement /download/os.iso.gz realtime compression
+
+TODO: record node uptimes.
+	Nodes may save every 5 minutes. A node crashing will be marked when
+	it times out. If it then returns, it's uptime/boottime is compared
+	and if new, new, else updated. The other nodes then know that the node
+	has rebooted whereas it does not. We want to organize the data so that
+	the node itself has theinformation, thus, when the node reboots, 
+	and registers with the cluster, the cluster nodes will respond with their
+	last known most recent information about the node. If they all agree,
+	it records the uptime for itself. It itself knows the most recent uptime
+	with a persistence resolution of 5 minutes, the other nodes will have 1
+	minute volatile network resolution, which can be compared for boundaries.
+
+TODO: graph uptimes.
+
+TODO: synchronize time.
+	At current all VMs run on the same host and thus have the same clock.
+	Clock times are not explicitly used, except as references to the epoch.
+	This only provides a problem when nodes report their birthdate in the
+	future.
+	Implement NTP, or if that is far too complex, a simple 3 way
+	synchronisation, measuring ping times both ways by transmitting clock
+	data. Each node will then record the relative time offset of the
+	other node. The 'now' field can also be added in the registration
+	packet, although the node has not been up for more than 2 seconds when
+	it sends the packet, and encodes it's birthday.
+
+TODO: more web-testing with Chrome
+	The website runs smooth with FireFox, however Chrome seems more
+	aggressive, causing hangs in page loading, request timeouts,
+	connections without a socket, and mutex locking errors.
