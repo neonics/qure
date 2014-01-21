@@ -975,17 +975,28 @@ dns_process_question$:
 dns_answer_question$:
 
 	# verify name
-	push	ecx
-	push	esi
-	push	edi
+	push_	ecx esi edi
 	call	strlen_
 	inc	ecx
 	LOAD_TXT "cloud.neonics.com.", edi
 	repz	cmpsb
-	pop	edi
-	pop	esi
-	pop	ecx
-	jnz	91f
+	pop_	edi esi ecx
+	jz	0f
+
+	# check if subdomain
+	push_	ecx esi edi
+	call	strlen_
+	cmp	ecx, 19
+	jbe	1f
+	add	esi, ecx	# set offset to end
+	sub	esi, 19		# backtrack to where subdomain begins
+	LOAD_TXT ".cloud.neonics.com.", edi, ecx
+	repz	cmpsb
+1:	pop_	edi esi ecx
+	jz	0f
+	
+	jmp	91f	# no such name
+0:
 
 	cmp	ax, DNS_TYPE_AAAA
 	jz	9f	# no answer
