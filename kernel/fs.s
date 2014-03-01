@@ -2163,6 +2163,7 @@ fs_update_path:
 	mov	ebp, esp
 	push	eax
 	push	ebx
+	push	ecx
 	push	edx
 
 	mov	ax, [esi]
@@ -2273,6 +2274,7 @@ fs_update_path:
 	jnz	0b
 ########
 4:	pop	edx
+	pop	ecx
 	pop	ebx
 	pop	eax
 	add	esp, 4 # pop edi
