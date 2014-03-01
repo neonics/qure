@@ -8,7 +8,7 @@
 stats_httpd_requests: .long 0
 .text32
 
-NET_HTTP_DEBUG = 1		# 1: log requests; 2: more verbose
+NET_HTTP_DEBUG = 3		# 1: log requests; 2: more verbose
 WWW_EXPR_DEBUG = 0
 
 
@@ -244,11 +244,15 @@ net_service_tcp_http:
 	mov	ebp, esp
 
 	#sub	esp, 16 # reserve some space for header pointers.
+	pushd	eax;	HTTP_STACK_SOCK		= 28	# file socket
+	pushd	0;	HTTP_STACK_FHANDLE	= 24	# file handle
+	pushd	0;	HTTP_STACK_FBUF		= 20	# file buffer
+	pushd	0;	HTTP_STACK_FSIZE	= 16	# file size
 	pushd	0;	HTTP_STACK_HDR_INM	= 12	# If-None-Match
 	pushd	0;	HTTP_STACK_HDR_REFERER	= 8	# Referer
 	pushd	0;	HTTP_STACK_HDR_HOST	= 4
 	pushd	0;	HTTP_STACK_HDR_RESOURCE	= 0
-	HTTP_STACKARGS = 16
+	HTTP_STACKARGS = 32
 
 	call	http_parse_header	# in: esi,ecx; out: edx=uri, ebx=host
 
@@ -304,11 +308,9 @@ net_service_tcp_http:
 	#www_content$: .long 0
 	#www_file$: .space MAX_PATH_LEN
 	.text32
-	push	eax
 	movzx	eax, byte ptr [boot_drive]
 	add	al, 'a'
 	mov	[www_docroot$ + 1], al
-	pop	eax
 
 	xor	ecx, ecx
 	cmp	ebx, -1
@@ -317,11 +319,11 @@ net_service_tcp_http:
 	call	strlen_
 	inc	ecx
 1:
-	mov	esi, edx
+	mov	esi, edx	# uri
 	push	ecx
 	call	strlen_
 		# strip query
-		push_	edi ecx eax
+		push_	edi ecx
 		mov	edi, edx
 		mov	al, '?'
 		repnz	scasb
@@ -332,7 +334,7 @@ net_service_tcp_http:
 		sub	ecx, edx
 		# dec ecx?
 		1:
-		pop_	eax ecx edi
+		pop_	ecx edi
 	add	ecx, [esp]
 	add	esp, 4
 	cmp	ecx, MAX_PATH_LEN - WWW_DOCROOT_STR_LEN -1
@@ -365,10 +367,10 @@ net_service_tcp_http:
 
 FS_DIRENT_ATTR_DIR=0x10
 
-	mov	edi, esp#offset www_file$
-	mov	esi, edx
-	inc	esi	# skip leading /
-	call	fs_update_path	# edi=base/output, esi=rel
+	mov	edi, esp	# filename stack buf
+	mov	esi, edx	# uri
+	inc	esi		# skip leading /
+	call	fs_update_path	# in: edi=base/output, esi=rel; out: [edi+*]
 
 	# check whether path is still in docroot:
 	mov	esi, offset www_docroot$
@@ -379,46 +381,42 @@ FS_DIRENT_ATTR_DIR=0x10
 	jnz	www_err_response
 
 	# now, if it is a directory, append index.html
-	push	eax
-	#mov	eax, offset www_file$
-	lea	eax, [esp+4]
-	KAPI_CALL fs_stat
-	jc	2f	# takes care of pop eax
+	lea	eax, [esp]	# file name pointer
+	KAPI_CALL fs_stat	# in: eax=path; out:ecx=fsize,al=flags,CF
+				# XXX ecx = 0x800, not fsize!
+	jc	404f
 	test	al, offset FS_DIRENT_ATTR_DIR
-	pop	eax
-	jz	1f
+	jz	1f		# not a directory
 
-	mov	edi, esp#offset www_file$
+	mov	edi, esp	# filename buffer
 	LOAD_TXT "./index.html"
 	call	fs_update_path
 	# no need to check escape from docroot.
 1:
-
 	.if NET_HTTP_DEBUG > 1
 		printc 13, "Serving file: '"
-		mov	esi, esp#offset www_file$
+		mov	esi, esp	# filename buffer
 		call	print
 		printc 13, "' "
 	.endif
 
-	push	eax	# preserve socket
-	push	edx
-	#mov	eax, offset www_file$
-	lea	eax, [esp+8]
+	lea	eax, [esp]	# filename
 	xor	edx, edx	# fs_open flags argument
-	KAPI_CALL fs_open
-	pop	edx
-	jc	2f
+	KAPI_CALL fs_open	# out: eax=handle, ecx=filesize
+	jc	404f
+	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FSIZE], ecx
+	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FHANDLE], eax
 #####################################
+# [esp]=socket
+# eax = file handle
 	call	fs_handle_get_mtime	# out: esi -> 8 bytes
-	jc	1f
+	jc	1f	# error getting mtime, skip ETag check
 
 	# check ETag / If-None-Match
 	cmp	dword ptr [ebp - HTTP_STACKARGS + HTTP_STACK_HDR_INM], 0
 	stc
 	jz	1f	# not present
 #	DEBUG "have INM:" ; DEBUGS [ebp-HTTP_STACKARGS + HTTP_STACK_HDR_INM]
-	push_ eax edx
 	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_HDR_INM]
 	# format: "YYMMDDhhmmss00-00000000"  (last dword=kernel rev)
 	cmp	byte ptr [eax + 16], '-'
@@ -437,21 +435,18 @@ FS_DIRENT_ATTR_DIR=0x10
 	call	htoi
 	jc	91f
 	cmp	eax, KERNEL_REVISION
-91:	pop_ edx eax
+91:
 	jc	1f
 	jnz	1f
 ##################
-	# got match
-#	DEBUG "ETag match"
+	# ETag matches
 	mov	dword ptr [ebp - HTTP_STACKARGS + HTTP_STACK_HDR_INM], -2
 	# send '304 Not Modified'
-	pushf
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FHANDLE]
 	KAPI_CALL fs_close
-	popf
-
-	pop	eax	# socket
 
 	LOAD_TXT "HTTP/1.1 304 Not Modified\r\nConnection: close\r\n\r\n", esi, ecx, 1
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
 	KAPI_CALL socket_write
 	KAPI_CALL socket_flush
 	KAPI_CALL socket_close
@@ -459,81 +454,83 @@ FS_DIRENT_ATTR_DIR=0x10
 	jmp	90f
 1:
 #####################################
-	push	eax
-	mov	eax, ecx
-	add	eax, 2047
-	and	eax, ~2047
-	add	eax, 8	# for time
+# esi = -> 2 dwords mtime
+
+# malloc file buffer
+#	mov	eax, ecx
+#	add	eax, 2047
+#	and	eax, ~2047
+#	add	eax, 8	# for time
+	mov	eax, 2048	# tested: 200kb buffer doesn't improve speed
 	call	mallocz
 	mov	edi, eax
-	pop	eax
+	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FBUF], eax
 	jnc 1f; printc 4, "mallocz error"; 1:
 #TODO:	jc
 
-	# copy mtime
-	movsd
-	movsd
-	mov	esi, edi
+	# now that we have the file open and the buffer allocated,
+	# we can send a 200 OK
 
+	# get the mime
+	push	esi		# preserve mtime
+	lea	esi, [esp + 4]	# filename
+	call	http_get_mime	# out: esi
+	mov	ebx, esi	# remember mime
+	pop	esi		# mtime ptr
+
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
+	call	_www_send_200$	# in: eax=tcp_conn,esi=mtime, ebx=mime
+
+	# send file contents
+10:	push	ecx
+	cmp	ecx, 2048
+	jb	11f
+	mov	ecx, 2048
+11:	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FHANDLE]
 	KAPI_CALL fs_read	# in: edi,ecx,eax
 	jnc 1f; printc 4, "fs_read error"; 1:
 #TODO:	jc
+	sub	[esp], ecx	# subtract the bytes read
 
-	pushf
-	KAPI_CALL fs_close
-	popf
-	pop	eax
-	jnc	1f
+	# send
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
+	mov	esi, edi	# buffer
+	KAPI_CALL socket_write
+#TODO:	jc
+	pop	ecx		# ecx is bytes remaining
+	or	ecx, ecx
+	jnz	10b
 
-	push	eax
-	lea	eax, [edi - 8]
+	# done.
+	# free buffer:
+	mov	eax, edi
 	call	mfree
-2:	pop	eax
-	mov	esi, offset www_code_404$
+	jnc 1f; DEBUG "ERROR freeing buffer";1:
+
+	# close file
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FHANDLE]
+	KAPI_CALL fs_close
+	jnc 1f; DEBUG "ERROR closing file";1:
+
+	# DONE!
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
+	KAPI_CALL socket_flush
+	KAPI_CALL socket_close
+	jmp	90f
+
+404:	mov	esi, offset www_code_404$
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
 	jmp	www_err_response
 
 ########
-1:	# esi, ecx = file contents
-	mov	esi, edi
-	.if NET_HTTP_DEBUG
-		printlnc 10, "200 "
-	.endif
-	push	ebp
-	mov	ebp, esp# ebp + 4    www_file
-	push	eax	# [ebp - 4]  tcp conn
-	push	esi	# [ebp - 8]  orig buf
-	push	ecx	# [ebp - 12] orig buflen
-
-
-	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: "
-	call	strlen_
-	KAPI_CALL socket_write
-
-	lea	esi, [ebp + 4]	# filename
-	call	http_get_mime	# out: esi
-	call	strlen_
-	mov	ebx, esi	# remember mime
-	KAPI_CALL socket_write
-
-	push_	edi eax
-	LOAD_TXT "\r\nETag: \"YYMMDDhhmmsszz00-KERNELRV\""
-	lea	edi, [esi + 9]
-	mov	eax, [ebp - 8]	# orig file buf
-	mov	edx, [eax - 8]	# mtime in file buf
-	call	sprinthex8
-	mov	edx, [eax - 4]	# mtime 2nd dword
-	call	sprinthex8
-	inc	edi	# skip '-'
-	mov	edx, KERNEL_REVISION
-	call	sprinthex8
-	pop_	eax edi
-	call	strlen_
-	KAPI_CALL socket_write
-
-	LOAD_TXT "\r\nConnection: close\r\n\r\n"
-	call	strlen_
-	KAPI_CALL socket_write
-
+# ebx = mime
+# TEMPORARILY UNREACHABLE CODE
+# Because we're buffering the file contents in pieces, we don't have
+# access to the entire file at once, which means that scanning for tokens
+# will miss tokens that cross the buffer boundary. This requires keeping
+# a state variable, or to shift the buffer; the latter is problematic
+# since the fs layer doesn't support reading partial sectors.
+1:
 	# ebx = mime:
 	cmp	ebx, offset _mime_text_html$
 	mov	ebx, [ebp - 8]	# buf
@@ -563,6 +560,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	call	www_expr_handle
 
 	jmp	1b
+
 ##################################
 3:
 1:	mov	ecx, [ebp - 12]
@@ -571,16 +569,62 @@ FS_DIRENT_ATTR_DIR=0x10
 	KAPI_CALL socket_flush
 	KAPI_CALL socket_close
 
-	mov	eax, [ebp - 8]
+	# free buffer
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FBUF]
 	sub	eax, 8
 	call	mfree
 ########
-	mov	esp, ebp	# restore the tmp thing
-	pop	ebp
-	# and again for outer
 90:	mov	esp, ebp
 	pop	ebp
 	ret
+
+
+# send http headers for a 200 OK.
+#
+# in: eax = tcp_conn
+# in: esi: ptr to 8 bytes of file mtime
+# in: ebx = mime
+_www_send_200$:
+	.if NET_HTTP_DEBUG
+		printlnc 10, "200 "
+	.endif
+	push	ecx
+	push	ebp
+	mov	ebp, esp
+	push	eax	# [ebp - 4]  tcp conn
+	push	esi	# [ebp - 8]  mtime ptr
+
+	LOAD_TXT "HTTP/1.1 200 OK\r\nContent-Type: ", esi, ecx, 1
+	KAPI_CALL socket_write
+
+	mov	esi, ebx	# mime
+	call	strlen_
+	KAPI_CALL socket_write
+
+	push_	edi eax
+	LOAD_TXT "\r\nETag: \"YYMMDDhhmmsszz00-KERNELRV\"", esi, ecx, 1
+	lea	edi, [esi + 9]	# start of date
+	mov	eax, [ebp - 8]	# mtime ptr
+	mov	edx, [eax + 0]	# mtime in file buf
+	call	sprinthex8
+	mov	edx, [eax + 4]	# mtime 2nd dword
+	call	sprinthex8
+	inc	edi		# skip '-'
+	mov	edx, KERNEL_REVISION
+	call	sprinthex8
+	pop_	eax edi
+	KAPI_CALL socket_write
+
+	LOAD_TXT "\r\nConnection: close\r\n\r\n"
+	call	strlen_
+	KAPI_CALL socket_write
+	KAPI_CALL socket_flush
+
+	mov	esp, ebp	# restore
+	pop	ebp
+	pop	ecx
+	ret
+
 
 .section .strings
 _mime_text_xml$:	.asciz "text/xml"
@@ -1139,7 +1183,9 @@ www_expr_handle:
 	add	ebx, 10	# struct size
 	dec	edx
 	jg	0b
-		DEBUG "no matches"
+		DEBUG "no matches for expr:"
+		mov esi, edi
+		call nprint
 	# not found
 	jmp	9f
 
