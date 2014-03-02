@@ -8,7 +8,7 @@
 stats_httpd_requests: .long 0
 .text32
 
-NET_HTTP_DEBUG = 3		# 1: log requests; 2: more verbose
+NET_HTTP_DEBUG = 1		# 1: log requests; 2: more verbose
 WWW_EXPR_DEBUG = 0
 
 
@@ -235,6 +235,7 @@ http_check_request_complete:
 	ret
 
 
+DEBUG_EXPR = 0
 
 # in: eax = socket index
 # in: esi = request data (complete)
@@ -244,6 +245,7 @@ net_service_tcp_http:
 	mov	ebp, esp
 
 	#sub	esp, 16 # reserve some space for header pointers.
+	pushd	0;	HTTP_STACK_FNAME	= 32	# file name buffer
 	pushd	eax;	HTTP_STACK_SOCK		= 28	# file socket
 	pushd	0;	HTTP_STACK_FHANDLE	= 24	# file handle
 	pushd	0;	HTTP_STACK_FBUF		= 20	# file buffer
@@ -252,7 +254,7 @@ net_service_tcp_http:
 	pushd	0;	HTTP_STACK_HDR_REFERER	= 8	# Referer
 	pushd	0;	HTTP_STACK_HDR_HOST	= 4
 	pushd	0;	HTTP_STACK_HDR_RESOURCE	= 0
-	HTTP_STACKARGS = 32
+	HTTP_STACKARGS = 36
 
 	call	http_parse_header	# in: esi,ecx; out: edx=uri, ebx=host
 
@@ -300,6 +302,7 @@ net_service_tcp_http:
 
 1:	# serve custom file:
 	sub	esp, ~3&(MAX_PATH_LEN+3)
+	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FNAME], esp
 
 	.section .strings
 	www_docroot$: .asciz "/c/www/"
@@ -461,7 +464,9 @@ FS_DIRENT_ATTR_DIR=0x10
 #	add	eax, 2047
 #	and	eax, ~2047
 #	add	eax, 8	# for time
-	mov	eax, 2048	# tested: 200kb buffer doesn't improve speed
+
+	# allocate 2kb disk buffer and 128 bytes expression buffer
+	mov	eax, 2048 + 128	# tested: 200kb buffer doesn't improve speed
 	call	mallocz
 	mov	edi, eax
 	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FBUF], eax
@@ -487,23 +492,95 @@ FS_DIRENT_ATTR_DIR=0x10
 	jb	11f
 	mov	ecx, 2048
 11:	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FHANDLE]
+	mov	edi, [ebp - HTTP_STACKARGS + HTTP_STACK_FBUF]
 	KAPI_CALL fs_read	# in: edi,ecx,eax
 	jnc 1f; printc 4, "fs_read error"; 1:
 #TODO:	jc
 	sub	[esp], ecx	# subtract the bytes read
 
+	# evaluate expressions, only if mime is html
+	cmp	ebx, offset _mime_text_html$
+	jnz	5f		# not proper mime, do not parse
+########
+
+	push	ebx
+	push	ecx		# source buf len remaining
+
+	# edi = buf start
+	# ecx = buf len
+1:	mov	ecx, [esp]	# remaining buflen
+	mov	ebx, edi	# start of unsent data
+	call	www_findexpr	# in: edi,ecx; out: edi,ecx
+	jc	3f		# not found at all
+	# expression found - check if it's partial
+# for now skip partial expressions
+#	jz	4f		# potential expression found crossing buffer boundary
+
+	# edi, ecx = expression
+	lea	edx, [edi - 2]	# start of expression string
+	sub	edx, ebx	# len of unsent data
+	jz	2f		# expression at buffer start
+	mov	esi, ebx	# start of unsent data
+	lea	ebx, [edi + ecx + 1]	# end of expr = new start of unsent data
+	sub	[esp], edx	# update remaining source len
+
+	push	ecx
+	mov	ecx, edx
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
+
+	KAPI_CALL socket_write
+
+	pop	ecx
+2:
+		# assert: esi + edx = edi = start of expr
+# use edi,ecx
+	lea	edx, [ecx + 3]
+	sub	[esp], edx	# update remaining source len
+
+	# set up www_expr_handle args:
+	# in: edi = expression
+	# in: ecx = expression len
+	# in: eax = socket
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
+
+	pushad
+	push	ebp
+	mov	ebp, [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME]
+	call	www_expr_handle
+	pop	ebp
+	popad
+
+	lea	edi, [ebx];#[ebx + ecx]	# advance edi to end of expression
+
+	jmp	1b	# see if there's more in this buffer
+4:	# a potential expression has been found that crosses the
+	# buffer boundary. A few cases:
+	# 1) the last byte of the buffer is $
+	# 2) the last 2 bytes of the buffer are ${
+	# 3) the last 2+X bytes of the buffer are ${...
+	# in the 4th case, ${....} the entire expression was found at 1b.
+	# for now just skip.
+3:	mov	edi, ebx # edi is trashed, restore
+	pop	ecx		# restore remaining buffer len
+	pop	ebx		# restore mime pointer
+	jmp	6f	# preserve edi's position
+########
 	# send
+5:	# complete skip of expr parsing, set edi properly
+	mov	edi, [ebp - HTTP_STACKARGS + HTTP_STACK_FBUF]
+6:	# send partial buffer
 	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
 	mov	esi, edi	# buffer
 	KAPI_CALL socket_write
 #TODO:	jc
+
 	pop	ecx		# ecx is bytes remaining
 	or	ecx, ecx
 	jnz	10b
 
 	# done.
 	# free buffer:
-	mov	eax, edi
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FBUF]
 	call	mfree
 	jnc 1f; DEBUG "ERROR freeing buffer";1:
 
@@ -522,58 +599,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
 	jmp	www_err_response
 
-########
-# ebx = mime
-# TEMPORARILY UNREACHABLE CODE
-# Because we're buffering the file contents in pieces, we don't have
-# access to the entire file at once, which means that scanning for tokens
-# will miss tokens that cross the buffer boundary. This requires keeping
-# a state variable, or to shift the buffer; the latter is problematic
-# since the fs layer doesn't support reading partial sectors.
-1:
-	# ebx = mime:
-	cmp	ebx, offset _mime_text_html$
-	mov	ebx, [ebp - 8]	# buf
-	jnz	3f		# not proper mime, do not parse
-
-1:	mov	edi, ebx
-	mov	ecx, [ebp - 12]	# buflen
-	call	www_findexpr	# in: edi, ecx; out: edi,ecx
-	jc	1f
-# preserve edi,ecx
-	# edi, ecx = expression
-	lea	edx, [edi - 2]	# start of expression string
-	sub	edx, ebx	# len of unsent data
-	jz	2f
-	mov	esi, ebx	# start of unsent data
-	lea	ebx, [edi + ecx + 1]	# end of expr = new start of unsent data
-	sub	[ebp - 12], edx	# update remaining source len
-
-	push	ecx
-	mov	ecx, edx
-	KAPI_CALL socket_write
-	pop	ecx
-2:
-# use edi,ecx
-	lea	edx, [ecx + 3]
-	sub	[ebp - 12], edx	# update remaining source len
-	call	www_expr_handle
-
-	jmp	1b
-
 ##################################
-3:
-1:	mov	ecx, [ebp - 12]
-	mov	esi, ebx
-	KAPI_CALL socket_write
-	KAPI_CALL socket_flush
-	KAPI_CALL socket_close
-
-	# free buffer
-	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FBUF]
-	sub	eax, 8
-	call	mfree
-########
 90:	mov	esp, ebp
 	pop	ebp
 	ret
@@ -1042,8 +1068,8 @@ expr_krnl_get_data_size:
 # in: [ebp+4] = www_file (the file containing the expression)
 #[in: edi,ecx=1kb expr buffer]
 expr_include:
-	#DEBUG "include"
-	#DEBUGS ebx
+		DEBUG "include"
+		DEBUGS ebx
 	pushad
 
 	# use static www_file$
@@ -1119,7 +1145,7 @@ expr_include:
 # in: eax = socket
 # in: edi = expression
 # in: ecx = expression len
-# in: ebp+4 = www_file (NOTE! LEA [ebp+4]!!)
+# in: ebp = www_file buffer pointer (stack,len=1024)
 # free to use: edx, esi
 www_expr_handle:
 	.if WWW_EXPR_DEBUG
@@ -1142,7 +1168,8 @@ www_expr_handle:
 	push	ebx
 	push	ecx	# expr len
 	push	edi	# expr
-	lea	esi, [ebp + 4]
+	#lea	esi, [ebp + 4]
+	mov	esi, ebp
 	push	esi
 	xor	esi, esi
 	push	eax
@@ -1164,8 +1191,10 @@ www_expr_handle:
 
 	.if 0
 		DEBUG "www_expr_handle:"
+		push	esi
 		mov	esi, edi
 		call	nprint
+		pop	esi
 		call	newline
 	.endif
 
