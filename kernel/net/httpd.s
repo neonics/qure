@@ -342,6 +342,7 @@ net_service_tcp_http:
 	add	esp, 4
 	cmp	ecx, MAX_PATH_LEN - WWW_DOCROOT_STR_LEN -1
 	mov	esi, offset www_code_414$
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
 	jae	www_err_response
 
 	# calculate path
@@ -380,8 +381,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	mov	edi, esp#offset www_file$
 	mov	ecx, WWW_DOCROOT_STR_LEN - 1 # skip null terminator
 	repz	cmpsb
-	mov	esi, offset www_code_404$
-	jnz	www_err_response
+	jnz	404f
 
 	# now, if it is a directory, append index.html
 	lea	eax, [esp]	# file name pointer
