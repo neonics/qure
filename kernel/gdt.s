@@ -657,6 +657,7 @@ init_gdt_16:
 	mov	eax, [codebase]
 
 	GDT_SET_BASE SEL_realmodeCS, eax
+	PH8_16 eax, "base "
 	GDT_SET_BASE SEL_compatCS, eax
 	GDT_SET_BASE SEL_ring0CS, eax
 	GDT_SET_BASE SEL_ring1CS, eax
@@ -665,6 +666,7 @@ init_gdt_16:
 
 	# find len
 	mov	eax, offset KERNEL_CODE32_END	# relocation
+	PH8_16 eax, "limit "
 	GDT_SET_LIMIT SEL_compatCS, eax
 	GDT_SET_LIMIT SEL_ring0CS, eax
 	GDT_SET_LIMIT SEL_ring1CS, eax
@@ -672,6 +674,7 @@ init_gdt_16:
 	GDT_SET_LIMIT SEL_ring3CS, eax
 
 	.if DEBUG
+		printc_16 13, "CS:"
 		GDT_PRINT_ENTRY_16 SEL_compatCS
 	.endif
 
@@ -692,12 +695,25 @@ init_gdt_16:
 	GDT_SET_BASE SEL_ring3DS, eax
 
 	# store proper linear (base 0) GDT/IDT address in pointer structure
-	mov	eax, offset GDT	# relocation
-	add	eax, [database] # nonrelocation
+	#mov	eax, offset GDT	# relocation
+	#add	eax, [database] # nonrelocation
+	xor eax,eax
+	mov ax, offset GDT	
+	add eax, offset .text
+PH8_16 eax, "GDT offset"
 	mov	[pm_gdtr+2], eax
-	mov	eax, offset IDT	# relocation
-	add	eax, [database] # nonrelocation
+	#mov	eax, offset IDT	# relocation
+	#add	eax, [database] # nonrelocation
+	xor eax,eax
+	mov ax, offset IDT
+	add eax, offset .text
+PH8_16 eax, "IDT offset"
 	mov	[pm_idtr+2], eax
+
+
+PH8_16 [pm_gdtr+2]
+PH8_16 [pm_idtr+2]
+call waitkey
 
 
 	# Set up SS
@@ -761,15 +777,19 @@ init_gdt_16:
 		PH8_16 [codebase], "codebase"
 		PH8_16 [GDT_compatCS+0]
 		PH8_16 [GDT_compatCS+4]
+		mov dx, ds; print_16 "sel "; call printhex_16;
 		call newline_16
 	.endif
 
 	push	ds	
-	mov	ecx, [reloc$]
-	jecxz	1f
-	xor	ax, ax	# use 0-based offset as pm_gdtr is relocatable.
-	mov	ds, ax
-1:	DATA32 ADDR32 lgdt	pm_gdtr	# relocation
+#	mov	ecx, [reloc$]
+#	jecxz	1f
+#	xor	ax, ax	# use 0-based offset as pm_gdtr is relocatable.
+#	mov	ds, ax
+1:	#DATA32 ADDR32 lgdt	pm_gdtr	# relocation
+_MEH2:
+	#lgdt [gdt_ptr]
+	lgdt [pm_gdtr]
 	pop	ds
 
 	pop_	ecx ebx eax

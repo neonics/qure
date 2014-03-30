@@ -1759,7 +1759,6 @@ lba_to_chs:
 	ret
 
 ###################################################
-
 .include "../kernel/keycodes.s"
 
 waitkey:
@@ -1770,19 +1769,20 @@ waitkey:
 	push	dx
 
 	mov	si, offset msg_press_key$
-	call	print
+	call	print_16
 
 	push	ax
 	xor	ah, ah
 	int	0x16
 	pop	dx
 	xchg	ax, dx	# restore ah
-	call	printhex
-	call	newline
+	call	printhex_16
+	call	newline_16
 	mov	ax, dx
 	pop	dx
 	pop	si
 	ret
+
 
 get_boot_drive:
 	mov	dl, [bootloader_registers + 24]
@@ -1794,6 +1794,9 @@ get_boot_drive:
 
 
 .include "../16/gdt.s"	# macros and constants
+.macro .data16; .data; .endm
+.macro .text16; .text; .endm
+BOOTLOADER=1
 .include "../16/pmode.s"
 
 .data

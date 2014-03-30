@@ -1,4 +1,5 @@
-.data
+.print "* 16/pmode.s"
+.data16
 backup_gdt_ptr: .word 0; .long 0
 backup_idt_ptr: .word 0; .long 0
 
@@ -34,7 +35,7 @@ idt:
 .endr
 idt_end:
 
-.text
+.text16
 pm_idt_table:
 _I=0
 .rept 256
@@ -120,11 +121,11 @@ pm_isr:
 	add	sp, 2
 	iret
 
-.data
+.data16
 backup_ds: .word 0
 backup_es: .word 0
 backup_ss: .word 0
-.text
+.text16
 
 enter_pmode:
 	push	eax
@@ -169,9 +170,22 @@ enter_pmode:
 	shl	eax, 4
 	GDT_STORE_SEG s_data
 
+.ifdef BOOTLOADER
 	add	eax, offset gdt
+.else
+mov ah,0xf1; print_16 "gdt offset:"
+xor eax,eax
+mov ax, offset gdt
+add eax, offset .text
+mov edx,eax;
+call printhex8_16;
+#0:hlt;jmp 0b
+print_16 " sel"
+mov dx, ds
+call printhex_16
+.endif
 	mov	[gdt_ptr+2], eax
-
+_MEH:
 	lgdt	[gdt_ptr]
 
 	# initialize the idt
@@ -189,10 +203,17 @@ enter_pmode:
 	add	si, 8
 	loop	0b
 
+.ifdef BOOTLOADER
 	mov	eax, ds
 	shl	eax, 4
 	add	eax, offset idt
+.else
+_HEY:
+	xor	eax, eax
+	mov	eax, offset idt
+.endif
 	mov	[idt_ptr+2], eax
+
 
 	lidt	[idt_ptr]
 
@@ -233,8 +254,16 @@ enter_pmode:
 	# set vid
 	mov	ax, SEL_vid
 	mov	es, ax
-mov ah, 0xd0
-print "PMode"
+#mov ah, 0xd0
+#print_16 "PMode"
+		.ifndef BOOTLOADER
+		.print "BREAKPOINT"
+		#0:hlt;jmp 0b
+		.else
+		.print "skip bp"
+		.endif
+
+
 	pop	esi
 	pop	edx
 	pop	ecx
@@ -266,7 +295,7 @@ enter_realmode:
 	in al, 0x71
 
 mov ah, 0xd0
-print "Realmode"
+print_16 "Realmode"
 	pop	eax
 	sti
 	ret

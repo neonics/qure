@@ -1460,8 +1460,11 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	pop	ebx
 .endif
 
-	mov	eax, offset IDT		# relocation
-	add	eax, [database]
+xor eax,eax
+mov ax,offset IDT
+add eax, offset .text
+	#mov	eax, offset IDT		# relocation
+	#add	eax, [database]
 	mov	[pm_idtr + 2], eax
 
 	# works whether relocated or not, since in pmode.

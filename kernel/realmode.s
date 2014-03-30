@@ -180,13 +180,7 @@ _test_label: .asciz "Test!"
 realmode_kernel_entry:
 #mov eax, offset .text16
 	int3		# trigger debugger from pmode - when eip=0
-	push	cx
-	mov	ax, 0x0f00
-	xor	di, di
-	mov	cx, 80*25
-	rep	stosw
-	pop	cx
-	xor	di, di
+	call	cls_16
 	mov	ax, 0xf0<<8|'!'
 	stosw
 
@@ -196,9 +190,6 @@ realmode_kernel_entry:
 
 # after upgrading to GCC 4.8.2, 16 bit segments arent automatically relocated.
 # Add the KERNEL_DATA16_START to ds:
-my_foo:
-	movw [screen_pos_16], 2
-	movw [screen_color_16], 0x07
 
 	.if DEBUG_KERNEL_REALMODE
 		push	dx
@@ -277,8 +268,7 @@ mov edx, [database];	PH8_16 edx, "database:    ";	call newline_16
 pop edx
 
 	.if DEBUG > 3
-		printc_16 0x5f, "*"
-		xor ax,ax; int 0x16
+		call	waitkey
 	.endif
 
 	pop	eax
@@ -716,10 +706,7 @@ pop edx
 		mov	dx, ss:[bp]
 		call	printhex_16
 
-		printc_16 14, "Press a key to continue.."
-		xor	ah,ah
-		int	0x16
-		call	newline_16
+		call	waitkey0
 	.endif
 
 	# make it return elsewhere
@@ -812,6 +799,22 @@ cdrom_spec_head:	.byte 0
 #### Console/Print #############
 ################################
 #### 16 bit debug functions ####
+# out: di=screenpos
+cls_16:
+	print_start_16
+	push	cx
+	mov	ax, 0x0f00
+	xor	di, di
+	mov	cx, 80*25
+	rep	stosw
+	pop	cx
+	print_end_16
+	xor	di, di
+
+	movw [screen_pos_16], 2
+	movw [screen_color_16], 0x07
+	ret
+
 printhex1_16:
 	push	ecx
 	mov	ecx, 1
@@ -926,4 +929,19 @@ __scroll_16:
 	pop	si
 	pop	cx
 	pop	ds
+	ret
+
+
+waitkey0:
+	push	ax
+	printc_16 14, "Press a key to continue.."
+	xor	ah,ah
+	int	0x16
+	call	newline_16
+	pop	ax
+	ret
+
+waitkey:
+	printc_16 0x5f, "*"
+	xor ax,ax; int 0x16
 	ret

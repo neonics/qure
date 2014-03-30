@@ -1231,7 +1231,7 @@ screen_buf_flush:
 	pop	edi
 9:	
 
-	.if 1 # NEW!
+	.if 0 # NEW!
 		mov	edi, [realsegflat]
 		add	edi, [screen_update]
 		call	edi

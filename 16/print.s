@@ -33,6 +33,7 @@ printhex2:
 .endif
 .ifndef SECTOR1
 #.print " * including printhex"
+printhex_16:
 printhex:
 	push	ax
 	push	cx
@@ -55,6 +56,7 @@ printhex$:
 	pop	ax
 	ret
 
+newline_16:
 newline:
 	push	ax
 	push	dx
@@ -78,6 +80,7 @@ println:push	offset newline
 .endif
 
 0:	stosw
+print_16:
 print:	lodsb
 	test	al, al
 	jnz	0b
@@ -121,7 +124,11 @@ print:	lodsb
 	.endif
 .endm
 
-.macro	PRINT a
+.macro PRINT a
+	PRINT_16 a
+.endm
+
+.macro	PRINT_16 a
 	.data
 	9: .asciz "\a"
 	.text
@@ -155,6 +162,7 @@ print:	lodsb
 	pop	ax
 .endm
 
+printhex8_16:
 printhex8:
 	push	cx
 	push	ax

@@ -6,6 +6,11 @@ DEBUG_PM = 3	# max 3
 
 ###########################
 
+.include "../16/gdt.s"
+.include "../16/pmode.s"
+.purgem DEFGDT
+##########################
+
 .include "pic.s"
 .include "gdt.s"
 .include "idt.s"
@@ -100,6 +105,20 @@ protected_mode:
 	mov	[bkp_reg_fs], fs
 	mov	[bkp_reg_gs], gs
 	mov	[bkp_pm_mode], ax
+
+#call cls_16
+print_16 "entering pmode"
+push ax
+call waitkey
+pop ax
+print_16 "..."
+_ONE:
+call enter_pmode		# 195d  / 1f6d9
+#print_16 "!!!"
+_TWO:
+call enter_realmode
+_THREE:
+print_16 "entered realmode"
 
 	.if DEBUG_PM > 1
 		mov	dx, cs
@@ -249,6 +268,9 @@ _HAK:
 		mov di, offset pmode_entry$
 		PH8_16 edi, "PM ENTRY relocated:"
 	.endif
+
+
+
 #0:hlt;jmp 0b
 mov ax, 0x0800
 0:
@@ -1089,3 +1111,4 @@ pmode_entry2$:
 	.endif
 
 	ret	# at this point interrupts are on, standard handlers installed.
+
