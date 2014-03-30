@@ -24,11 +24,18 @@ endef
 
 all: os.iso
 
-ISO_DEPS = $(shell find root/ -type f|grep -v www/download/os.iso.gz) \
+CODE_ISO_DEPS = root/boot/boot.img
+
+DATA_ISO_DEPS = $(shell find root/ -type f|grep -v www/download/os.iso.gz) \
 	root/boot/boot.img
 
+.PHONY: foo
+foo:
+	@echo $(ISO_DEPS)
+
+
 os.iso: SECTORS = $(call CALC_SECTORS,build/boot.img)
-os.iso: $(ISO_DEPS) root/www/download/os.iso.gz | init site
+os.iso: $(CODE_ISO_DEPS) | init
 	@#cp --sparse=always build/boot.img root/boot/boot.img
 	@echo "  ISO   $@"
 	@genisoimage -P Neonics -quiet -input-charset utf-8 -o os.iso.tmp \
@@ -38,6 +45,9 @@ os.iso: $(ISO_DEPS) root/www/download/os.iso.gz | init site
 	@#-J -boot-info-table
 	@#-no-emul-boot
 	@#-hard-disk-boot
+
+data.iso: $(DATA_ISO_DEPS) root/www/download/os.iso.gz | init site
+
 
 init:	build-deps
 	@[ -d build/ ] || mkdir -p build/
@@ -145,11 +155,12 @@ root/www/download/os.iso.gz: $(ISO_DEPS) | site-init
 	@echo "  ISO   $@"
 	@[ -f root/www/download/os.iso.gz ] && rm root/www/download/os.iso.gz || true
 	@#gzip build/boot.img -c > root/www/download/boot.img.gz
-	@genisoimage -P Neonics -quiet -input-charset utf-8 -o os.iso.site \
-		-r -b boot/boot.img \
-		$(ISO_ARGS) \
-		root/ && gzip -9 os.iso.site \
-		&& mv os.iso.site.gz root/www/download/os.iso.gz
+	touch root/www/download/os.iso.gz
+	#@genisoimage -P Neonics -quiet -input-charset utf-8 -o os.iso.site \
+	#	-r -b boot/boot.img \
+	#	$(ISO_ARGS) \
+	#	root/ && gzip -9 os.iso.site \
+	#	&& mv os.iso.site.gz root/www/download/os.iso.gz
 
 site-src:
 	#[ -d root/src/kernel ] || mkdir -p root/src/kernel

@@ -2,7 +2,7 @@
 
 IRQ_BASE = 0x20	# base number for PIC hardware interrupts
 
-DEBUG_PM = 0
+DEBUG_PM = 3	# max 3
 
 ###########################
 
@@ -167,15 +167,20 @@ protected_mode:
 	# - or use a register.
 
 	# prepare the far jump instruction
-
+.if 1
+	xor	eax, eax
+	mov	ax, offset pmode_entry$
+	add	eax, offset .text
+.else
 	mov	eax, offset pmode_entry$	# relocation
+.endif
 
 	.if DEBUG_PM > 1
 		rmI "Preparing Entry Point: "
 		push	edx
 		mov	edx, eax
 		call	printhex8_16
-		add	edx, [codebase]
+		add	edx, [codebase]	#XXX with 16bit relocation this is redundant!
 		GETFLAT
 		PH8_16	edx, "opcodes: "
 		call	printhex8_16
@@ -227,14 +232,29 @@ protected_mode:
 		mov	edx, [reloc$]
 		call	printhex8_16
 
-		mov edx, esp
-		PH8_16 edx, "esp: "
+		rmI2 "Stack: "
+		mov	dx, ss
+		call	printhex_16
+		mov	edx, esp
+		call	printhex8_16
 	.endif
 
 	.if DEBUG_PM
 		rmI "Entering "
+		mov edi, [pm_entry]
+		PH8_16 edi, "PM ENTRY stored:"
+_HAK:
+		#mov edi, offset pmode_entry$
+		xor edi,edi
+		mov di, offset pmode_entry$
+		PH8_16 edi, "PM ENTRY relocated:"
 	.endif
-
+#0:hlt;jmp 0b
+mov ax, 0x0800
+0:
+mov cx, -1; 1: nop; loop 1b
+dec ax
+jnz 0b
 	mov	edi, [screen_pos_16]
 
 	.if 0	# 0='unreal mode'
@@ -282,6 +302,7 @@ pmode_entry$:
 		stosw
 	.endif
 
+#0:hlt;jmp 0b
 	# adjust return address
 	xor	edx, edx # (was meant for pop dx)
 	pop	edx	# real mode return address

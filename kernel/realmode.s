@@ -165,6 +165,9 @@ ___fooo:
 	pop ebx
 .endm
 
+.data16 1
+_test_label: .asciz "Test!"
+
 
 #########################################################
 .text16
@@ -191,24 +194,43 @@ realmode_kernel_entry:
 	push	cs
 	pop	ds
 
+# after upgrading to GCC 4.8.2, 16 bit segments arent automatically relocated.
+# Add the KERNEL_DATA16_START to ds:
+my_foo:
+	movw [screen_pos_16], 2
+	movw [screen_color_16], 0x07
+
 	.if DEBUG_KERNEL_REALMODE
 		push	dx
 		mov	dx, cs
 		call	printhex_16
+
+		push ax; mov al, '?'; call printchar_16; pop ax
 
 		call	0f
 	0:	pop	dx
 		sub	dx, offset 0b
 		call	printhex_16
 		pop	dx
+		push ax; mov al, '?'; call printchar_16; pop ax
 	.endif
 
 ####### print hello
+push si
+push dx
+_my_test:
+mov si, offset _test_label
+mov dx, si
+call printhex_16
+call print_16
+pop dx 
+pop si
 
 	COLOR_16 14
 	println_16 "Kernel booting"
 	COLOR_16 7
 
+#0:hlt; jmp 0b
 	mov	[bootloader_ds], ax
 	mov	[boot_drive], dx
 
@@ -254,7 +276,7 @@ mov edx, [codebase];	PH8_16 edx, "codebase:    ";	call newline_16
 mov edx, [database];	PH8_16 edx, "database:    ";	call newline_16
 pop edx
 
-	.if DEBUG > 2
+	.if DEBUG > 3
 		printc_16 0x5f, "*"
 		xor ax,ax; int 0x16
 	.endif
@@ -498,7 +520,7 @@ pop edx
 
 	##############################################
 
-	.if DEBUG > 2
+	.if DEBUG > 3
 		printc_16 0x4f, "*"
 		xor	ax,ax
 		int	0x16

@@ -758,6 +758,10 @@ init_gdt_16:
 	.if DEBUG > 2
 		PRINTLN_16 "  Loading Global Descriptor Table: "
 		PRINT_DT_16 "    PMode   " pm_gdtr pm_idtr
+		PH8_16 [codebase], "codebase"
+		PH8_16 [GDT_compatCS+0]
+		PH8_16 [GDT_compatCS+4]
+		call newline_16
 	.endif
 
 	push	ds	

@@ -3,32 +3,28 @@ $VERBOSE = 0;
 getopt(@ARGV) or
 	die "usage: reloc.pl [-v] [[-C [-R]] <kernel.o>] <kernel.reloc>\n\t-C: compress\n";
 
-$ADDR16 = 0;	# set to 0 to clobber 16-bit relocation entries.
+$ADDR16 = 1;	# set to 0 to clobber 16-bit relocation entries.
 $RLE = $opt{rle};
 $RLE_NO_TABLE = $opt{rle_no_table};	# set to 1 to have no RLE repeat count lookup table
 
-@addr32 = ();
+$addr16_reloc = undef;
 @addr16 = ();
+
+$addr16_textreloc = undef;
+@addr16text = ();
+
+@addr32 = ();
 
 
 # parse the generated file
+
 !$ARGV[1] and do {
 	open BIN, "<:raw", $ARGV[0] or die "Can't open file '$ARGV[0]': $!";
 	$size=(stat BIN)[7];
 	print "filesize: $size\n";
 
-	read BIN, $l, 4;
-	$l=unpack 'l<', $l;
-	print "Addr16: $l\n";
-	read BIN, $a16, $l*2;
-	@addr16 = unpack "S*", $a16;
-	$VERBOSE and do {
-	for ($i = 0; $i < scalar(@addr16); $i++)
-	{
-		printf "%04x\n", $addr16[$i]
-
-	}
-	};
+	read_addr16_reloc( BIN, ".text" );
+	read_addr16_reloc( BIN, ".data16" );
 
 	read BIN, $l, 4;
 	$l=unpack 'L<', $l;
@@ -135,7 +131,7 @@ $RLE_NO_TABLE = $opt{rle_no_table};	# set to 1 to have no RLE repeat count looku
 	}
 	else
 	{
-		$VERBOSE and print "addr32 count: $l";
+		$VERBOSE and print "addr32 count: $l\n";
 		read BIN, $a32, $l*4;
 		@addr32 = unpack "L*", $a32;
 	}
@@ -153,6 +149,30 @@ $RLE_NO_TABLE = $opt{rle_no_table};	# set to 1 to have no RLE repeat count looku
 
 	exit;
 };
+
+
+sub read_addr16_reloc($$) {
+	my $handle = shift @_;
+	my $section = shift @_;
+
+	read $handle, $l, 4;
+	$l=unpack 'l<', $l;
+	print "Addr16: $l\n";
+	if ( $l ) {
+		read $handle, $addr16_reloc, 2 if $l;	# short/word
+		$addr16_reloc = unpack "S<", $addr16_reloc;
+		printf "addr16 $section reloc: %04x\n", $addr16_reloc;
+	}
+	read $handle, $a16, $l*2;
+	@addr16 = unpack "S*", $a16;
+	$VERBOSE and do {
+		printf "16 bit $section relocation: %x\n", $addr16_reloc;
+		for ($i = 0; $i < scalar(@addr16); $i++)
+		{
+			printf "%04x\n", $addr16[$i]
+		}
+	};
+}
 
 
 my %syms = &getsyminfo( $ARGV[0] );
@@ -214,10 +234,66 @@ sub parse_objdump_reloc
 		or
 		/OFFSET\s+TYPE\s+VALUE/
 		or
-		/([0-9a-f]+)\s+(8|16|DISP32)\s+(\S+)/ #and do { print "ignore: $_\n"}
+		/([0-9a-f]+)\s+(DISP16|16)\s+(\S+)/ and do {
+			$secname eq '.text' and
+			do
+			{
+				my $a = hex $1;
+				my $v = $3;
+
+				# sanitize
+
+				if ( my ($l, undef, $op, $o) = $v=~/^([^-+]+)((\+|-)(.*?))?$/ )
+				{
+#				print "$secname [",sprintf("%08x",$a),"] [$t] [$v] [$l:$o]";
+
+					#print "$secname [",sprintf("%08x",$a),"] [$v]->[$l $op $o]";
+					#print " t=$syms{$l}{type} addr=$syms{$l}{addr} ";
+					$o=hex $o;
+
+					if ( $l eq '.data16' )
+					{
+						if ( $addr16_reloc == undef )
+						{
+							$addr16_reloc = $syms{$l}{addr};
+						}
+						elsif ( $addr16_reloc != $syms{$l}{addr} )
+						{
+							die "addr16 reloc base mismatch: had: $addr16_reloc; have $syms{$l}{addr}";
+						}
+						
+
+						push @addr16, $a;
+#						print " +";
+					#	print "Add addr16: $a ($_)\n";
+					}
+					elsif ( $l eq '.text' )
+					{
+						if ( $addr16_textreloc == undef )
+						{ $addr16_textreloc = $syms{$l}{addr}; }
+						elsif ( $addr16_textreloc != $syms{$l}{addr} )
+						{ die "addr16 .text reloc base mismatch: had: $addr16_textreloc; have: $syms{$l}{addr}"; }
+						
+						push @addr16text, $a;
+					}
+					else {
+						print "warn: skip $_\n";
+						#print "\n"
+					}
+				}
+				else
+				{
+					push @addr16, $a;
+					#print "add addr16: $a ($_)\n";
+				}
+			};
+			1;
+		}
+		or
+		/([0-9a-f]+)\s+(8|DISP32)\s+(\S+)/ #and do { print "ignore: $_\n"}
 		or
 		/([0-9a-f]+)\s+(DISP16)\s+(\S+)/ and do {
-			die "16bit symbol displacement: $_\n"
+			warn "16bit symbol displacement: $_\n"
 			. "reference 32bit symbol from 16 bit text segment?";
 		}
 		or
@@ -266,8 +342,9 @@ sub parse_objdump_reloc
 				}
 
 #				print "\n";
+				1;
 			}
-			#or print "ignore: $_\n";
+			or print "ignore: $_\n";
 			;
 			1
 		}
@@ -292,9 +369,14 @@ sub write_table
 
 	open BIN, ">:raw", $name or die "Cant open file '$name': $!";
 
-	$VERBOSE and print "* addr16 count: ".@addr16.($ADDR16?"":" clobbered")."\n";
-	$ADDR16 and do {
+	$VERBOSE and print "* addr16 count: ".@addr16.($ADDR16?"":" clobbered")." addr16_reloc=$addr16_reloc\n";
+	$ADDR16 && (scalar(@addr16)||scalar(@addr16text)) and do { # always write 16bit count
+		print BIN pack "L<", scalar(@addr16text);
+		print BIN pack "S<", $addr16_textreloc;# XXX
+		map { print BIN pack "S<", $_ } @addr16text;
+
 		print BIN pack "L<", scalar(@addr16);
+		print BIN pack "S<", $addr16_reloc;# XXX
 		map { print BIN pack "S<", $_ } @addr16;
 	} or	print BIN pack "L<", 0;
 
