@@ -105,8 +105,8 @@ protected_mode:
 	mov	[bkp_reg_fs], fs
 	mov	[bkp_reg_gs], gs
 	mov	[bkp_pm_mode], ax
-
-#call cls_16
+/*
+call cls_16
 print_16 "entering pmode"
 push ax
 call waitkey
@@ -119,6 +119,7 @@ _TWO:
 call enter_realmode
 _THREE:
 print_16 "entered realmode"
+*/
 
 	.if DEBUG_PM > 1
 		mov	dx, cs
@@ -186,23 +187,15 @@ print_16 "entered realmode"
 	# - or use a register.
 
 	# prepare the far jump instruction
-.if 1
-	xor	eax, eax
-	mov	ax, offset pmode_entry$
-	add	eax, offset .text
-.else
 	mov	eax, offset pmode_entry$	# relocation
-.endif
 
 	.if DEBUG_PM > 1
 		rmI "Preparing Entry Point: "
 		push	edx
 		mov	edx, eax
 		call	printhex8_16
-		add	edx, [codebase]	#XXX with 16bit relocation this is redundant!
 		GETFLAT
 		PH8_16	edx, "opcodes: "
-		call	printhex8_16
 		pop	edx
 	.endif
 
@@ -265,18 +258,19 @@ print_16 "entered realmode"
 _HAK:
 		#mov edi, offset pmode_entry$
 		xor edi,edi
-		mov di, offset pmode_entry$
+		mov di, offset pmode_entry$	# unrelocated (due to 16bit)
 		PH8_16 edi, "PM ENTRY relocated:"
 	.endif
 
-
-
-#0:hlt;jmp 0b
-mov ax, 0x0800
+# delay loop
+.if 0 # <<4: for vmware; <<1 or << 2 for qemu
+mov ax, 0x0800#<<2
 0:
 mov cx, -1; 1: nop; loop 1b
 dec ax
 jnz 0b
+.endif
+
 	mov	edi, [screen_pos_16]
 
 	.if 0	# 0='unreal mode'
@@ -302,6 +296,7 @@ jnz 0b
 
 	# switch out the cs register.
 	# DATA32 ljmp	SEL_flatCS, offset pmode_entry$ + RELOCATION
+pmjump$:
 	.byte 0x66, 0xea
 	pm_entry:.long 0
 	.word SEL_flatCS
@@ -339,6 +334,9 @@ pmode_entry$:
 	cmp	[bkp_pm_mode], word ptr 0
 	jz	0f
 
+	mov ax, '1' | (13<<8)
+	stosw
+
 	mov	ax, SEL_compatDS # realmodeDS
 	mov	ds, ax
 	mov	es, ax
@@ -353,6 +351,9 @@ pmode_entry$:
 	jmp	1f
 0:
 
+	mov ax, '0' | (13<<8)
+	stosw
+
 	add	edx, [reloc$]	# flat cs, so adjust return addr
 	xor	eax, eax
 	mov	ax, ss	# adjust ss:sp
@@ -365,12 +366,28 @@ pmode_entry$:
 	mov	ds, ax
 1:
 
+	push es
+	mov	ax, SEL_vid_txt
+	mov	es, ax
+	mov ax, '2' | (13<<8)
+	stosw
+	pop es
+
 	push	edx
 
 #xor edi,edi
 	mov	[screen_pos], edi
 	mov	[screen_sel], word ptr SEL_vid_txt
 	mov	[screen_color], byte ptr 7
+
+	push es
+	mov	ax, SEL_vid_txt
+	mov	es, ax
+	mov ax, '3' | (13<<8)
+	stosw
+	pop es
+
+
 	call	screen_buf_init
 	call newline
 
@@ -393,7 +410,6 @@ pmode_entry$:
 	.if DEBUG_PM > 2
 		PRINTc 8 "  Load Task Register"
 	.endif
-
 	mov	ax, SEL_tss
 	ltr	ax
 
@@ -401,11 +417,12 @@ pmode_entry$:
 		OK
 	.endif
 
-	jmp	888f
 	########################
-	888:
+	COLOR 13; PRINT "TEST!";
+#	999:hlt; jmp 999b # so we can read the irq stuff
 	########################
 	INTERRUPTS_ON
+	# possible crash: timer interrupt [ IRQ_BASE(0x20) + 0]
 
 	.if DEBUG_PM > 2
 		COLOR 8

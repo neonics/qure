@@ -322,3 +322,37 @@ Run-length encoding is not implemented.
 The bootloader applies the relocation table to the kernel image, without
 unpacking it. It leaves the table available (at 1Mb at current), in case
 the kernel wants to do other relocations on itself. 
+
+
+Linking and relocating the Kernel Image
+=======================================
+The linker code in util/coff.cpp now accepts `--link <symbol>`,
+typically used with '--link .text', to replace all relocation
+entries for 32 bit relocations relative to .text, which
+is optionally set to 0.
+
+The util/reloc.pl script simply takes all relocation entries,
+filters them, and stores them in the kernel relocation table
+in the kernel image, which the realmode bootloader uses to
+relocate the kernel at runtime. (this relocation code can
+as easily be made part of the kernel since the kernel is entered
+in realmode; there is at current duplicate protected mode code
+in the bootloader and the kernel).
+
+In effect, `util/reloc.pl` ignores the offset of the `.text` symbol
+(though it does track it, but it is not stored in the relocation table).
+
+The `util/coff.cpp` thus in effect pre-relocates the kernel.
+Relocation entries refer to the symbol table, and contain the relocation
+type, the address to relocate, and a reference to the symbol, which has
+an address (or value).
+
+The `--link <symbol>` option of `coff.cpp` operates as follows. Assuming
+the `<symbol>` is `.text`:
+it relocates all code referring to symbols with equal or greater
+addresses as the given symbol (so, it also relocates .text itself),
+and, for each relocated entry, it replaces the symbol reference
+in the relocation table with the symbol specified in the `--link`
+option, effectively reducing the multitude of relocation values to 
+a single value. Finally, it sets the value of symbol .text to 0.
+

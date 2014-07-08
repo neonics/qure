@@ -10,6 +10,26 @@ DEBUGGER_NAME OO
 OBJ_VPTR_COMPACT = 1	# 0: interleaved with data; 1: negative offsets
 
 # 'Class' class
+.global class_def_size
+.global class_flags
+.global CLASS_FLAG_RESOLVED
+.global class_super
+.global class_object_size
+.global class_name
+.global class_object_vptr
+.global class_decl_vptr
+.global class_decl_vptr_count
+.global class_decl_mptr
+.global class_decl_mcount
+.global class_over_mptr
+.global class_over_mcount
+.global class_static_mptr
+.global class_static_mcount
+.global class_match_instance
+.global CLASS_STRUCT_SIZE
+
+
+.if DEFINE
 .struct 0
 class_def_size:		.long 0
 class_flags:		.long 0
@@ -28,7 +48,24 @@ class_static_mptr:	.long 0
 class_static_mcount:	.long 0
 class_match_instance:	.long 0
 CLASS_STRUCT_SIZE = .
+.endif
 
+
+
+.global class_method_flags
+.global CLASS_METHOD_FLAG_DECLARE
+.global CLASS_METHOD_FLAG_OVERRIDE
+.global CLASS_METHOD_FLAG_STATIC
+.global class_method_idx
+# depending on class_method_type, the following dword has different semantics:
+# for _FLAG_DECLARE, it is a stringpointer for the name
+# for _FLAG_OVERRIDE, it is the position in the object to store the ptr
+.global class_method_name
+.global class_method_target
+.global class_method_ptr
+.global CLASS_METHOD_STRUCT_SIZE
+
+.if DEFINE
 .struct 0
 class_method_flags:	.word 0
 	CLASS_METHOD_FLAG_DECLARE	= 0<<0
@@ -49,7 +86,6 @@ CLASS_METHOD_STRUCT_SIZE = 12
 # TODO: find a way to store the methods in the class struct itself
 # TODO: multiple inheritance/interfaces
 
-.if DEFINE
 
 ###################################
 # GLOBALS / export

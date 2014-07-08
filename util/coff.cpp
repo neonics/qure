@@ -52,6 +52,48 @@ unsigned short  s_nlnno;        /* number of gp histogram entries */
 long            s_flags;        /* flags */
 };
 
+#define E_SYMNMLEN 8
+typedef union {
+	char e_name[E_SYMNMLEN];
+	struct {
+	  unsigned long e_zeroes;
+	  unsigned long e_offset;
+	} e;
+} SYMNAME;
+
+#pragma pack(1)
+typedef struct
+{
+	/*
+  union {
+	char e_name[E_SYMNMLEN];
+	struct {
+	  unsigned long e_zeroes;
+	  unsigned long e_offset;
+	} e;
+  } e;
+  	*/
+	SYMNAME e;
+  unsigned long e_value;
+  /**
+	 0: N_UNDEF
+	-1: N_ABS
+	-2: N_DEBUG
+
+  */
+  short e_scnum;
+  /**
+	which C type
+	low 4 bits: (no/void/char/short/int/long/float/double/struct/union/enum/member/unsigned(char/short/int/long)
+	etc..
+   */
+  unsigned short e_type;
+  unsigned char e_sclass;
+  unsigned char e_numaux;
+} SYMENT;
+
+
+
 
 void error( const char * msg )
 {
@@ -71,6 +113,20 @@ const char * getname( char * sname, struct filehdr * h )
 	return sname;
 }
 
+char __symname_tmp[9] = "12345678";
+const char * getsymname( SYMNAME & p, struct filehdr * h, unsigned char * buf )
+{
+	__symname_tmp[8]=0;
+	for ( int i = 0; i < 8; i ++)
+		__symname_tmp[i]=p.e_name[i];
+
+	return p.e.e_zeroes
+	? __symname_tmp // sp[i].e.e_name
+	: (char*)h + h->h_symptr + h->h_nsyms * 18 + p.e.e_offset
+	;
+}
+
+
 void print_usage( char ** argv )
 {
 	printf( "usage: %s [-v] <filename.o> [command [options]]\n", argv[0]);
@@ -83,17 +139,12 @@ void print_usage( char ** argv )
 //			"      --section-align <sectionname> <elementsize>\n"
 			"      --relocate-source <addr>\n"
 			"        adjusts the addresses in .stab (source lines)\n\n"
+			"      --link <symbol>\n"
+			"        links all symbols relative to <symbol> (i.e. .text).\n"
 	);
 }
 
-int main(int argc, char ** argv)
-{
-	if ( argc < 2)
-	{
-		print_usage( argv );
-		error("no filename");
-	}
-
+struct args {
 	bool verbose = 0;
 	char * objfilename = NULL;
 
@@ -102,14 +153,28 @@ int main(int argc, char ** argv)
 	int rempad_idx=0;
 	int adjust_source = 0;
 
+	char * link;
+};
+
+struct args parse_args(int argc, char ** argv)
+{
+	if ( argc < 2)
+	{
+		print_usage( argv );
+		error("no filename");
+	}
+
+	struct args args;
+	memset( &args, 0, sizeof( args ) );
+
 	for ( int i = 1; i < argc; i++ )
 	{
-		if ( objfilename == NULL )
+		if ( args.objfilename == NULL )
 		{
 			if ( argv[i][0] == '-' )
 			{
 				if ( strcmp( argv[i], "-v" )==0 )
-					verbose=1;
+					args.verbose=1;
 				else
 				{
 					printf( "unknown option: %s\n", argv[i] );
@@ -118,28 +183,34 @@ int main(int argc, char ** argv)
 				}
 			}
 			else
-				objfilename = argv[i];
+				args.objfilename = argv[i];
 		}
 		else
 		{
 			if ( strcmp( "--remove-padding", argv[i] ) == 0 )
 			{
-				if ( rempad_idx == 9 ) error( "array too small - edit source" );
+				if ( args.rempad_idx == 9 ) error( "array too small - edit source" );
 				if ( i+2 >= argc ) error( "--remove-padding takes <sectionname> <elementsize>" );
 
-				char * n = rempad_sections[rempad_idx]=argv[++i];
-				int s = rempad_elsize[rempad_idx]=atoi(argv[++i]);
-				if ( verbose )
+				char * n = args.rempad_sections[args.rempad_idx]=argv[++i];
+				int s = args.rempad_elsize[args.rempad_idx]=atoi(argv[++i]);
+				if ( args.verbose )
 					printf(" * remove padding from array section %s element size %d\n",
 						n, s );
 
-				rempad_idx++;
+				args.rempad_idx++;
 			}
 			else if ( strcmp( "--adjust-source", argv[i] ) == 0 )
 			{
 				if ( i+1 >= argc ) error( "--adjust-source takes <addr>" );
-				if ( sscanf( argv[++i], "%x", &adjust_source ) != 1 )
+				if ( sscanf( argv[++i], "%x", &args.adjust_source ) != 1 )
 					error( "invalid hex" );
+			}
+			else if ( strcmp( "--link", argv[i] ) == 0 )
+			{
+				if ( i+1 >= argc ) error( "--link takes <symbol>" );
+				args.link = argv[++i];
+				printf(" * linking against symbol %s\n", args.link );
 			}
 			else
 			{
@@ -150,8 +221,36 @@ int main(int argc, char ** argv)
 		}
 	}
 
+	return args;
+}
+
+void handle_stab( struct args args, int handle, unsigned char * buf, struct filehdr * h, sectionhdr* sec, int i );
+void handle_text( struct args args, int handle, unsigned char * buf, struct filehdr * h, sectionhdr* sec, int i );
+
+const char * find_section( const char * name, filehdr * h, sectionhdr * sec, unsigned char * buf )
+{
+	const char * secptr = NULL;
+	for ( int k = 0; k < h->h_nsections; k++)
+	{
+		if ( strcmp( name, getname( sec[k].s_name, h) ) == 0 )
+		{
+			//printf( "FOUND section %s at section %d (%08x) (buf=%08x)\n", name, k, sec[k].s_sectionptr, buf );
+			secptr = (const char*)buf + sec[k].s_sectionptr;
+		}
+	}
+	if ( secptr == NULL )
+		printf(" !WARN! no %s\n", name );
+	else
+		printf( " found section %s at %08x\n", name, secptr );
+	return secptr;
+}
+
+int main(int argc, char ** argv)
+{
+	struct args args = parse_args( argc, argv );
+
 	int handle;
-	handle = open( objfilename, O_RDWR );
+	handle = open( args.objfilename, O_RDWR );
 	if ( handle <= 0 )
 		error( "Cannot open file" );
 
@@ -164,7 +263,7 @@ int main(int argc, char ** argv)
 
 	struct filehdr * h = (struct filehdr*) buf;
 
-	if ( verbose )
+	if ( args.verbose )
 	{
 		printf("Magic: %04x\n", h->h_magic);
 		printf("Sections: %d\n", h->h_nsections );
@@ -175,32 +274,123 @@ int main(int argc, char ** argv)
 		printf("Flags: %x\n", h->h_flags);
 	}
 
+	if ( h->h_magic != 0x014c )
+	{
+		printf("Wrong magic: %x\n", h->h_magic);
+		return 1;
+	}
+
+	if ( args.verbose )
+	{
+		SYMENT * sp = (SYMENT*) (buf + h->h_symptr );
+
+		if ( false ) // this works
+		for ( int i = 0; i < h->h_nsyms; i ++ )
+		{
+			SYMENT se = sp[i];
+			char * p = (char*)&se;
+			printf("SYM %3d: (%08x) [val=%08x scnum=%04x type=%04x sclass=%02x numaux=%d %s\n",
+				i,
+				i * sizeof(SYMENT),
+				
+
+				sp[i].e_value, sp[i].e_scnum, sp[i].e_type, sp[i].e_sclass, sp[i].e_numaux,
+
+				// slightly diffrent getname: instead of 2nd byte = hex ptr, use the struct:
+				getsymname( sp[i].e, h, buf )
+			);
+			i += sp[i].e_numaux; // skip aux data
+		}
+
+		const unsigned char * symptr = buf + h->h_symptr;
+
+		/*
+		// first entry: .file 
+		int i=-1;
+		while ( symptr[++i] != 0 && i < 1000)
+			printf("%c", symptr[i] );
+		printf(" %02x", symptr[++i] );
+		printf(" %02x", symptr[++i] );
+		printf(" %08x", *(int*)( &symptr[++i] ) );
+		i+=4;
+		printf(" %08x", *(int*)( &symptr[i] ) );
+		i+=4;
+		printf(" %02x", symptr[i++] );
+		printf(" %02x", symptr[i] );
+
+		printf("\n");
+
+
+		for ( int q = 0; q < 3; q ++ )
+		{
+		while ( symptr[++i] != 0 && i < 1000)
+			printf("%c", symptr[i] );
+		printf(" %02x", symptr[++i] );
+		printf(" %02x", symptr[++i] );
+		printf(" %08x", *(int*)( &symptr[++i] ) );
+		i+=4;
+		printf(" %08x", *(int*)( &symptr[i] ) );
+		i+=4;
+		printf(" %02x", symptr[i++] );
+		printf(" %02x", symptr[i++] );
+//		printf(" %02x", symptr[i] );
+
+		printf("\n");
+		}
+		for ( int i = 0; i < 1000; i ++ )
+		{
+			unsigned char c = symptr[i];
+			printf("%4d: %02x (%c)\n", i, c, c>=' '&&c<128?c:' ');
+		}
+		printf("\n");
+		*/
+	}
+
 	sectionhdr* sec = (sectionhdr*) (buf + sizeof(filehdr) + h->h_opthdr);
 
-	if ( verbose )
-		printf("SECTION nr vaddr    size     name         flags\n");
+	if ( args.verbose )
+		printf("SECTION nr vaddr    size     name         flags    reloc    numreloc\n");
 	for ( int i = 0; i < h->h_nsections; i++)
 	{
 		const char * sname = getname( sec[i].s_name, h );
-		if ( verbose )
-			printf("section %2d %08x %08x %-12s %08x", i,
+		if ( args.verbose )
+			printf("section %2d %08x %08x %-12s %08x %08x %d\n", i,
 				sec[i].s_vaddr,
 				sec[i].s_size,
 				sname,
-				sec[i].s_flags
+				sec[i].s_flags,
+				sec[i].s_relptr,
+				sec[i].s_nreloc
+			);
+	}
+
+	printf("\n");
+
+	for ( int i = 0; i < h->h_nsections; i++)
+	{
+		const char * sname = getname( sec[i].s_name, h );
+		if ( args.verbose )
+			printf("section %2d %08x %08x %-12s %08x %08x %d", i,
+				sec[i].s_vaddr,
+				sec[i].s_size,
+				sname,
+				sec[i].s_flags,
+				sec[i].s_relptr,
+				sec[i].s_nreloc
 			);
 
-		for ( int j = 0; j < rempad_idx; j++ )
+
+		for ( int j = 0; j < args.rempad_idx; j++ )
 		{
-			if ( strcmp( sname, rempad_sections[j] ) == 0 )
+			if ( strcmp( sname, args.rempad_sections[j] ) == 0 )
 			{
 				int mod = sec[i].s_size % 10;
-				if ( verbose )
+				if ( args.verbose )
 					printf( " padding=%d", mod );
 				if ( mod != 0 )
 				{
 					int newsize = sec[i].s_size - mod;
-					if ( verbose )
+					if ( args.verbose )
 						printf(": new size := 0x%x\n", newsize );
 					lseek( handle, (unsigned char*)&(sec[i].s_size) - buf, SEEK_SET );
 					write( handle, &newsize, 4 );
@@ -210,67 +400,20 @@ int main(int argc, char ** argv)
 					newflags &=~0x00f00000;	// mask out section align flags
 					newflags |= 0x00100000; // 1 byte alignment (NOPAD=8 is deprecated).
 					write( handle, &newflags, 4);
-					if ( verbose )
+					if ( args.verbose )
 						printf("newflags:%08x",newflags);
 				}
 			}
 
 		}
 
+		if ( strcmp( ".text", sname ) == 0 )
+			handle_text( args, handle, buf, h, sec, i );
+
 		if ( strcmp( ".stab", sname ) == 0 )
-		{
-			// reverse engineer...
+			handle_stab( args, handle, buf, h, sec, i );
 
-			#pragma pack(1)
-			struct STAB {
-				unsigned long sfile;	// index into .stabstr when linenr == 0
-				unsigned short code;	// 0x44: SLINE; 0x84: SOL; 0x64: SO
-				unsigned short linenr;
-				unsigned long addr;
-			};
-
-			STAB * slp = (struct STAB*)(buf + sec[i].s_sectionptr);
-			unsigned char * stb = buf + sec[i].s_sectionptr;
-
-
-			if ( verbose )
-			{
-				// find .stabstr
-				const char * stabstr = NULL;
-				for ( int k = 0; k < h->h_nsections; k++)
-				{
-					if ( strcmp( ".stabstr", getname( sec[k].s_name, h) ) == 0 )
-						stabstr = (const char*)buf + sec[k].s_sectionptr;
-				}
-				if ( stabstr == NULL )
-					printf(" !WARN! no .stabstr" );
-
-				printf( " %x ", sec[i].s_sectionptr );
-
-				for ( int k = 0; k < sec[i].s_size / 12; k ++ )
-				{
-					printf("%4d: ", k);
-					printf("%08x %04x %5d %08x",
-						slp[k].sfile, slp[k].code, slp[k].linenr, slp[k].addr);
-
-					printf(" %s\n", slp[k].linenr==0
-						? (stabstr == NULL ? "<..>" : stabstr + slp[k].sfile )
-						:""
-					);
-				}
-			}
-
-			if ( adjust_source != 0 )
-			{
-				for ( int k = 0; k < sec[i].s_size / 12; k ++ )
-					slp[k].addr += adjust_source;
-
-				lseek( handle, sec[i].s_sectionptr, SEEK_SET );
-				write( handle, slp, sec[i].s_size );
-			}
-		}
-
-		if ( verbose )
+		if ( args.verbose )
 			printf("\n");
 	}
 
@@ -278,3 +421,171 @@ int main(int argc, char ** argv)
 
 	//struct aouthdr * h = (struct aouthdr*) buf;
 }
+
+void handle_text( struct args args, int handle, unsigned char * buf, struct filehdr * h, sectionhdr* sec, int i )
+{
+	#pragma pack(1)
+	struct RELOC {
+		unsigned long addr;
+		unsigned long symidx;
+	//	short a, b;
+		/**
+		 0x0006: dir32  ( 6 dec: RELOC_ADDR32)
+		 0x0014: DISP32 (20 dec: RELOC_REL32)
+		 0x0010: 16
+		*/
+		unsigned short flags;	// type
+
+	};
+	RELOC * rsp = (struct RELOC*)(buf + sec[i].s_relptr);
+	unsigned char * stb = buf + sec[i].s_sectionptr;
+
+	if ( args.verbose || args.link )
+	{
+		if ( args.verbose )
+		printf("\nRELOCATION\n"); // close section info line
+
+		SYMENT * se = (SYMENT*)(buf + h->h_symptr);
+
+		SYMENT * linksym = NULL;
+		if (args.link)
+			for ( int i = 0; i < h->h_nsyms; i ++ )
+				if ( strcmp( args.link, getsymname( se[i].e, h, buf ) ) == 0 )
+				{
+					printf("-- linksym: [idx:%08x] %s %08x\n", i, args.link, se[i].e_value );
+					if ( linksym == NULL )
+						linksym = &se[i];
+				}
+		
+		//printf( " %x ", sec[i].s_sectionptr );
+
+		for ( int k = 0; k < sec[i].s_nreloc; k ++ )
+		{
+			SYMENT * cs = & se[ rsp[k].symidx ];
+
+			if ( args.verbose )
+			printf ("%4d: %08x idx=%08x fl=%04x [%08x] %-12s", k,
+				rsp[k].addr,
+				rsp[k].symidx,
+				rsp[k].flags,
+				//((SYMENT*)(buf + h->h_symptr))[rsp[k].symidx]
+				cs->e_value,
+				getsymname( cs->e, h, buf )
+			);
+
+			if (args.link
+				&& rsp[k].flags == 6	// RELOC_ADDR32
+				&& cs->e_value - linksym->e_value >= 0 // don't relocate before base of linksym
+					// AND GNU BUG: don't relocate .text itself! it is already relocated.
+			)
+			{
+				// relocate all, relative to 0; use linksym as sym, and update it to 0 later
+				long diff = cs->e_value;
+				unsigned char * cp= ( buf + sec->s_sectionptr + (rsp[k].addr - sec->s_vaddr) );
+				long oldv = *((long*)cp);
+
+				if	(cs->e_value - linksym->e_value > 0 )
+				{
+					rsp[k].symidx = linksym - se; // - replace the relocation entry with a reference to linksym
+
+					if ( args.verbose )
+					printf(" -- FIX1%s -- idx:%08x  diff=%08x old=%08x new=%08x",
+						(cs->e_value - linksym->e_value == 0 ? " XXXXXXXXXXXX" :""),
+						rsp[k].symidx, diff, oldv,
+						oldv+diff
+					//	rsp[k].addr - sec->s_vaddr
+					);
+
+					*((long*)cp) += diff;
+
+				}
+				else {
+					if ( args.verbose )
+					printf(" -- SKIP1%s -- idx:%08x  diff=%08x old=%08x new=%08x",
+						(cs->e_value - linksym->e_value == 0 ? " XXXXXXXXXXXX" :""),
+						rsp[k].symidx, diff, oldv,
+						oldv+diff
+					//	rsp[k].addr - sec->s_vaddr
+					);
+
+					*((long*)cp) += diff;
+				}
+			}
+
+			if ( args.verbose )
+			printf("\n");
+		}
+
+		if ( args.link != 0 )
+		{
+			// write the section payload
+			lseek( handle, sec[i].s_sectionptr, SEEK_SET );
+			write( handle, buf + sec[i].s_sectionptr, sec[i].s_size );
+			// write the section relocation info (not needed, since not changed)
+			lseek( handle, sec[i].s_relptr, SEEK_SET );
+			write( handle, buf + sec[i].s_relptr, sec[i].s_nreloc * sizeof(RELOC) );
+
+			// update the linksym address to 0
+			linksym->e_value = 0;
+			// write the symbol table
+			lseek( handle, h->h_symptr, SEEK_SET );
+			write( handle, buf + h->h_symptr, h->h_nsyms * sizeof(SYMENT) );
+		}
+	}
+}
+
+void handle_stab( struct args args, int handle, unsigned char * buf, struct filehdr * h, sectionhdr* sec, int i )
+{
+	// reverse engineer...
+
+	#pragma pack(1)
+	struct STAB {
+		unsigned long sfile;	// index into .stabstr when linenr == 0
+		unsigned short code;	// 0x44: SLINE; 0x84: SOL; 0x64: SO
+		unsigned short linenr;
+		unsigned long addr;
+	};
+
+	STAB * slp = (struct STAB*)(buf + sec[i].s_sectionptr);
+	unsigned char * stb = buf + sec[i].s_sectionptr;
+
+
+	if ( args.verbose )
+	{
+		// find .stabstr
+		const char * stabstr = NULL;
+		for ( int k = 0; k < h->h_nsections; k++)
+		{
+			if ( strcmp( ".stabstr", getname( sec[k].s_name, h) ) == 0 )
+				stabstr = (const char*)buf + sec[k].s_sectionptr;
+		}
+		if ( stabstr == NULL )
+			printf(" !WARN! no .stabstr" );
+
+		printf( " %x ", sec[i].s_sectionptr );
+
+		if ( false )
+		for ( int k = 0; k < sec[i].s_size / 12; k ++ )
+		{
+			printf("%4d: ", k);
+			printf("%08x %04x %5d %08x",
+				slp[k].sfile, slp[k].code, slp[k].linenr, slp[k].addr);
+
+			printf(" %s\n", slp[k].linenr==0
+				? (stabstr == NULL ? "<..>" : stabstr + slp[k].sfile )
+				:""
+			);
+		}
+	}
+
+	if ( args.adjust_source != 0 )
+	{
+		for ( int k = 0; k < sec[i].s_size / 12; k ++ )
+			slp[k].addr += args.adjust_source;
+
+		lseek( handle, sec[i].s_sectionptr, SEEK_SET );
+		write( handle, slp, sec[i].s_size );
+	}
+}
+
+

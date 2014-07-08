@@ -14,6 +14,7 @@ $addr16_textreloc = undef;
 @addr16text = ();
 
 @addr32 = ();
+%addr32reloc = (); # key: symbol name; value: array of addresses.
 
 
 # parse the generated file
@@ -245,7 +246,7 @@ sub parse_objdump_reloc
 
 				if ( my ($l, undef, $op, $o) = $v=~/^([^-+]+)((\+|-)(.*?))?$/ )
 				{
-#				print "$secname [",sprintf("%08x",$a),"] [$t] [$v] [$l:$o]";
+#				print "$secname [",sprintf("%08x",$a),"] [$t] [$v] [$l:$o]\n";
 
 					#print "$secname [",sprintf("%08x",$a),"] [$v]->[$l $op $o]";
 					#print " t=$syms{$l}{type} addr=$syms{$l}{addr} ";
@@ -270,21 +271,22 @@ sub parse_objdump_reloc
 					elsif ( $l eq '.text' )
 					{
 						if ( $addr16_textreloc == undef )
-						{ $addr16_textreloc = $syms{$l}{addr}; }
+						# XXX maybe set to 0, as it subtracts 3c3a from realmode 
+						{ $addr16_textreloc = $syms{$l}{addr}; printf "set addr16_textreloc to %x (sym $l)\n--$_\n",$syms{$l}{addr};}
 						elsif ( $addr16_textreloc != $syms{$l}{addr} )
 						{ die "addr16 .text reloc base mismatch: had: $addr16_textreloc; have: $syms{$l}{addr}"; }
 						
 						push @addr16text, $a;
 					}
 					else {
-						print "warn: skip $_\n";
+						print "warn: skip $_ (unknown: '$l')\n";
 						#print "\n"
 					}
 				}
 				else
 				{
 					push @addr16, $a;
-					#print "add addr16: $a ($_)\n";
+					print "add addr16: $a ($_)\n";
 				}
 			};
 			1;
@@ -333,12 +335,18 @@ sub parse_objdump_reloc
 					else
 					{
 						push @addr32, $a;
-#						print " +";
+						#printf " + (%x) -- $l=$syms{$l}{type} %x", $a, $syms{$l}{addr};
+						# XXX this won't do - the linker doesn't resolve addresses properly.
+						# might do linking myself to make the relocation table simple.
+						# or, we add multiple relocation tables, one per offset:
+						push @{ $addr32reloc{$l} }, $a
+							if ( $l =~ /^\./ );	# only sections are problematic
 					}
 				}
 				else
 				{
 					push @addr32, $a;
+					printf " + (%x)\n",$a;
 				}
 
 #				print "\n";
@@ -369,7 +377,9 @@ sub write_table
 
 	open BIN, ">:raw", $name or die "Cant open file '$name': $!";
 
-	$VERBOSE and print "* addr16 count: ".@addr16.($ADDR16?"":" clobbered")." addr16_reloc=$addr16_reloc\n";
+	$VERBOSE and printf "* addr16 count: ".@addr16.($ADDR16?"":" clobbered")
+		." addr16_reloc=%08x addr16_textreloc=%08x\n",
+		$addr16_reloc, $addr16_textreloc;
 	$ADDR16 && (scalar(@addr16)||scalar(@addr16text)) and do { # always write 16bit count
 		print BIN pack "L<", scalar(@addr16text);
 		print BIN pack "S<", $addr16_textreloc;# XXX
@@ -635,7 +645,6 @@ sub parse_pecoff_reloc
 sub getsyminfo
 {
 	my ($filename) = @_;
-
 	my @c = `nm $filename` or die "$!";
 	chomp @c;
 
@@ -647,13 +656,28 @@ sub getsyminfo
 
 		if ( $a eq '        ' )
 		{
-			$syms{$s} = {type=>$t};
+			print "warn: skipping duplicate symbol '$n'; old type=$syms{$n}{type}, new type=$t\n"
+				if ( defined $syms{$n} );
+			$syms{$n} = {type=>$t};
 #			printf "%s [%s] %s\n", $a, $t, $n;
 		}
 		else
 		{
 			$a = hex $a;
-			$syms{$n} = {addr=>$a, type=>$t};
+			if ( defined $syms{$n} && $syms{$n}{addr} != $a )
+			{
+				if ( $a < $syms{$n}{addr} )
+				{
+					printf "warn: updating symbol '$n' address from %x to %x\n",
+						$syms{$n}{addr}, $a;
+					$syms{$n} = {addr=>$a, type=>$t};
+				} else {
+					printf "warn: skipping duplicate symbol '$n'; old addr=%x, new addr=%x\n", $syms{$n}{addr}, $a
+				}
+			}
+			else {
+				$syms{$n} = {addr=>$a, type=>$t};
+			}
 #			printf "%08x [%s] %s\n", $a, $t, $n;
 		}
 
@@ -667,7 +691,7 @@ sub getsyminfo
 
 =head1 NAME
 
-	B<reloc.pl> - relocation table converter
+B<reloc.pl> - relocation table converter
 
 =head1 SYNOPSYS
 
@@ -775,7 +799,7 @@ There are many places (97 or so) where a delta repeats many times.
 A dictionary character - the highest value fitting in a delta-index value -
 is used as an RLE-prefix opcode. When this value is encountered, the next
 value is not a delta-index, but a repeat number. This number can have
-a different size than the delta's, so this size is stored.
+a different size than the deltas, so this size is stored.
 Further, this repeat-count number can either be a direct number, or
 an index to an RLE table entry.
 
@@ -795,7 +819,7 @@ Format:
 	?[]	delta-indices / RLE prefix / repeat-index
 
 When a delta index is read, it is checked against the maximum value,
-and if so, is considered an RLE prefix. The following value is read,
+and if equal, is considered an RLE prefix. The following value is read,
 using the repeat-index width in bits, which may differ from the delta-index
 width. This is then potentially looked up in the repeat-index table.
 The next value in the delta-index table will be the delta-index to repeat.

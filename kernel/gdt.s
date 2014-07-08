@@ -675,6 +675,7 @@ init_gdt_16:
 
 	.if DEBUG
 		printc_16 13, "CS:"
+		push dx; mov dx, SEL_compatCS; call printhex4_16; pop dx;
 		GDT_PRINT_ENTRY_16 SEL_compatCS
 	.endif
 
@@ -695,26 +696,24 @@ init_gdt_16:
 	GDT_SET_BASE SEL_ring3DS, eax
 
 	# store proper linear (base 0) GDT/IDT address in pointer structure
-	#mov	eax, offset GDT	# relocation
-	#add	eax, [database] # nonrelocation
-	xor eax,eax
-	mov ax, offset GDT	
-	add eax, offset .text
+	mov	eax, offset GDT	# relocation
+	##add	eax, [database] # nonrelocation
+	#xor eax,eax
+	#mov ax, offset GDT	
+call newline_16
 PH8_16 eax, "GDT offset"
 	mov	[pm_gdtr+2], eax
-	#mov	eax, offset IDT	# relocation
+	mov	eax, offset IDT	# relocation
 	#add	eax, [database] # nonrelocation
-	xor eax,eax
-	mov ax, offset IDT
-	add eax, offset .text
+	#xor eax,eax
+	#mov ax, offset IDT
+	#add eax, offset .text
 PH8_16 eax, "IDT offset"
 	mov	[pm_idtr+2], eax
 
-
-PH8_16 [pm_gdtr+2]
-PH8_16 [pm_idtr+2]
-call waitkey
-
+	.if DEBUG_PM > 1
+		call	waitkey
+	.endif
 
 	# Set up SS
 

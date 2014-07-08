@@ -93,7 +93,7 @@ build/boot.bin: FORCE | init
 	$(call MAKE,bootloader) && cp -u bootloader/boot.bin $@
 
 # kernel
-build/kernel.bin: FORCE fonts build/coff.exe
+build/kernel.bin: FORCE fonts build/coff.exe util
 	$(call MAKE,kernel) && cp -u kernel/kernel.bin $@
 
 build/kernel.reloc: $(KERNEL_OBJ) util/reloc.pl Makefile
@@ -116,7 +116,7 @@ fonts:
 
 # Utility - Build Assistance
 
-util:	init build/write.exe build/asm.exe build/malloc.exe
+util:	init build/write.exe build/malloc.exe build/symtab.exe
 
 build/write.exe: util/write.cpp
 	@echo "  C     $@"
@@ -131,6 +131,10 @@ build/font.exe: util/font.cpp
 	@gcc -x c -std=c99 $< -o $@
 
 build/coff.exe: util/coff.cpp
+	@echo "  C     $@"
+	@g++ -std=c++0x -o $@ $<
+
+build/symtab.exe: util/symtab.cpp
 	@echo "  C     $@"
 	@g++ -std=c++0x -o $@ $<
 

@@ -754,7 +754,6 @@ screen_buf_init:
 		mov	[screen_pos], eax
 		pop_ edx eax
 
-
 	mov	edi, [screen_buf]
 	#mov	ecx, [screen_pos] # 160 * 25
 	mov	ecx, 80*25
@@ -2682,7 +2681,7 @@ screen_pos_mark:
 	.text32
 	push	eax
 	mov	eax, [screen_pos]
-	mov	[screen_pos_mark], eax
+	mov	[screen_pos_mark$], eax
 	pop	eax
 	ret
 
@@ -2694,7 +2693,7 @@ print_spaces:
 	push	ecx
 	mov	ecx, eax
 	mov	eax, [screen_pos]
-	sub	eax, [screen_pos_mark]
+	sub	eax, [screen_pos_mark$]
 	jle	9f
 	shr	eax, 1
 	sub	ecx, eax

@@ -22,6 +22,7 @@ HANDLE_ASSERT = 1	# data integrity assertions
 # The array here is simply a memory block containing elements of variable
 # size (though they will generally just be fixed size handle_ struct).
 # The elements must contain the fields as defined in handle_ struct below.
+.if DEFINE
 .struct 0	# handles struct
 handles_ptr:	.long 0	# base pointer to array of handle_ struct
 handles_method_alloc: .long 0	# method to reallocate the handles handle
@@ -32,7 +33,16 @@ handles_ll_fa:	.long 0,0	# linked-list by address (handle_base)
 handles_ll_fs:	.long 0,0	# linked-list by size (handle_size)
 handles_ll_fh:	.long 0,0	# linked-list of unused handles.
 HANDLES_STRUCT_SIZE = .
-
+.endif
+.global handles_ptr
+.global handles_method_alloc
+.global handles_num
+.global handles_max
+.global handles_idx
+.global handles_ll_fa
+.global handles_ll_fs
+.global handles_ll_fh
+.global HANDLES_STRUCT_SIZE
 
 ###################################
 # This structure is present as array elements in the handles_ptr array.

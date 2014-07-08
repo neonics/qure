@@ -9,6 +9,8 @@ MULTISECTOR_LOADING = 1	# 0: 1 sector, 1: 128 sectors(64kb) at a time
 KERNEL_ALIGN_PAGE = 1	# load kernel at page boundary
 KERNEL_RELOCATION = 1
 
+TRACE_RELOC_ADDR = 0	# trace zero-based kernel image offset; 0 = no trace
+
 KERNEL_IMG_PARTITION = 0 # 1: first bootable partition; 0: img follows bootloader
 
 .text
@@ -802,7 +804,7 @@ symtab:	  .long 0
 .text
 .if KERNEL_RELOCATION
 relocate_kernel:
-	print "Relocating kernel"
+	print_16 "Relocating kernel"
 
 	call	enter_pmode
 	push	eax
@@ -847,13 +849,50 @@ relocate_kernel:
 	push	ebp
 	xor	ebp, ebp	# delta counter, if compressed
 0:	call	[reloc_di]	# out: eax = offset in image
+
+.if TRACE_RELOC_ADDR
+cmp eax, TRACE_RELOC_ADDR 	#0x7fd5
+jnz 10f
+push ax
+mov ah, 0xf4
+print_16 "MATCH"
+pop ax
+push ax
+push edx
+mov edx, fs:[edx + eax]
+mov ah, 0xf1
+call printhex8
+pop edx
+pop ax
+10:
+.endif
+
 	add	fs:[edx + eax], edx	# relocation value
+.if TRACE_RELOC_ADDR
+cmp eax, TRACE_RELOC_ADDR
+jnz 10f
+push ax
+mov ah, 0xf4
+print_16 "MATCH"
+pop ax
+push ax
+push edx
+mov edx, fs:[edx + eax]
+mov ah, 0xf1
+call printhex8
+pop edx
+pop ax
+10:
+.endif
+
+
+
 	ADDR32 loop 0b
 	.if RELOC_DEBUG
 		push	edx
 		mov edx, eax
 		mov ah, 0x4f
-		print "LAST ADDR: "; call printhex8
+		print_16 "LAST ADDR: "; call printhex8
 		mov edx, ebp
 		call printhex8
 		pop	edx
@@ -875,6 +914,8 @@ relocate_kernel:
 	pop	eax
 	call	enter_realmode
 	.if RELOC_DEBUG > 1
+		mov	ah, 0xf0
+		print_16 "done relocating"
 		call	waitkey
 	.endif
 	ret

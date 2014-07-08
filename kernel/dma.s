@@ -36,7 +36,7 @@ DMA_CMD_DRQ_Sense_Hi    = 64  #1=DRQ sensing = active high# 0=lo
 DMA_CMD_DACK_Sense_Hi   = 128 #1=Dack sensing=active high# 0=lo
 
 #* 1st & 2nd DMA Controler's ports *#
-
+.if DEFINE
   DMA_Status:		.byte 0x08, 0xD0    #R Status reg
 					#   0-3:chan. reached terminal count.
 					#   4-7:chan. request pending.
@@ -49,6 +49,7 @@ DMA_CMD_DACK_Sense_Hi   = 128 #1=Dack sensing=active high# 0=lo
 					#   2  :1=set mask, 0=clear mask
   DMA_ModeReg:		.byte 0x0B, 0xD6    #W Mode register
 					#   0-1:channel
+.endif
   	DMA_MODE_WRITE	= 0b01<<2
   	DMA_MODE_READ	= 0b10<<2
 					#   2-3:transfer type

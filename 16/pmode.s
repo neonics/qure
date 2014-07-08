@@ -185,7 +185,6 @@ mov dx, ds
 call printhex_16
 .endif
 	mov	[gdt_ptr+2], eax
-_MEH:
 	lgdt	[gdt_ptr]
 
 	# initialize the idt
@@ -312,11 +311,11 @@ mov edx, edi
 xor edi,edi
 call printhex8
 	mov	ah, 0xe0
-	print "in protected mode"
+	print_16 "in protected mode"
 
 	call	enter_realmode
 	mov ah, 0xe0
-	print "in realmode"
+	print_16 "in realmode"
 
 	pop	edi
 	pop	esi

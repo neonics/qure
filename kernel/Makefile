@@ -1,10 +1,11 @@
-all: kernel.bin Makefile srcref
+all: kernel.bin Makefile 
+
+# srcref
 
 clean:
 	@echo "  CLEAN"
 	@rm -rf kernel.bin kernel.obj kernel.stabs kernel.sym kernel.dep \
-		kernel.obj.r kernel.obj.reloc.txt kernel.obj.map \
-		kernel.obj.obj0.map kernel.obj0 kernel.obj0.r kernel.obj.1 \
+		kernel.obj* \
 		kernel.o ring2.o ring2_.o export.h kapi/export.h \
 		../root/www/doc/src/ \
 		|| true
@@ -63,7 +64,7 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 		@# produce relocatable obj with sections
 		@ld $(LD_OPTS) \
 			--script kernel.link-sections \
-			-Map $@.map \
+			-Map $@0.r.map \
 			--image-base 0 \
 			-r \
 			$(KERNEL_OBJECTS) \
@@ -99,7 +100,12 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 		--script kernel.link \
 		-Map $@.map \
 		--image-base 0 \
+		--error-unresolved-symbols \
+		--fatal-warnings \
 		-o $@ $(KERNEL_OBJECTS) #$^
+
+	@#hack: we use kernel.obj.r and link it ourselves:
+	@cp $@.r $@ && ../build/coff.exe $@ --link .text
 
 	@# create debug version
 	@objcopy --change-addresses 0x13000 --debugging kernel.obj kernel.obj.debug
@@ -123,7 +129,7 @@ KERNEL_SRC = kernel.s defines.s macros.s \
 	$(KLIB_SRC) \
 	$(KAPI_SRC) \
 	realmode.s print.s \
-	pmode.s pic.s gdt.s idt.s tss.s \
+	pmode.s pic.s gdt.s idt.s tss.s ../16/pmode.s \
 	schedule.s \
 	mutex.s console.s paging.s
 
@@ -192,6 +198,7 @@ ring2_.o: $(RING2_SRC)
 	@$(call FIXUP,$@)
 
 ring2.o: ring2_.o fs/oofs/oofs.o
+	@echo "  LD    $@"
 	@ld -r -o $@ $^
 	@$(call FIXUP,$@)
 

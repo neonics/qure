@@ -119,6 +119,7 @@ mount_init$:
 ##
 # The mtab maintains a compact array. Any references to its indices
 # are not guaranteed to work after mtab_entry_free.
+.if DEFINE
 .struct 0
 mtab_mountpoint:	.long 0	# string pointer
 mtab_flags:		.byte 0
@@ -131,6 +132,19 @@ mtab_partition_size:	.long 0	# sectors
 mtab_fs_instance:	.long 0 # file-system specific data structure
 MTAB_ENTRY_SIZE = .
 .data
+.else
+.global mtab_mountpoint
+.global mtab_flags
+.global	MTAB_FLAG_PARTITION
+.global mtab_fs
+.global mtab_disk
+.global mtab_partition
+.global mtab_partition_start
+.global mtab_partition_size
+.global mtab_fs_instance
+.global MTAB_ENTRY_SIZE
+.endif
+
 .if DEFINE
 MTAB_INITIAL_ENTRIES = 1
 mtab: .long 0
