@@ -61,23 +61,6 @@ kernel.bin: kernel.obj
 kernel.obj: $(KERNEL_OBJECTS) kernel.link
 	@echo "  LD    $@ <- $^"
 
-		@# produce relocatable obj with sections
-		@ld $(LD_OPTS) \
-			--script kernel.link-sections \
-			-Map $@0.r.map \
-			--image-base 0 \
-			-r \
-			$(KERNEL_OBJECTS) \
-			-o $@0.r
-
-		@# link the one with sections
-		@ld $(LD_OPTS) \
-			--script kernel.link \
-			-Map $@.obj0.map \
-			--image-base 0 \
-			-o $@0 $@0.r
-
-	@#first with -r to catch relocation info
 	@ld $(LD_OPTS) \
 		--script kernel.link \
 		-Map $@.map \
@@ -86,23 +69,6 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 		$(KERNEL_OBJECTS) \
 		-o $@.r
 	@#objdump -r -j .text $@.r > $@.reloc.txt
-
-	@# this one produces the .obj.1 using .obj.r
-	@ld $(LD_OPTS) \
-		--script kernel.link \
-		-Map $@.map \
-		--image-base 0 \
-		$@.r \
-		-o $@.1
-
-	@# this one produces the .obj using the original .o files
-	@ld $(LD_OPTS) \
-		--script kernel.link \
-		-Map $@.map \
-		--image-base 0 \
-		--error-unresolved-symbols \
-		--fatal-warnings \
-		-o $@ $(KERNEL_OBJECTS) #$^
 
 	@#hack: we use kernel.obj.r and link it ourselves:
 	@cp $@.r $@ && ../build/coff.exe $@ --link .text

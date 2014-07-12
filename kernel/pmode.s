@@ -2,7 +2,7 @@
 
 IRQ_BASE = 0x20	# base number for PIC hardware interrupts
 
-DEBUG_PM = 3	# max 3
+DEBUG_PM = 0	# max 3
 
 ###########################
 

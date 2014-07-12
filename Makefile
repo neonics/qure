@@ -99,7 +99,7 @@ build/kernel.bin: FORCE fonts build/coff.exe util
 build/kernel.reloc: $(KERNEL_OBJ) util/reloc.pl Makefile
 	@# -C -R # 32 bit alpha unsupported.
 	@echo "  RELOC $@"
-	@util/reloc.pl $(KERNEL_OBJ).r build/kernel.reloc
+	@util/reloc.pl --no-16 $(KERNEL_OBJ).r build/kernel.reloc
 
 build/kernel.sym: $(KERNEL_OBJ) util/symtab.pl Makefile
 	@echo "  SYM   $@"

@@ -3,7 +3,7 @@ $VERBOSE = 0;
 getopt(@ARGV) or
 	die "usage: reloc.pl [-v] [[-C [-R]] <kernel.o>] <kernel.reloc>\n\t-C: compress\n";
 
-$ADDR16 = 1;	# set to 0 to clobber 16-bit relocation entries.
+$CLOBBER_ADDR16 = $opt{clobber16};	# set to 1 to clobber 16-bit relocation entries.
 $RLE = $opt{rle};
 $RLE_NO_TABLE = $opt{rle_no_table};	# set to 1 to have no RLE repeat count lookup table
 
@@ -377,10 +377,10 @@ sub write_table
 
 	open BIN, ">:raw", $name or die "Cant open file '$name': $!";
 
-	$VERBOSE and printf "* addr16 count: ".@addr16.($ADDR16?"":" clobbered")
+	$VERBOSE and printf "* addr16 count: ".@addr16.($CLOBBER_ADDR16?"":" clobbered")
 		." addr16_reloc=%08x addr16_textreloc=%08x\n",
 		$addr16_reloc, $addr16_textreloc;
-	$ADDR16 && (scalar(@addr16)||scalar(@addr16text)) and do { # always write 16bit count
+	!$CLOBBER_ADDR16 && (scalar(@addr16)||scalar(@addr16text)) and do { # always write 16bit count
 		print BIN pack "L<", scalar(@addr16text);
 		print BIN pack "S<", $addr16_textreloc;# XXX
 		map { print BIN pack "S<", $_ } @addr16text;
@@ -388,7 +388,10 @@ sub write_table
 		print BIN pack "L<", scalar(@addr16);
 		print BIN pack "S<", $addr16_reloc;# XXX
 		map { print BIN pack "S<", $_ } @addr16;
-	} or	print BIN pack "L<", 0;
+	} or do {
+		print BIN pack "L<", 0;	# @addr16text
+		print BIN pack "L<", 0;	# @addr16
+	};
 
 	print BIN pack "L<", $v= scalar(@addr32) | ($compressed ? 0x40000000 : 0);
 	$VERBOSE and printf "* addr32 count: ".@addr32." (%08x)", $v;
@@ -567,6 +570,7 @@ sub getopt
 	while ($ARGV[0] && $ARGV[0] =~ /^-/)
 	{
 		$ARGV[0] eq '-v' and do{ $VERBOSE++; shift @ARGV } or
+		$ARGV[0] eq '--no-16' and ($opt{clobber16} = shift @ARGV) or
 		$ARGV[0] eq '-C' and ($opt{compressed} = shift @ARGV) or
 		$ARGV[0] eq '-L' and ($opt{rle_no_table} = shift @ARGV) or
 		$ARGV[0] eq '-R' and ($opt{rle} = shift @ARGV) or return 0;
@@ -697,7 +701,7 @@ B<reloc.pl> - relocation table converter
 
 =over
 
-=item	reloc.pl [[-C] [-R [-L]] objectfile.o] my.reloc
+=item	reloc.pl [[-v] [--no-16] [-C] [-R [-L]] objectfile.o] my.reloc
 
 =item	reloc.pl objectfile.o my.reloc
 
@@ -716,6 +720,10 @@ Generated relocation tables are stored in the RAMDISK of the bootloader
 which uses them to relocate the kernel.
 
 =head1 OPTIONS
+
+B<-v>	verbose: print relocation entries
+
+B<--no-16> clobber 16 bit relocation entries
 
 B<-C>	compress the generated relocation file
 

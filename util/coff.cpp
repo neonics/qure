@@ -448,14 +448,18 @@ void handle_text( struct args args, int handle, unsigned char * buf, struct file
 		SYMENT * se = (SYMENT*)(buf + h->h_symptr);
 
 		SYMENT * linksym = NULL;
-		if (args.link)
-			for ( int i = 0; i < h->h_nsyms; i ++ )
-				if ( strcmp( args.link, getsymname( se[i].e, h, buf ) ) == 0 )
-				{
-					printf("-- linksym: [idx:%08x] %s %08x\n", i, args.link, se[i].e_value );
-					if ( linksym == NULL )
-						linksym = &se[i];
-				}
+
+		// find the symbol - also when --link not specified, for verbose mode
+		const char * lsymname = args.link ? args.link : ".text";
+		for ( int i = 0; i < h->h_nsyms; i ++ )
+			if ( strcmp( lsymname, getsymname( se[i].e, h, buf ) ) == 0 )
+			{
+				printf("-- linksym: [idx:%08x] %s %08x\n", i, lsymname, se[i].e_value );
+				if ( linksym == NULL )
+					linksym = &se[i];
+			}
+		if ( ! linksym )
+			printf("error - symbol not found: %s", lsymname );
 		
 		//printf( " %x ", sec[i].s_sectionptr );
 
@@ -473,43 +477,64 @@ void handle_text( struct args args, int handle, unsigned char * buf, struct file
 				getsymname( cs->e, h, buf )
 			);
 
+				long diff = cs->e_value;
+				unsigned char * cp= ( buf + sec->s_sectionptr + (rsp[k].addr - sec->s_vaddr) );
+				long oldv = *((long*)cp);
+
+
+
 			if (args.link
-				&& rsp[k].flags == 6	// RELOC_ADDR32
+				&& ( rsp[k].flags == 6	) // RELOC_ADDR32  (not RELOC_REL32 (20, 0x14)
 				&& cs->e_value - linksym->e_value >= 0 // don't relocate before base of linksym
 					// AND GNU BUG: don't relocate .text itself! it is already relocated.
 			)
 			{
 				// relocate all, relative to 0; use linksym as sym, and update it to 0 later
-				long diff = cs->e_value;
-				unsigned char * cp= ( buf + sec->s_sectionptr + (rsp[k].addr - sec->s_vaddr) );
-				long oldv = *((long*)cp);
+				rsp[k].symidx = linksym - se; // - replace the relocation entry with a reference to linksym
 
-				if	(cs->e_value - linksym->e_value > 0 )
-				{
-					rsp[k].symidx = linksym - se; // - replace the relocation entry with a reference to linksym
+				if ( args.verbose )
+				printf(" -- FIX -- sym:%x->%x  diff=%08x old=%08x new=%08x",
+					rsp[k].symidx, linksym-se,
+					diff, oldv,
+					oldv+diff
+				);
 
-					if ( args.verbose )
-					printf(" -- FIX1%s -- idx:%08x  diff=%08x old=%08x new=%08x",
-						(cs->e_value - linksym->e_value == 0 ? " XXXXXXXXXXXX" :""),
-						rsp[k].symidx, diff, oldv,
-						oldv+diff
-					//	rsp[k].addr - sec->s_vaddr
+				*((long*)cp) += diff;
+			}
+			else if ( rsp[k].flags == 20 ) // RELOC_REL32
+			{
+				if ( args.verbose )
+					printf(" -- REL32 -- idx:%x  diff=%04x old=%04x new=%04x",
+						rsp[k].symidx,
+						diff & 0xffff, oldv & 0xffff, (oldv+diff)&0xffff
+					);
+				if ( args.link )
+					*((long*)cp) += diff - rsp[k].addr - 4;
+			}
+			else if ( rsp[k].flags == 0x10 ) // 16 bit relocation
+			{
+				if ( args.verbose )
+					printf(" -- reloc16 -- idx:%x  diff=%04x old=%04x new=%04x",
+						rsp[k].symidx,
+						diff & 0xffff, oldv & 0xffff, (oldv+diff)&0xffff
 					);
 
-					*((long*)cp) += diff;
-
-				}
-				else {
-					if ( args.verbose )
-					printf(" -- SKIP1%s -- idx:%08x  diff=%08x old=%08x new=%08x",
-						(cs->e_value - linksym->e_value == 0 ? " XXXXXXXXXXXX" :""),
-						rsp[k].symidx, diff, oldv,
-						oldv+diff
-					//	rsp[k].addr - sec->s_vaddr
+// TODO: append symbol to the 'reset' list and clear at end of loop (so that reloc.pl won't relocate 16 bit addr)
+// and enable the next line
+				*((short*)cp) += 0xffff&diff;
+				// also update the symbol value:
+				// delay this to the end
+//				cs->e_value = 0;
+			}
+			else
+			{
+				if ( args.verbose )
+					printf(" -- symref -- idx:%08x  diff=%08x old=%08x new=%08x",
+						rsp[k].symidx,
+						diff, oldv, oldv+diff
 					);
 
-					*((long*)cp) += diff;
-				}
+				//if ( args.link ) *((long*)cp) += diff;
 			}
 
 			if ( args.verbose )
