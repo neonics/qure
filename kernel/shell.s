@@ -2639,8 +2639,8 @@ cmd_play:
 	mov	dl, 'a'
 	add	dl, [boot_drive]
 	mov	[eax + 1], dl
-	mov	ebx, eax	# backup to print error
-1:	xor	edx, edx
+1:	mov	ebx, eax	# backup to print error
+	xor	edx, edx
 	KAPI_CALL fs_open
 	jc	91f
 	mov	[ebp - 4], eax
