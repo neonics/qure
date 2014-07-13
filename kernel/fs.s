@@ -971,11 +971,11 @@ fs_root_nextentry$:
 	jae	9f
 	# skip objects until a dev is found
 	mov	eax, [esi + ecx]
-	DEBUG_DWORD eax
+#	DEBUG_DWORD eax
 	call	class_instanceof
 	jz	2f
-	mov eax, [eax + obj_class]
-	push dword ptr [eax + class_name]; call _s_print
+#	mov eax, [eax + obj_class]
+#	push dword ptr [eax + class_name]; call _s_print
 	add	ecx, 4
 	jmp	0b
 2:
