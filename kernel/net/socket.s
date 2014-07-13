@@ -305,10 +305,8 @@ socket_read:
 	jmp	0b
 
 9:	printc 0x4f, "socket_read: packet queue corrupt: ecx="
-	push	edx
-	mov	edx, ecx
-	call	printhex8
-	pop	edx
+	push	ecx
+	call	_s_printhex8
 	printc 0x4f, " packetlen="
 	push	edx
 	movzx	edx, word ptr [esi + edx]

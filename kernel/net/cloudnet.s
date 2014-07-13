@@ -673,7 +673,7 @@ cluster_ping:
 	# send reboot packet
 	cmp	edx, [ping_timeout_clocks]
 	jb	1f
-	call	cluster_reboot_node
+	#call	cluster_reboot_node
 
 1:
 	ARRAY_ENDL

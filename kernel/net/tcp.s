@@ -1047,7 +1047,23 @@ jmp 0b
 # in: esi = tcp frame
 # in: ecx = tcp frame len
 net_tcp_handle_payload$:
+	#check for oversized packets
+	cmp	ecx, 1500
+	jb	1f
+	printc 4, "long tcp framelen: "
 	push	ecx
+	call	_s_printhex8
+	printlnc 4, "; sending RST"
+	call	net_ipv4_tcp_print
+	# it's likely that the packet framelen is ok, 
+	# as this is checked in the eth protocol handler.
+	# todo: check if ip protocol handler checks payload length
+	# if the packet is good, then there's a bug.
+	jmp	net_tcp_tx_rst$
+	# todo: buffer stuff, i.e., not acking
+	# or closing connection
+
+1:	push	ecx
 	push	edx
 	push	esi
 

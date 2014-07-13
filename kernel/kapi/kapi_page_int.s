@@ -5,6 +5,7 @@
 #
 # It offers a memory region with one-byte granularity for kernel API numbers,
 # and thus allows 4096 API methods to be defined in a single nonexisting page.
+# (note: using an illegal selector would increase the space to 4 billion APIs).
 
 kapi_init_page_int:
 	mov	[IDT + EX_PF*8 + 2], word ptr SEL_compatCS

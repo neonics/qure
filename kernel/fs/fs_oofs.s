@@ -217,7 +217,7 @@ fs_oofs_delete:
 	DEBUG "delete"; jmp 1f
 fs_oofs_move:
 	DEBUG "move";
-1:	DEBUG "not implemented"
+1:	DEBUG "not implemented (oofs)"
 	STACKTRACE 0
 	stc
 	ret
