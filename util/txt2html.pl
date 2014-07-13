@@ -44,6 +44,7 @@ $c=~ s@((<dt>.*?</dt>\n<dd>.*?</dd>\n*)+)@<dl>\n$1</dl>\n\n@gs;
 
 # ''code''
 $c=~ s@''([^']+)''@'<code>'.&esc(keepspace($1)).'</code>'@ge;
+$c=~ s@`([^`]+)`@'<code>'.&esc(keepspace($1)).'</code>'@ge;
 
 # <tab>Preformatted text
 $c=~ s@((\n\t[^\n]*)+\n)@<pre>$1</pre>\n@g;
@@ -108,7 +109,7 @@ $c=~ s@\n(<li>[^\n]+</li>)\n@ <ul>$1</ul>\n@g;
 
 # level 1
 #*foo
-$c=~ s@\n+\* ([^\n]+)@\n<li>$1</li>@g;
+$c=~ s@\n+[-\*] ([^\n]+)@\n<li>$1</li>@g;
 $c=~ s@\n((<li>[^\n]+</li>\n)+)@\n<ul>\n$1</ul>\n@g;
 
 # [label|site]
