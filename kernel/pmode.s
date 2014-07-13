@@ -272,6 +272,7 @@ jnz 0b
 .endif
 
 	mov	edi, [screen_pos_16]
+	mov	bx, [bkp_pm_mode]
 
 	.if 0	# 0='unreal mode'
 	xor	ax, ax
@@ -331,7 +332,8 @@ pmode_entry$:
 	mov	fs, ax
 	mov	gs, ax
 
-	cmp	[bkp_pm_mode], word ptr 0
+	#cmp	[bkp_pm_mode], word ptr 0	# ds ref triple-faults in kvm
+	or	bx, bx
 	jz	0f
 
 	mov ax, '1' | (13<<8)
