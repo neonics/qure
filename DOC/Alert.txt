@@ -70,8 +70,8 @@ caused the interrupt, a popup may be shown indicating the condition
 and the program, offering an option to terminate or restart the task,
 or to invoke the debugger. Ofcourse, if the exception is a breakpoint,
 keys to continue execution with or without switching to the debugger
-will be offered. Further, an option to suspend the task (which it already
-is) will be presented, allowing to return focus to the current shell
+will be offered. Further, an option to suspend the task (which it already is)
+will be presented, allowing to return focus to the current shell
 to either continue commandline editing or invoke inspection commands
 outside of the debugger. Further, a commandline tool to interact
 with the debugger, besides ''int 3'', will offer a way to list such

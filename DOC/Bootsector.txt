@@ -267,7 +267,7 @@ Kernel Relocation Table Compression
 
 The compression ratio at current is about 3.72 or 26% of the original size.
 
-It makes use the sequential order of the address table to compute a delta-table.
+It makes use of the sequential order of the address table to compute a delta-table.
 The delta table is converted into an alphabet by listing all unique delta's,
 ordered by size.
 

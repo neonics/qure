@@ -45,7 +45,7 @@ but is nice for HDD.
 The advantage of having a module is that the code can be independently compiled
 and updated from the kernel. Thus, higher programming languages can be used.
 
-- Backward compatability -
+- Backward compatibility -
 
 As with the BIOS loading the bootsector, which uses the BIOS to load
 the rest of the bootloader, which then loads the kernel, 

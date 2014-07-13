@@ -207,7 +207,7 @@ instance, a versioned file may have redundant content, whereas the master file w
 Thus, to construct such a file would require a version containing two changes,
 both referring to the same portion in the master file.
 
-The master file itself represents the potential for construction any version
+The master file itself represents the potential for constructing any version
 of itself by combining any portion of itself in any linear structure, with
 the smallest version being empty, the next smallest being one character present
 in the master file, and so on. This would lead to compression algorithms
@@ -246,7 +246,7 @@ master file to produce the specific delta.
 Example
 -------
 
-A little example to illustrate. Legeng: each capital letter represents a portion of the file, say, a number of consecutive lines, and the lowercase letters refer to portions of the master file.
+A little example to illustrate. Legend: each capital letter represents a portion of the file, say, a number of consecutive lines, and the lowercase letters refer to portions of the master file.
 
 	Version Content	Master		Delta(Master,Void)
 	0	A	A		a	(a=A)

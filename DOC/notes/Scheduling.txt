@@ -231,7 +231,7 @@ Thus:
 		mov	ecx, [edi + task_index]
 		mov	edx, ecx
 		shr	ecx, 2
-		repnz	scasd
+		repz	scasd
 		jz	no_stack_free$
 
 		# found a dword that has some bits set - some pages free.
@@ -248,7 +248,7 @@ Thus:
 
 		xor	edx, edx
 		mov	ebx, 4096 / TASK_PRIV_STACK_SIZE
-		div	ebx
+		div	ebx	# or optimized equivalent
 
 		mov	ebx, [task_stack_pages]
 		mov	ebx, [ebx  + eax * 4]	# get the page
@@ -343,7 +343,7 @@ between stack and code. I am uncertain as to which direction the addressing
 space really takes: FFFFFFFF is top, or 00000000? And ''ss:[1]'' is ''SEL_ss.base-1''?
 
 The code selector limit can be set to the end of .bss. This would exclude
-the stack and mallocced memory, but would still allow code to be exected
+the stack and mallocced memory, but would still allow code to be executed
 in the data.
 The layout is such that code is contiguous, and data is contiguous.
 

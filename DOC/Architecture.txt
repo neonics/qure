@@ -47,7 +47,7 @@ mode, and even copy itself to another address or change it's addressing scheme.
 Kernel application dependent
 ----------------------------
 The kernel as a service to tasks must establish agreements. One such agreement
-is addressing.As shown, the kernel does not have to use the same address space
+is addressing. As shown, the kernel does not have to use the same address space
 (the base of segment selectors), as it can convert, which is costly.
 
 Paging
@@ -128,7 +128,7 @@ given is from the task heap.
 
 The scheduler could use a popf,retf, and thus not require ring0, but it would
 only be able to switch to a particular state (i.e., interrupts on).
-THe privileged stack will be ring2.
+The privileged stack will be ring2.
 The above leaves ring 1 and ring 2 identical in terms of memory access and
 instruction availability. Here is where EFLAGS.IOPL is used: IOPL=1, therefore,
 all drivers have access to all ports, just like ring0. This can be further

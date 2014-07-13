@@ -23,9 +23,6 @@ of the task can also be used as a pivot moment.
 Pivot
 -----
 
-	int 69, 0x45, 1000101
-	int 96, 0x60, 1100000	
-
 Pivoting centers around the stack. The stack, at a minimum, needs to contain
 the code selector, instruction pointer, and flags.
 
@@ -61,32 +58,6 @@ only specifies it's effect given that it's conditions are satisfied, i.e., that
 there is agreement on the meaning of the context (contents of registers and stack).
 For any other meaning of these registers, the method is not defined. Applying it anyway
 yields results that have not been considered during the encoding of applying an effect.
-
-Numerological Considerations
-----------------------------
-
-Thus, the 9 symbolizes a path becoming circular - a cycle or loop. The 6 represents
-the opposite, a loop becoming a path. Due to there being two symbols, both cycles
-represent the same thing, but the paths have different orientations and thus represent
-different paths. This cycle can be smaller than an instruction, from a task's point of
-view. The 96 then represents a portal, a vortex, a wormhole, where one linear path
-is set cycling - no change - and another that was in a state of no-change is resumed.
-
-Further, the 60 hexadecimal represents the same thing, but it lacks the second path
-being unfolded. Also, the direction of the entry in the first cycle comes from the center,
-not from a pole, as in 96. The 96 thus is a mirror, whereas the 60 only shows a partial
-view. The 6 symbolizes entering the cycle, and the 0 represents the cycle. From
-the caller's perspective then, the 60 is a yield, without even an expectation of
-another path continuing.
-
-69, symbolizes a similar thing, however, extending the spirals reveals there are two
-centers, on the far left and right, of these spirals. In the case of 96, these centers
-are in the middle, on the far right, and far left, respectively.
-
-
-The 0x45 sums to 9, an ending or yielding. Both 69 and 96 sum to 6, in this context,
-a beginning (or an ending). 69->6, 0x45->9; 96->6, 0x60->0x6.
-
 
 Implementation
 --------------

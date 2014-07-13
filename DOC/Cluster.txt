@@ -85,7 +85,7 @@ This way, a node can detect whether it is the only node in the cluster. If this 
 so, it decides it is the first node in the cluster (since the only one), and
 increments the cluster era to mark a new beginning. The cluster era of the
 first cluster then will also have a value of 1. An initialized cluster consisting
-of one node then have era=1, age=1.
+of one node will then have era=1, age=1.
 
 Therefore, the cluster era is a counter indicating the stability of the cluster.
 As long as there is always at least one node in the cluster, the cluster era

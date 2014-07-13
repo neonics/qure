@@ -112,6 +112,13 @@ Assumptions:
 * All machines know the IP to which the service ports are forwarded;
 * All machines are aware of each other through the LAN awareness protcol
 * One machine is elected to handle requests, which is known by all machines.
+[!edit:2014-07-12]
+* All machines monitor LAN activity and are aware of DMZ requests
+Tested the router, and it will not accept a broadcast or multicast DMZ LAN IP;
+the LAN DMZ node could broadcast requests to particular multicast addresses,
+membership of which indicates the ability to handle such requests. 
+
+[!end edit]
 
 Then, all machines monitor the requests, and can take action when the response
 is not forthcoming within a timeout period.
@@ -206,7 +213,7 @@ In this way, each cluster node can do DHCP requests and receive
 multiple answers. One will be the localnet, the other will be
 the cluster - such as some identifier (the IP need not be used as such),
 and the gateway or server ip fields can indicate which cluster node
-is taken to be the cofniguration node.
+is taken to be the configuration node.
 
 
 ZeroConfig Bootstrapping using IP monitoring
@@ -228,7 +235,7 @@ A script-expression rule for this then might be:
 
 	auto-answer ARP $LANMASK
 
-which would have any node response (sensibly, as it knows the IP
+which would have any node respond (sensibly, as it knows the IP
 it takes is a shared virtual IP and thus may be in use).
 
 [!Best would be to have the router/gateway provide the service IP
@@ -306,6 +313,7 @@ it receives the history since.
 FIRST IMPLEMENTATION
 --------------------
 hello protocol: send last age ('date').
+
 OOFS: ?/cluster
 
 receives response. If age received:
@@ -315,7 +323,7 @@ receives response. If age received:
 		it shares with the rest to update their history
 		events.
 	more: the reverse.
-Note tha tit doesnt matter which node sends or receives - in the broadcast,
+Note that it doesnt matter which node sends or receives - in the broadcast,
 the packet is handled as a response by the receiving nodes, who
 have chosen one to respond to the booted node. This node will send
 the cluster age and it's own.
@@ -422,7 +430,7 @@ Two nodes would have each one ping 30 seconds before and after the other.
 For three nodes, the distance would be 20 seconds, and so on.
 
 Each node will, after filtering out the unresponsive nodes, take stock of
-the number of nodes that has responded within the last minute. It will then
+the number of nodes that have responded within the last minute. It will then
 know how much it needs to shift it's phase relative to the others.
 
 The nodes will be sorted according to phase. The node will place itself
@@ -485,7 +493,7 @@ Security Ring
 
 Now that nodes can be (and are) rebooted if they are found to be offline,
 it is needful to establish a way for this to be done securely, so that
-packet injection in the network will not comprommise the system.
+packet injection in the network will not compromise the system.
 
 A key can be generated and communicated using mcast or even peer-to-peer,
 yet this can be snooped. Since a snooper will have all the information

@@ -44,7 +44,7 @@ the purpose of the redirect is defeated.
 
 The HTTP code keeps buffering input data until the request is complete.
 In the case where manual service communication is attempted, packets
-are often send on line boundaries (such as ''cat | nc''). HTTP diverges
+are often sent on line boundaries (such as ''cat | nc''). HTTP diverges
 from the underlying TCP specification by introducing a duplication of
 the ''TCP PSH'' flag functionality, indicating that the data sent is
 complete in order for the server to take a next step, which, in the case

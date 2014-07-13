@@ -320,7 +320,7 @@ The following commands can be found in the 'tasks' section of the ''help'' comma
   resume the given task.
 
 - ''init''
-  executes all non-comment lines in ''/et/init.rc''.
+  executes all non-comment lines in ''/etc/init.rc''.
 
 - ''exe''
   loads and executes a PE/COFF binary.

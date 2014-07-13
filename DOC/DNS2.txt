@@ -63,7 +63,7 @@ Mistrust
 It is possible to claim a name that is taken. It will then take a number of instances to build an authority. Instances that are unaware of the domain name may agree unwittingly, and then later becoming aware of the conflicting authority. The default behaviour might be to merge the lists.
 To go counter to this, means to override the merge feature, and deny the pre-existing nameservers as authoritative for the name. Such modifications may occur, where a movement creates a circle of trust under a free name, and become a distinct authority, offering a different view on the network name authority picture.
 
-It is possible to hide such a name from any name service who is authoritative for the name, by reflecting it's view. This way it will be kept up to date with all the instances who have different authority over the name.
+It is possible to hide such a name from any external name service who is prior authoritative for the name, by reflecting it's view of the name to it. This way it will be kept up to date with all the instances who have different authority over the name.
 
 When this is not hidden, and every client is loyal to it's own authority and circle of trust, it will know when it encounters a different list for a name that is not the one shared among it's contacts and notifies them, and thus, now both authorities know about each other.
 
@@ -85,7 +85,10 @@ These root nameservers are rooted. There is a single list, that is authoritative
 It is not that all instances must be an authoritative name server for all domains.
 Those that are not, however, can either dispute the name, or simply not carry it and rely on the authoritative servers. They themselves must have a list of the authoritative servers, and so can perform query redirects at the minimum.
 
-In the 'cloud' name service, the list of name services are dynamic. The load is balanced.
+Distributed Dynamic Name Service
+--------------------------------
+
+In the 'cloud' name service, the list of name services is dynamic. The load is balanced.
 When an instance comes online, it uses it's database to connect and report itself as available.
 It will have two classes of name information: persistent, and dynamic. The dynamic part is where the load is balanced. This is where temporary authoritative begins.
 
@@ -212,7 +215,7 @@ Online Registry Service / Address Book
 --------------------------------------
 
 This is the main registry for loadbalancing. It keeps track of all online instances, and what services they offer.
-It further is responsable for routing.
+It further is responsable for service routing.
 One of these services is the registry service itself, which is thus cache distributed.
 
 A cache service, as offered in the message an instance sends to register itself as online,
@@ -239,18 +242,18 @@ The cache is tested by pinging it, and recording the hops. The same is done for 
 Thus it knows two distances between a client and a server for which it is an information node.
 
 3 machines:
-	server
+	authoritative server
 	cache server
 	client
-client requests address for server to cache server.
-Cache server forwards the request to server -changing the sender to itself – receives the response, caches it, changes the destination, and forwards the packet to the client. It now knows it's distance to server, and to client.
+Client requests address for server to cache server.
+Cache server forwards the request to server -changing the sender to itself – receives the response, caches it, changes the destination, and forwards the packet to the client. It now knows its distance to server, and to client.
 
 Becoming a Cache server
 -----------------------
 
 A client requests a service from server. The service is the registry service, and the request is an offer for service.
 The server remembers the request/offer, and puts the client in the 'unallocated' list.
-It maps it's request statistics for domains onto it's understanding of network topology,
+It maps its request statistics for domains onto its understanding of network topology,
 and determines whether the client is closer to a particular network than itself.
 
 Establishing networks.
