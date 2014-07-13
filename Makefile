@@ -35,7 +35,7 @@ foo:
 
 
 os.iso: SECTORS = $(call CALC_SECTORS,build/boot.img)
-os.iso: $(CODE_ISO_DEPS) | init
+os.iso: $(CODE_ISO_DEPS) root/ | init
 	@#cp --sparse=always build/boot.img root/boot/boot.img
 	@echo "  ISO   $@"
 	@genisoimage -P Neonics -quiet -input-charset utf-8 -o os.iso.tmp \
@@ -145,6 +145,7 @@ build/symtab.exe: util/symtab.cpp
 .PHONY: site-init site www-neonics site-check
 
 site:	site-init site-doc www-neonics site-check
+	touch root
 
 site-check:
 	@echo "  LINKCHK"
