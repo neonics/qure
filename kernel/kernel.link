@@ -13,96 +13,94 @@ SECTIONS
 
   .text : 
   {
-	kernel_start = . ;
-	KERNEL_START = . ;
+		kernel_start = . ;
+		KERNEL_START = . ;
 
-	/* Realmode Kernel */
+		/* Realmode Kernel */
 
-  	KERNEL_CODE16_START = . ;
-	*(.text16)
-	KERNEL_CODE16_END = . ;
-	KERNEL_CODE16_SIZE = ABSOLUTE( KERNEL_CODE16_END - KERNEL_CODE16_START );
+		KERNEL_CODE16_START = . ;
+		*(.text16)
+		KERNEL_CODE16_END = . ;
+		KERNEL_CODE16_SIZE = ABSOLUTE( KERNEL_CODE16_END - KERNEL_CODE16_START );
 
-	KERNEL_DATA16_START = . ;
-	*(.data16)
-	KERNEL_DATA16_END = .;
+		KERNEL_DATA16_START = . ;
+		*(.data16)
+		KERNEL_DATA16_END = .;
 
-	REALMODE_KERNEL_END = .;
+		REALMODE_KERNEL_END = .;
 
+		/* 32 bit kernel */
 
-	/* 32 bit kernel */
+		/* - code */
 
+		KERNEL_CODE32_START = . ;
+		*(.text)
+		KERNEL_CODE32_END = . ;
+		KERNEL_CODE32_SIZE = ABSOLUTE( KERNEL_CODE32_END - KERNEL_CODE32_START );
 
-	/* - code */
-
-  	KERNEL_CODE32_START = . ;
-	*(.text)
-	KERNEL_CODE32_END = . ;
-	KERNEL_CODE32_SIZE = ABSOLUTE( KERNEL_CODE32_END - KERNEL_CODE32_START );
-
-	KERNEL_CODE_SIZE = ABSOLUTE(KERNEL_CODE32_SIZE + KERNEL_CODE16_SIZE);
+		KERNEL_CODE_SIZE = ABSOLUTE(KERNEL_CODE32_SIZE + KERNEL_CODE16_SIZE);
 
 
-	/* - data */
+		/* - data */
 
-	. = ALIGN(16);
-	KERNEL_DATA_START = . ;
-	*(.data)
-	*(.strings)
-	data_ring2_strings_end = .;
+		. = ALIGN(16);
+		KERNEL_DATA_START = . ;
+		*(.data)
+		*(.strings)
+		data_ring2_strings_end = .;
 
-	/* -- classdef */
-	data_classes_start = .;
-	data_classdef_start = .;
-	*(.classdef)
-	data_classdef_end = .;
-/*	*(SORT(.classdef$*))*/
-	*(.classdef$md)
-	*(.classdef$mo)
-	*(.classdef$ms)
-	*(.classdef$*)
-	data_classes_end = .;
+		/* -- classdef */
 
-	/* -- KAPI */
+		data_classes_start = .;
+		data_classdef_start = .;
+		*(.classdef)
+		data_classdef_end = .;
+		/*	*(SORT(.classdef$*))*/
+		*(.classdef$md)
+		*(.classdef$mo)
+		*(.classdef$ms)
+		*(.classdef$*)
+		data_classes_end = .;
 
-	_KAPI_COUNTER = 0;
-	data_kapi_start = .;
+		/* -- KAPI */
 
-	*(.kapi)	/* in case kernel.link-sections */
-	*(.kapi$idx)
+		_KAPI_COUNTER = 0;
+		data_kapi_start = .;
+
+		*(.kapi)	/* in case kernel.link-sections */
+		*(.kapi$idx)
 		_KAPI_IDX_SIZE = ABSOLUTE( . - data_kapi_start);
 		KAPI_NUM_METHODS = ABSOLUTE(_KAPI_IDX_SIZE / 4);
-	*(.kapi$ptr)
-	*(.kapi$str)
-	*(.kapi$arg)
+		*(.kapi$ptr)
+		*(.kapi$str)
+		*(.kapi$arg)
 		data_kapi_end = .;
 
 
-	/* -- SHELL */
+		/* -- SHELL */
+
 		data_shell_cmds_start = .;
-	*.o(.shellcmd)
-/*	kernel.o(.shellcmd)
-	ring2.o(.shellcmd)*/
-	SHELL_CMD_END = . ;
-	LONG(0);	/* shell_command_code: end of list */
+		*.o(.shellcmd)
+		/*	kernel.o(.shellcmd)
+		ring2.o(.shellcmd)*/
+		SHELL_CMD_END = . ;
+		LONG(0);	/* shell_command_code: end of list */
 		data_shell_cmds_end = .;
 
-	KERNEL_DATA_END = . ;
-	KERNEL_DATA_SIZE = ABSOLUTE(KERNEL_DATA_END - KERNEL_DATA_START);
+		KERNEL_DATA_END = . ;
+		KERNEL_DATA_SIZE = ABSOLUTE(KERNEL_DATA_END - KERNEL_DATA_START);
 
 
-	/* Signature */
+		/* Signature */
 
-	kernel_signature = . ; LONG(0x1337c0de);
-	kernel_end = .;
-	KERNEL_SIZE = ABSOLUTE( kernel_end - kernel_start );
+		kernel_signature = . ; LONG(0x1337c0de);
+		kernel_end = .;
+		KERNEL_SIZE = ABSOLUTE( kernel_end - kernel_start );
 
-	KERNEL_END = .;
+		KERNEL_END = .;
   }
 
-  /DISCARD/ : {
-  	*(.sig)
-  }
+  /DISCARD/	: { *(.sig) }
 
   /*
   .data  :
@@ -113,54 +111,18 @@ SECTIONS
   }
   */
 
-
   .rdata  :
   {
     *(.rdata)
     *(.rdata_runtime_pseudo_reloc)
   }
-  .eh_frame  :
-  {
-    *(.eh_frame*)
-  }
-  .pdata  :
-  {
-    *(.pdata)
-  }
-  .edata  :
-  {
-    *(.edata)
-  }
-  /*
-  /DISCARD/ :
-  {
-    *(.debug$S)
-    *(.debug$T)
-    *(.debug$F)
-    *(.drectve)
-    	*(.strtab)
-  }
-  */
-  .idata  :
-  {
-  }
-  .tls  :
-  {
-  }
-  .rsrc  :
-  {
-    *(.rsrc)
-  }
-  .reloc  :
-  {
-    *(.reloc)
-  }
-  .stab   :
-  {
-    *(.stab)
-  }
-  .stabstr   :
-  {
-    *(.stabstr)
-  }
+  .eh_frame	: { *(.eh_frame*) }
+  .pdata		: { *(.pdata) }
+  .edata		: { *(.edata) }
+  .idata		: { }
+  .tls			: { }
+  .rsrc			: { *(.rsrc) }
+  .reloc		: { *(.reloc) }
+  .stab			: { *(.stab) }
+  .stabstr	: { *(.stabstr) }
 }
