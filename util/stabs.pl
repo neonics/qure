@@ -15,11 +15,30 @@
 # source file offset array (unlike symtab.pl, where the string table
 # pointer array has the same length as the other arrays).
 $COMPRESSION = 0;
-$ARGV[0] eq '-C' and do { $COMPRESSION = 1; shift @ARGV; };
+$BASE = 0;	# --base; image base: addess will be subtracted
+$PRINT = 0;	# -p
+while ( $ARGV[0] =~/^-/ ) {
+	$ARGV[0] eq '-C' and do {
+		$COMPRESSION = 1; shift @ARGV;
+	} or
+	$ARGV[0] eq '--base' and do {
+		shift @ARGV;
+		$ARGV[0] or die "--base requires hex number";
+		$BASE = hex shift @ARGV;
+	} or
+	$ARGV[0] eq '-p' and $PRINT = shift @ARGV
+	or die "unknown option: $ARGV[0]";
+
+}
 
 !$ARGV[0] and
-	die "usage: symtab.pl [-C] <kernel.o> <kernel.stabs> [-p] # -p=print\n".
-	    "       symtab.pl <kernel.stabs>\n";
+	die "usage: symtab.pl [-p] [-C] [--base <hex>] <kernel.o> <kernel.stabs>\n".
+	    "       symtab.pl <kernel.stabs>\n\n".
+	    "options:\n".
+	    "\t-p\tprint\n".
+	    "\t-C\tcompress output file\n".
+	    "\t--base <hex>\tsubtract number from addresses\n".
+	    "\n";
 
 !$ARGV[1] and do {
 	open BIN, "<:raw", $ARGV[0] or die "Can't open file '$ARGV[0]': $!";
@@ -83,6 +102,10 @@ $ARGV[0] eq '-C' and do { $COMPRESSION = 1; shift @ARGV; };
 	exit;
 };
 
+$ARGV[2] and die "extraneous arguments: @ARGV -- ", join( " ", splice( @ARGV, -(scalar(@ARGV)- 2) ) );
+
+print "args:\nPRINT: $PRINT\nCOMPRESSION: $COMPRESSION\nBASE: ".sprintf("%x",$BASE)."\nIN: $ARGV[0]\nOUT: $ARGV[1]\n";
+
 @c = `objdump -G $ARGV[0]`; chomp @c;
 
 %sources=();
@@ -101,15 +124,17 @@ map {
 
 	# 15996  SLINE  0      109    00017c3f 0
 	($line, $addr) = /^\d+\s+SLINE\s+\d+\s+(\d+)\s+([0-9a-f]{8})\s+\d+\s*$/ and do {
-		if ( defined $addrsrc{ hex $addr })
+		$addr = hex $addr;
+		$addr -= $BASE;
+		if ( defined $addrsrc{ $addr })
 		{
 			# multiple source lines for single address..
 			#warn "Duplicate address, ignoring: $_\n";
 		}
 		else
 		{
-		$addrsrc{ hex $addr } = int($line) | ($sources{$cur_source}-1) << 16
-#		$ARGV[2] eq '-p' and printf "%08x %s:%s\n", $addr, $cur_source, $line;
+		$addrsrc{ $addr } = int($line) | ($sources{$cur_source}-1) << 16
+		;$PRINT and printf "%08x %s:%s\n", $addr, $cur_source, $line;
 		}
 	}
 } @c;
@@ -159,7 +184,7 @@ else
 	#print BIN pack "L<", scalar(@addresses);
 	#map { print BIN pack "L<", $_ } @addresses;
 
-	$ARGV[2] eq '-p' and
+	$PRINT and
 	map {
 		printf "%08x %s:%s\n", $_, $addrsrc{$_}>>16, $addrsrc{$_}&0xffff;
 	} sort {$a<=>$b} keys %addrsrc;
