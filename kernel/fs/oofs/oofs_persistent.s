@@ -235,8 +235,8 @@ oofs_persistent_read:
 			printc 9, " persistence="
 			mov	eax, [eax + oofs_persistence]
 			DEBUG_CLASS eax
-			call newline
 		.endif
+		call newline
 
 		pop_	edx eax
 	.endif

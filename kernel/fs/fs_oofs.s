@@ -107,14 +107,13 @@ fs_oofs_free$:
 	ret
 
 fs_oofs_mkfs:
-	pushd 0
-	call stacktrace
+	#pushd 0
+	#call stacktrace
 	push_	eax ecx edx
-		printlnc 9, "fs_oofs_mkfs"
 	call	fs_oofs_init$	# out: eax=oofs, edx=fs_oofs
 	jc	91f
 	mov	ecx, [edx + fs_obj_p_size_sectors]
-	call	[eax + oofs_api_init]
+	call	[eax + oofs_api_init]	# constructor
 	jc	94f
 	# allocate a new array in the next sector
 	push_	edx
@@ -127,6 +126,13 @@ fs_oofs_mkfs:
 	call	[eax + oofs_persistent_api_save]
 	pop	edx
 	jc	93f
+
+	# save the volume descriptor
+	mov	eax, [edx + oofs_root]
+	call	[eax + oofs_persistent_api_save]
+	jc	95f
+	#call	[eax + oofs_api_print]
+
 	OK
 	call	fs_oofs_free$
 9:	pop_	edx ecx eax
@@ -136,6 +142,8 @@ fs_oofs_mkfs:
 92:	PUSHSTRING "table add error"
 	jmp	0f
 94:	PUSHSTRING "object init error"
+	jmp	0f
+95:	PUSHSTRING "volume save error"
 	jmp	0f
 93:	PUSHSTRING "table save error"
 0:	printc 4, "fs_oofs_mkfs: "

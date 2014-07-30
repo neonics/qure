@@ -366,7 +366,13 @@ oofs_vol_onload:
 9:	pop_	edx ecx ebx
 	STACKTRACE 0
 	ret
-91:	printlnc 4, "oofs_vol_onload: wrong partition magic"
+91:	printc 4, "oofs_vol_onload: wrong partition magic: expect "
+	pushd	OOFS_MAGIC
+	call	_s_printhex8
+	printc 4, " found "
+	pushd	[eax + oofs_vol_magic]
+	call	_s_printhex8
+	call	newline
 	stc
 	jmp	9b
 92:	printlnc 4, "oofs_vol_onload: mrealloc error"
