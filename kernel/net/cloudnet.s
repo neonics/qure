@@ -115,7 +115,8 @@ cloudnet_daemon:
 	jc	1f
 	#call	[eax + init]
 	call	cluster_node_factory
-	jc	2f
+	jc	9f	# abort - exit task
+
 	mov	[cluster_node], eax
 
 # in: eax = ip
