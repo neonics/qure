@@ -34,7 +34,7 @@ sub usage {
 	--onload <str>	append <str> to the javascript onload handler.
 	--menuxml <xml>	specifies a menu.xml file to load using AJAX.
 	--title	<t>	specify title.
-	--rawtitle <t>	idem; transform "dir/some_file.(txt|html) -> Some File.
+	--rawtitle <t>	idem; transform "dir/some_file.(txt|html)" -> "Some File".
 	--tagline <t>	specify a tagline.
 	--toc		generate a TOC using all <h[123456]> tags.
 EOF

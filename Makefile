@@ -167,11 +167,6 @@ root/www/download/os.iso.gz: $(ISO_DEPS) | site-init
 	#	root/ && gzip -9 os.iso.site \
 	#	&& mv os.iso.site.gz root/www/download/os.iso.gz
 
-site-src:
-	#[ -d root/src/kernel ] || mkdir -p root/src/kernel
-	#cp -a TODO Makefile 16 bootloader kernel util fonts root/src/kernel
-
-
 TXTDOC=$(shell util/doctools.pl -d DOC/ -t txt list)
 HTMLDOC=$(shell util/doctools.pl -d DOC/ -t html list)
 
@@ -197,7 +192,7 @@ root/www/doc/%.html: DOC/%.txt util/txt2html.pl $(HTMLDEPS)
 root/www/doc/%.html: RP = $(shell echo $(patsubst %,../,$(subst /, ,$(dir $<)))|sed -e 's/ //g')www.neonics.com/
 root/www/doc/%.html: DOC/%.html $(HTMLDEPS)
 	@echo "  HTML  $@"
-	@util/template.pl -t util/template.html -p ${RP} --menuxml menu.xml $< > $@
+	@util/template.pl -t util/template.html -p ${RP} --toc --menuxml menu.xml $< > $@
 
 root/www/doc/menu.xml: root/www/doc-menu.xml
 	@cp $< $@
@@ -211,6 +206,9 @@ site-doc: root/www/doc.inc root/www/doc/index.html
 	@#[ -d root/www/screenshots ] || mkdir -p root/www/screenshots
 	@#cp -a DOC/Screenshots/*.png root/www/screenshots/
 	@#cp DOC/* root/src/kernel/DOC/
+
+site-src:
+	make -s --no-print-directory -C kernel ../root/www/doc/src/src.ref
 
 root/www/doc.inc: $(WWW_DOC) $(HTML_DOC) util/doctools.pl DOC/.index
 	@echo "  HTMLl $@"
@@ -232,7 +230,9 @@ www-neonics: $(WWW_N_SRC)
 	@echo "  SITE  www.neonics.com"
 	@[ -d web/www.neonics.com ] && ( \
 	make -s --no-print-directory -C web/www.neonics.com ; \
-	cd web/www.neonics.com && cpio --quiet -W none -d -p < .list ../../$(WWW_N)/ >& /dev/null ) || true
+	cd web/www.neonics.com && \
+	cpio --quiet -W none -d -p < .list ../../$(WWW_N)/ >& /dev/null \
+	) || true
 
 
 site-clean:
