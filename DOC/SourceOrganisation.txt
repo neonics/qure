@@ -1,0 +1,329 @@
+
+
+= Entire source tree =
+
+TODO: hyperlink to the source reference for *.s and html for *.txt
+
+
+	 FILES				# originally meant to contain what you're reading now
+	 .gdbinit 			# GDB startup script
+	 .tcshrc			# project related aliases
+
+	 Makefile			# script aimed to build only what is necessary (builds a bootable ISO9660)
+	 TODO				# issue tracker
+
+	 16/				# bootloader library
+	   print.s
+	   pmode.s			# 16 bit protected mode: used to highload parts of the kernel image
+	   gdt.s			# constants and macro used to define GDT entries
+
+	   Makefile			# unused: remnant: this is what is left of the original bootloader
+	   menu.s			# graphical text menu listing all realmode tools
+	   floppy.s			# BIOS floppy driver
+	   gfxmode.s			# BIOS VBE Graphics mode driver
+	   inspect.s			# memory and disk inspector
+	   keyboard16.s			# keyboard interrupt driver
+
+
+
+	 bootloader/
+	   Makefile
+	   bootloader.s			# the bootsector (first stage bootloader)
+	   sector1.s			# everything that didn't fit in the bootsector (second stage)
+
+
+
+	 kernel/			# kernel image source code (third stage)
+	   Makefile			# compiles and links the kernel into a relocatable object file
+	   kernel.link			# linker script producing .text, .data, and debug (.bss not supported by bootloader)
+	   kernel.link-sections		# linker script (preserving all sections)
+
+	   kernel.s			# main source file - object layout, initialisation sequence
+	   defines.s			# .data subsection constants, INCLUDE macro with code labelling (size measurement, 'module' identification)
+	   macros.s			# .text16/.data16/.text32 and assist macros
+
+	   realmode.s			# bridge between bootloader/BIOS (memory map, emulation termination)
+	   pmode.s			# realmode-protected mode two-way bridge
+	   gdt.s			# protected mode Global Descriptor Table
+	   idt.s			# protected mode Interrupt Descriptor Table
+	   tss.s			# protected mode hardware Task Switch driver
+	   paging.s			# protected mode memory paging and task isolation
+
+	   print.s			# text-mode screen buffer driver
+	   bios.s			# Bios Data Area (BDA) and pmode/realmode interface
+	   cmos.s			# CMOS time functions (RTC timer, system clock, date routines)
+	   pic.s			# Programmable Interrupt Controller driver
+	   pit.s			# Programmable Interval Timer driver
+	   keyboard.s			# hardware and virtual console keyboard driver
+	   keycodes.s			# keyboard character code constants
+	   dma.s			# ISA Direct Memory Access driver (for soundblaster support)
+	   acpi.s			# ACPI driver (minimal: enough to reboot)
+	   tsc.s			# TSC CPU register driver with calibration
+
+	   schedule.s			# task scheduler
+	   mutex.s			# semaphores and mutexes
+
+	   oo.s				# Object Orientation framework
+
+	   console.s			# virtual consoles (optional,default)
+	   shell.s			# interactive shell
+
+
+	   debugger/
+	     export.s			# stacktrace and assertion routines, register change comparision, breakpoint and print macros
+	     debugger.s			# ramdisk (reloc,symtab,stabs), register and stack printing, debugger UI, tracing
+	     hwdebug.s			# hardware debug driver with conditional breakpoint support
+
+	   lib/				# kernel library: algorithms
+	     buffer.s			# auto-compacting FIFO buffer (used for socket.s)
+	     handles.s			# multidimensional sorted linked list for memory management (uses ll.s)
+	     hash.s			# resizable memory, arrays, pointer hashtable and iteration macros
+	     ll.s			# linked list (uses arrays from hash.s)
+	     mem.s			# allocatable memory management (malloc/mfree and variants)
+	     string.s			# atoi, htoi, strlen, strcmp, strcpy, strdup, strtok, trim (and variants)
+	     token.s			# fast character-class based token parser (used for commandline parsing)
+
+	   exe/				# loading and executing programs
+	     libc.s			# libc style kernel api facade
+	     elf.s			# ELF loader
+	     pe.s			# COFF/PE loader
+
+
+	   ring2.s			# CPL2 object file: device drivers, file system, network
+	   dev.s			# device driver API (base classes and commandline inspection utilities)
+	   ata.s			# ATA and ATAPI disk driver
+	   pci.s			# auto-detecting PCI driver
+	   				# (dev,pci,ata,partition,fs*,nic,net,
+
+	   gfx.s			# graphics rendering and video driver base class
+	   gfx_vbe.s			# BIOS VBE driver using realmode kernel gate
+
+	   partition.s			# IBM Partition filesystem driver
+	   fs.s				# file system mounting, file attribute manipulation, kernel api and base classes
+	     fat.s			# read-only FAT16 filesystem
+	     iso9660.s			# ISO9660 CDROM filesystem
+	     sfs.s			# simple block file system
+	     fs_oofs.s			# OOFS kernel filesystem API implementation
+	     oofs/			# object oriented file system
+	       ClassHierarchy.txt	# overview of the filesystem's object model
+	       Makefile			# oofs.o is a separate object file
+	       export.h			# (dynamically generated) symbolic constants (vptr indices, class constants)
+	       extern.h			# includes
+	       oofs.s			# base class
+	       oofs_persistent.s	# persistent object base class
+	       oofs_array.s		# resizable array base class
+	       oofs_vol.s		# region 0: filesystem volume sector
+	       oofs_table.s		# region 1: class string table: each entry correlates with a region
+	       oofs_alloc.s		# region 2: free space allocation 
+
+	       oofs_handle.s		# persistent version of lib/handles.s
+	       oofs_hash.s		# sha1 hashtable
+	       oofs_tree.s		# directory entries
+	       oofs_hashidx.s		# reference table
+	       oofs_txtab.s		# translation table
+
+	   kapi/			# kernel api
+	     kapi.s			# macros to declare methods as kernel API and method configuration
+	     kapi_int80.s		# explicit interrupt call implementation
+	     kapi_page_callgate.s	# pagefault callgate implementation
+	     kapi_page_int.s		# pagefault interrupt implementation (active)
+	     kapi_page_task.s		# pagefault task callgate implementation (hardware taskswitch)
+	     kapi_sysenter.s		# i686+ 32 bit SYSENTER/SYSEXIT implementation (unreliable)
+
+	   net/				# network stack
+	     net.s			# protocol API, queued network packet handler/scheduler, IP/MAC/packet checksum manipulation
+	     route.s			# routing table management
+	     socket.s			# packeted and streaming buffer network Socket API (listen,accept,connect,send,peek,receive,flush,close)
+
+					# Layer 1: transport
+	     eth.s			# Ethernet protocol driver
+
+					# Layer 2:
+	     arp.s			
+	     icmp.s			# control
+	     igmp.s			# multicast group management
+	     ipv4.s			# 32 bit internet protocol
+	     ipv6.s			# 128 bit internet protocol (largely unimplemented)
+
+					# Layer 3:
+	     udp.s			# datagram packets
+	     tcp.s			# connection management (error detection/no resend/no window)
+
+	     				# Layer 4: services 
+	     dhcp.s			# (UDP, shell)
+	     dns.s			# (UDP) DNS client and server
+	     sip.s			# (UDP) VoIP responder 
+	     httpd.s			# (TCP) HTTP 1.1 Daemon
+	     smtp.s			# (TCP) nonpersistent SMTP server
+	     ssh.s			# experimental, very unfinished
+
+	     cloudnet.s			# persistent cluster management protocol and daemons
+
+
+	   nic.s			# Network Interface Card driver base
+	   nic/				# PCI driver implementations
+	     am79c971.s			# AMD PCNet Fast Ethernet Controller driver
+	     i8254.s			# Intel PCI/PCI-X Gigabit Ethernet Controller driver
+	     rtl8139.s			# RealTek 8139 compatible
+	     (ne2k.s)			# (not committed) NE2000 compatible
+
+	   pcibridge/			# Motherboard Chipset drivers
+	     i440.s			# Intel 440 BX/ZX/DC Host Bridge (dummy) driver
+	     ipiix4.s			# Intel PIIX4 PCI-to-ISA/IDE Bridge 'Xcelerator' driver (IDE busmaster DMA)
+
+
+	   sound/			# Soundcard drivers
+	     es1371.s			# Ensoniq AudioPCI-97 driver
+	     sb.s			# revived SoundBlaster mono/Pro/16/16ASP/AWE32 driver from 1995
+
+	   usb/				# Universal Serial Bus Host drivers
+	     usb.s			# EHCI
+	     usb_ohci.s			# OHCI
+
+	   vbox/			# VirtualBox virtual machine drivers
+	     vbva.s			# dummy video driver
+	     vbga.s			# dummy addon driver
+
+	   vmware/			# VMWare virtual machine drivers
+	     vmware.s			# API, initialisation, capabilities testing, VM settings retrieval
+	     bdoor.s			# the 'backdoor' API
+	     chan.s			# socket-like communication channel management
+	     svga2.s			# SVGA driver
+	     vix.s			# remote procedure call protocol
+
+
+
+	 lib/				# algorithms
+	   base64.s			# fast and small base64 encode/decode
+	   crc32.s			# extremely small CRC32 (intented for NIC hardware packet filtering)
+	   gzip.s			# experimental gzip/gunzip (intended for httpd)
+	   sha.s			# SHA1
+	   browser.s			# experimental webbrowser (extremely early stage)
+	   xml.s			# experimental XML/SGML parser
+
+
+
+	 root/				# root OS filesystem
+	   hello.txt			# test file
+	   www/				# this (generated) website
+
+
+
+	 sandbox/			
+	   Makefile			# asm/ builder
+	   elf.cpp			# attempt to compile an ELF file against the kernel
+	   lib.c			# idem
+	   libc.ld			# idem
+	   test.c			# idem
+	   exe/				# idem
+	   asm/				# attempt to generate an assembler by generating all opcodes and parse the disassembly
+	   compression/			# various compression algorithms
+	   link/			# linker tests
+	   parsergenerator/		# grammar parser; xml grammar parser generator
+	   patscan/			# pattern scanner to detect redundant kernel code/data
+	   script/			# experimental self-declaring language, turing machine etc.
+
+
+
+	 util/				# build tools
+	   Template.pm			# Template library (used in several scripts)
+	   adm				# virtual machine administration
+	   checksymbols			# used to check undefined symbols before linking was done
+	   coff.cpp			# COFF/PE image file parser and manipulator (used for fixups)
+	   doctools.pl			# DOC/ API: index management, labelled TOC generation 
+	   flood.pl			# UDP flooder to test kernel stability
+	   fmtsrc.pl			# syntax-highlighting hyperlinked source code reference generator
+	   font.cpp			# font converstion utility
+	   genopcodemacros.pl		# generated the code included in macros.s to use i686+ instructions (cmov etc) when available
+	   iso9660.cpp			# ISO9660 file parser - used to compare with iso9660.s debug values
+	   linkchecker.pl		# verifies all hyperlinks in the website point
+	   malloc.cpp			# early prototype of mem.s
+	   ql.pl			# QEmu logfile annotator (prints source lines along with the opcodes)
+	   reloc.pl			# compressed kernel relocation table generator and parser
+	   stabs.pl			# extracts STABS information to optimized format
+	   stringdata.pl		# experimental substring compression
+	   symtab.cpp			# kernel symbol table parser
+	   symtab.pl			# kernel symbol table generator and parser
+	   template.html		# default website template
+	   template.pl			# flexible templating utility with index generation
+	   txt2html.pl			# text to html converter (used on DOC/)
+	   write.cpp			# kernel floppy boot image creator
+
+
+
+	 DOC/
+	   .index			# attributed list of .txt files (menu)
+	   *.txt			# Musings, Ideas, Ponderings of possibility and potential
+	   pci.ids			# pci vendor and device code reference
+	   Screenshots/			# some early development screenshots
+	   Specs/			# third party hardware and software standards specifications
+	   memio/			# IO, Memory, and Interrupt reference
+	   notes/			# descriptions of implementations of various aspects
+
+
+
+	 fonts/				# graphics mode resource
+	   4k/*.fnt			# old (ancient) collection of 4k fonts
+	   Makefile			# experimental font generation (util/font.cpp)
+	   courier56_0.png		# screenshot of the courier font 56pt
+	   courier56.fnt		# font file generated by AngelCode's Bitmap Font Generator
+
+
+
+	 vm/				# virtual machines (use 'util/adm vm' to manage)
+	   misc/			# various harddisk images (not committed)
+	   vmware/			# VMWare Player virtual machines
+	     qure-template/		# VM machine template (used in adm vm add)
+	       qure.vmx			# config file, including hostname
+	       qure.vmxf		# extended config file
+	       qure.vmdk		# disk descriptor
+	       qure-s001.vmdk		# 512MB disk image
+	       qure.vmsd		# zero length file
+	     bios/			# attempt to use the kernel as BIOS
+	     cluster/			# a cluster of virtual machines
+	       qure-0/			
+	       ...
+	       qure-7/
+
+
+== Note (2014-08-01) on reorganizing the source tree ==
+
+Perhaps this entire git project, because it stands on it's own, should be moved
+to a 'kernel' folder (and renaming 'kernel/' to 'src/).
+
+Structure then (code and build related only)
+
+
+	kernel/	exports kernel.lib (klib)
+	  16/		# bootloader library
+	  lib/		# standardized algorithms (crc/sha/md5/base64/sort)
+	  bootloader/	# source
+	  kernel/	# source
+	    debugger/	# kernel debug support
+	    kapi/	# kernel api implementation
+	    lib/
+	    net/
+	      net.s	# core
+	      socket.s	# kernel api
+	      route.s	# network routing
+	      *.s	# network protocol device driver
+
+	    exe/
+	    fs/		# file system kernel interface (base classes and kernel api)
+	    pcibridge/	# south (or north?) bridge motherboard drivers
+	    nic/	# network interface card device drivers
+	    sound/	# see the 'play' command (include a .wav in the iso!)
+	    usb/	# 
+	    vbox/	# virtual machine device driver
+	    vmware/	# virtual machine device driver
+
+	  fonts/	# resources for graphics mode
+	  util/		# build tools
+	  sandbox/	# experiments
+
+	os/		
+	  root/
+	  web/
+
+	vm/
+
