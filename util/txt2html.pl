@@ -39,7 +39,7 @@ $c=~ s@(\n\t+[^\n]*)\n+(?=\n\t)@$1\n\t@g;
 # definition lists
 # - item
 #   description
-$c=~ s@\n(\-\s+([^\n]+)\n*?((\n(?!\-|\S)[^\n]*)+))@"\n<dt>$2</dt>\n<dd>".&trim($3)."</dd>\n\n"@ge;
+$c=~ s@\n(\-\s+([^\n]+)\n*?((\n(?!\-|\S)[^\n]*)+))@"\n<dt>$2</dt>\n<dd>".&p(&trim($3))."</dd>\n\n"@ge;
 $c=~ s@((<dt>.*?</dt>\n<dd>.*?</dd>\n*)+)@<dl>\n$1</dl>\n\n@gs;
 
 # ''code''
@@ -57,6 +57,7 @@ $c=~ s@<dd>\s*<pre>\s*(.*?)\s*</pre>\s*</dd>@<dd>\n\t$1\n</dd>@gs;
 $c=~ s@<pre>(.*?)</pre>\n+@'<pre>'.&esc($1)."</pre>\n"@ges;
 
 
+sub p { join("\n", map {"<p>$_</p>"} split "\n\n", $_[0] ) }
 sub trim { $_=$_[0]; s/^\s+//; s/\s*$//; $_ }
 sub keepspace { $_=$_[0]; s/ /&nbsp;/g; $_ }
 sub esc { $_ = shift @_; "{{PACK ".(unpack "H*", $_)."}}" }

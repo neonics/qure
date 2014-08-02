@@ -1,0 +1,42 @@
+= OOFS Manual =
+
+- Partition a disk
+  run `fdisk hda init`.
+
+  This will partition the first harddisk with a primary partition taking all
+  the space. Run `fdisk hda verify` afterward to modify the partitions using
+  a menu frontend.
+
+- Initialize OOFS
+  run `mkfs hda0` (or `mkfs -t oofs hda0`).
+
+  OOFS will have created 2 entries:
+  * `oofs_vol`, the volume sector, containing sector regions (LBA and numsectors);
+  * `oofs_table`, a class lookup table. Implemented as a compact string array,
+    each entry corresponding to a region.
+  * a synthetic region containing all unallocated space.
+  
+- Mount the partition
+  Typically `hda0` is mounted automatically as `/net` upon a reboot, when the
+  cluster service is started, which adds a region `cluster_node`. If not, then
+  run `mount hda0 /net`. We'll assume the partition is mounted here from now on.
+  
+- Add a managed region
+  Run `oofs /net add oofs_alloc 1000`
+
+  This will add an entry into `oofs_vol` starting at the free space offset,
+  with size 0x1000 sectors.
+
+  You can run `oofs /net` to check the volume descriptor and class table,
+  and `oofs /net show oofs_alloc` to inspect the contents of the dynamic
+  region, which will show information regarding the linked list, much like
+  `mem -h` will show.
+
+  Note, that adding a region does not automatically save it! 
+  We now need to execute two save commands:
+  
+  * `oofs /net save` will save the volume descriptor and the core tables;
+  * `oofs /net save oofs_alloc` will persist the contents of the allocation tables.
+
+  Now we can use /net as a file system; `ls /net` will show an emty directory.
+  At current the command `mdir /net/foo` will work as expected.
