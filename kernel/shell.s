@@ -434,8 +434,9 @@ key_enter$:
 	call	newline
 
 	call	cmdline_history_add
+	jc	1f
 	mov	[ebx + cmdline_history_current], edx
-
+1:
 	xor	ecx, ecx
 	mov	[ebx + cmdline_cursorpos], ecx
 	xchg	ecx, [ebx + cmdline_len]
@@ -548,7 +549,6 @@ key_down$:
 	call	cmdline_clear$
 
 	# copy history entry to commandline buffer
-
 	mov	esi, [eax + edx]
 	lea	edx, [ebx + cmdline_buf]
 	mov	edi, edx
