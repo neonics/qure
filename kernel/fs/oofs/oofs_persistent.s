@@ -120,11 +120,12 @@ oofs_persistent_init:
 oofs_persistent_write:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		printc 14, ".oofs_persistent_write"
-		printc 9, " region(LBA="; pushd [eax + oofs_lba]; call _s_printhex8
-		printc 9, " sectors="; pushd [eax + oofs_sectors]; call _s_printhex8
-		printc 9, ") size="; pushd ecx; call _s_printhex8
-		DEBUG_DWORD edx,"start"
+		DEBUG ".oofs_persistent_write", 14
+		DEBUG "region(", 9
+		DEBUG_DWORD [eax + oofs_lba], "LBA", 9, 7
+		DEBUG_DWORD [eax + oofs_sectors], "sectors", 9, 7
+		DEBUG_DWORD ecx, ") size", 9, 7
+		DEBUG_DWORD edx, "start", 9, 7
 		call	newline
 	.endif
 	push_	eax ebx ecx edx esi edi
@@ -310,9 +311,10 @@ oofs_persistent_read:
 oofs_persistent_resize:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		printc 14, ".oofs_persistent_resize"
-		DEBUG_DWORD eax
-		DEBUG_DWORD edx
+		DEBUG ".oofs_persistent_resize", 14
+		DEBUG_DWORD eax, "this", 9, 7
+		DEBUG_DWORD edx, "size", 9, 7
+		call	newline
 		STACKTRACE 0,0
 	.endif
 	push_	ebx edx

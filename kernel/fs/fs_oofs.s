@@ -901,8 +901,6 @@ oofs_load$:
 # in: ecx = entry index (if edx==0)
 oofs_show$:
 	mov	eax, [ebx + oofs_root]
-DEBUG_DWORD edx
-DEBUG_DWORD ecx
 	or	edx, edx
 	jz	2f
 

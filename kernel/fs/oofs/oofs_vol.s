@@ -121,13 +121,9 @@ oofs_vol_init:
 oofs_vol_save:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		printc 14 ".oofs_vol_save"
-		printc 9, " LBA="
-		pushd	[eax + oofs_lba]
-		call	_s_printhex8
-		printc 9, " array.count="
-		pushd	[eax + oofs_vol_count]
-		call	_s_printhex8
+		DEBUG ".oofs_vol_save", 14
+		DEBUG_DWORD [eax + oofs_lba], "LBA", 9, 7
+		DEBUG_DWORD [eax + oofs_vol_count], "array.count", 9, 7
 		call	newline
 	.endif
 
@@ -564,9 +560,10 @@ oofs_vol_add:
 oofs_vol_delete:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		printc 14, ".oofs_delete_entry"
-		DEBUG_DWORD ebx, "idx"
-		DEBUG_DWORD [eax+oofs_vol_count]
+		DEBUG ".oofs_delete_entry", 14
+		DEBUG_DWORD ebx, "idx", 9, 7
+		DEBUG_DWORD [eax+oofs_vol_count], "count", 9, 7
+		call	newline
 	.endif
 	push_	ebx esi eax
 
@@ -808,10 +805,8 @@ oofs_get_by_lba:
 oofs_vol_get_obj:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		printc 14, ".oofs_vol_get_obj"
-		printc 9, " idx="
-		push	ebx
-		call	_s_printhex8
+		DEBUG ".oofs_vol_get_obj", 14
+		DEBUG_DWORD ebx, "idx", 9, 7
 		call	newline
 	.endif
 
@@ -846,13 +841,10 @@ oofs_vol_get_obj:
 oofs_vol_lookup:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		printc 14, ".oofs_vol_lookup"
-		printc 9, " iter="
-		push	ebx
-		call	_s_printhex8
-		printc 9, " class="
-		pushd	[edx + class_name]
-		call	_s_println
+		DEBUG ".oofs_vol_lookup", 14
+		DEBUG_DWORD ebx, "iter", 9, 7
+		DEBUG_DWORD [edx + class_name], "class", 9, 7
+		call	newline
 	.endif
 	push	ecx
 0:	push	eax

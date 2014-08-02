@@ -47,6 +47,12 @@ oofs_txtab_init:
 # out: ebx = handle index
 # out: CF = 0: edx valid; 1: ebx = -1, edx unmodified
 oofs_txtab_get:
+	.if OOFS_DEBUG
+		DEBUG_CLASS
+		DEBUG ".oofs_txtab_get", 14
+		DEBUG_DWORD ebx, "index", 9, 7
+		call	newline
+	.endif
 	push	edx
 	# check index
 	cmp	ebx, [eax + oofs_txtab_count]

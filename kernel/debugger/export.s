@@ -87,14 +87,14 @@ DEBUG_COLOR3 = 0x1f
 	.endif
 .endm
 
-.macro DEBUGS reg=esi, label=0, color=DEBUG_COLOR2
+.macro DEBUGS reg=esi, label=0, color2=DEBUG_COLOR2, color1=DEBUG_COLOR1
 	pushf
-	pushcolor DEBUG_COLOR1
+	pushcolor \color1
 	.ifnc 0,\label
 	PRINT "\label="
 	.endif
 	PRINTCHAR '\''
-	COLOR	\color
+	COLOR	\color2
 	.ifc esi,\reg
 	call	print
 	.else
@@ -103,7 +103,7 @@ DEBUG_COLOR3 = 0x1f
 	call	print
 	pop	esi
 	.endif
-	COLOR	DEBUG_COLOR1
+	COLOR	\color1
 	PRINTCHAR '\''
 	call	printspace
 	popcolor

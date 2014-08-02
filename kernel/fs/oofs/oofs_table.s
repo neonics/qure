@@ -134,9 +134,9 @@ oofs_table_save:
 	mov	ebx, [eax + oofs_lba]
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		DEBUG_DWORD eax, "oofs_table_save", 0xe0
-		DEBUG_DWORD ebx,"LBA"
-		DEBUG_DWORD ecx,"bytes"
+		DEBUG ".oofs_table_save", 14
+		DEBUG_DWORD ebx,"LBA", 9, 7
+		DEBUG_DWORD ecx,"bytes", 9, 7
 		call newline
 	.endif
 	mov	edx, eax#[eax + obj_class]
@@ -149,8 +149,8 @@ oofs_table_save:
 oofs_table_onload:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		DEBUG " ***** onload "
-		DEBUG_DWORD [eax + oofs_table_size]
+		DEBUG ".oofs_table_onload", 14
+		DEBUG_DWORD [eax + oofs_table_size], "oofs_table_size", 9, 7
 		call	newline
 	.endif
 	push_	ebp edi esi edx ecx ebx eax
@@ -288,9 +288,9 @@ oofs_table_load:
 oofs_table_add:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		DEBUG_DWORD eax, "oofs_table_add", 0xe0
-		DEBUG_DWORD ecx
-		DEBUG_DWORD [eax+oofs_table_size],"table size"
+		DEBUG ".oofs_table_add", 14
+		DEBUG_DWORD ecx, "bytes", 9, 7
+		DEBUG_DWORD [eax + oofs_table_size],"table size", 9, 7
 		call	newline
 	.endif
 
@@ -382,9 +382,10 @@ oofs_table_clear_entry:
 # out: edx = string (class name)
 oofs_table_get:
 	.if OOFS_DEBUG
-		PRINT_CLASS
-		printc 14, ".oofs_table_get"
-		DEBUG_DWORD [eax + oofs_table_indices], "idx"
+		DEBUG_CLASS
+		DEBUG ".oofs_table_get", 14
+		#DEBUG_DWORD [eax + oofs_table_indices], "idx", 9, 7
+		DEBUG_DWORD ecx, "idx", 9, 7
 	.endif
 
 	mov	edx, [eax + oofs_table_indices]
@@ -481,16 +482,16 @@ findstring$:
 	lea	edi, [eax + oofs_table_strings]
 	mov	ecx, [eax + obj_size]
 	sub	ecx, offset oofs_table_strings	# limit
-	mov	ecx, [eax + oofs_table_size]
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		DEBUG_DWORD eax, "oofs_table_findstring$", 0xe0
-		DEBUGS esi
-		DEBUG_DWORD ecx
-		DEBUG_DWORD [eax + oofs_table_size]
+		DEBUG ".oofs_table_findstring$", 14
+		DEBUGS esi, "str", 9, 7
+		DEBUG_DWORD ecx, "tblsize", 9, 7
+		DEBUG_DWORD [eax + oofs_table_size], "used", 9, 7
 		call	newline
 		pushad;call oofs_table_print;popad
 	.endif
+	mov	ecx, [eax + oofs_table_size]
 	xor	ebp, ebp	# index
 
 	mov	ah, [esi]

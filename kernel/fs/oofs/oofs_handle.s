@@ -131,11 +131,9 @@ oofs_handle_load:
 oofs_handle_onload:
 	.if OOFS_HANDLE_DEBUG
 		PRINT_CLASS
-		printc 14, ".onload"
-		DEBUG_DWORD edi
-		push edx; mov edx, [eax + oofs_handle_persistent_start]
-		DEBUG_DWORD edx
-		pop edx
+		DEBUG ".onload", 14
+		DEBUG_DWORD edi, "data", 9, 7
+		DEBUG_DWORD [eax + oofs_handle_persistent_start], "persistent_start", 9, 7
 		call	newline
 	.endif
 	# XXX TODO load rest

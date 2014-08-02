@@ -80,9 +80,9 @@ oofs_array_init:
 oofs_array_save:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		printc 14,".oofs_array_save"
-		printc 9, " start=";call printhex8
-		printc 9, " size=";push ecx; call _s_printhex8
+		DEBUG ".oofs_array_save", 14
+		DEBUG_DWORD edx, "start", 9, 7
+		DEBUG_DWORD ecx, "size", 9, 7
 		call	newline
 	.endif
 
@@ -104,7 +104,9 @@ oofs_array_save:
 
 oofs_array_onload:
 	.if OOFS_DEBUG
-		printc 14, "oofs_array_onload"
+		DEBUG_CLASS
+		DEBUG ".oofs_array_onload", 14
+		call	newline
 	.endif
 	push_	ecx edx
 	mov	edx, [eax + oofs_array_start]
@@ -137,7 +139,8 @@ oofs_array_onload:
 oofs_array_load:
 	.if OOFS_DEBUG
 		DEBUG_CLASS
-		printlnc 14, ".oofs_array_load"
+		DEBUG ".oofs_array_load", 14
+		call	newline
 	.endif
 	push_	ebx ecx edi edx esi
 	mov	edi, [eax + oofs_array_start]
@@ -160,6 +163,7 @@ mov ecx, 512
 	call	[eax + oofs_persistent_api_onload]
 
 9:	pop_	esi edx edi ecx ebx
+	call	newline
 	STACKTRACE 0
 	ret
 

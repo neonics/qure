@@ -28,7 +28,7 @@ HANDLE_FLAG_DIRTY = 256	# 2nd byte of flags; first byte reserved by handles.s
 # 2) allow large files to be split over multiple handles. Make a file
 #    a linked list of blocks.
 # 3) Use staging area/journalling, reserving some space for new files.
-#    When the size #    exceeds the space reserved by the handle, allocate a
+#    When the size exceeds the space reserved by the handle, allocate a
 #    larger space and copy the contents.
 #    This can be combined with 2, where open files use a linked list,
 #    whereafter they are consolidated.
@@ -74,6 +74,9 @@ HANDLE_FLAG_DIRTY = 256	# 2nd byte of flags; first byte reserved by handles.s
 #
 # A handle is reserved for the purpose of keeping track of the handles,
 # and it's index stored in the reserved sector. 
+#
+# (implementation note: the first handle in the array could be reserved for
+#  this, as it's contents may change, but not its location within the array)
 #
 # 2) Translation / lookup table
 #
@@ -131,6 +134,7 @@ DECLARE_CLASS_BEGIN oofs_alloc, oofs_persistent
 oofs_alloc_txtab:	.long 0	# txtab instance
 oofs_alloc_open_handles:.long 0 # key = handle index, value = instance ptr
 
+
 ###### begin handles struct fields
 oofs_alloc_handles: # the handles struct
 oofs_handles_ptr:	.long 0
@@ -149,6 +153,7 @@ oofs_alloc_size_last:	.long 0	# linked-list
 oofs_alloc_hndl_first:	.long 0	# linked-list
 oofs_alloc_hndl_last:	.long 0	# linked-list
 ###### end handles struct
+
 
 # store the LBA and sectors of the handles handle (i.e. the disk address for the
 # linked list itself)
@@ -188,7 +193,7 @@ DECLARE_CLASS_END oofs_alloc
 # in: ebx = LBA
 # in: ecx = reserved size
 oofs_alloc_init:
-	.if OOFS_DEBUG
+	.if OOFS_DEBUG | OOFS_ALLOC_DEBUG
 		DEBUG_CLASS
 		printc 14, ".oofs_alloc_init"
 		printc 9, " LBA="; push ebx; call _s_printhex8
@@ -402,8 +407,8 @@ oofs_alloc_handle_remove:
 # in: ebx = minimum handles offset to accommodate (thus, size must be ebx+HANDLE_STRUCT_SIZE)
 oofs_alloc_handles$:
 	.if OOFS_ALLOC_DEBUG
-		PRINT_CLASS
-		printc 14, "oofs_alloc_handles$"
+		DEBUG_CLASS
+		DEBUG ".oofs_alloc_handles$", 14
 	.endif
 	push_	eax ebx ecx edx
 	mov	eax, [esi + handles_ptr]
@@ -452,6 +457,10 @@ oofs_alloc_handles$:
 
 # in: eax = this
 oofs_alloc_save:
+	.if OOFS_ALLOC_DEBUG
+		DEBUG_CLASS
+		printc 14, ".oofs_alloc_save"
+	.endif
 	push_	ebx ecx edx esi
 # DISABLED:
 #
@@ -520,6 +529,8 @@ oofs_alloc_load:
 	mov	ecx, [eax + oofs_alloc_handles_sectors]
 	add	ebx, [eax + oofs_lba]
 	.if OOFS_ALLOC_DEBUG
+		DEBUG_CLASS
+		printc 14, ".oofs_alloc_load"
 		DEBUG "loaded reserved sector"
 		DEBUG_DWORD ebx, "handles.lba"
 		DEBUG_DWORD ecx, "handles.sectors"
@@ -562,6 +573,11 @@ oofs_alloc_load:
 # in: eax= this
 # out: ebx = handle index
 oofs_alloc_handle_alloc:
+	.if OOFS_DEBUG
+		DEBUG_CLASS
+		DEBUG ".oofs_alloc_handle_alloc", 14
+		call	newline
+	.endif
 	push	esi
 	lea	esi, [eax + oofs_alloc_handles]
 	call	handle_get
@@ -573,6 +589,12 @@ oofs_alloc_handle_alloc:
 # in: ecx = sectors
 # out: ebx = handle index
 oofs_alloc_alloc:
+	.if OOFS_DEBUG
+		DEBUG_CLASS
+		DEBUG ".oofs_alloc_alloc", 14
+		DEBUG_DWORD ecx, "sectors", 9, 7
+		call	newline
+	.endif
 	push_	esi eax
 	lea	esi, [eax + oofs_alloc_handles]
 	mov	eax, ecx
@@ -696,6 +718,7 @@ oofs_alloc_handle_load:
 		printc 9, " handle_idx="
 		push	ebx
 		call	_s_printhex8
+		call	newline
 		STACKTRACE 0,0
 	.endif
 
@@ -826,10 +849,10 @@ oofs_alloc_onload_proxy$:
 	# zero out uninitialized data
 	.if OOFS_ALLOC_DEBUG
 		DEBUG_CLASS
-		printc 14, ".onload_proxy$"
-		DEBUG_DWORD eax
-		DEBUG_DWORD edi,"dataptr"
-		DEBUG_DWORD ecx
+		DEBUG ".onload_proxy", 14
+		DEBUG_DWORD eax, "this", 9, 7
+		DEBUG_DWORD edi,"data", 9, 7
+		DEBUG_DWORD ecx, "size", 9, 7
 		call	newline
 	.endif
 
