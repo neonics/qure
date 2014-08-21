@@ -1344,6 +1344,7 @@ dns_resolve$:
 	####################################
 	1:	printlnc 4, "DNS error: unimplemented response"
 		xor	edx, edx
+		stc
 7:
 	pop	eax
 
@@ -1366,10 +1367,12 @@ dns_resolve$:
 
 8:	printlnc 4, "socket read timeout"
 	xor	edx, edx
+	stc
 	jmp	0b
 
 9:	printlnc 4, "failed to open UDP socket"
 	xor	eax, eax
+	stc
 	ret
 
 # in: eax = socket

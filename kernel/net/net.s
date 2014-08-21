@@ -714,7 +714,7 @@ cmd_host:
 	jc	1f
 
 	call	dns_resolve_ptr	# out: eax = mallocced stringbuf
-	jc	91f
+	jc	92f
 	mov	esi, eax
 	call	println
 	call	mfree
@@ -727,9 +727,10 @@ cmd_host:
 
 0:	ret
 9:	printlnc 12, "usage: host <hostname>"
-	stc
-	jmp	0b
-91:	printlnc 12, "host not found "
+	ret
+91:	printlnc 12, "no network adapter"
+	ret
+92:	printlnc 12, "host not found "
 	ret
 ##############################################################################
 
