@@ -1,6 +1,6 @@
 #####################################################################
 #
-setenv PATH util:${PATH}
+setenv PATH "util:${PATH}"
 #
 # Debugging aliases
 
