@@ -64,6 +64,7 @@ Architecture.txt
 =Manual
   Debugging.txt
     GAS.txt
+    DebuggingMutex.txt
   Cluster.txt
   OOFS_Manual.txt
 

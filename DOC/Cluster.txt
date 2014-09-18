@@ -33,6 +33,81 @@ which is a VMWare VIX utility bundled with VMWare Workstation. It is configured 
 on Windows 7 at current. (''`cygpath -u "c:/Program Files (x86)/VMware/VMware VIX/vmrun.exe"`;'').
 
 
+Naming a machine
+----------------
+This is not yet implemented, although support for named machines is.
+
+Manual instructions:
+
+	> cd vm/vmware/cluster
+	> mv qure-(get the number from the previous command) qure-{name}
+
+Note that the script will only manage machines that are in directories
+starting with 'qure-'. The `{name}` must match /^\d+|\w+$/.
+
+NOTE: at current the template vmx file is corrupt. Use
+qure-template/works.vmx. (It's probably the ';' comments?)
+
+
+Enabling node clustering
+------------------------
+For the node to be able to particpate in the cluster it will have to
+have persistent storage. This storage will have to be a partition
+with the ''oofs'' filesystem. Typically the disk of new VMs is
+a unpartitioned 512Mb image. Follow these steps:
+
+make sure it's hda and unpartitioned:
+	> fdisk hda
+
+Create a partition table:
+	> fdisk hda init
+This will automatically partition the drive to have one partition
+of maximum size. This is required initially. You will be asked to
+type 'Yes' twice. Anything else will abort.
+It will also copy the boot image, so it's possible to boot from hda,
+although the default is from optical disk (ISO9660 cdrom/dvd/whathaveyou).
+The disk layout is then:
+* bootsector: first sector of bootloader and partition table
+* rest of bootloader
+* kernel ram image (simple object file:
+  * image header
+  * 16 bit code and data
+  * 32 bit code and data
+  * relocation table
+  * symbol table
+  * source table
+
+The partitioning can then be modified by running:
+	> fdisk hda verify
+which is an interactive partition editor. No changes
+need to be made, although the partition can be shrunk
+and others added. The partition itself is bootable
+which cannot be changed at current.
+
+The next step is to initialize the partition with the file system:
+	> mkfs -t oofs hda0
+
+You can now reboot or run
+	> cloud init
+	> cloud start
+(but this hasn't been tested for a while - a reboot is usually faster and
+also tests the automatic setup).
+
+For reference, the 'cloud' command expects one of these action names:
+(also see `cloud help`)
+* status	# default action: prints cluster information
+* init	# will reload the cluster sector or create it if hasn't yet
+* register # sends 'hello' packet over MCAST
+* start	# enables sending pings
+* stop	# disables.
+* reboot # reboots a cluster node, if this is enabled; see kernel/net/net.s, net_check_reboot_packet)
+
+
+In essence, all of the above at this point is merely a very complicated way to
+allocate one sector of storage, as a node currently only consumes a fraction
+of that.
+
+
 Cluster initialization
 ======================
 
