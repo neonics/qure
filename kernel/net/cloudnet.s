@@ -671,10 +671,27 @@ cluster_ping:
 	cmp	edx, [ping_timeout_clocks]
 	adc	edi, 0	# count
 
-	# send reboot packet
+	# take action when a node times out
 	cmp	edx, [ping_timeout_clocks]
 	jb	1f
 	#call	cluster_reboot_node
+
+		printc 12, "cluster node offline: "
+		pushd   [eax + esi + node_node_hostname]
+		call	_s_print
+		push_	esi eax
+		add	esi, eax
+		mov	eax, [esi + node_addr]
+		call	net_print_ipv4
+		call	printspace
+		mov	esi, [esi + node_mac]
+		call	net_print_mac
+		pop_	eax esi
+		# TODO: check for DMZ IP and take over IP.
+		# We'll probably just set a flag here and handle it
+		# in the outer loop so we can re-call the init
+		# code which should also update MCAST.
+		call	newline
 
 1:
 	ARRAY_ENDL

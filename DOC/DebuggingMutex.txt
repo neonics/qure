@@ -3,6 +3,10 @@ memlock mutex fail - use alt-2 to freeze the screen (switching consoles)
 1b3db mutex_spinlock
 
 uptime until crash: 3w5d10h31m56s
+downtime: around 9 pages of scrollback buffer with one line per minute = 24 * 9
+minutes = 3h 36m (give or take 5 minutes).
+TODO - have the 2nd vm take over the DMZ IP.
+
 kernel rev 657, git eab2902 + local mods:
 - oofs stuff
 - igmp printing
