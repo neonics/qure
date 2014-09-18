@@ -1,0 +1,123 @@
+memlock mutex fail - use alt-2 to freeze the screen (switching consoles)
+1e0a6 oo.s:241 malloc_ + 07 (MUTEX_SPINLOCK MEM)
+1b3db mutex_spinlock
+
+uptime until crash: 3w5d10h31m56s
+kernel rev 657, git eab2902 + local mods:
+- oofs stuff
+- igmp printing
+(have seen this before; unfortunately screen scrolls too fast to find
+trace; increased MUTEX_ASSERT from 1 to 3 which should invoke the debugger;
+was disabled due to remote reboot in packet handler being called, but
+is now disabled;
+)
+
+only kernel/lib/mem.s uses MUTEX_MEM; so bug must be there
+(unless ofcourse scheduler, but doubtful).
+
+
+kernel/lib/mem.s:       MUTEX_SPINLOCK MEM		malloc_aligned (jumps into malloc_)
+kernel/lib/mem.s:       MUTEX_SPINLOCK MEM		malloc_
+kernel/lib/mem.s:       MUTEX_UNLOCK MEM		malloc_  - seems ok
+kernel/lib/mem.s:       MUTEX_SPINLOCK MEM		macro MREALLOC
+kernel/lib/mem.s:       MUTEX_UNLOCK MEM		macro MREALLOC \ calls \malloc (macro arg)
+kernel/lib/mem.s:       MUTEX_SPINLOCK MEM		macro MREALLOC / which locks/unlocks
+kernel/lib/mem.s:       MUTEX_UNLOCK MEM		macro MREALLOC 
+kernel/lib/mem.s:0:     MUTEX_UNLOCK MEM		macro MREALLOC
+kernel/lib/mem.s:       MUTEX_SPINLOCK MEM		mreallocz_
+kernel/lib/mem.s:       MUTEX_UNLOCK MEM		mreallocz_
+kernel/lib/mem.s:       MUTEX_SPINLOCK MEM		free_
+kernel/lib/mem.s:       MUTEX_UNLOCK MEM		free_
+
+I've manually checked the flow (all labels and jumps);
+there are a few calls to debug and linked list functions
+but these do not recurse into the protected methods.
+
+The locking code itself is not the problem either - but i haven't checked in a while.
+
+The most likely scenario is that the task was suspended while holding the
+memory lock - which is what it is for.
+
+The failure was in locking.
+
+The lock method:
+
+	jmp	1f
+	0:	bts [mutex + MUTEX_\m]
+	1:	YIELD
+		jc	0b
+
+Yield invokes the scheduler. In between is MUTEX_TIMEOUT counting the yields,
+currently set to 100. The PIT is set to 250Hz, therefore,
+the error occurs when the blocking task has not been scheduled for 100/250/s,
+or, 400ms.
+
+We will have to wait to find out what is causing this. The lock holder will
+be printed aswell as the process list, plus the debugger is invoked which
+can also print these.
+
+A few possible causes:
+- the lockholder is the cause, which can only be mem.s. One of the methods
+  takes longer than 400ms to complete.
+  However, the error is printed for minutes, which should be more than enough
+  time (generally less than 300kb memory is reserved including malloc bookkeeping
+  memory which is 32 bytes per block; a theoretical maximum can be calculated;
+  assuming that one loop takes a 100 clock cycles, then at 2GHz it can be shown
+  that this is mora than enough time)
+  unless there is an endless loop in for instance the linked list code.
+- there are more than 100 processes running. In this case, the error should
+  be printed less frequently unless there is an order of magnitude more
+  than a 100 tasks running. Typically there are 9 tasks running:
+  - kernel
+  - idle
+  - dnsd
+  - httpd
+  - smtpd
+  - sshd
+  - sipd
+  - cloudnet
+  - cloudnet-rx
+  - netq
+  and some completed tasks, usually httpc.
+
+  This might happen during some sort of:
+- network flooding, most notably the HTTP handler whih does file IO.
+  DNS should not do any packet requests itself, during requests,
+  except during startup when it caches the public IP by querying
+  a name (cloudns.neonics.com, a DYNA at joker.com).
+  What is considered flooding here is also the ratio between receiving
+  and processing network requests. However there are limits to the
+  network buffers (8 unprocessed packets/outstanding requests).
+
+- IO overload
+  Further more, the HTTP handler only spawns a child when socket_accept
+  returns. It is then possible that requests for large files can be
+  made where the IO becomes overloaded.
+  I've not had any interrupt problems with IO and networking though,
+  but a stresstest may reveal a bug.
+
+Note. The locking code itself is userspace, and only upon fail is
+the scheduler invoked to notify it that the current task cannot
+continue until some condition is met.
+It does not use the semaphore locking mechanism (which compares a dword
+memory address with 0), but the mutex bit locking could also be made
+a kernel function, suspending scheduling until the mutex is free.
+However for now this functionality is done in userspace (well,
+kernelspace really, but outside the scheduler using no privileged
+instructions for speed).
+
+
+Stacktraces
+-----------
+
+At current stacktraces are voluntary as there is no calling convention.
+To fully debug the entire kernel in the stack will require to have
+every method do an ENTER/LEAVE. (i dont think we need to use the depth-copy
+function as one pointer to the next stackframe should be enough; although
+a pushd . might be useful too).
+
+However, only fragile kernel code has stacktrace calls; any method will
+show itself in the debugger with its stack inspector (which automatically
+resolves symbols and source file addresses).
+
+

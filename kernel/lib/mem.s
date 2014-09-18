@@ -1121,7 +1121,7 @@ malloc_:
 	lea	esi, [mem_handles]
 	call	handle_find	# in: esi; out: ebx
 	jc	2f
-1:
+1:	# malloc_aligned jumps here
 	mov	esi, [esi + handles_ptr]
 		.if MEM_DEBUG
 		pushcolor 13
@@ -1157,7 +1157,7 @@ malloc_:
 
 	mov	[esi + ebx + handle_size], eax
 	call	malloc_internal$
-3:	jc	3f
+3:	jc	3f	# malloc_aligned jumps here
 	.if MEM_DEBUG
 		push	edx
 		print " base: "
@@ -1203,7 +1203,7 @@ malloc_:
 #DEBUG_REGDIFF
 	ret	# WEIRD BUG: 0x001008f0 on stack (called from mdup@net.s:685)
 
-4:	printlnc 4, "malloc: no more handles"
+4:	printlnc 4, "malloc: no more handles"	# malloc_aligned jumps here
 	stc
 	jmp	1b
 
@@ -1262,7 +1262,7 @@ malloc_:
 	stc
 	STACKTRACE ebp, 0
 
-	jmp	0f
+	jmp	0f	# does unlock
 1:
 ########
 	# Check if the call is for growth

@@ -4,7 +4,7 @@
 .intel_syntax noprefix
 
 MUTEX_DEBUG = 1	# registers lock owners
-MUTEX_ASSERT = 1	# values 0 (no check) to 3 (invoke debugger)
+MUTEX_ASSERT = 3
 # 0: no checks;
 # 1: check & print mutex name and caller address
 # 2: also print the mutexes and process list
