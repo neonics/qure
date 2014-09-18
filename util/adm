@@ -1,5 +1,6 @@
 #!/usr/bin/perl
-
+#use strict;
+use Data::Dumper;
 use FindBin;
 my $BASE = $FindBin::Bin;
 
@@ -80,7 +81,7 @@ sub printtree
 
 	return if $r eq 'SUPER';
 
-	%h = %{ $n };
+	my %h = %{ $n };
 
 	print "$indent $r";
 
@@ -143,11 +144,10 @@ sub new {
 
 	$ENV{OSTYPE} eq 'cygwin' and do {
 		my $VM = $self->_config( "VM" );
-
-		$base=::fixpath(`cygpath -w $VM/`);
+		$self->{_config}{vmbase} = ::fixpath(`cygpath -w $VM/`);
 	};
 	print "\n";
-	print "* base: $base\n";
+	print "* base: $self->{_config}{vmbase}\n";
 	map
 	{
 		printf "  %10s = %s\n", $_, $self->{_config}{$_};
@@ -173,7 +173,7 @@ sub _config
 		my %cfg =
 		map
 		{
-			$s = '"'.$self->{_config}{$_}.'"';
+			my $s = '"'.$self->{_config}{$_}.'"';
 			$$_ = eval $s;
 			#print ">> $_ -> $s = $$_\n";
 
@@ -225,9 +225,8 @@ sub _vmcmd
 	my $cmd = shift;
 
 	my $nr = ref $_[0] eq 'ARRAY' ? shift @{$_[0]} : shift;
-	die "need nr" unless defined $nr;
-	int($nr)."" eq $nr or die "nr not integer";
-	$nr = int($nr);
+	die "need nr/label" unless defined $nr;
+	$nr =~ /^(\d+|\w+)$/ or die "illegal number/name";
 
 	my @args = ref $_[0] eq 'ARRAY' ? @{$_[0]} : @_;
 
@@ -241,7 +240,7 @@ sub _vmcmd
 #	print " EXISTS: ", -f $vmfile;
 
 	-f $vmfile ? $self->manage( $cmd, ::fixpath($vmfile, "-w"), @args )
-	: die "unknown vm: $vmxfile";
+	: die "unknown vm: $vmfile";
 }
 
 sub start   { my $self = shift; $self->_vmcmd( "start", @_ ); }
@@ -267,15 +266,17 @@ sub _list
 
 	my %info;
 
+	my $base = $self->{_config}{vmbase};
 	map
 	{
 		if ( s/^$base//x ) {
 			my ($cluster, $name, $vmxfile, $error) = split /\//, $_;
-			my ($nr) = $name =~ /qure-(\d+)/;
+			my ($nr) = $name =~ /^qure-(\d+|\w+)$/;
 			#print "** [$nr][$cluster][$name][$vmxfile][$error]\n",
 
-			defined $error and do { print "UNM $_\n";
-			push @{$info{UNMANAGED}}, {vmxfile=>$_, status=>'running'}
+			defined $error and do {
+				print "UNM $_\n";
+				push @{$info{UNMANAGED}}, {vmxfile=>$_, status=>'running'}
 			}
 			or
 			push @{$info{$cluster}},
@@ -292,13 +293,19 @@ sub _list
 	grep { m@[/\\]|\.vmx@ }
 	@l;
 
-	my $CLUSTER = $self->_config( "CLUSTER" );
+	my $CLUSTER = ::fixpath( $self->_config( "CLUSTER" ) );
 	my @managed = `ls $CLUSTER`;
 	chomp @managed;
+
+	use Data::Dumper;
+	print "Managed: " , Dumper \@managed;
 
 	map
 	{
 		my ($name, $nr) = ($_, $_ =~ /qure-(\d+)/ );
+
+		# %info contains running vms; augment.
+		#print "DEBUG: check for $name in ", join(", ", map{$_->{name}} @{$info{cluster}}), "\n";
 
 		if (!grep {$_->{name} eq $name} @{ $info{cluster} })
 		{
@@ -333,19 +340,21 @@ sub list {
 		map
 		{
 			defined $_->{nr}
-			and printf "  [%s] %d %s\n",
+			and printf "  [%s] %d %s %s\n",
 				$_->{name}, $_->{nr},
-				$_->{status}
-			or printf "  -%s- %s\n",
+				$_->{status}, 
+				$_->{vmxfile} ? "($_->{vmxfile})" : ""
+			or printf "  (%s) -%s- %s\n",
+			$_->{name},
 			$_->{status},
-			$_->{vmxfile};
+			$_->{vmxfile},
 		}
 		@{ $h{$_} };
 	} keys %h;
 }
 
 sub status {
-	$self = shift;
+	my $self = shift;
 
 	print "status:\n";
 	map
@@ -362,7 +371,7 @@ sub status {
 sub add {
 	my $self = shift;
 
-
+# TODO: update vmx: s/(guestinfo.hostname = qure-)X/"\1$_->{nr}"/;
 
 print "\n";
 	map
@@ -375,8 +384,10 @@ print "\n";
 	keys %{ $self->{_config} };
 
 
+	my $VM = $self->_config( "VM" );
 	my @l = `ls $VM/cluster`;
 	my $nr = scalar @l;
+	my $CLUSTER = ::fixpath( $self->_config( "CLUSTER" ) );
 	my $vmdir = "$CLUSTER/qure-$nr";
 
 	print " copy \$VM/qure-template \$VM/cluster/qure-$nr\n";
