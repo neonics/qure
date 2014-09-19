@@ -50,6 +50,9 @@ first boot from the first hard disk and then from CDROM. To make sure
 that you can enter the bios, edit or add the line `bios.bootDelay = "2000"`
 to increase the timeout to 2 seconds.
 
+NOTE - you can only edit the .vmx file if the vm is not running, as
+upon reset/shutdown VMPlayer will overwrite the file.
+
 Note that the script will only manage machines that are in directories
 starting with 'qure-'. The `{name}` must match /^\d+|\w+$/.
 
@@ -73,7 +76,9 @@ This will automatically partition the drive to have one partition
 of maximum size. This is required initially. You will be asked to
 type 'Yes' twice. Anything else will abort.
 It will also copy the boot image, so it's possible to boot from hda,
-although the default is from optical disk (ISO9660 cdrom/dvd/whathaveyou).
+which is at current the default. See above to change the boot order
+in the BIOS.
+
 The disk layout is then:
 * bootsector: first sector of bootloader and partition table
 * rest of bootloader
@@ -84,22 +89,49 @@ The disk layout is then:
   * relocation table
   * symbol table
   * source table
+* partition 0
 
 The partitioning can then be modified by running:
 	> fdisk hda verify
 which is an interactive partition editor. No changes
 need to be made, although the partition can be shrunk
 and others added. The partition itself is bootable, and this
-can be toggled.
+can be toggled. (the bootloader will however fail when it
+cannot find a bootable partition when booting from the device).
 
 The next step is to initialize the partition with the file system:
 	> mkfs -t oofs hda0
 
-You can now reboot or run
+This will initialize two bookkeeping regions in the partition. See [OOFS]
+for more details.
+
+Next we need to initialize the cluster node; this could be done automatically
+but for now a few steps are necessary:
 	> cloud init
+This will basically initialize the cluster_node information with the hostname
+the kernel revision, a zero cluster era and node age 1, aswell as the
+boot system time.
+
+If you run `oofs` you'll see the third region added. To inspect it, run
+`oofs /net show cluster_node`.
+
+IMPORTANT: the data is NOT saved! To save the cluster node, aswell as the
+bookkeeping tables which have marked the sector reserved, run
+	> oofs /net save
+which has to be done only once. Upon subsequent reboots, the sector will
+be loaded, the age incremented, and other information updated, and finally
+saved.
+Note that you can save any region individually:
+	> oofs /net save cluster_node
+however, this will not save the oofs_vol reserving the region/sector for
+the cluster_node, and oofs_table listing the class implementing the
+region persistence.
+
+We can now either reboot or:
+	> cloud register
 	> cloud start
-(but this hasn't been tested for a while - a reboot is usually faster and
-also tests the automatic setup).
+to announce the node in the cloud and start sending alive packets periodically
+(once a minute).
 
 For reference, the 'cloud' command expects one of these action names:
 (also see `cloud help`)

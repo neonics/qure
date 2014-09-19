@@ -35,7 +35,7 @@ cmd_cloudnetd:
 	I "Starting CloudNet Daemon"
 
 		LOAD_TXT "cloud.verbosity"
-		LOAD_TXT "1", edi
+		LOAD_TXT "1", edi	# set this to at least 2 for boot debug
 		mov	eax, offset cloud_env_var_changed
 		call	shell_variable_set
 
@@ -1138,7 +1138,7 @@ cmd_cloud:
 
 1:	printlnc 12, "usage: cloud [options] [<command> [args]]"
 	printlnc 12, " options: -v: increase verbosity; can have more than one"
-	printlnc 12, " commands: status init start stop"
+	printlnc 12, " commands: status init register start stop reboot"
 	ret
 
 cmd_cloud_reboot_node:
@@ -1220,7 +1220,7 @@ cmd_cloud_print$:
 
 	lea	eax, [ebx + ecx + node_node_hostname]
 	push	eax
-	pushstring "%8s"
+	pushstring "%16s"
 	call	printf
 	add	esp, 8
 
@@ -1491,7 +1491,6 @@ cluster_node_load:
 
 cluster_node_onload:
 	mov	[cluster_node], eax	# update singleton/static access
-
 	# TEMPORARY reset:
 	#mov	dword ptr [eax + cluster_era], 0
 	#mov	dword ptr [eax + cluster_era_start], 0
