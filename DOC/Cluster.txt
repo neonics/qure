@@ -42,6 +42,14 @@ Manual instructions:
 	> cd vm/vmware/cluster
 	> mv qure-(get the number from the previous command) qure-{name}
 
+We'll also want to update the hostname and display name:
+	> vi qure-{name}/qure.vmx 
+Change the lines starting with `guestinfo.hostname` and `displayName`.
+Changing the device boot order is done in the BIOS. By default it will
+first boot from the first hard disk and then from CDROM. To make sure
+that you can enter the bios, edit or add the line `bios.bootDelay = "2000"`
+to increase the timeout to 2 seconds.
+
 Note that the script will only manage machines that are in directories
 starting with 'qure-'. The `{name}` must match /^\d+|\w+$/.
 
@@ -81,8 +89,8 @@ The partitioning can then be modified by running:
 	> fdisk hda verify
 which is an interactive partition editor. No changes
 need to be made, although the partition can be shrunk
-and others added. The partition itself is bootable
-which cannot be changed at current.
+and others added. The partition itself is bootable, and this
+can be toggled.
 
 The next step is to initialize the partition with the file system:
 	> mkfs -t oofs hda0

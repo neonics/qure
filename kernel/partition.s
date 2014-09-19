@@ -994,7 +994,7 @@ disk_ptables_edit$:
 	mov	edi, [ebp - 8]
 	SET_SCREENPOS edi
 
-	printc 15, "Menu [q=quit r=restore W=write <>^v=cell +-=mod]> "
+	printc 15, "Menu [q=quit r=restore W=write <>^v=cell +-=mod b=toggle bootable]> "
 	DEBUG_DWORD ebx
 	and	ebx, 0x00ffffff	# mask out modification value
 	xor	eax, eax
@@ -1045,6 +1045,15 @@ disk_ptables_edit$:
 	jmp	0b
 1:	cmp	al, '-'
 	jz	2b
+
+1:	cmp	al, 'b'	# toggle bootable (only effective when cell selected)
+	jnz	1f
+	rol	ebx, 16
+	cmp	bl, 1	# check if column 1 - status
+	jnz	2f
+	mov	bh, 0x80
+2:	ror	ebx, 16
+	jmp	0b
 
 1:	cmp	al, 'r'	# restore / 're-read ptable'
 	jnz	1f
@@ -1098,6 +1107,7 @@ disk_ptables_edit$:
 # in: bh = selected partition (row)
 # in: (ebx >> 16 & 7) : column
 # in: ebx >> 24 : increment, decrement selected cell
+# special case: col 0 = status: 0x80 = bootable;
 disk_ptables_edit_print$:
 	PUSHCOLOR 15
 	push_	edi eax ebx ecx edx esi
@@ -1164,7 +1174,14 @@ disk_ptables_edit_print$:
 	call	printspace
 	call	printhex1	# partition number
 
-	CELL
+	CELL	# status (0x80=bootable)
+
+	testb	[esp + 2], 1		# test cell selected
+	jz	1f
+	cmpb	[esp + 16 + 3], 0x80	# check the mod byte for 0x80 (just in case)
+	jnz	1f
+	xorb	[esi + PT_STATUS], 0x80
+1:
 
 	mov	dl, [esi + PT_STATUS]
 	PUSHCOLOR
