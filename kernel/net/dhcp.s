@@ -741,7 +741,7 @@ dhcp_print_option$:
 	mov	edx, [edx + 4]
 	or	edx, edx
 	jz	1f
-	add	edx, [realsegflat]
+	add	edx, [realsegflat]	# XXX legacy
 	call	edx
 	jmp	9f
 
@@ -751,6 +751,35 @@ dhcp_print_option$:
 
 9:	printcharc_ 1, ']'
 	ret
+
+
+# idem, almost - doesn't call print handler (just option nr + label)
+# for use in request param list
+#
+# in: al
+# destroys: ah
+dhcp_print_option_2$:
+	push	edx
+	push	esi
+
+	pushcolor 8
+	movzx	edx, al
+	call	printdec32
+	call	printspace
+	popcolor
+
+	call	dhcp_option_get_label$	# out: edx
+	jc	1f
+
+	mov	esi, [edx]
+	mov	ah, 11
+	call	printc
+
+1:	printcharc 8,','
+	pop	esi
+	pop	edx
+	ret
+
 
 ##########################################################
 # some macro 'wizardry' to create a demuxed datastructure:
@@ -776,11 +805,19 @@ dhcp_option_labels$:
 	.data SECTION_DATA_CONCAT
 	.byte \optnr
 .endm
-DHCP_DECLARE_OPTION_LABEL 1, 	ip,	"subnet mask"
+# params
+DHCP_DECLARE_OPTION_LABEL 1, 	ip,	"subnet mask"	# garbled printed
+DHCP_DECLARE_OPTION_LABEL 2, 	0,	"time offset"
 DHCP_DECLARE_OPTION_LABEL 3, 	ip,	"router"
-DHCP_DECLARE_OPTION_LABEL 6, 	ip,	"dns"
+DHCP_DECLARE_OPTION_LABEL 5, 	ip,	"name server"
+DHCP_DECLARE_OPTION_LABEL 6, 	ip,	"domain name server"
+DHCP_DECLARE_OPTION_LABEL 11,	0,	"resource location server"
 DHCP_DECLARE_OPTION_LABEL 12,	s,	"hostname"
+DHCP_DECLARE_OPTION_LABEL 13,	0,	"boot file size"
 DHCP_DECLARE_OPTION_LABEL 15,	s,	"domain name"
+DHCP_DECLARE_OPTION_LABEL 16,	0,	"swap server"
+DHCP_DECLARE_OPTION_LABEL 17,	0,	"root path"
+DHCP_DECLARE_OPTION_LABEL 18,	0,	"extensions path"
 DHCP_DECLARE_OPTION_LABEL 31, 	0,	"router discover"
 DHCP_DECLARE_OPTION_LABEL 33, 	0,	"static route"
 DHCP_DECLARE_OPTION_LABEL 43, 	0,	"vendor specific info"
@@ -788,14 +825,28 @@ DHCP_DECLARE_OPTION_LABEL 44, 	0,	"netbios name server"
 DHCP_DECLARE_OPTION_LABEL 46, 	0,	"netbios node type"
 DHCP_DECLARE_OPTION_LABEL 47, 	0,	"netbios scope"
 DHCP_DECLARE_OPTION_LABEL 50,	ip,	"requested ip address"
-DHCP_DECLARE_OPTION_LABEL 60, 	s,	"vendor class identifier"
-DHCP_DECLARE_OPTION_LABEL 61,	cid,	"client identifier" #hwtype=1(ethernet), mac (client identifier)"
-DHCP_DECLARE_OPTION_LABEL 81,	s,	"fqdn"
 DHCP_DECLARE_OPTION_LABEL 53,	mt,	"message type" #1, ? = message type, len 1, 1=DISCOVER,2=offer,3=req,4=decline,5=ACK, 8=inform"
 DHCP_DECLARE_OPTION_LABEL 54,	ip,	"server_ip"
 DHCP_DECLARE_OPTION_LABEL 51,	time,	"lease time"
+DHCP_DECLARE_OPTION_LABEL 54,	0,	"dhcp server identifier"
 DHCP_DECLARE_OPTION_LABEL 55,	optlst,	"param req list"
+DHCP_DECLARE_OPTION_LABEL 57,	0,	"max message size"	# TODO: print value (word)
+DHCP_DECLARE_OPTION_LABEL 60, 	s,	"vendor class identifier"
+DHCP_DECLARE_OPTION_LABEL 61,	cid,	"client identifier" #hwtype=1(ethernet), mac (client identifier)"
+DHCP_DECLARE_OPTION_LABEL 67,	0,	"bootfile name" #hwtype=1(ethernet), mac (client identifier)"
+DHCP_DECLARE_OPTION_LABEL 81,	s,	"fqdn"
+DHCP_DECLARE_OPTION_LABEL 93,	0,	"client system architecture" # TODO: print value (word; 0 = IA x86 PC)
+DHCP_DECLARE_OPTION_LABEL 94,	0,	"client device interface" # TODO: print (version: byte hi, byte lo (network order));
+DHCP_DECLARE_OPTION_LABEL 97,	0,	"client uuid"		# TODO: print value (17 bytes)
 DHCP_DECLARE_OPTION_LABEL 121,	0,	"classless static route"
+DHCP_DECLARE_OPTION_LABEL 128,	0,	"DOCSIS"
+DHCP_DECLARE_OPTION_LABEL 129,	0,	"PXE"
+DHCP_DECLARE_OPTION_LABEL 130,	0,	"PXE"
+DHCP_DECLARE_OPTION_LABEL 131,	0,	"PXE"
+DHCP_DECLARE_OPTION_LABEL 132,	0,	"PXE"
+DHCP_DECLARE_OPTION_LABEL 133,	0,	"PXE"
+DHCP_DECLARE_OPTION_LABEL 134,	0,	"PXE"
+DHCP_DECLARE_OPTION_LABEL 135,	0,	"PXE"
 DHCP_DECLARE_OPTION_LABEL 249,	0,	"private/classless static route (MSFT)"
 DHCP_DECLARE_OPTION_LABEL 255,	0,	"end option"
 DHCP_OPTION_LABEL_NUM = . - dhcp_option_have_label$	# expect .data ..CONCAT
@@ -879,15 +930,17 @@ dhcp_opt_print_time:
 	call	printdec32
 	printchar_ 's'
 9:	ret
+
+
+# DHCP Option 55: Parameter Request List 
 dhcp_opt_print_optlst:
-	lodsb
-	movzx	edx, al
-	call	printdec32
-	call	printspace
-	call	dhcp_option_get_label$
-	jc	9f
-	call	print
-9:	ret
+0:	lodsb
+	push	ecx
+	call	dhcp_print_option_2$
+	pop	ecx
+	loop	0b
+	ret
+
 ###########################################################################
 
 cmd_dhcp:
