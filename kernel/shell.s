@@ -1863,7 +1863,7 @@ cmd_netdump:
 
 	LOAD_TXT "ethdump"
 	push	esi
-	mov	edi, esi
+	LOAD_TXT "1", edi
 	xor	eax, eax
 	call	shell_variable_set
 	printlnc 11, "Capturing Ethernet packets - press enter to quit."
@@ -1872,7 +1872,9 @@ cmd_netdump:
 	cmp	ax, K_ENTER
 	jnz	0b
 	pop	esi
-	call	shell_variable_unset
+	#call	shell_variable_unset
+	LOAD_TXT "0", edi
+	call	shell_variable_set
 	printlnc 11, "capture complete."
 9:	ret
 #####################################
