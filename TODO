@@ -837,3 +837,20 @@ TODO: more web-testing with Chrome
 	The website runs smooth with FireFox, however Chrome seems more
 	aggressive, causing hangs in page loading, request timeouts,
 	connections without a socket, and mutex locking errors.
+
+
+TODO: ICMP type 3 code 0x0a TCP frame ACK SYN : abort connection: portscan
+
+TODO: bootp server
+
+TODO: DMZ cluster node switching
+	Make subgroup (first: hardcoded the qure-test* machines),
+	and have them keep an IP 'alive'. At first, not the DMZ IP,
+	but a fixed one. 
+	Take IP if:
+	- one of the cluster nodes who has it, no longer responds
+	  (redirect service)
+	- on lan, no-one responds to the IP.
+	(also print lots of warnings that 'guarded' ip is not
+	part of the cluster, if it responds.)
+
