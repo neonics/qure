@@ -626,8 +626,10 @@ cluster_ping:
 .endif
 	call	cloud_packet_send
 	popad
+# KEEP-WITH-NEXT implicit call
 
 # verify alive nodes
+cluster_check_node_status:
 	pushad
 	#call	get_time_ms
 	mov	ecx, [clock]
@@ -677,16 +679,18 @@ cluster_ping:
 	#call	cluster_reboot_node
 
 		printc 12, "cluster node offline: "
-		pushd   [eax + esi + node_node_hostname]
-		call	_s_print
-		push_	esi eax
-		add	esi, eax
+		push_	eax esi
+		add	eax, esi
+		lea	esi, [eax + node_node_hostname]
+		call	print
+		call	printspace
+		mov	esi, eax
 		mov	eax, [esi + node_addr]
 		call	net_print_ipv4
 		call	printspace
-		mov	esi, [esi + node_mac]
+		lea	esi, [esi + node_mac]
 		call	net_print_mac
-		pop_	eax esi
+		pop_	esi eax
 		# TODO: check for DMZ IP and take over IP.
 		# We'll probably just set a flag here and handle it
 		# in the outer loop so we can re-call the init
@@ -699,6 +703,8 @@ cluster_ping:
 	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_PING_RESULT
 	jb	1f
 	printc 11, "[cluster nodes] "
+	#DEBUG_DWORD edi #(online + offline == total?)
+	# edi lo: online nodes, hi: total nodes
 	printc 10, "online: "
 	movzx	edx, di
 	call	printdec32
@@ -706,6 +712,7 @@ cluster_ping:
 	sub	edi, edx
 	jz	2f
 	printc 12, " offline: "
+	mov	edx, edi
 	call	printdec32
 2:	call	newline
 1:	popad
@@ -885,7 +892,7 @@ cloudnet_handle_packet:
 	.endif
 	mov	[eax + cluster_era], edx
 	mov	edx, [esi + CL_PAYLOAD_START + 6 + pkt_cluster_birthdate]
-	mov	[eax + cluster_birthdate], eax
+	mov	[eax + cluster_birthdate], edx
 	mov	edx, [eax + node_age]
 	mov	[eax + cluster_era_start], edx	# 'our' age when we saw this era
 	jmp	3f	# persist
@@ -989,13 +996,34 @@ cloudnet_handle_packet:
 	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_RX
 	jb	3f
 	printc 11, " rx ping "
-	call	net_print_ip
+	mov	eax, [esi]		# peer ip
+	mov	dx, word ptr [esi + 4]	# peer port
+	xchg	dl, dh
+	call	print_addr$
+	call	printspace
+	add	esi, 12	# ipv4 + port *2
+	call	net_print_mac
+	sub	esi, 12
 3:
-	mov	edx, [clock]
+	mov	edx, [clock]	# ???
+
 	ARRAY_LOOP [cluster_nodes], NODE_SIZE, ebx, ecx, 1f
+.if 0	# match by IP
 	cmp	eax, [ebx + ecx + node_addr]
 	jz	1f
+.else	# match by MAC
+	push_	esi edi
+	add	esi, 12	# mac
+	lea	edi, [ebx + ecx + node_mac]
+	cmpsd
+	jnz	4f
+	cmpsw
+4:	pop_	edi esi
+	jz	1f
+	# ... and name - TODO: automatic unique hostname 
+.endif
 	ARRAY_ENDL
+
 	printc 12, " cloud rx ping: unknown node: "
 	call	net_print_ip
 	# send hello to the unknown node
