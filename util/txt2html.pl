@@ -4,16 +4,24 @@ use FindBin;
 use lib $FindBin::Bin;
 use Template;
 
-$ARGV[0] or do {
-	print "Usage : $0 [options] <txtfile> [out.html]\n\noptions:\n";
-	Template::usage();
-	exit;
-};
+
+%OPT = { 'autop' => 1 };
+
+grep { $_ eq '--no-autop' } @ARGV
+and do { $OPT{autop} = 0; @ARGV = grep { $_ ne '--no-autop' } @ARGV; 1};
 
 my $t = new Template();
 @ARGV = $t->args( @ARGV );
 
-open IN, $ARGV[0] or die "can't open $ARG[0]: $!";
+$ARGV[0] or do {
+	print "XXUsage : $0 [--no-autop] [options] <txtfile> [out.html]\n"
+	."\t--no-autop\tdo not generate <p> tags on multiple newlines.\n"
+	."\noptions:\n";
+	Template::usage();
+	exit;
+};
+
+open IN, $ARGV[0] or die "can't open $ARGV[0]: $!";
 @l = <IN>;
 close IN;
 
@@ -150,8 +158,7 @@ $c=~ tr/\r/\n/;
 
 #$c = join( "\n", (map { /^(<([^>\n]+)>.*?<\/\2>|<\/?[^\n>]+\/?>|<d[lt]>.*?<\/dd>)$/s ? "$_\n" : "<p>{{{$_}}}</p>\n" } @l) );
 #$c = join( "\n", (map { /^<.*?>$/s ? "$_\n" : "<p>{{{$_}}}</p>\n" } @l) );
-$c = join( "\n", (map { /^<|>$/s ? "$_\n" : "<p>$_</p>\n" } @l) );
-
+$c = join( "\n", (map { /^<|>$/s || !$OPT{autop} ? "$_\n" : "<p>$_</p>\n" } @l) );
 
 
 $ARGV[1] and do {

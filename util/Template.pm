@@ -22,8 +22,9 @@ sub new {
 sub usage {
 	print <<EOF;
 
-	-t <t>		template file to use. Specify 'none' for a minimal
-			HTML5 wrapper; 'default' for the builtin template.html.
+	-t <t>		template file to use. Specify 'none' for no wrapping,
+			'minimal' for a minimal HTML5 wrapper, or 'default'
+			for the builtin template.html.
 	--template <t>	alias for -t
 	--css <uri>	add custom css
 	-x <xml>	specify dynamic XML content URI to load at runtime.
@@ -70,10 +71,10 @@ sub args {
 		die "unknown option: $a";
 	}
 
-
 	$self->{template} = $self->{templatefile} eq 'default'
 		? readfile( $FindBin::Bin."/template.html" )
-		: $self->{templatefile} ne 'none'
+		: $self->{templatefile} eq 'none' ? '${CONTENT}'
+		: $self->{templatefile} ne 'minimal'
 			? readfile( $self->{templatefile} )
 			: <<'EOF';
 <?xml version="1.0"?>
