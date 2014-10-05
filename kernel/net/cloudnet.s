@@ -26,6 +26,7 @@ CLOUD_VERBOSITY_ACTION_UPDATE	= 2	# node update
 CLOUD_VERBOSITY_ACTION_REGISTER	= 2	# send registration packet
 CLOUD_VERBOSITY_ACTION_RESPOND	= 3	# send response packet
 CLOUD_VERBOSITY_ACTION_IGNORE	= 3	# rx packet results in no action
+CLOUD_VERBOSITY_ACTION_DMZ_IP	= 1	# taking on DMZ IP
 CLOUD_VERBOSITY_PING		= 2	# prints ping action
 CLOUD_VERBOSITY_PING_RESULT	= 1	# prints online nodes
 CLOUD_VERBOSITY_PING_NODELIST	= 3	# prints times for each node
@@ -631,11 +632,18 @@ cluster_ping:
 # verify alive nodes
 cluster_check_node_status:
 	pushad
+	# also update our node's ip using nic ip
+	mov	ebx, [cloud_nic]
+	mov	eax, [ebx + nic_ip]
+	mov	[lan_ip], eax
+	mov	ebx, [cluster_node]
+	mov	[ebx + node_addr], eax
+
 	#call	get_time_ms
 	mov	ecx, [clock]
 #	DEBUG_DWORD ecx,"clock"; DEBUG_DWORD [ping_timeout_clocks];call newline;
 	mov	ebx, [lan_ip]
-	xor	edi, edi	# count online/offline nodes
+	xor	edi, edi	# count on/offline nodes || (DMZ IP present)<<31
 	ARRAY_LOOP [cluster_nodes], NODE_SIZE, eax, esi, 1f
 	add	edi, 1 << 16	# high word: total nodes
 
@@ -690,15 +698,15 @@ cluster_check_node_status:
 		call	printspace
 		lea	esi, [esi + node_mac]
 		call	net_print_mac
-		pop_	esi eax
-		# TODO: check for DMZ IP and take over IP.
-		# We'll probably just set a flag here and handle it
-		# in the outer loop so we can re-call the init
-		# code which should also update MCAST.
 		call	newline
-
+		pop_	esi eax
 1:
-	ARRAY_ENDL
+		# check if it has DMZ IP
+		DMZ_IP = 192 | (168 <<8 ) | ( 1<<16) | ( 12<<24) # 192.168.1.12
+		cmp	eax, DMZ_IP
+		jnz	1f
+		or	edi, 1<<31	# mark found
+1:	ARRAY_ENDL
 
 	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_PING_RESULT
 	jb	1f
@@ -708,14 +716,34 @@ cluster_check_node_status:
 	printc 10, "online: "
 	movzx	edx, di
 	call	printdec32
+	mov	eax, edi
 	shr	edi, 16
+	and	edi, 0x7fff	# high bit indicates DMZ ip found
 	sub	edi, edx
-	jz	2f
+	jz	1f
 	printc 12, " offline: "
 	mov	edx, edi
 	call	printdec32
-2:	call	newline
-1:	popad
+1:
+	# check for DMZ IP and take over IP.
+	test	eax, 1<<31
+	jnz	1f
+	# We'll probably just set a flag here and handle it
+	# in the outer loop so we can re-call the init
+	# code which should also update MCAST.
+	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_DMZ_IP
+	jb	2f
+	printlnc 12, " taking DMZ IP"
+2:	push	ebx
+	mov	ebx, [cloud_nic]
+	mov	[ebx + nic_ip], dword ptr DMZ_IP
+	pop	ebx
+
+1:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_DMZ_IP
+	jb	2f
+	call	newline
+2:
+	popad
 	ret
 
 # in: eax + esi = node
@@ -1041,6 +1069,8 @@ cloudnet_handle_packet:
 	lea	esi, [ebx + ecx + node_node_hostname]
 	call	println
 3:	mov	[ebx + ecx + node_clock], edx
+	mov	[ebx + ecx + node_addr], eax # update IP
+	# TODO also: ifconfig ip change event handler to update local node_addr
 2:	popad
 	ret
 91:	printlnc 13, " ignore: unknown message"
