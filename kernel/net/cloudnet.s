@@ -129,7 +129,7 @@ mov	eax, [lan_ip]
 mov	edi, [cloud_nic]
 lea	edi, [edi + nic_mac]
 call	cluster_add_node	# register self
-
+mov	[cluster_nodeidx], eax
 
 	jmp	2f
 1:	printc 4, "cloudnet_daemon: cluster_node error"
@@ -268,7 +268,8 @@ cloud_socket_open:
 	clc
 9:	ret
 
-
+# out: eax = cluster_node
+# out: edx = MCAST or BCAST IP
 cloud_register:
 	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_REGISTER
 	jb	1f
@@ -509,15 +510,20 @@ node_clock:	.long 0	# last seen
 #node_cycles:	.long 0	# node age?
 NODE_SIZE = .
 .data
-cluster_ips:	.long 0	# ptr_array for scasd
-cluster_nodes:	.long 0	# array of node struct
+cluster_ips:	.long 0	# ptr_array for scasd (synchronized with cluster_nodes)
+cluster_nodes:	.long 0	# array of node struct (synchronized with cluster_ips)
+cluster_nodeidx:.long 0 # index in cluster_nodes for local node
 .text32
 
 # in: eax = IP
 # in: edi = MAC
 # in: esi = ptr pkt_*
+# out: eax = index/offset in cluster_nodes
 cluster_add_node:
-	push_	eax ebx ecx edx
+	push	ebp
+	push_	eax	# STACKREF will be updated!
+	mov	ebp, esp
+	push_	ebx ecx edx
 	mov	ecx, eax
 
 	ARRAY_LOOP [cluster_nodes], NODE_SIZE, eax, edx, 1f
@@ -543,6 +549,7 @@ cluster_add_node:
 	mov	[eax + edx], ecx
 	mov	ebx, ecx # ecx destroyed next line:
 	ARRAY_NEWENTRY [cluster_nodes], NODE_SIZE, 1, 9f
+	mov	[ebp], edx	# STACKREF set return value
 	mov	ecx, ebx
 	lea	ebx, [eax + edx]
 	mov	[ebx + node_addr], ecx
@@ -594,7 +601,9 @@ cluster_add_node:
 
 	clc
 
-9:	pop_	edx ecx ebx eax
+9:	pop_	edx ecx ebx
+	pop	eax	# STACKREF return value
+	pop	ebp
 	ret
 
 
