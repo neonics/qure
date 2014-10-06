@@ -612,12 +612,31 @@ net_igmp_join:
 net_igmp_leave:
 	call	net_igmp_ismember
 	jnz	91f
-
 	push	edx
 	mov	dx, IGMP_TYPE_LEAVEv2 | 2 << 8
 	call	net_igmp_send
 	pop	edx
-	# TODO: remove entry from nic_mcast_list
+
+	# remove entry from nic_mcast_list
+	# we know it's a member - rescan:
+	push_	edi ecx
+	mov	edi, [ebx + nic_mcast_list]
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	repnz	scasd
+	# edi-4
+	jecxz	1f	# last entry
+	# not last entry: copy rest.
+	push	esi
+	mov	esi, edi
+	sub	edi, 4
+	rep	movsd
+	pop	esi
+1:	# last entry
+	mov	edi, [ebx + nic_mcast_list]
+	subd	[edi + array_index], 4
+0:	pop_	ecx edi
+
 	ret
 
 91:	printc 4, "net_igmp_leave: not member of "
@@ -638,11 +657,13 @@ net_igmp_ismember:
 	push	ecx
 	mov	ecx, [edi + array_index]
 	shr	ecx, 2
+	jz	2f
 	repnz	scasd		# ZF = 1 = member
 	pop	ecx
 	pop	edi
 9:	ret
 
-1:	or	esp, esp	# ZF = 0
-	pop	edi
+2:	pop	ecx
+1:	pop	edi
+	or	esp, esp	# ZF = 0
 	ret
