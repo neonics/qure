@@ -79,8 +79,6 @@ cloud_env_var_changed:
 
 .data
 cloud_nic:	.long 0
-cluster_ip:	.long 0
-lan_ip:		.long 0
 cloud_sock:	.long 0
 .if CLOUD_ARPWATCH
 cloud_arp_sock:	.long 0
@@ -95,10 +93,9 @@ cloudnet_daemon:
 	#orb	[cloud_flags], STOP$
 	mov	eax, 100
 	call	sleep	# nicer printing
+	printlnc 11, "cloud initialising"
 	call	cloud_init_ip
 	jc	9f
-	mov	[lan_ip], eax
-	mov	[cluster_ip], eax
 
 	call	cloud_mcast_init
 
@@ -125,8 +122,8 @@ cloudnet_daemon:
 # in: esi, ecx = packet
 # out: ZF = 0: added, ZF = 1: updated
 lea	esi, [eax + cluster_node_persistent]	# also payload start
-mov	eax, [lan_ip]
 mov	edi, [cloud_nic]
+mov	eax, [edi + nic_ip]
 lea	edi, [edi + nic_mac]
 call	cluster_add_node	# register self
 mov	[cluster_nodeidx], eax
@@ -959,8 +956,8 @@ cloudnet_handle_packet:
 	call	[eax + oofs_persistent_api_save]
 	# update array
 	lea	esi, [eax + cluster_node_persistent]
-	mov	eax, [lan_ip]
 	mov	edi, [cloud_nic]
+	mov	eax, [edi + nic_ip]
 	lea	edi, [edi + nic_mac]
 	call	cluster_add_node	# update display list
 	mov	eax, [cluster_node]
@@ -1230,7 +1227,8 @@ cmd_cloud_print$:
 	printc 11, "CloudNet status: "
 	mov	ax, [cloud_flags]
 	PRINTFLAG ax, STOP$, "passive", "active"
-	mov	eax, [lan_ip]
+	mov	eax, [cloud_nic]
+	mov	eax, [eax + nic_ip]
 	call	printspace
 	call	net_print_ipv4
 	call	newline
