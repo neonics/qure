@@ -547,8 +547,14 @@ cluster_add_node:
 	jmp	1f
 2:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_UPDATE
 	jb	2f
-	printc 13, " update node"
-	push eax; mov eax, [eax + edx + node_addr]; call net_print_ipv4; pop eax;
+	printc 13, " update node "
+		push	eax
+		mov	eax, [eax + edx + node_addr]
+		call	net_print_ipv4
+		printc 8, "->"
+		mov	eax, ecx
+		call	net_print_ipv4
+		pop	eax
 	call newline
 	jmp	2f
 
@@ -599,6 +605,7 @@ cluster_add_node:
 
 2:	mov	eax, [clock]
 	mov	[ebx + node_clock], eax
+	mov	[ebx + node_addr], ecx	# update IP
 
 	push_ esi edi
 	lea	edi, [ebx + node_cluster_data]
