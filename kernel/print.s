@@ -2545,6 +2545,13 @@ printf:
 	or	ecx, ecx
 	jz	4f
 	call	nprint
+	push	eax
+	mov	eax, esi
+	call	strlen
+	sub	ecx, eax
+	pop	eax
+	jle	5f
+	6: call printspace; loop 6b
 	jmp	5f
 4:	call	print
 5:	pop	esi
