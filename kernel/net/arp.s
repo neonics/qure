@@ -2,7 +2,10 @@
 # ARP Protocol
 #
 # RFC 826
-
+#
+# with extensions:
+#
+# UNARP  RFC 1868
 
 #########################################################################
 # ARP Table implementation
@@ -271,6 +274,7 @@ arp_table_print:
 
 # in: eax = ipv4
 # out: ecx + edx
+# out: CF
 arp_table_getentry_by_ipv4:
 
 	ARRAY_LOOP [arp_table], ARP_ENTRY_STRUCT_SIZE, ecx, edx, 9f
@@ -343,23 +347,40 @@ arp_proto_size:	.byte 0	# size of protocol address: 4 for ipv4 (CHK 16 for ipv6)
 arp_opcode:	.word 0	# 1 = request, 2 = reply
 	ARP_OPCODE_REQUEST = 1 << 8
 	ARP_OPCODE_REPLY = 2 << 8
+arp_payload:
+ARP_HEADER_SIZE = .
 # the data, for ipv4:
 arp_src_mac:	.space 6	# this will also apply to ipv6 over ethernet.
 arp_src_ip:	.long 0
 arp_dst_mac:	.space 6	# here however, it will not.
 arp_dst_ip:	.long 0
-ARP_HEADER_SIZE = .
+ARP_IPV4_PAYLOAD_SIZE = . - arp_payload
+
+# UNARP (RFC 1868): hw_size is 0 (I assume because the HW ADDR (MAC) is
+# already present in the ethernet frame).
+#
+# Hardware Address Space       as appropriate			(2)
+# Protocol Address Space       0x800 (IP)			(2)
+# Hardware Address Length      0 (see Backwards Compatibility)	(1)
+# Protocol Address Length      4 (length of an IP address)	(1)
+# Opcode                       2 (Reply)			(2)
+# Source Hardware Address      Not Included			(0)
+# Source Protocol Address      IP address of detaching host	(4)
+# Target Hardware Address      Not Included			(0)
+# Target Protocol Address      255.255.255.255 (IP broadcast)	(4)
+#                                                             -------
+#                                                               (16)
 .text32
 
 # in: ebx = nic
 # in: edi = arp frame pointer
 # in: eax = dest ip
 net_arp_header_put:
-	mov	[edi + arp_hw_type], word ptr 1 << 8
-	mov	[edi + arp_proto], word ptr 0x0008
-	mov	[edi + arp_hw_size], byte ptr 6
-	mov	[edi + arp_proto_size], byte ptr 4
-	mov	[edi + arp_opcode], word ptr 0x0100	# 1 = req
+	movw	[edi + arp_hw_type], ARP_HW_ETHERNET 	# word ptr 1 << 8
+	movw	[edi + arp_proto], 0x0008 # bswap ETH_PROTO_IPV4
+	movb	[edi + arp_hw_size], 6
+	movb	[edi + arp_proto_size], byte ptr 4
+	movw	[edi + arp_opcode], ARP_OPCODE_REQUEST
 
 	# src mac
 	add	edi, arp_src_mac
@@ -386,7 +407,10 @@ net_arp_header_put:
 	ret
 
 net_arp_print:
+	push_	eax edx esi edi
 	printc	COLOR_PROTO, "ARP "
+
+	# header
 
 	print  "HW "
 	mov	dx, [esi + arp_hw_type]
@@ -421,31 +445,61 @@ net_arp_print:
 	mov	dx, [esi + arp_opcode]
 	call	printhex4
 	call	newline
-	call	printspace
-	call	printspace
 
-	print	" SRC MAC "
-	push	esi
-	lea	esi, [esi + arp_src_mac]
+	# payload
+	mov	edi, esi	# reference header
+
+	lea	esi, [esi + ARP_HEADER_SIZE]
+
+	movzx	edx, byte ptr [edi + arp_hw_size]
+	or	dl, dl
+	jz	1f
+	cmp	dl, 6
+	jz	2f
+	printc 4, "   (unknown hw size: "
+	call	printdec32
+	printc 4, ")"
+	jmp	1f
+
+2:	print	"   SRC MAC "
 	call	net_print_mac
-	pop	esi
+	add	esi, edx	# 6
+
+1:	movzx	eax, byte ptr [edi + arp_proto_size]	# 4
+	cmp	al, 4
+	jz	1f
+	printc 4, " (unknown proto size: "
+	push	eax
+	call	_s_printdec32
+	add	esi, eax	# skip proto addr src
+	jmp	2f
+1:
 
 	print	" IP "
-	PRINT_IP arp_src_ip
+	lodsd
+	call	net_print_ipv4
+	#PRINT_IP arp_src_ip
 
-	call	newline
-	call	printspace
-	call	printspace
-	print	" DST MAC "
+2:	call	newline
+
+	cmp	dl, 6
+	jnz	1f	# warning already printed
+	print	"   DST MAC "
 	push	esi
 	lea	esi, [esi + arp_dst_mac]
 	call	net_print_mac
 	pop	esi
 
+1:	add	esi, edx	# skip mac addr
+
+	cmpb	[edi + arp_proto_size], 4
+	jnz	1f	# warning already printed
+
 	print	" IP "
 	PRINT_IP arp_dst_ip
 
-	call	newline
+1:	call	newline
+	pop_	edi esi edx eax
 	ret
 
 
@@ -474,9 +528,15 @@ net_arp_handle:
 	# proto size 4, hw size 6, proto 0800 (ipv4)
 	cmp	dword ptr [esi + arp_proto], 0x04060008
 	jz	4f
+
+	# check UNARP (ipv4 no hw size)
+	cmpd	[esi + arp_proto],  0x04000008
+	jz	5f
+
 	# proto size 0x10, hw size 6, proto 0x86dd (ipv6)
 	cmp	dword ptr [esi + arp_proto], 0x1006dd86
 	jnz	96f
+
 
 6:	# IPv6
 	.if NET_ARP_DEBUG
@@ -505,7 +565,12 @@ net_arp_handle:
 
 
 ######### IPV4
-4:
+5:	# IPv4 UNARP (no MAC (hw_addr 0)
+	DEBUG "IPv4 UNARP - TODO"
+	jmp	93f	# 'not a request' (since UNARP is an unsollicited reply)
+
+
+4:	# ipv4 + MAC
 	.if NET_ARP_DEBUG
 		printc 11, "IPv4"
 	.endif
@@ -661,11 +726,11 @@ protocol_arp_response:
 	# ethernet frame done.
 
 	# set arp data
-	mov	[edi + arp_hw_type], word ptr 1 << 8
-	mov	[edi + arp_proto], word ptr 0x8	# IP
-	mov	[edi + arp_hw_size], byte ptr 6
-	mov	[edi + arp_proto_size], byte ptr 4
-	mov	[edi + arp_opcode], word ptr 2 << 8# reply
+	movw	[edi + arp_hw_type], ARP_HW_ETHERNET
+	movw	[edi + arp_proto], word ptr 0x8	# IP
+	movb	[edi + arp_hw_size], byte ptr 6
+	movb	[edi + arp_proto_size], byte ptr 4
+	movw	[edi + arp_opcode], ARP_OPCODE_REPLY
 
 	# set dest mac and ip in arp packet
 	push	edi
@@ -695,7 +760,7 @@ protocol_arp_response:
 	pop	esi
 	# mov	ecx, edi
 	# sub	ecx, esi
-	mov	ecx, ARP_HEADER_SIZE + ETH_HEADER_SIZE
+	mov	ecx, ETH_HEADER_SIZE + ARP_HEADER_SIZE + ARP_IPV4_PAYLOAD_SIZE
 
 	.if NET_ARP_DEBUG > 1
 		printlnc 11, "Sending ARP response"
@@ -771,6 +836,7 @@ net_arp_resolve_ipv4:
 
 # in: eax = ip
 # in: ebx = nic
+# destroys: esi, edi, dx
 arp_probe:
 	NET_BUFFER_GET
 	jc	9f
@@ -779,10 +845,43 @@ arp_probe:
 	mov	esi, offset mac_bcast
 	call	net_eth_header_put
 	call	net_arp_header_put
-	mov	[edi - ARP_HEADER_SIZE + arp_src_ip], dword ptr 0
+	mov	[edi - ARP_HEADER_SIZE - ARP_IPV4_PAYLOAD_SIZE + arp_src_ip], dword ptr 0
 	pop	esi
 	NET_BUFFER_SEND
 9:	ret
+
+# in: eax = dest ip (BCAST)
+# in: ebx = nic
+# destroys: esi, edi, dx
+arp_unarp:
+	NET_BUFFER_GET
+	jc	9f
+	push	edi
+	mov	dx, ETH_PROTO_ARP
+	mov	esi, offset mac_bcast
+	call	net_eth_header_put
+
+	#
+	movw	[edi + arp_hw_type], ARP_HW_ETHERNET
+	movw	[edi + arp_proto], 0x0008	# ipv4
+	movb	[edi + arp_hw_size], 0
+	movb	[edi + arp_proto_size], 4
+	movw	[edi + arp_opcode], ARP_OPCODE_REPLY
+
+	add	edi, ARP_HEADER_SIZE # offset arp_payload
+	# skip src mac (hw_addr)
+	# src ip
+	push	eax
+	mov	eax, [ebx + nic_ip]
+	stosd
+	# skip dst mac
+	# dst ip (BCAST)
+	pop	eax
+	stosd
+	pop	esi
+	NET_BUFFER_SEND
+9:	ret
+
 
 # in: ebx = nic
 # in: eax = ip
