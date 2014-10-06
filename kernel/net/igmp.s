@@ -91,6 +91,10 @@ igmpv3_gr_addr:	.long 0	# multicast address
 igmpv3_gr_srcs:	# array of unicast IPv4 source addresses
 # after this, auxlen bytes.
 
+.data
+igmp_gr_mode_labels:	# printable text for IGMP_GR_MODE_*
+.ascii "00", "LV", "JN", "CI", "CE", "AN", "BO"
+
 .text32
 
 # in: edi = igmp frame pointer
@@ -232,7 +236,7 @@ net_ipv4_igmp_print:
 	#jmp	4f
 
 ########
-4:	
+4:
 	cmp	ecx, 12
 	jb	1f
 	cmp	al, '2'
@@ -289,7 +293,7 @@ net_ipv4_igmp_print:
 3:	cmpb	[esi + igmp_type], IGMP_TYPE_REPORTv3
 	jnz	1f	# unknown v3 message
 
-	# Report v3 has different layout: the 2nd dword isnot
+	# Report v3 has different layout: the 2nd dword is not
 	# the group address, but reserved word followed by
 	# number of group records.
 	sub	ecx, 8	# the standard dword header + the reportv3 numgrp
@@ -307,7 +311,9 @@ net_ipv4_igmp_print:
 ###########
 	movzx	ecx, ax	# num group records
 	push	ecx
+	print	" numgrp="
 	call	_s_printdec32
+	call	printspace
 	or	ecx, ecx
 	jz	1f	# no group records, done.
 	cmp	ecx, 1
@@ -320,9 +326,19 @@ net_ipv4_igmp_print:
 0:	cmp	esi, ebx
 	jae	4f	# short packet
 	lodsd
-	print " t="
+
 	movzx	edx, al	# record type
+	cmp	al, 6
+	jb	5f	# for record types 0..6 we have text labels
+	print " t="	# otherwise print the hex number
 	call	printhex2
+	jmp	6f
+	# text labels are 2 chars each, compact
+5:	mov	al, [igmp_gr_mode_labels + edx * 2 + 0]
+	call	printchar
+	mov	al, [igmp_gr_mode_labels + edx * 2 + 1]
+	call	printchar
+6:
 	movzx	edx, ah	# aux data len
 	shr	eax, 16
 	print " numsrc="
@@ -507,7 +523,7 @@ net_igmp_send:
 1:
 
 	mov	ecx, edi
-	sub	ecx, esi	
+	sub	ecx, esi
 	jle	93f
 	call	net_igmp_checksum$	# in: esi, ecx
 
@@ -601,7 +617,7 @@ net_igmp_leave:
 	mov	dx, IGMP_TYPE_LEAVEv2 | 2 << 8
 	call	net_igmp_send
 	pop	edx
-
+	# TODO: remove entry from nic_mcast_list
 	ret
 
 91:	printc 4, "net_igmp_leave: not member of "
