@@ -566,7 +566,14 @@ net_arp_handle:
 
 ######### IPV4
 5:	# IPv4 UNARP (no MAC (hw_addr 0)
-	DEBUG "IPv4 UNARP - TODO"
+	#DEBUG "IPv4 UNARP"; call newline; call	arp_table_print;
+	push_	eax ecx edx
+	mov	eax, [esi + arp_payload]	# src IP
+	call	arp_table_getentry_by_ipv4	# in: eax=IP; out: ecx + edx
+	jc	5f
+	movb	[ecx + edx + arp_entry_status], 0
+	#DEBUG "UPDATE ARP TABLE";call newline; call arp_table_print
+5:	pop_	edx ecx eax
 	jmp	93f	# 'not a request' (since UNARP is an unsollicited reply)
 
 
