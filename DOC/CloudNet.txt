@@ -171,6 +171,13 @@ Running multiple VM's: keep each other informed of who is handling DMZ.
 Regular peer-to-peer messages to keep aware of DMZ IP assigned to VM.
 On detection of the DMZ vm having gone offline, another takes over.
 
+TODO: The takeover is done by updating the NIC IP with the configured
+DMZ IP. Nodes recognize each other by MAC. For routing purposes however,
+when de-configuring the nic IP, it should unsubscribe from it's MCAST
+memberships and preferrably send an UNARP for it's old DHCP address.
+It could even notify the DHCP server.
+
+
 Host Daemon VM Manager
 ----------------------
 A host daemon can participate in the protocol. It can then configure

@@ -7,6 +7,9 @@
 .global cmd_cloudnetd
 .global cmd_cloud
 
+# this IP will be used if available
+DMZ_IP = 192 | (168 <<8) | (1<<16) | (11<<24) # 192.168.1.11
+
 CLOUD_PACKET_DEBUG = 0
 
 CLOUD_LOCAL_ECHO = 1
@@ -149,6 +152,7 @@ mov	[cluster_nodeidx], eax
 	testd	[cloud_flags], STOP$
 	jnz	0b
 
+	call	cluster_check_status	# maybe updates IP
 	call	cluster_ping
 
  	jmp	0b
@@ -158,13 +162,15 @@ mov	[cluster_nodeidx], eax
 
 # out: eax = ip
 cloud_init_ip:
-	printlnc 11, "cloud initialising"
 	printlnc 13, " address verification "
+	mov	ebx, [cloud_nic]
+	or	ebx, ebx
+	jnz	1f
 	xor	eax, eax
 	call	nic_getobject
 	jc	9f
 	mov	[cloud_nic], ebx
-	print "  MAC "
+1:	print "  MAC "
 	lea	esi, [ebx + nic_mac]
 	call	net_print_mac
 	call	newline
@@ -308,6 +314,8 @@ cloud_send_hello:
 	mov	esi, [cluster_node]
 	or	esi, esi
 	jz	9f
+	mov	[esi + cluster_node_pkt], dword ptr 'h'|'e'<<8|'l'<<16|'l'<<24
+	mov	[esi + cluster_node_pkt+4], word ptr 'o'
 	#add esi, offset netobj_packet
 	mov	ecx, offset cluster_node_packet_end
 	call	cloud_packet_send
@@ -539,7 +547,9 @@ cluster_add_node:
 	jmp	1f
 2:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_UPDATE
 	jb	2f
-	printlnc 13, " update node"
+	printc 13, " update node"
+	push eax; mov eax, [eax + edx + node_addr]; call net_print_ipv4; pop eax;
+	call newline
 	jmp	2f
 
 1:	PTR_ARRAY_NEWENTRY [cluster_ips], 1, 9f	# out: eax+edx; destroys: ecx
@@ -633,23 +643,33 @@ cluster_ping:
 .endif
 	call	cloud_packet_send
 	popad
-# KEEP-WITH-NEXT implicit call
+	ret
+
 
 # verify alive nodes
-cluster_check_node_status:
+cluster_check_status:
 	pushad
+	#call	get_time_ms
+	mov	ecx, [clock]
+
+	# pretend we received a ping from ourselves
+	mov	ebx, [cluster_node]
+	mov	[ebx + node_clock], ecx
 	# also update our node's ip using nic ip
 	mov	ebx, [cloud_nic]
 	mov	eax, [ebx + nic_ip]
-	mov	[lan_ip], eax
-	mov	ebx, [cluster_node]
-	mov	[ebx + node_addr], eax
+	call	set_ip$
 
-	#call	get_time_ms
-	mov	ecx, [clock]
 #	DEBUG_DWORD ecx,"clock"; DEBUG_DWORD [ping_timeout_clocks];call newline;
-	mov	ebx, [lan_ip]
+	mov	ebx, eax	# nic ip
 	xor	edi, edi	# count on/offline nodes || (DMZ IP present)<<31
+
+	# mark if we have the DMZ IP
+	cmp	eax, DMZ_IP
+	jnz	1f
+	or	edi, 1 << 31
+1:
+
 	ARRAY_LOOP [cluster_nodes], NODE_SIZE, eax, esi, 1f
 	add	edi, 1 << 16	# high word: total nodes
 
@@ -708,21 +728,21 @@ cluster_check_node_status:
 		pop_	esi eax
 1:
 		# check if it has DMZ IP
-		DMZ_IP = 192 | (168 <<8 ) | ( 1<<16) | ( 12<<24) # 192.168.1.12
-		cmp	eax, DMZ_IP
+		cmpd	[eax + esi + node_addr], DMZ_IP
 		jnz	1f
 		or	edi, 1<<31	# mark found
 1:	ARRAY_ENDL
+
+	# ~(1<<31) & edi: lo: online nodes, hi: total nodes
+	mov	eax, edi	# see below
 
 	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_PING_RESULT
 	jb	1f
 	printc 11, "[cluster nodes] "
 	#DEBUG_DWORD edi #(online + offline == total?)
-	# edi lo: online nodes, hi: total nodes
 	printc 10, "online: "
 	movzx	edx, di
 	call	printdec32
-	mov	eax, edi
 	shr	edi, 16
 	and	edi, 0x7fff	# high bit indicates DMZ ip found
 	sub	edi, edx
@@ -732,18 +752,21 @@ cluster_check_node_status:
 	call	printdec32
 1:
 	# check for DMZ IP and take over IP.
-	test	eax, 1<<31
+	test	eax, 1<<31	# see above (edi destroyed)
 	jnz	1f
-	# We'll probably just set a flag here and handle it
-	# in the outer loop so we can re-call the init
-	# code which should also update MCAST.
 	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_DMZ_IP
 	jb	2f
-	printlnc 12, " taking DMZ IP"
-2:	push	ebx
-	mov	ebx, [cloud_nic]
-	mov	[ebx + nic_ip], dword ptr DMZ_IP
-	pop	ebx
+	printc 12, " taking DMZ IP "
+2:	mov	eax, DMZ_IP
+	call	arp_table_getentry_by_ipv4 # in: eax = ipv4; out: ecx + edx
+	jc	3f
+	movb	[ecx + edx + arp_entry_status], 0
+3:	call	net_arp_resolve_ipv4
+	jnc	91f
+	call	set_ip$
+	printc 14, " DMZ IP "
+	call	net_print_ipv4
+	printc 14, " obtained"
 
 1:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_DMZ_IP
 	jb	2f
@@ -751,6 +774,21 @@ cluster_check_node_status:
 2:
 	popad
 	ret
+91:	printlnc 4, "DMZ ip taken"
+	jmp	1b
+
+set_ip$:
+	push	ebx
+	mov	ebx, [cloud_nic]
+	mov	[ebx + nic_ip], eax
+	mov	ebx, [cluster_nodes]
+	add	ebx, [cluster_nodeidx]
+	mov	[ebx], eax
+	# TODO: UNARP
+	# TODO: MCAST
+	pop	ebx
+	ret
+
 
 # in: eax + esi = node
 cluster_reboot_node:
@@ -945,7 +983,7 @@ cloudnet_handle_packet:
 	ja	52f	# remote has newer date: out of date. respond?
 	# jb: remote has older birthdate, update local.
 1:	mov	[eax + cluster_birthdate], edx	# record cluster birthdate
-	printc 14, " adopt cluster birthdate "
+	printc 14, " adopt cluster birthdate "	# XXX TODO do not adopt in same era!
 	call	print_datetime
 	printc 14, " for era "
 	mov	edx, [eax + cluster_era]
@@ -954,12 +992,18 @@ cloudnet_handle_packet:
 
 3:	# persist
 	call	[eax + oofs_persistent_api_save]
-	# update array
+	# update local node in nodelist
+	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_UPDATE
+	jb	3f
+	printc 8, " (local) "
+3:
+	push	esi
 	lea	esi, [eax + cluster_node_persistent]
 	mov	edi, [cloud_nic]
 	mov	eax, [edi + nic_ip]
 	lea	edi, [edi + nic_mac]
 	call	cluster_add_node	# update display list
+	pop	esi
 	mov	eax, [cluster_node]
 	jmp	4f
 ####################
@@ -1058,14 +1102,21 @@ cloudnet_handle_packet:
 .endif
 	ARRAY_ENDL
 
-	printc 12, " cloud rx ping: unknown node: "
+	printc 12, " cloud rx ping: new node: "
 	call	net_print_ip
-	# send hello to the unknown node
-	pushad
-	mov	edx, eax
-	mov	eax, [cluster_node]
-	call	[eax + send]
-	popad
+	call	newline
+
+		# send hello to the unknown node
+		cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_RESPOND
+		jb	4f
+		printc 13, " respond "
+	4:	mov	edx, [esi]	# src ip
+		mov	eax, [cluster_node]
+		call	[eax + send]
+
+	#pushad
+	#call	cloud_send_hello	# in: eax = dest
+	#popad
 
 	jmp	2f
 
@@ -1301,13 +1352,14 @@ cmd_cloud_print$:
 	lea	esi, [ebx + ecx + node_mac]
 	call	net_print_mac
 	popcolor
+	call	newline
 
 	pushd	[ebx + ecx + node_kernel_revision]
 	mov	edx, [ebx + ecx + node_node_age]
 	push	edx
 	mov	edx, [ebx + ecx + node_cluster_era]
 	push	edx
-	pushstring " c.era %3d n.age %3d krnlrev %3d"
+	pushstring "   c.era %3d n.age %3d krnlrev %3d"
 	call	printf
 	add	esp, 4*4
 
