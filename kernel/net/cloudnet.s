@@ -763,7 +763,26 @@ cluster_check_status:
 	movb	[ecx + edx + arp_entry_status], 0
 3:	call	net_arp_resolve_ipv4
 	jnc	91f
+
+		mov	ebx, [cloud_nic]
+		# IGMP leave
+		mov	eax, CLOUD_MCAST_IP
+		call	net_igmp_leave
+
+		# UNARP
+		mov	eax, -1		# UNARP wants BCAST
+		call	arp_unarp
+
+		mov	eax, DMZ_IP	# restore eax
+
 	call	set_ip$
+
+		# IGMP join
+		mov	eax, CLOUD_MCAST_IP
+		call	net_igmp_join
+
+		mov	eax, DMZ_IP	# restore eax
+
 	printc 14, " DMZ IP "
 	call	net_print_ipv4
 	printc 14, " obtained"
