@@ -1926,10 +1926,10 @@ OBJ_STRUCT_SIZE = .
 
 
 
-.macro INVOKEVIRTUAL class, method
+.macro INVOKEVIRTUAL class, method, instance=eax
 	pushd	offset class_\class
 	pushd	offset \class\()_api_\method
-	pushd	eax
+	pushd	\instance
 	call	class_invoke_virtual
 .endm
 
