@@ -13,13 +13,28 @@ icmp_type: .byte 0
 	#*0	echo (ping) reply
 	# 1,2	reserved
 	# 3	destination unreachable
-	#	codes: 0=net / 1=host / 2=protocol / 3=port unreachable
-	#	  4=fragmentation needed & DontFrag set; 5=src route failed,
-	#	  6=dest net unknown, 7=dest host unknown, 8=source host
-	#	  isolated, 9 = dest net comm prohibit, 10=dest host admin prhbt
-	#	  11 = dest net unreach for TOS, 12=dest Host unr for TOS,
-	#	  13 = comm prohibit, 14 = host precedence violation,
-	#	  15 = precedence cutoff in effect.
+	#	codes: 
+	#	  0000 0=net unreachable
+	#	  0001 1=host unreachable
+	#	  0010 2=protocol unreachable
+	#	  0011 3=port unreachable
+	#
+	#	  0100 4=fragmentation needed & DontFrag set
+	#
+	#	  0101 5=src route failed
+	#	  0110 6=dest net unknown
+	#	  0111 7=dest host unknown
+	#	  1000 8=source host isolated
+	#
+	#	  1001 9  = dest net comm prohibit
+	#	  1010 10 = dest host admin prhbt
+	#
+	#	  1011 11 = dest net unreach for TOS
+	#	  1100 12 = dest Host unr for TOS,
+	#
+	#	  1101 13 = comm prohibit
+	#	  1110 14 = host precedence violation
+	#	  1111 15 = precedence cutoff in effect.
 	#	msg format: [type][code][checksum], [id][seq] unused,
 	#	[internet header][64 bits of original datagram].
 	#	codes 0,1,4,5: gateway; codes 2,3: host
@@ -176,7 +191,7 @@ net_ipv4_icmp_handle:
 		mov	dl, [esi + icmp_code]
 		call	printhex2
 		printc 11, " original: "
-		add	esi, ICMP_HEADER_SIZE
+		add	esi, ICMP_HEADER_SIZE	# icmp_payload
 		sub	ecx, ICMP_HEADER_SIZE
 		call	net_ipv4_print#_header
 		call	newline
@@ -184,24 +199,39 @@ net_ipv4_icmp_handle:
 	clc
 	ret
 
-1:	cmp	al, 3
+1:	cmp	al, 3	# destination unreachable
 	jnz	1f
-	.if NET_ICMP_DEBUG
+	.if 1#NET_ICMP_DEBUG
 		printc 11, "ICMP destination unreachable: code "
 		mov	al, ah
 		call	printhex2
-	# 3	destination unreachable
-	#	codes: 0=net / 1=host / 2=protocol / 3=port unreachable
-	#	  4=fragmentation needed & DontFrag set; 5=src route failed,
-	#	  6=dest net unknown, 7=dest host unknown, 8=source host
-	#	  isolated, 9 = dest net comm prohibit, 10=dest host admin prhbt
-	#	  11 = dest net unreach for TOS, 12=dest Host unr for TOS,
-	#	  13 = comm prohibit, 14 = host precedence violation,
-	#	  15 = precedence cutoff in effect.
-	#	msg format: [type][code][checksum], [id][seq] unused,
-	#	[internet header][64 bits of original datagram].
-	#	codes 0,1,4,5: gateway; codes 2,3: host
 	.endif
+
+	# TCP handling (this should be moved to tcp.s at some point)
+	cmpb	[esi + icmp_payload + ipv4_protocol], IP_PROTOCOL_TCP
+	jnz	1f
+	mov	eax, [esi + icmp_payload + ipv4_src]
+	cmp	eax, [ebx + nic_ip]
+	jnz	1f
+	# it's a TCP packet we originated
+
+	# in: edx = ip frame pointer
+	# in: esi = tcp frame pointer
+	# out: eax = tcp_conn array index (add volatile [tcp_connections])
+	# out: CF
+	movzx	eax, byte ptr [esi + icmp_payload + ipv4_v_hlen]
+	and	al, 0x0f
+	lea	edi, [esi + icmp_payload]
+	lea	esi, [esi + icmp_payload + eax * 4]
+	# XXX it might expect incoming packets: src/dst reversed
+	call	net_tcp_conn_get
+	jc	2f	# we do not have that connection registered
+	printlnc 4, "TODO: closing TCP connection"
+	jmp	9f
+2:	printlnc 4, "unknown TCP connection"
+	jmp	9f
+
+
 1:
 9:	printlnc 4, "ipv4_icmp: dropped packet"
 	call	net_ivp4_icmp_print
