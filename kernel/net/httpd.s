@@ -78,6 +78,11 @@ httpd_handle_client:
 
 	jecxz	22f	# connection closed
 
+	# XXX had kernel error due to ecx being negatice
+	# at http_check_request_complete rep scas.
+	cmp	ecx, 4096
+	ja	5f
+
 	lea	edx, [ecx + 1]	# new minimum request size
 
 	push	eax
@@ -101,6 +106,8 @@ httpd_handle_client:
 1:	KAPI_CALL socket_flush
 2:	KAPI_CALL socket_close
 0:	ret
+
+5:	printlnc 4, "httpd: negative packet length (socket buffer corrupt?), closing with 400"
 
 4:	LOAD_TXT "HTTP/1.1 400 Bad request\r\n\r\n"
 	call	strlen_
