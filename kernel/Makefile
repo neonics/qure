@@ -225,9 +225,11 @@ $(REFDIR):
 	[ -d $@ ] || mkdir -p $@
 
 $(REFFILES) $(REFDIR)/index.html: $(REFSRC)
-$(REFDIR)/src.ref: $(REFSRC) 
+$(REFDIR)/src.ref: $(REFSRC) ../util/fmtsrc.pl
+	#optional dep: ../util/Template.pm
 	@echo "  REF   $?"
 	@../util/fmtsrc.pl --dir ../root/www/doc/src/ \
+		--index-header 'tree.inc' \
 		--template ../util/template.html \
 		-p ../../www.neonics.com/ \
 		--title "Source Reference:" \

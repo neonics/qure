@@ -14,6 +14,7 @@ $dir="./";
 $incremental = 1;
 
 $template = undef;	# Template object
+$opt = {};
 
 while ( $ARGV[0] =~ /^-/ )
 {
@@ -29,6 +30,8 @@ while ( $ARGV[0] =~ /^-/ )
 		$template = new Template;
 		@ARGV = $template->args( "-t", @ARGV );
 	}
+
+	or $_ eq '--index-header' and do { $opt->{index_header}='${include '.shift(@ARGV).'}'; 1 }
 
 	or die "Unknown option: $_";
 }
@@ -56,6 +59,7 @@ while ( scalar @ARGV ) { push @files, process_source( shift @ARGV ); }
 writeref("${dir}src.ref", @ref);
 
 writehtml( "${dir}index.html", "Index",
+	$opt->{index_header},
 	map { my $b=$_; $b=~tr@/@_@; "<a href='$b.html'>$_</a><br/>\n" }
 	sort {$a cmp $b}
 	uniq( map { $_->{file} } @ref )
@@ -85,10 +89,11 @@ options:
 	--dir <dir>	the output directory; defaults to '.'
 	-v		increase verbosity
 	-i		incremental; uses src.ref in <dir>
-	--template <..>	begin template arguments; the rest of the options will
+	--template <..>	speficy template name to use. This also begins
+			template arguments; the rest of the options will
 			be passed on to the Template argument parser.
-
-template-options: the first option MUST be --template (and not -t)!
+			(Note: template-options: the first option MUST be
+			--template (and not -t!)
 EOF
 	Template::usage();
 	exit 1;

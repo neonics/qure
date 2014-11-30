@@ -211,6 +211,11 @@ site-doc: root/www/doc.inc root/www/doc/index.html
 	@#[ -d root/www/screenshots ] || mkdir -p root/www/screenshots
 	@#cp -a DOC/Screenshots/*.png root/www/screenshots/
 	@#cp DOC/* root/src/kernel/DOC/
+	[ -d root/www/doc/src/ ] || mkdir -p root/www/doc/src
+	sh util/treedoc.sh > root/www/doc/src/tree.inc
+	cp \
+	root/www/doc/src/tree.inc \
+	root/www/doc/src/tree.html
 
 site-src:
 	make -s --no-print-directory -C kernel ../root/www/doc/src/src.ref
