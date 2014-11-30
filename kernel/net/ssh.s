@@ -39,7 +39,7 @@ net_service_sshd_main:
 	call	sshd_handle_client
 	pop	eax
 	jmp	0b
-	
+
 	ret
 9:	printlnc 4, "sshd: failed to open socket"
 	ret
@@ -53,7 +53,7 @@ sshd_handle_client:
 	PUSH_TXT "sshd-c"
 	push	dword ptr TASK_FLAG_TASK	# context switch
 	push	cs
-	push	dword ptr offset 1f
+	push	dword ptr offset sshd_client
 	KAPI_CALL schedule_task
 	ret
 
@@ -63,7 +63,8 @@ SSH_STATE_KEX_INIT	 = 1;
 sshc_state: .byte 0;
 .text32
 
-1:	lock inc word ptr [sshd_num_clients]
+sshd_client:
+	lock inc word ptr [sshd_num_clients]
 
 	mov	byte ptr [sshc_state], SSH_STATE_CLIENT_PROTOCOL
 
@@ -80,7 +81,9 @@ sshc_state: .byte 0;
 0:	mov	ecx, 10000
 	KAPI_CALL socket_read
 	jc	9f
+	jecxz	1f
 	pushad
+	DEBUG_DWORD eax, "client socket"
 	call	sshd_parse
 	popad
 	jnc	0b
@@ -207,6 +210,9 @@ sshd_parse:
 		sub	ecx, eax
 		sub	ecx, 4
 		jle	99f
+		# sanity check:
+		cmp	ecx, 4096
+		jae	98f
 		push	ecx
 		mov	ecx, eax
 		call	nprintln_
@@ -256,6 +262,10 @@ sshd_parse:
 	call	newline
 
 	printlnc 10, "SSH KEX Init";
+
+	call	ssh_kex_init_send
+
+
 	inc	byte ptr [sshc_state]
 	jmp	9f
 
@@ -263,8 +273,232 @@ sshd_parse:
 9:	clc
 	ret
 
+98:	printlnc 5, "ssh: algorithm list too large";
+	jmp 1f
 99:	printlnc 4, "ssh: negative size"
-	stc
+1:	stc
+	ret
+
+#############################
+# Server Protocol:
+# - server identification handshake
+# - key exchange handshake (KEX)
+# - new keys handshake
+# - server user auth handshake
+
+# handshake base class:
+# - initiate
+# - accept
+
+#############################
+# packet
+#
+
+# Transport layer: generic
+SSH_MSG_DISCONNECT = 1;
+SSH_MSG_IGNORE = 2;
+SSH_MSG_UNIMPLEMENTED = 3;
+SSH_MSG_DEBUG = 4;
+SSH_MSG_SERVICE_REQUEST = 5;
+SSH_MSG_SERVICE_ACCEPT = 6;
+
+# Transport layer: algorithm negotiation
+SSH_MSG_KEXINIT = 20;
+SSH_MSG_NEWKEYS = 21;
+
+# Transport layer: kex specific messages, reusable
+SSH_MSG_KEXDH_INIT = 30;
+SSH_MSG_KEXDH_REPLY = 31;
+
+# dh-group-exchange
+SSH_MSG_KEX_DH_GEX_REQUEST_OLD = 30;
+SSH_MSG_KEX_DH_GEX_GROUP = 31;
+SSH_MSG_KEX_DH_GEX_INIT = 32;
+SSH_MSG_KEX_DH_GEX_REPLY = 33;
+SSH_MSG_KEX_DH_GEX_REQUEST = 34;
+
+# User authentication: generic
+SSH_MSG_USERAUTH_REQUEST = 50;
+SSH_MSG_USERAUTH_FAILURE = 51;
+SSH_MSG_USERAUTH_SUCCESS = 52;
+SSH_MSG_USERAUTH_BANNER = 53;
+
+# User authentication: method specific, reusable
+SSH_MSG_USERAUTH_INFO_REQUEST = 60;
+SSH_MSG_USERAUTH_INFO_RESPONSE = 61;
+SSH_MSG_USERAUTH_PK_OK = 60;
+
+# Connection protocol: generic
+
+SSH_MSG_GLOBAL_REQUEST = 80;
+SSH_MSG_REQUEST_SUCCESS = 81;
+SSH_MSG_REQUEST_FAILURE = 82;
+
+# Channel related
+
+SSH_MSG_CHANNEL_OPEN = 90;
+SSH_MSG_CHANNEL_OPEN_CONFIRMATION = 91;
+SSH_MSG_CHANNEL_OPEN_FAILURE = 92;
+SSH_MSG_CHANNEL_WINDOW_ADJUST = 93;
+SSH_MSG_CHANNEL_DATA = 94;
+SSH_MSG_CHANNEL_EXTENDED_DATA = 95;
+SSH_MSG_CHANNEL_EOF = 96;
+SSH_MSG_CHANNEL_CLOSE = 97;
+SSH_MSG_CHANNEL_REQUEST = 98;
+SSH_MSG_CHANNEL_SUCCESS = 99;
+SSH_MSG_CHANNEL_FAILURE = 100;
+
+.struct 0
+ssh_packet_len:	.long 0
+ssh_packet_padlen: .byte 0
+ssh_packet_payload: 
+
+.data
+ssh_packet_out: 
+# dword packet len
+# byte padding len
+# (packetlen-paddinglen-1) payload
+# padding
+# MAC
+	.space 1024
+.text32
+
+# called when kex_init is received
+# all registers free.
+# [esp] = return to within sshd_parse
+# [esp + 4] = return to sshd_client
+# [esp + 8...] = pushad
+ssh_kex_init_send:
+	call	ssh_kex_init_makepacket
+
+	DEBUG_DWORD ecx,"payload len"
+	mov	eax, ecx
+
+	# set up packet header:
+	sub	esi, offset ssh_packet_payload	# rewind to beginning
+	add	ecx, offset ssh_packet_payload	# correct for header
+	# calc padding: (we hardcode it to 8
+	mov	edx, 8	# block size (or: encrypter.IVsize)
+	mov	[esi + ssh_packet_padlen], dl
+
+	# pad = (-packetlen) & (blocksize -1)
+	push	eax	# payload len
+	neg	eax
+	dec	edx
+	and	eax, edx
+	inc	edx
+	# pad += blocksize if pad < blocksize (XXX is always the case I think!)
+	cmp	eax, edx
+	jae	1f
+	add	eax, edx
+1:	mov	edx, eax
+	DEBUG_DWORD edx,"payload padding"
+	pop	eax
+
+	# add random bytes in padding
+	push_	ecx edi eax
+	lea	edi, [esi + ecx]
+	mov	ecx, edx
+	call	random
+0:	stosb
+	ror	eax, 7
+	loop	0b
+	pop_	eax edi ecx
+
+	# packetlen := len+ pad -4
+	#lea	eax, [ecx + edx - 4]
+	DEBUG_DWORD eax, "payload len"
+	lea	eax, [eax + edx - 4]	# add padding and -4 fix
+	DEBUG_DWORD eax, "payload+padding"
+	bswap	eax
+	mov	[esi + ssh_packet_len], eax
+
+	# increase packet len with new padding:
+	add	ecx, edx
+	DEBUG_DWORD ecx, "PACKET LEN"
+
+	mov	eax, [esp + 8 + 28]	# get socket from pushad,call,call
+	DEBUG_DWORD eax, "sending using socket"
+	KAPI_CALL socket_write
+	KAPI_CALL socket_flush
+	ret
+
+#
+# out: esi, ecx = packet to send
+ssh_kex_init_makepacket:
+	lea	edi, [ssh_packet_out + ssh_packet_payload]
+	mov	al, SSH_MSG_KEXINIT
+	stosb
+
+	# add cookie: 16 random bytes
+	.rept 4
+	call	random	# TODO: defined in dhcp.s - move to lib
+	stosd
+	.endr
+
+	# send kex algorithms
+	LOAD_TXT "diffie-hellman-group1-sha1", esi, eax, 1
+	mov	ecx, eax
+	bswap	eax
+	stosd
+	rep	movsb
+
+	# send server hostkey algorithms
+	LOAD_TXT "ssh-rsa,ssh-dss", esi, eax, 1
+	mov	ecx, eax
+	bswap	eax
+	stosd
+	rep	movsb
+
+	# send client to server cipher
+	LOAD_TXT "aes128-ctr,aes192-ctr,aes256-ctr,arcfour256,arcfour128,aes128-cbc,3des-cbc,blowfish-cbc,aes192-cbc,aes256-cbc,arcfour", esi, eax, 1
+	mov	ecx, eax
+	bswap	eax
+	push_	ecx esi
+	stosd
+	rep	movsb
+	pop_	esi ecx
+	# send server to client cipher
+	stosd
+	rep	movsb
+
+	# send client to server mac algorithms
+	LOAD_TXT "hmac-md5,hmac-sha1,hmac-sha2-512,hmac-sha1-96,hmac-md5-96", esi, eax, 1
+	mov	ecx, eax
+	bswap	eax
+	push_	ecx esi
+	stosd
+	rep	movsb
+	pop_	esi ecx
+	# send server to client mac algorithms
+	stosd
+	rep	movsb
+
+	# send client to server compression
+	#LOAD_TXT "none,zlib", esi, eax, 1 #TODO: when enabled, add 'rep' below!
+	LOAD_TXT "none", esi, eax, 1
+	bswap	eax
+	stosd
+	movsd
+	# send server to client compression
+	stosd
+	sub	esi, 4
+	movsd
+
+	# send client to server lang
+	xor	eax, eax
+	stosd
+	# send server to client lang
+	stosd
+
+	# reserved trailing bytes:
+	xor	eax, eax
+	stosb	# kex first packet follows
+	stosd	# reserved
+
+	mov	ecx, edi
+	mov	esi, offset ssh_packet_out + ssh_packet_payload
+	sub	ecx, esi
 	ret
 
 
@@ -344,7 +578,7 @@ hmac:
 
 #   H(K XOR opad,   H(K XOR ipad,   text))
 #   H(esp[64..127], H(esp[0..63], [ebp]..[ebp+[ebp+16]]))
-	
+
 	# 3), 4) calc hash over Kipad, text
 	sub	esp, 360	# alloc sha1 state buffer
 	mov	ebx, esp	# scratch buffer, sha state
@@ -356,7 +590,15 @@ hmac:
 	mov	ecx, [ebp + 16]
 	call	sha1_next	# updates [ebx]
 	call	sha1_finish	# stores hash in [edi]
-	
+
 	mov	esp, ebp
 	pop_	esi eax edi ecx ebp
 	ret
+
+#######################
+# CRYPTO: DHG1 diffie-hellman-group1-sha1 (TODO)
+
+
+####################
+# ssh packet
+
