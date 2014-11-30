@@ -251,60 +251,80 @@ sub process_source {
 
 	while (<IN>) {
 		$line++;
-		f( '"[^"]+"', "str" );
-		f( "'[^']+'", "lit" );
-		f( '\.(long|byte|word|space|asci[iz])', 'data' );
 
-		# memref
-		s@\[([^\]]+)\]@memref($1)@e;
+		if ( $f =~ /\.s$/ )
+		{
 
-		# tokens
-		f( '[,;\+\-\[\]\*]', 't' );
-		f( '(?<=[\s,])(offset|ptr|d?word|byte)\b', 't' );
-		f( '(?<![\'"])#(?![\'"]).*$', "comment" );
+			f( '"[^"]+"', "str" );
+			f( "'[^']+'", "lit" );
+			f( '\.(long|byte|word|space|asci[iz])', 'data' );
 
-		# labels
-		f( '[a-zA-Z_][a-zA-Z0-9_]+\$?(?=:)', "glabeldef" );
-		f( '(?<=\.global)\s+[a-zA-Z0-9_]+', 'glabeldecl' );
-		f( '(?<=call)\s+[a-zA-Z0-9_]+\$?', 'glabelref' );
-		f( '\b\d+[fb]\b', "unlabelref" );
-		f( '\b\d+:', "unlabeldecl" );
+			# memref
+			s@\[([^\]]+)\]@memref($1)@e;
 
-		f( ':', "t" );
+			# tokens
+			f( '[,;\+\-\[\]\*]', 't' );
+			f( '(?<=[\s,])(offset|ptr|d?word|byte)\b', 't' );
+			f( '(?<![\'"])#(?![\'"]).*$', "comment" );
 
-		# constants
-		f( '\b0x[a-fA-F0-9]+\b', "hex" );
-		f( '\b0b[01]+\b', "bin" );
-		f( '\b\d+\b', "dec" );
+			# labels
+			f( '[a-zA-Z_][a-zA-Z0-9_]+\$?(?=:)', "glabeldef" );
+			f( '(?<=\.global)\s+[a-zA-Z0-9_]+', 'glabeldecl' );
+			f( '(?<=call)\s+[a-zA-Z0-9_]+\$?', 'glabelref' );
+			f( '\b\d+[fb]\b', "unlabelref" );
+			f( '\b\d+:', "unlabeldecl" );
 
-		# instructions
-		f( '\b(push|pop)[_dw]?\b', 'is');
-		f( '\b(jmp|jbe?|jn?[scbz]e?|call|i?retf?|int3?)\b', 'ic' );
-		f( '\b(loop|rep)n?z?e?\b', 'il' );
+			f( ':', "t" );
+		
+			# constants
+			f( '\b0x[a-fA-F0-9]+\b', "hex" );
+			f( '\b0b[01]+\b', "bin" );
+			f( '\b\d+\b', "dec" );
 
+			# instructions
+			f( '\b(push|pop)[_dw]?\b', 'is');
+			f( '\b(jmp|jbe?|jn?[scbz]e?|call|i?retf?|int3?)\b', 'ic' );
+			f( '\b(loop|rep)n?z?e?\b', 'il' );
 
-		# registers
-		f( '\b(e?[abcd]x|e[sd]i|e[bs]p)\b', "gpr" );
-		f( '\b([cdefgs]s)\b', "segr" );
-		f( '\bcr[0-9]\b', "cr" );
-		f( '\bdr[0-9]\b', "dr" );
+			# registers
+			f( '\b(e?[abcd]x|e[sd]i|e[bs]p)\b', "gpr" );
+			f( '\b([cdefgs]s)\b', "segr" );
+			f( '\bcr[0-9]\b', "cr" );
+			f( '\bdr[0-9]\b', "dr" );
 
-		f( '\.(global|struct|include|incbin|if|ifc|ifnc|else|endif|macro|endm|rept|endr|intel_syntax)', "dir" );
-		f( '\b_?[[:upper:]]+[a-zA-Z0-9_]+\b', 'const' );
-		f( '\.((text|data|code)(32|16)?|section)', 'seg');
+			f( '\.(global|struct|include|incbin|if|ifc|ifnc|else|endif|macro|endm|rept|endr|intel_syntax)', "dir" );
+			f( '\b_?[[:upper:]]+[a-zA-Z0-9_]+\b', 'const' );
+			f( '\.((text|data|code)(32|16)?|section)', 'seg');
 
-		# strip nested formatting
-		sanitize_comment();
-		sanitize_str();
+			# strip nested formatting
+			sanitize_comment();
+			sanitize_str();
 
-		# extract labels:
-		m@<span class="glabeldef">\s*([^<]+)</span>@ and do {
-			push @labels, {line=>$line, name=>$1};
-			$_ = "<a name='$1'></a>$_";
-		};
+			# extract labels:
+			m@<span class="glabeldef">\s*([^<]+)</span>@ and do {
+				push @labels, {line=>$line, name=>$1};
+				$_ = "<a name='$1'></a>$_";
+			};
 
-		m@<span class="const">\s*([^<]+)</span>\s*=\s*(.*)@ and push @const,
-			{line=>$line, name=>$1, value=>$2};
+			m@<span class="const">\s*([^<]+)</span>\s*=\s*(.*)@ and push @const,
+				{line=>$line, name=>$1, value=>$2};
+		}
+		elsif ( $f =~ /\.pl$/ )
+		{
+			$_ = htmlentities( $_ );
+			f( '"[^"]+"', "str" );
+			#sanitize_str();
+			f( "'[^']+'", "lit" );
+			f( '#.*', "comment" );
+			f( "[(){}]", "t" );
+			f( '[$%@]', "seg" );
+			f( '\b(if|else|ifelse|do|while|for|foreach|map|grep|shift|new|use|sub|push|pop|printf|print|defined|or|and)\b', 'dir' );
+			#sanitize_comment();
+		}
+		else
+		{
+			$_ = htmlentities( $_ );
+		}
 
 		#s@$@<br/>@;
 		$out .= $_;
@@ -326,6 +346,8 @@ sub process_source {
 		labels => \@labels, const => \@const };
 }
 ################################################################
+
+sub htmlentities($) { $_=$_[0]; $_=~s/&/&amp;/g; $_ =~ s/</&lt;/g; $_ =~ s/>/&gt;/g; $_};
 
 sub list {
 	join('', "<h2>$_[0]</h2>\n<ul>",
