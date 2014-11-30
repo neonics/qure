@@ -17,7 +17,7 @@ map {
 	close IN;
 
 	my $msg = "";
-	while ( $c=~ /href=(['"])(.*?)\1/ ) {
+	while ( $c=~ /<a\s+[^>]*href=(['"])(.*?)\1/ ) {
 		$c=$';
 		my $l = $2;
 
