@@ -109,6 +109,7 @@ sshd_close:
 sshd_parse:
 	printc 10, "SSHD RX "
 	DEBUG_DWORD ecx
+	DEBUG_BYTE [esi + ssh_packet_payload], "msg"
 	push_	ecx esi eax
 0:	lodsb
 	call	printchar
@@ -117,22 +118,117 @@ sshd_parse:
 	pop_	eax esi ecx
 
 	cmp	byte ptr [sshc_state], SSH_STATE_CLIENT_PROTOCOL
-	jz	0f
+	jz	sshd_parse_client_protocol
 	cmp	byte ptr [sshc_state], SSH_STATE_KEX_INIT
-	jz	1f
+	jz	sshd_parse_kex_init
 	cmp	byte ptr [sshc_state], SSH_STATE_KEXDH_INIT
-	jz	2f
+	jz	sshd_parse_kexdh_init
 
 	printlnc 12, "sshd: unimplemented state, ignoring"
-	jmp	9f
+	stc
+	ret
 
-0:	# state 0: client protocol
+#############################
+# Server Protocol:
+# - server identification handshake
+# - key exchange handshake (KEX)
+# - new keys handshake
+# - server user auth handshake
+
+# handshake base class:
+# - initiate
+# - accept
+
+#############################
+# packet
+#
+
+# Transport layer: generic
+SSH_MSG_DISCONNECT = 1;
+SSH_MSG_IGNORE = 2;
+SSH_MSG_UNIMPLEMENTED = 3;
+SSH_MSG_DEBUG = 4;
+SSH_MSG_SERVICE_REQUEST = 5;
+SSH_MSG_SERVICE_ACCEPT = 6;
+
+# Transport layer: algorithm negotiation
+SSH_MSG_KEXINIT = 20;
+SSH_MSG_NEWKEYS = 21;
+
+# Transport layer: kex specific messages, reusable
+SSH_MSG_KEXDH_INIT = 30;
+SSH_MSG_KEXDH_REPLY = 31;
+
+# dh-group-exchange
+SSH_MSG_KEX_DH_GEX_REQUEST_OLD = 30;
+SSH_MSG_KEX_DH_GEX_GROUP = 31;
+SSH_MSG_KEX_DH_GEX_INIT = 32;
+SSH_MSG_KEX_DH_GEX_REPLY = 33;
+SSH_MSG_KEX_DH_GEX_REQUEST = 34;
+
+# User authentication: generic
+SSH_MSG_USERAUTH_REQUEST = 50;
+SSH_MSG_USERAUTH_FAILURE = 51;
+SSH_MSG_USERAUTH_SUCCESS = 52;
+SSH_MSG_USERAUTH_BANNER = 53;
+
+# User authentication: method specific, reusable
+SSH_MSG_USERAUTH_INFO_REQUEST = 60;
+SSH_MSG_USERAUTH_INFO_RESPONSE = 61;
+SSH_MSG_USERAUTH_PK_OK = 60;
+
+# Connection protocol: generic
+
+SSH_MSG_GLOBAL_REQUEST = 80;
+SSH_MSG_REQUEST_SUCCESS = 81;
+SSH_MSG_REQUEST_FAILURE = 82;
+
+# Channel related
+
+SSH_MSG_CHANNEL_OPEN = 90;
+SSH_MSG_CHANNEL_OPEN_CONFIRMATION = 91;
+SSH_MSG_CHANNEL_OPEN_FAILURE = 92;
+SSH_MSG_CHANNEL_WINDOW_ADJUST = 93;
+SSH_MSG_CHANNEL_DATA = 94;
+SSH_MSG_CHANNEL_EXTENDED_DATA = 95;
+SSH_MSG_CHANNEL_EOF = 96;
+SSH_MSG_CHANNEL_CLOSE = 97;
+SSH_MSG_CHANNEL_REQUEST = 98;
+SSH_MSG_CHANNEL_SUCCESS = 99;
+SSH_MSG_CHANNEL_FAILURE = 100;
+
+.struct 0
+ssh_packet_len:	.long 0		# packet length without: packetlen dword, mac (msg auth code)
+ssh_packet_padlen: .byte 0
+ssh_packet_payload: 
+
+.data
+ssh_packet_out: 
+# dword packet len	  value = 1 (padlen byte) + payload + padding
+# byte padding len	length(packetlen||padlen||payload||padding) is multiple of max(8, cipher_block_size)
+# (packetlen-paddinglen-1) payload
+# padding		see above. MIN pad len = 4
+# MAC
+	.space 1024
+.text32
+
+
+
+sshd_parse_client_protocol:	# state 0: client protocol
 	printlnc 10, "SSH Client protocol received";
 	inc	byte ptr [sshc_state]
-	jmp	9f
+	clc
+	ret
 
-1:	# state 1: KEX INIT (key exchange)
-
+sshd_parse_kex_init:	# state 1: KEX INIT (key exchange)
+	cmpb	[esi + ssh_packet_payload], SSH_MSG_KEXINIT
+	jz	1f
+	printc 12, "SSH error - expect KEXINIT, got "
+	push edx; movzx edx, byte ptr [esi + ssh_packet_payload]; call printhex2; pop edx
+	call	newline
+	stc
+	ret
+1:
 	# Binary Packet:
 	# dword packet len, excluding mac and packet len field, so, size of:
 	#   byte padding len
@@ -272,108 +368,14 @@ sshd_parse:
 	call	ssh_kex_init_send
 
 	inc	byte ptr [sshc_state]
-	jmp	9f
-
-####################
-2:	# state 2: KEXDH_INIT
-	printlnc 11, "ssh: todo: KEXDH_INIT"
-	jmp	9f
-
-
-
-
 9:	clc
 	ret
-
 98:	printlnc 5, "ssh: algorithm list too large";
 	jmp 1f
 99:	printlnc 4, "ssh: negative size"
 1:	stc
 	ret
 
-#############################
-# Server Protocol:
-# - server identification handshake
-# - key exchange handshake (KEX)
-# - new keys handshake
-# - server user auth handshake
-
-# handshake base class:
-# - initiate
-# - accept
-
-#############################
-# packet
-#
-
-# Transport layer: generic
-SSH_MSG_DISCONNECT = 1;
-SSH_MSG_IGNORE = 2;
-SSH_MSG_UNIMPLEMENTED = 3;
-SSH_MSG_DEBUG = 4;
-SSH_MSG_SERVICE_REQUEST = 5;
-SSH_MSG_SERVICE_ACCEPT = 6;
-
-# Transport layer: algorithm negotiation
-SSH_MSG_KEXINIT = 20;
-SSH_MSG_NEWKEYS = 21;
-
-# Transport layer: kex specific messages, reusable
-SSH_MSG_KEXDH_INIT = 30;
-SSH_MSG_KEXDH_REPLY = 31;
-
-# dh-group-exchange
-SSH_MSG_KEX_DH_GEX_REQUEST_OLD = 30;
-SSH_MSG_KEX_DH_GEX_GROUP = 31;
-SSH_MSG_KEX_DH_GEX_INIT = 32;
-SSH_MSG_KEX_DH_GEX_REPLY = 33;
-SSH_MSG_KEX_DH_GEX_REQUEST = 34;
-
-# User authentication: generic
-SSH_MSG_USERAUTH_REQUEST = 50;
-SSH_MSG_USERAUTH_FAILURE = 51;
-SSH_MSG_USERAUTH_SUCCESS = 52;
-SSH_MSG_USERAUTH_BANNER = 53;
-
-# User authentication: method specific, reusable
-SSH_MSG_USERAUTH_INFO_REQUEST = 60;
-SSH_MSG_USERAUTH_INFO_RESPONSE = 61;
-SSH_MSG_USERAUTH_PK_OK = 60;
-
-# Connection protocol: generic
-
-SSH_MSG_GLOBAL_REQUEST = 80;
-SSH_MSG_REQUEST_SUCCESS = 81;
-SSH_MSG_REQUEST_FAILURE = 82;
-
-# Channel related
-
-SSH_MSG_CHANNEL_OPEN = 90;
-SSH_MSG_CHANNEL_OPEN_CONFIRMATION = 91;
-SSH_MSG_CHANNEL_OPEN_FAILURE = 92;
-SSH_MSG_CHANNEL_WINDOW_ADJUST = 93;
-SSH_MSG_CHANNEL_DATA = 94;
-SSH_MSG_CHANNEL_EXTENDED_DATA = 95;
-SSH_MSG_CHANNEL_EOF = 96;
-SSH_MSG_CHANNEL_CLOSE = 97;
-SSH_MSG_CHANNEL_REQUEST = 98;
-SSH_MSG_CHANNEL_SUCCESS = 99;
-SSH_MSG_CHANNEL_FAILURE = 100;
-
-.struct 0
-ssh_packet_len:	.long 0		# packet length without: packetlen dword, mac (msg auth code)
-ssh_packet_padlen: .byte 0
-ssh_packet_payload: 
-
-.data
-ssh_packet_out: 
-# dword packet len	  value = 1 (padlen byte) + payload + padding
-# byte padding len	length(packetlen||padlen||payload||padding) is multiple of max(8, cipher_block_size)
-# (packetlen-paddinglen-1) payload
-# padding		see above. MIN pad len = 4
-# MAC
-	.space 1024
-.text32
 
 # called when kex_init is received
 # all registers free.
@@ -527,6 +529,26 @@ ssh_kex_init_makepacket:
 	mov	esi, offset ssh_packet_out + ssh_packet_payload
 	sub	ecx, esi
 	ret
+
+
+
+
+sshd_parse_kexdh_init:	# state 2: KEXDH_INIT
+	printlnc 11, "ssh: todo: KEXDH_INIT"
+
+	mov	dl, [esi + ssh_packet_payload]
+	cmp	dl, SSH_MSG_KEXDH_INIT
+	jz	1f
+	printc 12, "SSH error: expect KEXDH_INIT, got "
+	call	printhex2
+	call	newline
+	stc
+	ret
+
+1:	printlnc 11, "SSH rx KEXDH_INIT"
+	ret
+
+
 
 
 ###########################################################################
