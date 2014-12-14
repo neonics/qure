@@ -60,6 +60,7 @@ sshd_handle_client:
 .data
 SSH_STATE_CLIENT_PROTOCOL= 0;
 SSH_STATE_KEX_INIT	 = 1;
+SSH_STATE_KEXDH_INIT	 = 2;
 sshc_state: .byte 0;
 .text32
 
@@ -119,6 +120,11 @@ sshd_parse:
 	jz	0f
 	cmp	byte ptr [sshc_state], SSH_STATE_KEX_INIT
 	jz	1f
+	cmp	byte ptr [sshc_state], SSH_STATE_KEXDH_INIT
+	jz	2f
+
+	printlnc 12, "sshd: unimplemented state, ignoring"
+	jmp	9f
 
 0:	# state 0: client protocol
 	printlnc 10, "SSH Client protocol received";
@@ -265,9 +271,15 @@ sshd_parse:
 
 	call	ssh_kex_init_send
 
-
 	inc	byte ptr [sshc_state]
 	jmp	9f
+
+####################
+2:	# state 2: KEXDH_INIT
+	printlnc 11, "ssh: todo: KEXDH_INIT"
+	jmp	9f
+
+
 
 
 9:	clc
@@ -349,16 +361,16 @@ SSH_MSG_CHANNEL_SUCCESS = 99;
 SSH_MSG_CHANNEL_FAILURE = 100;
 
 .struct 0
-ssh_packet_len:	.long 0
+ssh_packet_len:	.long 0		# packet length without: packetlen dword, mac (msg auth code)
 ssh_packet_padlen: .byte 0
 ssh_packet_payload: 
 
 .data
 ssh_packet_out: 
-# dword packet len
-# byte padding len
+# dword packet len	  value = 1 (padlen byte) + payload + padding
+# byte padding len	length(packetlen||padlen||payload||padding) is multiple of max(8, cipher_block_size)
 # (packetlen-paddinglen-1) payload
-# padding
+# padding		see above. MIN pad len = 4
 # MAC
 	.space 1024
 .text32
@@ -370,52 +382,59 @@ ssh_packet_out:
 # [esp + 8...] = pushad
 ssh_kex_init_send:
 	call	ssh_kex_init_makepacket
+	# esi = ssh_packet_payload
+	# ecx = payload len
+	# edi = end of payload
 
 	DEBUG_DWORD ecx,"payload len"
-	mov	eax, ecx
 
 	# set up packet header:
 	sub	esi, offset ssh_packet_payload	# rewind to beginning
-	add	ecx, offset ssh_packet_payload	# correct for header
-	# calc padding: (we hardcode it to 8
-	mov	edx, 8	# block size (or: encrypter.IVsize)
-	mov	[esi + ssh_packet_padlen], dl
+	#add	ecx, offset ssh_packet_payload	# correct for header
 
+	# calc padding: 
+	mov	edx, 8	# block size (or: encrypter.IVsize)
 	# pad = (-packetlen) & (blocksize -1)
-	push	eax	# payload len
+
+	lea	eax, [ecx + ssh_packet_payload]	# header + payload
 	neg	eax
+	# & (blocksize-1)
 	dec	edx
 	and	eax, edx
 	inc	edx
+	DEBUG_DWORD eax, "prelim padding"
 	# pad += blocksize if pad < blocksize (XXX is always the case I think!)
-	cmp	eax, edx
+	cmp	eax, 4 # edx # min padlen = 4 # XXX spec says multiple of (max(8,cipher_block_size) which is > 4 always..?
 	jae	1f
 	add	eax, edx
 1:	mov	edx, eax
 	DEBUG_DWORD edx,"payload padding"
-	pop	eax
+	mov	[esi + ssh_packet_padlen], dl
 
 	# add random bytes in padding
-	push_	ecx edi eax
-	lea	edi, [esi + ecx]
+	push_	ecx eax
+	#lea	edi, [esi + ssh_packet_payload + ecx] # unchanged.
 	mov	ecx, edx
-	call	random
-0:	stosb
-	ror	eax, 7
+0:	call	random
+	stosb
 	loop	0b
-	pop_	eax edi ecx
+	pop_	eax ecx
 
+	# now calculate the packetlen field value:
 	# packetlen := len+ pad -4
-	#lea	eax, [ecx + edx - 4]
-	DEBUG_DWORD eax, "payload len"
-	lea	eax, [eax + edx - 4]	# add padding and -4 fix
-	DEBUG_DWORD eax, "payload+padding"
+	lea	eax, [ecx + edx + 1]	# payloadlen + padding + padlen field (XXX removed -4 fix)
+	DEBUG_DWORD eax, "payload+padding+padlenfld"
 	bswap	eax
 	mov	[esi + ssh_packet_len], eax
 
-	# increase packet len with new padding:
-	add	ecx, edx
-	DEBUG_DWORD ecx, "PACKET LEN"
+	call newline
+	DEBUG_DWORD ecx
+	DEBUG_DWORD edx
+	lea	ecx, [ecx + edx + ssh_packet_payload]
+	DEBUG_DWORD ecx, "NET PACKET LEN"
+	mov	ecx, edi
+	sub	ecx, esi
+	DEBUG_DWORD ecx, "AGAIN"
 
 	mov	eax, [esp + 8 + 28]	# get socket from pushad,call,call
 	DEBUG_DWORD eax, "sending using socket"
@@ -437,6 +456,8 @@ ssh_kex_init_makepacket:
 	.endr
 
 	# send kex algorithms
+	# - diffie-hellman-group1-sha1	REQUIRED
+	# - diffie-hellman-group14-sha1 REQUIRED
 	LOAD_TXT "diffie-hellman-group1-sha1", esi, eax, 1
 	mov	ecx, eax
 	bswap	eax
@@ -444,6 +465,8 @@ ssh_kex_init_makepacket:
 	rep	movsb
 
 	# send server hostkey algorithms
+	# - ssh-dss REQUIRED
+	# - ssh-rsa RECOMMMENDED
 	LOAD_TXT "ssh-rsa,ssh-dss", esi, eax, 1
 	mov	ecx, eax
 	bswap	eax
@@ -451,7 +474,10 @@ ssh_kex_init_makepacket:
 	rep	movsb
 
 	# send client to server cipher
-	LOAD_TXT "aes128-ctr,aes192-ctr,aes256-ctr,arcfour256,arcfour128,aes128-cbc,3des-cbc,blowfish-cbc,aes192-cbc,aes256-cbc,arcfour", esi, eax, 1
+	# 3des-cbc REQUIRED
+	# aes-128-cbc RECOMMENDED
+	#LOAD_TXT "aes128-ctr,aes192-ctr,aes256-ctr,arcfour256,arcfour128,aes128-cbc,3des-cbc,blowfish-cbc,aes192-cbc,aes256-cbc,arcfour", esi, eax, 1
+	LOAD_TXT "aes128-cbc", esi, eax, 1
 	mov	ecx, eax
 	bswap	eax
 	push_	ecx esi
@@ -463,7 +489,8 @@ ssh_kex_init_makepacket:
 	rep	movsb
 
 	# send client to server mac algorithms
-	LOAD_TXT "hmac-md5,hmac-sha1,hmac-sha2-512,hmac-sha1-96,hmac-md5-96", esi, eax, 1
+	#LOAD_TXT "hmac-md5,hmac-sha1,hmac-sha2-512,hmac-sha1-96,hmac-md5-96", esi, eax, 1
+	LOAD_TXT "hmac-sha1", esi, eax, 1
 	mov	ecx, eax
 	bswap	eax
 	push_	ecx esi
@@ -598,7 +625,4 @@ hmac:
 #######################
 # CRYPTO: DHG1 diffie-hellman-group1-sha1 (TODO)
 
-
-####################
-# ssh packet
-
+.include "../lib/aes.s"
