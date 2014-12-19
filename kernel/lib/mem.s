@@ -1920,6 +1920,17 @@ cmd_mem$:
 
 2:	xor	edx, edx
 	printc 15, " Stack: "
+	# get pid0 stack
+	xor	eax, eax
+	push_	ebx ecx
+	call	task_get_by_pid	# out: ebx + ecx
+	lea	edx, [ebx + ecx]
+	pop_	ecx ebx
+	mov	eax, [kernel_stack_top]
+	sub	eax, [edx + task_regs + task_reg_esp]
+	xor	edx, edx
+	call	print_size
+	PRINTC 8, "/"
 	mov	eax, [kernel_stack_top]
 	sub	eax, [kernel_stack_bottom]	# offset kernel_end
 	call	print_size
