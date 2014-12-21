@@ -345,7 +345,7 @@ schedule_top_delay$: .long 0
 	call	printspace
 	# print task
 	mov	eax, [scheduler_current_task_idx]
-	add	eax, [task_queue]	# potential concurrency issue
+	add	eax, [task_queue]	# XXX potential concurrency issue
 	DEBUGS [eax + task_label],"task"
 	POP_SCREENPOS
 
@@ -2516,10 +2516,12 @@ task_print$:
 	mov	edx, [eax + ebx + task_pid]
 	call	printhex4
 	call	printspace
+# print current CPL (usually scheduler's CPL (0) on blocking IO)
 	mov	edx, [eax + ebx + task_regs + task_reg_cs]
 	and	dl, 3
 	call	printhex1
 	call	printspace
+# print stack pointer
 	mov	edx, [eax + ebx + task_regs + task_reg_eip]
 mov edx, [eax + ebx + task_stack0_top]
 	call	printhex8
@@ -2541,7 +2543,11 @@ mov edx, [eax + ebx + task_stack0_top]
 	PRINTFLAG edx, TASK_FLAG_CHILD_JOB,	"C", " "
 	PRINTFLAG edx, TASK_FLAG_WAIT_IO,	"W", " "
 	PRINTFLAG edx, TASK_FLAG_RESCHEDULE,	"r", " "
-	PRINTFLAG edx, TASK_FLAG_TASK,		" T", "J "
+	PRINTFLAG edx, TASK_FLAG_TASK,		"T", "J"
+	and	edx, TASK_FLAG_RING_MASK
+	shr	edx, TASK_FLAG_RING_SHIFT
+	call	printhex1	# CPL
+
 2:
 	.endif
 	call	printspace
