@@ -3,7 +3,13 @@
 #
 # rfc 792
 
-NET_ICMP_DEBUG = 0
+
+# 0: disabled
+# 1: print requests
+# 2: print responses
+# 3: log request registration details
+NET_ICMP_DEBUG = 1
+
 
 #############################################################################
 .struct 0	# 14 + 20
@@ -152,7 +158,11 @@ net_ipv4_icmp_handle:
 	cmp	al, 8
 	jnz	1f
 	.if NET_ICMP_DEBUG
-		printc 11, "ICMP PING REQUEST "
+		printc 11, "ICMP PING REQUEST from "
+		mov	eax, [edx + ipv4_src]
+		call	net_print_ip
+		call	newline
+
 	.endif
 	call	protocol_icmp_ping_response
 	clc
@@ -201,7 +211,7 @@ net_ipv4_icmp_handle:
 
 1:	cmp	al, 3	# destination unreachable
 	jnz	1f
-	.if 1#NET_ICMP_DEBUG
+	.if NET_ICMP_DEBUG
 		printc 11, "ICMP destination unreachable: code "
 		mov	al, ah
 		call	printhex2
@@ -251,7 +261,7 @@ icmp_requests: .long 0	# array
 net_icmp_register_request:
 	push	ebx
 	push	ecx
-	.if NET_ICMP_DEBUG > 1
+	.if NET_ICMP_DEBUG > 2
 		DEBUG "net_icmp_register_request"
 		call net_print_ip
 		call newline
@@ -690,7 +700,7 @@ protocol_icmp_ping_response:
 
 	# done, send the packet.
 
-	.if NET_ICMP_DEBUG
+	.if NET_ICMP_DEBUG > 1
 		printlnc 11, "Sending ICMP PING response"
 	.endif
 
