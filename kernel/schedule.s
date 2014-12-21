@@ -475,6 +475,10 @@ scheduler_suspend:
 	loop	2b
 3:	ret
 1:	loop	0b
+# XXX was an undocumented FALLTHROUGH - probably bug:
+	printlnc 4, "FAIL lock SCHEDULER mutex"
+	int 3	# XXX
+	jmp	scheduler_suspend
 
 scheduler_resume:
 	SEM_UNLOCK [task_queue_sem]
@@ -719,6 +723,7 @@ call task_update_time_resume$
 
 
 # in: eax = task idx
+# PRECONDITION: [task_queue] locked
 task_print_stack$:
 #	DEBUG_DWORD eax, "task idx"
 	add	eax, [task_queue]
@@ -2397,19 +2402,67 @@ schedule_print:
 	ret
 
 #############################################################################
+# local utility method to call 'cmd_tasks' as 'ps'
 cmd_ps$:
+	pushd	0	# end of commandline
 	PUSHSTRING "ps"
 	mov	esi, esp
 	call	cmd_tasks
 	add	esp, 4
 	ret
 
+# 'ps' command, serving double duty as 'top' depending on how it is called.
 cmd_tasks:
 	SEM_SPINLOCK [task_queue_sem]
 	push	ebp
 	mov	ebp, [esi]
 
-	pushcolor TASK_PRINT_BG_COLOR | 7
+	# check for 'ps -p PID'
+	cmp	dword ptr [ebp], 't'|('o'<<8)|('p'<<16)
+	jz	1f		# not 'ps'
+	cmpd	[esi + 4], 0	# check if there is an argument
+	jz	1f		# no argument
+	call	cmd_get_task$	# in: esi=cmdline; out: eax=pid,ebx+ecx=task
+	jc	0f		# error printed, done
+	mov	edi, ecx	# backup task index
+	mov	eax, ebx	# task_print expects eax + ebx
+	mov	ebx, ecx
+	call	task_print$
+	# let's print some more detailed info:
+	add	ebx, eax	# consolidate pointer
+
+	mov	edx, [ebx + task_stack_ss]
+	print "usr stack: "
+	call	printhex4
+	print ":"
+	mov	edx, [ebx + task_stack_esp]
+	call	printhex8
+	call	newline
+
+	mov	edx, [ebx + task_stack_ss0]
+	print "sys stack: "
+	call	printhex4
+	print ":"
+	mov	edx, [ebx + task_stack_esp0]
+	call	printhex8
+	call	newline
+
+	mov	edx, [ebx + task_regs + task_reg_cs]
+	print "cs:eip: "
+	call	printhex4
+	print ":"
+	mov	edx, [ebx + task_regs + task_reg_eip]
+	call	printhex8
+	call	newline
+
+	mov	eax, edi	# get task index
+	call	task_print_stack$
+
+	jmp	0f		# done
+
+
+
+1:	pushcolor TASK_PRINT_BG_COLOR | 7
 	print "Tasks: "
 	mov	ecx, [task_queue]
 	or	ecx, ecx
@@ -2470,10 +2523,9 @@ cmd_tasks:
 	1:
 	ARRAY_ENDL
 9:	popcolor
-	pop	ebp
+0:	pop	ebp
 	SEM_UNLOCK [task_queue_sem]
 	ret
-
 
 
 task_print_h$:
