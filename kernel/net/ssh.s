@@ -84,6 +84,7 @@ sshd_client:
 	jc	9f
 	jecxz	1f
 	pushad
+	mov	ebp, esp
 	DEBUG_DWORD eax, "client socket"
 	call	sshd_parse
 	popad
@@ -117,6 +118,10 @@ sshd_parse:
 	call	newline
 	pop_	eax esi ecx
 
+	# special care:
+	cmpb	[esi + ssh_packet_payload], 1	# SSH_MSG_DISCONNECT (defined below)
+	jz	sshd_parse_msg_disconnect
+
 	cmp	byte ptr [sshc_state], SSH_STATE_CLIENT_PROTOCOL
 	jz	sshd_parse_client_protocol
 	cmp	byte ptr [sshc_state], SSH_STATE_KEX_INIT
@@ -125,6 +130,25 @@ sshd_parse:
 	jz	sshd_parse_kexdh_init
 
 	printlnc 12, "sshd: unimplemented state, ignoring"
+	stc
+	ret
+
+# packet:
+#  .long 0x2c	# packet entire length: 0x30 (example)
+#  .byte 7	# padlen
+#  .byte 1	# SSH_MSG_DISCONNECT
+#  .long 2	# unknown - code?
+#  .long 0x17	# 23
+#  .space 23	# "Packet integrity error"
+#  .long 0	# maybe detail message len?
+#  .space 7	# padding
+sshd_parse_msg_disconnect:
+	printc 12, "SSH peer DISCONNECT: "
+	DEBUG_DWORD [esi + ssh_packet_payload + 1], "code" # assumption
+	mov	ecx, [esi + ssh_packet_payload + 1+4]
+	bswap	ecx
+	lea	esi, [esi + ssh_packet_payload + 1 + 4 + 4]
+	call	nprintln
 	stc
 	ret
 
@@ -156,14 +180,14 @@ SSH_MSG_KEXINIT = 20;
 SSH_MSG_NEWKEYS = 21;
 
 # Transport layer: kex specific messages, reusable
-SSH_MSG_KEXDH_INIT = 30;
-SSH_MSG_KEXDH_REPLY = 31;
+SSH_MSG_KEXDH_INIT = 30;		# C->S: mpint e		# assumed by diffie-hellman-group1-sha1 providing g,p; e=g^x mod p
+SSH_MSG_KEXDH_REPLY = 31;		# S->C: string pub hostkey, f, signature(H)
 
 # dh-group-exchange
-SSH_MSG_KEX_DH_GEX_REQUEST_OLD = 30;
-SSH_MSG_KEX_DH_GEX_GROUP = 31;
-SSH_MSG_KEX_DH_GEX_INIT = 32;
-SSH_MSG_KEX_DH_GEX_REPLY = 33;
+SSH_MSG_KEX_DH_GEX_REQUEST_OLD = 30;	# v1 C->S: .long min(1024), preferred, max(8192) group size in bits
+SSH_MSG_KEX_DH_GEX_GROUP = 31;		# v1 S->C: mpint safe prime p, mpint generator g
+SSH_MSG_KEX_DH_GEX_INIT = 32;		# v1 C->S: mpint e (replaced by SSH_MSG_KEXDH_INIT)
+SSH_MSG_KEX_DH_GEX_REPLY = 33;		# v2 S->C: string K_S; mpint f; signature of H
 SSH_MSG_KEX_DH_GEX_REQUEST = 34;
 
 # User authentication: generic
@@ -209,7 +233,7 @@ ssh_packet_out:
 # (packetlen-paddinglen-1) payload
 # padding		see above. MIN pad len = 4
 # MAC
-	.space 1024
+	.space 1024	# XXX
 .text32
 
 
@@ -384,10 +408,13 @@ sshd_parse_kex_init:	# state 1: KEX INIT (key exchange)
 # [esp + 8...] = pushad
 ssh_kex_init_send:
 	call	ssh_kex_init_makepacket
-	# esi = ssh_packet_payload
-	# ecx = payload len
-	# edi = end of payload
+	#jmp	ssh_send_packet
+# fallthrough
 
+# in: esi = ssh_packet_payload
+# in: ecx = payload len
+# in: edi = end of payload
+ssh_send_packet:
 	DEBUG_DWORD ecx,"payload len"
 
 	# set up packet header:
@@ -438,7 +465,8 @@ ssh_kex_init_send:
 	sub	ecx, esi
 	DEBUG_DWORD ecx, "AGAIN"
 
-	mov	eax, [esp + 8 + 28]	# get socket from pushad,call,call
+	#mov	eax, [esp + 8 + 28]	# get socket from pushad,call,call
+	mov	eax, [ebp + 28]		# get socket from pushad @ ebp (eax = top dword)
 	DEBUG_DWORD eax, "sending using socket"
 	KAPI_CALL socket_write
 	KAPI_CALL socket_flush
@@ -469,7 +497,8 @@ ssh_kex_init_makepacket:
 	# send server hostkey algorithms
 	# - ssh-dss REQUIRED
 	# - ssh-rsa RECOMMMENDED
-	LOAD_TXT "ssh-rsa,ssh-dss", esi, eax, 1
+	#LOAD_TXT "ssh-rsa,ssh-dss", esi, eax, 1
+	LOAD_TXT "ssh-rsa", esi, eax, 1
 	mov	ecx, eax
 	bswap	eax
 	stosd
@@ -534,8 +563,6 @@ ssh_kex_init_makepacket:
 
 
 sshd_parse_kexdh_init:	# state 2: KEXDH_INIT
-	printlnc 11, "ssh: todo: KEXDH_INIT"
-
 	mov	dl, [esi + ssh_packet_payload]
 	cmp	dl, SSH_MSG_KEXDH_INIT
 	jz	1f
@@ -546,9 +573,299 @@ sshd_parse_kexdh_init:	# state 2: KEXDH_INIT
 	ret
 
 1:	printlnc 11, "SSH rx KEXDH_INIT"
+
+	# network packet len: 144 bytes
+	# payload len: 140 bytes
+	# padding: 5
+	# Therefore:
+	#
+	# packet: .space 144
+	#   header:     .space 5
+	#   .long 140	# payload len (139) + padlen byte (1)
+	#   .byte 5	# padlen
+	#   payload:  	.space 134 (139-5)
+	#     msgid:      .byte KEXDH_INIT
+	#     mpint e:    .space 133   (.long len; .space len; see mpint encoding below)
+	#   padding:    .space 5
+	#
+	# mpint encoding:
+	#
+	# IF mpint[0] & 0x80 == 0
+	#  .long bytes
+	#  .space bytes
+	# ELSE
+	#  .long bytes+1
+	#  .byte 0
+	#  .space bytes
+	# ENDIF
+	#
+	# In case high bit of mpint value is set it is prefixed with 5 bytes,
+	# otherwise 4 bytes. For 1024 bits (128 bytes) this results in either
+	# a padding of 5 bytes (for the 5 byte prefix) or 6 bytes (when mpint
+	# is 4 + 128 bytes).
+
+
+	mov	edx, ecx
+	print "NET packet len: "
+	call	printdec32;	pushcolor 8; call printhex8; popcolor
+
+	mov	edx, [esi + ssh_packet_len]
+	print "packet len: "
+	bswap	edx
+	call	printdec32; pushcolor 8; call printhex8; popcolor
+	print "padding len: "
+	movzx	edx, byte ptr [esi + ssh_packet_padlen]
+	call	printdec32
+	call	newline
+
+
+	mov	edi, esi	# backup esi (packet start)
+	mov	ecx, [esi + ssh_packet_len]
+	bswap	ecx
+	DEBUG_DWORD ecx	# 0x8c (140)
+	dec	ecx		# -1 (padlen byte)
+	sub	ecx, edx	# -padlen
+	DEBUG_DWORD ecx	# 0x85 (133)
+
+	add	esi, offset ssh_packet_payload
+	mov	dl, [esi]
+	inc	esi
+	DEBUG_BYTE dl, "msgtype(1e?)"
+
+	lodsd	# get mpint size
+	bswap	eax
+	DEBUG_DWORD eax, "mpintsize"
+
+	sub	ecx, 1 + 4	# message id (1) + mpintsize (4)
+	cmp	ecx, eax
+	jnz	91f
+
+	call	newline
+	printc 13, "client DH mpint e: "
+
+0:	mov	dl, [esi]
+	inc	esi
+	call	printhex2
+	loop	0b
+	call	newline
+
+	# RESPONSE
+
+	# KEX DH:
+	#
+	# 1) C generates random number x (1<x<q)
+	#    and computes  e = g^x mod p
+	#    and sends e to S.
+	# This is the packet parsed above.
+	#
+	# 2) S generates random number y (0<y<q)
+	call	ssh_gen_rand	# XXX q = order of subgroup=?? (for now: q=2048 bits)
+	#    and computes  f = g^y mod p.
+	call	ssh_calc_f	# TODO: 
+	#    S receives e (see above).
+	#    S computes:
+	#       K = e^y mod p
+	#       H = HASH( V_C || V_S || I_C || K_S || e || f || K )
+	#       signature s on H with private host key.
+	#    S sends ( K_S || f || s ) to C.
+	#
+	# 3) C verifies K_S is for S (local database)
+	#    C computes
+	#        K = f^x mod p
+	#        H = HASH( V_C || ... (same as S))
+	#        and verifies signature s on H.
+	#
+	# LEGEND:
+	#   C:   client
+	#   S:   server
+	#   p:   large safe prime
+	#   g:   generator for subgroup GF(p)
+	#   q:   order of the subgroup
+	#   V_S: S's identification string
+	#   V_C: C's identification string
+	#   K_S: S's public host key
+	#   I_C: C's SSH_MSG_KEXINIT message
+	#   I_S: S's SSH_MSG_KEXINIT message
+
+	#
+	# a) generate random number y between 0 and q.
+	#
+
+	# Now we must send KEXDH_REPLY.
+	#
+	# Format:
+	#
+
+
+	call	ssh_kexdh_reply_makepacket
+	call	ssh_send_packet
+	clc
+	ret
+
+91:	printlnc 14, "SSH error: KEXDH mpint size exceeds packet len!"
+	stc
+	ret
+
+# generate random number y 
+.data
+ssh_dh_y: .space 256	# rsa 2048 bit
+ssh_dh_f: .space 256
+.text32
+ssh_gen_rand:
+	mov	edi, offset ssh_dh_y
+	mov	ecx, 256/4
+0:	call	random
+	stosd
+	loop	0b
+	ret
+
+# calculate f = g^y mod p
+ssh_calc_f:
+	mov	esi, offset ssh_dh_y
+	mov	edi, offset ssh_dh_f
+	mov	ecx, 256/4
+
+	ret
+
+# ssh -o KexAlgorithms=diffie-hellman-group1-sha1 -o HostKeyAlgorithms=ssh-rsa -c aes128-cbc -m hmac-sha1 HOST
+#
+# server KEXDH_REPLY:
+#
+# packet len: 0x700
+# padding len: 8
+# msg_code: 0x31 (DH KEX DH REPLY)
+# dh mod (p):	# server host key K_S
+#   mp_int_len: .long 279  # 4+7 + 4+3 + 4+1+256
+#   .long 7; .ascii "ssh-rsa"
+#   .long 3; .byte 1,0,1
+#   .long 0x101; .byte 0; .space 256 (2048 bits)
+# dh base (g):	# public f (g^y mod p)
+#   mp_int_len: .long 128; .space 128
+# signature:
+#   .long 0x10f (256 + 15)
+#     .long 7; .ascii "ssh-rsa"
+#     .long 0x100; .space 256
+
+.data
+#ssh_server_host_key:
+#ssh_server_host_key_name_len:	.long 7 << 24	# network byte order (nbo)
+#ssh_server_host_key_name:	.ascii "ssh-rsa"# server host key algorithm
+#ssh_server_host_key_b_len:	.long 3 << 24	#
+#ssh_server_host_key_b_data:	.byte 1,0,1	# unsure
+#ssh_server_host_key_key_len:	.long 256	# XXX bswap! also see XXX next line
+#ssh_server_host_key_key_data:	.space 256	# XXX might be 1 more if high bit is 1
+#ssh_server_host_key_end:
+
+# ssh rsa signature:
+# .long 0x100 + 15
+# .long 7; .ascii "ssh-rsa"
+# .space 0x100
+
+ssh_server_host_key_rsa:	.space 256	# 2048 bit key
+
+ssh_server_f:		.space 128	# TODO: threadlocal
+ssh_server_f_end:	
+
+ssh_server_H_sig:	.space 256	# XXX during DH KEX reply this is RSA signature; HMAC-SHA1 (sha1 = 20 bytes = 160 bits)
+ssh_server_H_sig_end:
+.text32
+
+# out: esi, ecx = packet to send
+ssh_kexdh_reply_makepacket:
+	lea	edi, [ssh_packet_out + ssh_packet_payload]
+	mov	al, SSH_MSG_KEXDH_REPLY
+	stosb
+
+# string K_S (server public host key and certificates)  (DH modulus (P))
+	mov	ebx, edi	# backup block start (size field)
+	add	edi, 4		# skip block len, fill in later
+	# server host key algorithm
+	LOAD_TXT "ssh-rsa", esi, eax, 1	
+	mov	ecx, eax
+	bswap	eax
+	stosd
+	rep	movsb
+	# ssh-rsa data:
+	# first the .long 3; .byte 1,0,1 (flags?)
+	mov	eax, 3
+	bswap	eax
+	stosd
+	mov	al, 1
+	stosb
+	dec	al
+	stosb
+	inc	al
+	stosb
+	# rsa key (length: 256 bytes/2048 bits)
+	mov	esi, offset ssh_server_host_key_rsa
+	mov	eax, 256
+	call	ssh_packet_put_key
+
+	# now we must update [ebx] with the length of the appended data
+	lea	eax, [edi-4]	# -4 is to subtract the length of the block size field
+	sub	eax, ebx
+	bswap	eax
+	mov	[ebx], eax
+
+# mpint f (DH base (G))
+	mov	esi, offset ssh_server_f
+	mov	eax, ssh_server_f_end - ssh_server_f
+	call	ssh_packet_put_key
+
+# signature of H
+	# again, rsa signature of 256 bytes/2048 bits
+	mov	ebx, edi
+	stosd	# skip for later
+	LOAD_TXT "ssh-rsa", esi, eax, 1
+	mov	ecx, eax
+	bswap	eax
+	stosd
+	rep	movsb
+	mov	esi, offset ssh_server_H_sig
+	mov	eax, ssh_server_H_sig_end - ssh_server_H_sig
+	call	ssh_packet_put_key	# .long 256; .space 256 (with 0x80 adjust)
+	# update signature length field
+	lea	eax, [edi -4] # -4 = correction for length field
+	sub	eax, ebx
+	bswap	eax
+	mov	[ebx], eax
+
+	mov	ecx, edi
+	mov	esi, offset ssh_packet_out + ssh_packet_payload
+	sub	ecx, esi
 	ret
 
 
+###########################################################################
+# ssh packet utility functions
+
+# in: esi = key
+# in: eax = key len
+# in: edi = pointer in packet
+# destroys: ecx, eax
+# out: esi += eax
+# out: edi += eax + 4 + 1?
+ssh_packet_put_key:
+	mov	ecx, eax
+	testb	[esi], 0x80
+	jz	1f
+	inc	eax
+	bswap	eax
+	stosd
+	xor	al, al
+	stosb
+	jmp	2f	# TODO: compare opcode len  'jmp 2f' against 'rep movsb;ret'
+
+1:	bswap	eax
+	stosd
+2:	mov	al, cl
+	shr	ecx, 2
+	rep	movsd
+	# this probably never occurs with keylengths power of 2
+	mov	cl, al
+	and	cl, 3
+	rep	movsb
+	ret
 
 
 ###########################################################################
