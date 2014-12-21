@@ -1664,7 +1664,7 @@ OBJ_STRUCT_SIZE = .
 
 
 .macro DECLARE_CLASS_BEGIN name, super=OBJ, offs=0
-	CLASS = \name
+	#CLASS = \name
 	.section .classdef$md; _DECL_CLASS_DECL_MPTR = .;
 		mptr_\name\():
 	.section .classdef$mo; _DECL_CLASS_OVERRIDE_MPTR = .;
@@ -1699,7 +1699,7 @@ OBJ_STRUCT_SIZE = .
 	_class_data_offs = .
 	_class_mdecl_count = 0
 
-	CLASS=\name
+	#CLASS=\name
 
 #	INVOKE_BEGIN_HANDLERS CLASS
 .endm
@@ -1808,11 +1808,11 @@ OBJ_STRUCT_SIZE = .
 				\name: .long 0
 			.struct _STRUCT_OFFS
 		.else
-		.struct _STRUCT_OFFS	# method vptr declaration
-			\name: .long 0
+			.struct _STRUCT_OFFS	# method vptr declaration
+				\name: .long 0
 		.endif
 		_DECL_CLASS_DECL_MCOUNT = _DECL_CLASS_DECL_MCOUNT + 1
-		.global \name
+		.global \name\()
 	.endif
 #	.endif
 .endm

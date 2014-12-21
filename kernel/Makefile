@@ -73,6 +73,10 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 	@#hack: we use kernel.obj.r and link it ourselves:
 	@cp $@.r $@ && ../build/coff.exe $@ --link .text
 
+	@# check symbols:
+	@echo "  CHKSYM $@"
+	@nm -u $@ | grep -v .text16 | wc -l | perl -ne 'chomp; /^\s*0\s*/ or die "$$_ undefined symbols:\n", `nm -u $@ | grep -v .text16 `'
+
 	@# create debug version
 	@objcopy --change-addresses 0x13000 --debugging kernel.obj kernel.obj.debug
 
@@ -192,7 +196,8 @@ export.h: kernel.o Makefile ../.git
 	@grep -e "^\.equ SEL_" gdt.s \
 	| perl -pe 's/^\.equ SEL_(\S+),(.*)/SEL_\1=\2/' \
 	> $@
-	@echo "BRANCH=`git branch | grep -e ^\* | cut -b3-`" \
+	@# disabled: will generate an undefined symbol for the branch name
+	@#echo "BRANCH=`git branch | grep -e ^\* | cut -b3-`" \
 	>> $@
 	@echo "KERNEL_REVISION=$(KERNEL_REVISION)" \
 	>> $@
