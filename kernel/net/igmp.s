@@ -201,7 +201,7 @@ net_igmp_checksum$:
 # in: ecx = igmp frame len
 # in: edx = ipv4 frame
 net_ipv4_igmp_print:
-	push_	eax edx
+	push_	eax edx edi
 
 	printc 11, "IGMPv"
 	mov	ah, [esi + igmp_type]
@@ -310,20 +310,25 @@ net_ipv4_igmp_print:
 
 ###########
 	movzx	ecx, ax	# num group records
-	push	ecx
+	mov	edi, ecx # backup for newline printing
 	print	" numgrp="
+	push	ecx
 	call	_s_printdec32
 	call	printspace
 	or	ecx, ecx
 	jz	1f	# no group records, done.
-	cmp	ecx, 1
-	jz	0f
-	call	newline	# multiple records, use multiline format
-0:
+
+################################
 	push_	ebx esi
 	add	esi, 8	# offset of groups
 	lea	ebx, [esi + ecx * 8]	# igmp frame end
-0:	cmp	esi, ebx
+0:
+	cmp	edi, 1	# for numgrp > 1 use multiline format
+	jz	5f
+	call	newline
+5:
+
+	cmp	esi, ebx
 	jae	4f	# short packet
 	lodsd
 
@@ -351,15 +356,17 @@ net_ipv4_igmp_print:
 	call	printspace
 	call	net_print_ipv4
 	add	esi, edx	# add aux group data + src
+
 	loop	0b
 	pop_	esi ebx
 	jmp	1f
+
 # grp: short packet
 4:	DEBUG_DWORD esi
 	DEBUG_DWORD ebx
 	pop_	esi ebx
 	jmp	91f
-###########
+################################
 
 # v1,2
 2:	mov	eax, [esi + igmp_addr]
@@ -372,7 +379,7 @@ net_ipv4_igmp_print:
 
 	call	newline
 
-9:	pop_	edx eax
+9:	pop_	edi edx eax
 	ret
 ####################################################################
 
