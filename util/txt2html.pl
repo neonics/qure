@@ -55,7 +55,7 @@ $c=~ s@((<dt>.*?</dt>\n<dd>.*?</dd>\n*)+)@<dl>\n$1</dl>\n\n@gs;
 $c=~ s@''([^']+)''@'<code>'.&esc(keepspace($1)).'</code>'@ge;
 $c=~ s@`([^`]+)`@'<code>'.&esc(keepspace($1)).'</code>'@ge;
 
-labels(0);
+labels("pre");
 
 # <tab>Preformatted text
 $c=~ s@((\n\t[^\n]*)+\n)@<pre>$1</pre>\n@g;
@@ -124,26 +124,26 @@ $c=~ s@\n(<li>[^\n]+</li>)\n@ <ul>$1</ul>\n@g;
 $c=~ s@\n+[-\*] ([^\n]+)@\n<li>$1</li>@g;
 $c=~ s@\n((<li>[^\n]+</li>\n)+)@\n<ul>\n$1</ul>\n@g;
 
-labels(1);
+labels();
 
 sub labels {
 # [label|site]
-$c=~ s@(?<!\t)\[([^\|\]]+)\|([^\]]+)\]@<a href="$2">$1</a>@g;
+$c=~ s@(?<!\t)\[([^\|\]]+)\|([^\]]+)\]@<a class="$_[0]" href="$2">$1</a>@g;
 
 # [#label] : anchor ref (same as [label|#label])
-$c=~ s@(?<!\t)\[#([^\]]+)\]@<a href="#$1">$1</a>@g;
+$c=~ s@(?<!\t)\[#([^\]]+)\]@<a class="$_[0]" href="#$1">$1</a>@g;
 # [=label] : anchor definition
-$c=~ s@(?<!\t)\[=([^\]]+)\]@<a name="$1"></a>@g;
+$c=~ s@(?<!\t)\[=([^\]]+)\]@<a class="$_[0]" name="$1"></a>@g;
 # [!note]
-$c=~ s@(?<!\t)\[!([^\]]+)\]@<div class='note'>$1</div>@g;
+$c=~ s@(?<!\t)\[!([^\]]+)\]@<div class='note $_[0]'>$1</div>@g;
 
 # [http://....]  (same as [label|site] but without 'label|')
-$c=~ s@(?<!\t)\[(https?://.*?)\]@<a href="$1">$1</a>@g;
+$c=~ s@(?<!\t)\[(https?://.*?)\]@<a href="$1" class="$_[0]">$1</a>@g;
 
 # [type: message]
-$c=~ s@(?<!\t)\[(\S+?):\s*(.*?)\]@<span class='n $1'>$1: $2</span>@gs;
+$c=~ s@(?<!\t)\[(\S+?):\s*(.*?)\]@<span class='n $1 $_[0]'>$1: $2</span>@gs;
 
-shift or return;
+shift and return;
 # [Foo] ; local txt/html doc ref
 # [Foo#anchor] aswell
 $c=~ s@(?<!\t)\[([^\]\.#]+)(#[^\]\.]*)?\]@<a href="$1.html$2">$1</a>@g;
