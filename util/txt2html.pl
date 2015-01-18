@@ -25,10 +25,11 @@ open IN, $ARGV[0] or die "can't open $ARGV[0]: $!";
 @l = <IN>;
 close IN;
 
-$c = "\n".join "", @l;
+my $c = "\n".join "", @l;
 
 $c=~ s@&@&amp;@g;
 $c=~ s@<@&lt;@g;
+
 
 # Headings
 #
@@ -53,6 +54,8 @@ $c=~ s@((<dt>.*?</dt>\n<dd>.*?</dd>\n*)+)@<dl>\n$1</dl>\n\n@gs;
 # ''code''
 $c=~ s@''([^']+)''@'<code>'.&esc(keepspace($1)).'</code>'@ge;
 $c=~ s@`([^`]+)`@'<code>'.&esc(keepspace($1)).'</code>'@ge;
+
+labels(0);
 
 # <tab>Preformatted text
 $c=~ s@((\n\t[^\n]*)+\n)@<pre>$1</pre>\n@g;
@@ -121,6 +124,9 @@ $c=~ s@\n(<li>[^\n]+</li>)\n@ <ul>$1</ul>\n@g;
 $c=~ s@\n+[-\*] ([^\n]+)@\n<li>$1</li>@g;
 $c=~ s@\n((<li>[^\n]+</li>\n)+)@\n<ul>\n$1</ul>\n@g;
 
+labels(1);
+
+sub labels {
 # [label|site]
 $c=~ s@(?<!\t)\[([^\|\]]+)\|([^\]]+)\]@<a href="$2">$1</a>@g;
 
@@ -137,9 +143,11 @@ $c=~ s@(?<!\t)\[(https?://.*?)\]@<a href="$1">$1</a>@g;
 # [type: message]
 $c=~ s@(?<!\t)\[(\S+?):\s*(.*?)\]@<span class='n $1'>$1: $2</span>@gs;
 
+shift or return;
 # [Foo] ; local txt/html doc ref
 # [Foo#anchor] aswell
 $c=~ s@(?<!\t)\[([^\]\.#]+)(#[^\]\.]*)?\]@<a href="$1.html$2">$1</a>@g;
+}
 
 
 # preserve hardlines in paragraphs
