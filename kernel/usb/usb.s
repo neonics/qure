@@ -29,6 +29,7 @@ usb_ehci_alist:		.long 0	# 4k hardware aligned ds relative
 
 usb_ehci_dev_companion:	.long 0	# USB 1.1 UHCI or OHCI
 DECLARE_CLASS_METHOD dev_api_constructor, usb_vmw_ehci_init, OVERRIDE
+DECLARE_CLASS_METHOD dev_api_isr,	  usb_ehci_isr,      OVERRIDE
 DECLARE_CLASS_END usb_ehci
 
 DECLARE_PCI_DRIVER SERIAL_USB_EHCI, usb_ehci, 0x15ad, 0x0770, "vmw-ehci", "VMWare EHCI USB Host Controller"
@@ -250,7 +251,7 @@ usb_vmw_ehci_init:
 
 	# Initialisation
 
-	call	usb_ehci_hook_isr
+	call	dev_add_irq_handler
 
 	# if 64 bit addressing: write SEGSEL for 63:32 bits of addr
 
@@ -346,29 +347,6 @@ usb_ehci_print_ports:
 
 
 
-.data
-usb_ehci_isr_dev:	.long 0
-usb_ehci_isr_irq:	.byte 0
-.text32
-usb_ehci_hook_isr:
-	mov	[usb_ehci_isr_dev], ebx	# XX direct mem offset
-	push	ebx
-	movzx	ax, byte ptr [ebx + dev_irq]
-	mov	[usb_ehci_isr_irq], al
-	mov	ebx, offset usb_ehci_isr
-	add	ebx, [realsegflat]
-	mov	cx, cs
-.if IRQ_SHARING
-	call	add_irq_handler
-.else
-	add	ax, IRQ_BASE
-	call	hook_isr
-.endif
-	pop	ebx
-	mov	al, [ebx + dev_irq]
-	call	pic_enable_irq_line32
-	ret
-
 usb_ehci_isr:
 	pushad
 	push_	ds es fs
@@ -378,8 +356,7 @@ usb_ehci_isr:
 	mov	eax, SEL_flatDS
 	mov	fs, eax
 
-
-	mov	ebx, [usb_ehci_isr_dev]
+	mov	ebx, edx	# see irq_isr and (dev_)add_irq_handler
 	mov	esi, [ebx + usb_ehci_op_regbase]
 
 	mov	eax, fs:[esi + USB_EHCI_REG_STATUS]
@@ -400,9 +377,8 @@ usb_ehci_isr:
 	PRINTFLAG eax, USB_EHCI_STATUS_INT, "INT"
 	call	newline
 	call	usb_ehci_print_ports
-.if !IRQ_SHARING
-	PIC_SEND_EOI [ebx + dev_irq]
-.endif
+
+	# EOI handled by IRQ_SHARING
 
 9:	pop_	fs es ds
 	popad

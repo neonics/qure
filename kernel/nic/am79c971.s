@@ -283,10 +283,12 @@ AM79C_REG_BCR_SWSTYLE	= 20	# p 183 lo byte 0 = 16 byte structures (descr etc)
 DECLARE_CLASS_BEGIN nic_am79c, nic
 nic_am79c_init_block:	.long 0
 DECLARE_CLASS_METHOD dev_api_constructor, am79c971_init, OVERRIDE
+DECLARE_CLASS_METHOD dev_api_isr,	am79c971_isr, OVERRIDE
 DECLARE_CLASS_METHOD nic_api_send,	am79c971_send, OVERRIDE
 DECLARE_CLASS_METHOD nic_api_print_status, am79c971_print_status, OVERRIDE
 DECLARE_CLASS_METHOD nic_api_ifup,	am79c971_ifup, OVERRIDE
 DECLARE_CLASS_METHOD nic_api_ifdown,	am79c971_ifdown, OVERRIDE
+
 DECLARE_CLASS_END nic_am79c
 
 DECLARE_PCI_DRIVER NIC_ETH, nic_am79c, 0x1022, 0x2000, "am79c971", "AMD 79C971 PCNet"
@@ -373,7 +375,7 @@ am79c971_init:
 	call	am79c_alloc_buffers
 	jc	9f
 
-	call	am79c_hook_isr
+	call	dev_add_irq_handler
 	call	dev_pci_busmaster_enable
 
 	# reset
@@ -513,27 +515,6 @@ am79c971_init:
 9:	pop	edx
 	pop	edx
 	pop	ebp
-	ret
-
-
-am79c_hook_isr:
-	mov	[am79c971_isr_dev], ebx	# XX direct mem offset
-	push	ebx
-	movzx	ax, byte ptr [ebx + dev_irq]
-	mov	[am79c971_isr_irq], al
-	mov	ebx, offset am79c971_isr
-	add	ebx, [realsegflat]
-	mov	cx, cs
-.if IRQ_SHARING
-	call	add_irq_handler
-.else
-	add	ax, offset IRQ_BASE
-	call	hook_isr
-.endif
-	pop	ebx
-
-	mov	al, [ebx + dev_irq] # NIC_IRQ
-	call	pic_enable_irq_line32
 	ret
 
 
@@ -989,10 +970,6 @@ am79c971_ifdown:
 
 ################################################################
 # Interrupt Service Routine
-.data
-am79c971_isr_irq: .byte 0
-am79c971_isr_dev: .long 0	# direct memory address of device object
-.text32
 am79c971_isr:
 	pushad
 	push	ds
@@ -1000,8 +977,7 @@ am79c971_isr:
 	mov	eax, SEL_compatDS
 	mov	ds, eax
 	mov	es, eax
-
-	mov	ebx, [am79c971_isr_dev]
+	mov	ebx, edx	# see irq_isr and (dev_)add_irq_handler
 
 	.if AM79C_DEBUG
 		printc 0xf5, "NIC ISR"
@@ -1150,10 +1126,7 @@ am79c971_isr:
 		call	newline
 	.endif
 ########################################################################
-.if !IRQ_SHARING
-	mov	ebx, [am79c971_isr_dev]
-	PIC_SEND_EOI [ebx + dev_irq]
-.endif
+	# EOI is handled by IRQ_SHARING code
 	pop	es
 	pop	ds
 	popad	# edx ebx eax

@@ -322,6 +322,7 @@ nic_i8254_tx_buf:	.long 0
 nic_i8254_rd_tail:	.long 0	# 
 nic_i8254_td_tail:	.long 0	# 
 DECLARE_CLASS_METHOD dev_api_constructor, i8254_init, OVERRIDE
+DECLARE_CLASS_METHOD dev_api_isr,	  i8254_isr, OVERRIDE
 DECLARE_CLASS_END nic_i8254
 
 DECLARE_PCI_DRIVER NIC_ETH, nic_i8254, 0x8086, 0x100e, "i8254x", "Intel 8254x PCI/PCI-X"
@@ -338,25 +339,8 @@ i8254_init:
 	mov	dword ptr [ebx + nic_api_ifup], offset i8254_ifup
 	mov	dword ptr [ebx + nic_api_ifdown], offset i8254_ifdown
 
-
 	# hook the isr
-	mov	[i8254_isr_dev], ebx
-	movzx	ax, byte ptr [ebx + dev_irq]
-	mov	[i8254_isr_irq], al
-	push	ebx
-	mov	ebx, offset i8254_isr
-	add	ebx, [realsegflat]
-	mov	cx, cs
-.if IRQ_SHARING
-	call	add_irq_handler
-.else
-	add	ax, offset IRQ_BASE
-	call	hook_isr
-.endif
-	pop	ebx
-
-	mov	al, [ebx + dev_irq]
-	call	pic_enable_irq_line32
+	call	dev_add_irq_handler
 
 	# allocate buffers
 	# allocate and configure descriptor reception buffer
@@ -496,10 +480,7 @@ i8254_init:
 
 9:	ret
 
-.data
-i8254_isr_dev: .long 0
-i8254_isr_irq: .byte 0
-.text32
+
 i8254_isr:
 	pushad
 
@@ -507,8 +488,7 @@ i8254_isr:
 		DEBUG "ISR"
 	.endif
 
-
-	mov	ebx, [i8254_isr_dev]
+	mov	ebx, edx
 	mov	dx, [ebx + dev_io]
 	I8254_READ ICR
 
@@ -609,9 +589,8 @@ i8254_isr:
 	.if I8254_DEBUG
 		call	newline
 	.endif
-.if !IRQ_SHARING
-	PIC_SEND_EOI [i8254_isr_irq]
-.endif
+
+	# EOI handled by IRQ_SHARING
 	popad
 	iret
 

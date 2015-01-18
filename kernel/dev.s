@@ -39,6 +39,7 @@ dev_mmio_size:		.long 0
 #DECLARE_CLASS_METHODS
 dev_api:
 DECLARE_CLASS_METHOD dev_api_constructor, 0
+DECLARE_CLASS_METHOD dev_api_isr, 0
 DECLARE_CLASS_METHOD dev_api_print, 0
 #dev_api_constructor:	.long 0	# in: ebx = base
 #dev_api_print:		.long 0
@@ -249,6 +250,63 @@ dev_pci_busmaster_enable:
 	call	pci_busmaster_enable
 	pop	eax
 	ret
+
+# Wrapper method for add_irq_handler using dev_irq and dev_api_isr
+# Can ba considered a 'class method' (static) (except 'this' = ebx not eax)
+# in: ebx = dev
+dev_add_irq_handler:
+	pushad
+	mov	eax, ebx
+	mov	edx, offset class_dev
+	call	class_instanceof
+	jc	91f
+	movzx	ax, byte ptr [ebx + dev_irq]
+	or	ebx, ebx
+	jz	92f
+
+	mov	edx, ebx	# add_irq_handler data arg: object instance
+	mov	ebx, [ebx + dev_api_isr]
+	or	ebx, ebx
+	jz	93f
+
+	mov	ecx, cs
+	call	add_irq_handler	# also enables PIC IRQ line
+	jc	9f
+
+	# If this is a PCI device, we know the service class (NIC, SERIAL etc).
+	# This can be used by the scheduler to prioritize what tasks to schedule
+	# after an interrupt. For instance, a DEV_PCI_CLASS_NIC_ETH ISR would cause
+	# the 'netq' kernel task to be scheduled next for minimum latency.
+	mov	eax, [esp + PUSHAD_EBX]	# restore
+	mov	edx, offset class_dev_pci
+	call	class_instanceof
+	jc	1f
+		I "Installing DEV_PCI IRQ handler"
+		call	newline
+
+		# TODO: inform scheduler
+		# use KAPI_CALL schedule_task_setopt so scheduler will
+		# set a flag for the PCI class and increase priority
+		# for all tasks that have indicated to service such
+		# events using that same KAPI_CALL. Service tasks will
+		# 'setopt' to be a consumer, whereas here the 'setopt'
+		# indicates the ISR to be a producer.
+1:	clc
+
+9:	popad
+	ret
+
+90:	printc 4, "dev_add_irq_handler: "
+	call	_s_println
+	stc
+	jmp	9b
+91:	PUSH_TXT "not class_dev"
+	jmp	90b
+92:	PUSH_TXT "no IRQ"
+	jmp	90b
+93:	PUSH_TXT "no ISR"
+	jmp	90b
+
 
 #############################################################################
 # dev_ata class methods

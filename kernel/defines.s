@@ -34,5 +34,13 @@ code_\name\()_end:
 .endm
 
 
-IRQ_SHARING = 1
+PUSHAD_EDI = 4*0
+PUSHAD_ESI = 4*1
+PUSHAD_EBP = 4*2
+PUSHAD_ESP = 4*3
+PUSHAD_EBX = 4*4
+PUSHAD_EDX = 4*5
+PUSHAD_ECX = 4*6
+PUSHAD_EAX = 4*7
+
 .endif

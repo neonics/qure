@@ -16,8 +16,9 @@ cmd_sshd:
 	push	dword ptr TASK_FLAG_TASK|TASK_FLAG_RING_SERVICE
 	push	cs
 	push	dword ptr offset net_service_sshd_main
-	KAPI_CALL schedule_task
+	KAPI_CALL schedule_task		# out: eax = pid
 	jc	9f
+
 	OK
 9:	ret
 

@@ -23,6 +23,7 @@ DECLARE_PCI_DRIVER MM_AUDIO, es1371, 0x1274, 0x1371, "es1371", "Ensoniq AudioPCI
 
 DECLARE_CLASS_BEGIN es1371, sound
 DECLARE_CLASS_METHOD dev_api_constructor,	es1371_init, OVERRIDE
+DECLARE_CLASS_METHOD dev_api_isr,		es1371_isr, OVERRIDE
 DECLARE_CLASS_METHOD sound_set_samplerate,	es1371_set_samplerate,	OVERRIDE
 DECLARE_CLASS_METHOD sound_set_format,		es1371_set_format,	OVERRIDE
 DECLARE_CLASS_METHOD sound_playback_init,	es1371_playback_init,	OVERRIDE
@@ -263,21 +264,7 @@ es1371_init:
 	I "es1371 Ensoniq AudioPCI-97"
 	call	newline
 
-	push	ebx
-	mov	[es1371_isr_dev$], ebx
-	movzx	ax, byte ptr [ebx + dev_irq]
-	mov	ebx, offset es1371_isr
-	mov	cx, cs
-.if IRQ_SHARING
-	call	add_irq_handler
-.else
-	add	ax, IRQ_BASE
-	call	hook_isr
-.endif
-	pop	ebx
-	mov	al, [ebx + dev_irq]
-	call	pic_enable_irq_line32
-	
+	call	dev_add_irq_handler
 
 	.if 1
 	call	dev_pci_busmaster_enable
@@ -403,15 +390,12 @@ es1371_init:
 	ret
 
 ###########################################
-.data SECTION_DATA_BSS
-es1371_isr_dev$: .long 0
-.text32
 es1371_isr:
 	push_	eax ebx ecx edx esi edi ds es
 	mov	eax, SEL_compatDS
 	mov	ds, eax
 	mov	es, eax
-	mov	ebx, [es1371_isr_dev$]
+	mov	ebx, edx	# see irq_isr and (dev_)add_irq_handler
 	mov	dx, [ebx + dev_io]
 	add	dx, ES1371_REG_STATUS
 	in	eax, dx
@@ -432,10 +416,7 @@ es1371_isr:
 	or	eax, ES1371_SERIAL_DAC1_INT_EN
 	out	dx, eax
 
-	# must do this before calling the handler, which may use interrupts.
-	.if !IRQ_SHARING
-		PIC_SEND_EOI [ebx + dev_irq]
-	.endif
+	# EOI handled by IRQ_SHARING code
 
 	mov	ecx, [ebx + sound_playback_handler]
 	jecxz	1f

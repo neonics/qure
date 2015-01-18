@@ -27,6 +27,7 @@ vmwsvga2_txtmode_bpp:		.byte 0
 vmwsvga2_txtmode_w:		.long 0
 vmwsvga2_txtmode_h:		.long 0
 DECLARE_CLASS_METHOD dev_api_constructor, vmwsvga2_init, OVERRIDE
+DECLARE_CLASS_METHOD dev_api_isr,	  vmwsvga2_isr,  OVERRIDE
 DECLARE_CLASS_METHOD vid_api_gfx_mode, vmwsvga2_gfx_mode, OVERRIDE
 DECLARE_CLASS_METHOD vid_api_txt_mode, vmwsvga2_txt_mode, OVERRIDE
 DECLARE_CLASS_END vmwsvga2
@@ -430,7 +431,8 @@ vmwsvga2_init:
 	mov	eax, 0xff
 	out	dx, eax
 	sub	dx, SVGA_IO_IRQSTATUS
-	call	vmwsvga2_hook_isr
+	# hook ISR to IRQ and enable PIC IRQ line
+	call	dev_add_irq_handler
 1:
 
 9:	call	newline
@@ -863,34 +865,11 @@ svga_verify_fifo_irq$:
 	jmp	0b
 
 
-
-vmwsvga2_hook_isr:
-	mov	[vmwsvga2_isr_dev], ebx	# XX direct mem offset
-	push	ebx
-	movzx	ax, byte ptr [ebx + dev_irq]
-	mov	[vmwsvga2_isr_irq], al
-	mov	ebx, offset vmwsvga2_isr
-	add	ebx, [realsegflat]
-	mov	cx, cs
-.if IRQ_SHARING
-	call	add_irq_handler
-.else
-	add	ax, IRQ_BASE
-	call	hook_isr
-.endif
-	pop	ebx
-
-	mov	al, [ebx + dev_irq]
-	call	pic_enable_irq_line32
-	ret
-
 ################################################################
 
 ################################################################
 # Interrupt Service Routine
 .data
-vmwsvga2_isr_irq: .byte 0
-vmwsvga2_isr_dev: .long 0	# direct memory address of device object
 vmwsvga2_irq_count: .long 0
 .text32
 vmwsvga2_isr:
@@ -901,7 +880,6 @@ vmwsvga2_isr:
 	mov	ds, eax
 	mov	es, eax
 
-	mov	ebx, [vmwsvga2_isr_dev]
 	mov	dx, [ebx + dev_io]
 	add	dx, SVGA_IO_IRQSTATUS
 	in	eax, dx	# read IRQ flags
@@ -918,10 +896,7 @@ vmwsvga2_isr:
 
 ########################################################################
 9:
-.if !IRQ_SHARING
-	mov	ebx, [vmwsvga2_isr_dev]
-	PIC_SEND_EOI [ebx + dev_irq]
-.endif
+	# EOI handled by IRQ_SHARING
 
 	pop	es
 	pop	ds

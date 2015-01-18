@@ -160,7 +160,7 @@ RTL8139_CRC0	= 0x84	# size 1x8 power mgmnt crc for wakeup frame0..7
 RTL8139_WAKEUP0	= 0x8c	# size 8x8 power mgmnt wakeup frame 0..7 (64bit each
 RTL8139_LSBCR0	= 0xcc	# size 1 LSB of mask byte of wakeup within offs 12..75
 # 0xd4-d7 reserved
-RTL8139_CONFIG5	= 0xd8	
+RTL8139_CONFIG5	= 0xd8
 # 0xd9-0xff reserved
 
 ############################################################################
@@ -169,6 +169,7 @@ RTL8139_CONFIG5	= 0xd8
 DECLARE_CLASS_BEGIN nic_rtl8139, nic
 nic_rtl8139_desc_idx: .word 0
 DECLARE_CLASS_METHOD dev_api_constructor, rtl8139_init, OVERRIDE
+DECLARE_CLASS_METHOD dev_api_isr,	  rtl8139_isr,  OVERRIDE
 DECLARE_CLASS_END nic_rtl8139
 
 DECLARE_PCI_DRIVER NIC_ETH, nic_rtl8139, 0x10ec, 0x8139, "rtl8139", "Realtek 8139"
@@ -306,23 +307,7 @@ rtl8139_init:
 .endif
 	# hook the isr
 
-	mov	[rtl8139_isr_dev], ebx	# XX direct mem offset
-	push	ebx
-	movzx	ax, byte ptr [ebx + dev_irq]
-	mov	ebx, offset rtl8139_isr
-	mov	[rtl8139_isr_irq], al
-	mov	cx, cs
-	add	ebx, [realsegflat]
-	.if IRQ_SHARING
-	call	add_irq_handler
-	.else
-	add	ax, offset IRQ_BASE
-	call	hook_isr
-	.endif
-	pop	ebx
-
-	mov	al, [ebx + dev_irq] # NIC_IRQ
-	call	pic_enable_irq_line32
+	call	dev_add_irq_handler
 
 	# enable all interrupts
 
@@ -341,7 +326,7 @@ rtl8139_init:
 ################################################################
 
 # in: ebx = nic object
-rtl8139_ifup:	
+rtl8139_ifup:
 	mov	dx, [ebx + dev_io]
 
 	add	dx, RTL8139_CR
@@ -350,7 +335,7 @@ rtl8139_ifup:
 	ret
 
 # in: ebx = nic object
-rtl8139_ifdown:	
+rtl8139_ifdown:
 	mov	dx, [ebx + dev_io]
 
 	DEBUG_WORD dx
@@ -364,23 +349,20 @@ rtl8139_ifdown:
 
 ################################################################
 # Interrupt Service Routine
-.data
-rtl8139_isr_irq: .byte 0
-rtl8139_isr_dev: .long 0	# direct memory address of device object
 .text32
 rtl8139_isr:
 	pushad
+	mov	ebp, esp
 	push	es
 	push	ds
 	mov	ax, SEL_compatDS
 	mov	ds, ax
 	mov	es, ax
+	mov	ebx, edx	# see irq_isr and (dev_)add_irq_handler
 
 	.if RTL8139_DEBUG
 		printc 0xf5, "NIC ISR"
 	.endif
-
-	mov	ebx, [rtl8139_isr_dev]
 
 	.if RTL8139_DEBUG > 1
 		call	rtl8139_print_ISR
@@ -443,9 +425,9 @@ rtl8139_isr:
 
 	add	dx, RTL8139_CAPR - RTL8139_CBR
 ########
-0:	
+0:
 		# TMP: dx is modified....
-		mov	ebx, [rtl8139_isr_dev]
+		mov	ebx, [ebp + PUSHAD_EDX]
 		mov	dx, [ebx + dev_io]
 		add	dx, RTL8139_CAPR
 
@@ -458,7 +440,7 @@ rtl8139_isr:
 	cmp	eax, 8192
 	jb	3f
 	xor	eax, eax
-3:	
+3:
 	# FIXME: this does not take into account rx buffer wrapping
 	push	esi
 	push	ecx
@@ -505,7 +487,7 @@ rtl8139_isr:
 	pop	eax
 	pop	ebx
 	pop	ecx
-1:	
+1:
 	# packet size may be not dword aligned
 	add	cl, 3
 	and	cl, ~3
@@ -524,7 +506,7 @@ rtl8139_isr:
 		DEBUG_WORD ax
 	.endif
 
-	mov	ebx, [rtl8139_isr_dev]
+	mov	ebx, [ebp + PUSHAD_EDX]
 	mov	dx, [ebx + dev_io]
 	add	dx, RTL8139_CAPR
 	out	dx, ax			# RTL8139_CAPR
@@ -539,7 +521,7 @@ rtl8139_isr:
 	cmp	cx, 100
 	jb	3f
 	printlnc 4, "packet burst - might be bug"
-	mov	ebx, [rtl8139_isr_dev]
+	mov	ebx, [ebp + PUSHAD_EDX]
 	mov	dx, [ebx + dev_io]
 	call	rtl8139_init
 	call	newline
@@ -555,7 +537,7 @@ rtl8139_isr:
 ########
 2:
 	.if RTL8139_DEBUG > 1
-		mov	ebx, [rtl8139_isr_dev]
+		mov	ebx, [ebp + PUSHAD_EDX]
 		#call	rtl8139_print_ISR
 		call	rtl8139_print_CBR
 	.endif
@@ -564,15 +546,7 @@ rtl8139_isr:
 		printlnc 0xf5, "DONE"
 	.endif
 
-	.if !IRQ_SHARING
-	# NOTE! design flaw?
-	# first EOI is sent to PIC in the shared IRQ handler;
-	# then IRQ is acknowledged to NIC;
-	# then packet is read
-	# then CAPR isupdated.
-	mov	ebx, [rtl8139_isr_dev]
-	PIC_SEND_EOI [ebx + dev_irq]
-	.endif
+	# EOI handled by IRQ_SHARING code
 
 	pop	ds
 	pop	es
@@ -634,7 +608,7 @@ rtl8139_send:
 	test	eax, TSD_OWN
 	jnz	0f
 	loop	0b
-0:	
+0:
 DEBUG "FIFO"
 DEBUG_DWORD eax
 
@@ -643,7 +617,7 @@ DEBUG_DWORD eax
 	test	eax, TSD_TOK
 	jnz	0f
 	loop	0b
-0:	
+0:
 DEBUG "TOK"
 DEBUG_DWORD eax
 		call	rtl8139_print_status
@@ -656,7 +630,7 @@ DEBUG_DWORD eax
 #	mov	ax, IR_TOK
 #	out	dx, ax
 #	call	newline
-	
+
 #		call	rtl8139_print_status
 	popad
 	ret

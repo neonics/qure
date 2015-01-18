@@ -124,6 +124,7 @@ code_sound_end:
 	.global dev_api_constructor
 	.global class_dev
 	.global dev_name	# struct field
+	.global dev_irq		# struct field
 	.global cmd_dev
 .global code_dev_end
 .global code_ata_start
@@ -189,7 +190,6 @@ code_sound_end:
 	.global sb_dma_buf_half
 	.global SB_StopPlay
 	# es1371
-	.global es1371_isr_dev$
 .global code_sound_end
 
 .global data_pci_driverinfo_start

@@ -148,8 +148,10 @@ task_flags:	.long 0
 	TASK_FLAG_SUSPENDED	= 0x4000 << 16
 	TASK_FLAG_DONE		= 0x0100 << 16	# (aligned with RESCHEDULE)
 	TASK_FLAG_DONE_SHIFT	= 24	# for 'bt'
-	TASK_FLAG_CHILD_JOB	= 0x0010 << 16	# a job is using this stack
+	# task creation option flags:
+	TASK_FLAG_OPT_DEV_PCI	= 0x0020	# when given, pushd the PCI class first on calling schedule_task
 
+	TASK_FLAG_CHILD_JOB	= 0x0010 << 16	# a job is using this stack
 	TASK_FLAG_FLATSEG	= 0x0020 << 16
 
 	TASK_FLAG_RING0		= 0x0000 << 16
@@ -180,6 +182,62 @@ task_page_tab_lo:.long 0 # for mfree_page_phys
 task_page_tab_hi:.long 0 # for mfree_page_phys
 task_io_sem_ptr:.long 0		#
 task_io_sem_timeout:.long 0	# 'abs' clock_ms
+	# task_can_run will probe the semaphore pointer value and exclude tasks from being able to be scheduled.
+	# The 'SEM_UNLOCK' system call would set a flag that a semaphore was released
+	# SEM_LOCK will also require a pointer here.
+	# All tasks waiting for sem IO can be ordered,
+	# by comparing the semaphore pointers. (or mutexes).
+	# The semaphore code is fast-succeed, meaning,
+	# no task switching occurs if the lock is successful.
+	# If it fails the scheduler is informed.
+	# The scheduler would also know all locked semaphores and which
+	# tasks own them.
+	# It can then increase the priority of the task holding
+	# the semaphore.
+	# 
+	# The first iteration will filter out all suspended tasks.
+	# Next, all tasks with a blocking IO (sem).
+	# The remaining tasks will have priority adjusted depending
+	# on whether they have unlocked a semaphore in the last
+	# timeslot.
+	# Once a task is scheduled, the priorities are reset.
+	# (This comes down to calculating them by iterating all
+	# tasks on each schedule pivot, and maintaining a max
+	# heuristic and associated task.
+	#
+	# (sort { $a{prio} <=> $b{prio} } @tasks)[0]    
+	
+task_irq_service_pci_class: .byte 0, 0,0,0
+	# Interrupt handlers such as device drivers notify
+	# the scheduler via kernel APIs on the application data level
+	# such as sempahore locking (MUTEX_SOCK, SEM_NETQ),
+	# aswell as by being directly invoked after each IRQ.
+	# We will assume that the device driver has arranged for
+	# the kernel to buffer the data.
+	#
+	# The PCI device class of a NIC is an indication as to which
+	# kind of task is involved. Any DEV_PCI_CLASS_NIC would
+	# be associated with the netq kernel daemon, in charge of delivering
+	# network packets to socket buffers.
+	# 
+	# Tasks such as netq would have to indicate all dev_irq values
+	# for all device drivers, which means iterating over a list of lists.
+	# Therefore the PCI class is used to indicate an architectural
+	# association.
+	# Similarly, DEV_PCI_SERIAL devices such as USB might invoke
+	# the keyboard handler or media drivers.
+	#
+	# The value of the field describes the kind of service this task
+	# performs, and is only (TODO) settable by CPL0.
+	#
+	# To have any device drivers' IRQ handler indicate an increased
+	# likelyhood of such a service task needing to be scheduled,
+	# all drivers must be registered using the DEV_PCI structure.
+	#
+	# The kernel (see idt.s) can keep track of interrupt service
+	# routines. When an ISR is registered, ebx will be the device
+	# base pointer, which is recorded (TODO/check).
+
 task_time_start:.long 0, 0	# timestamp value on resume
 task_time_stop:	.long 0, 0	# timestamp value on interrupted/suspended
 task_time:	.long 0, 0	# total running time
@@ -1457,7 +1515,6 @@ task_can_run$:
 #############################################################################
 
 
-# This method is typically called in an ISR.
 # Calling convention: stdcall:
 #	PUSH_TXT "task name"
 #	push	dword ptr 0|1	# flags
@@ -1585,7 +1642,7 @@ schedule_task:
 	mov	[ebp + task_reg_eax], eax
 
 	# enable the task, unless input flag says to keep it suspended
-	test	dword ptr [esp + 5*4+32+4+8], TASK_FLAG_SUSPENDED
+	test	dword ptr [esp + 5*4+32+12], TASK_FLAG_SUSPENDED
 	jnz	1f
 	and	dword ptr [ebx + task_flags], ~TASK_FLAG_SUSPENDED
 1:
@@ -1665,11 +1722,10 @@ schedule_task:
 
 44:	call	0f
 	printc_ 4, "invalid task flags: "
-	push	edx
-	mov	edx, eax
-	call	printhex8
-	pop	edx
+	push	eax
+	call	_s_printhex8
 	call	newline
+	int3
 	stc
 	jmp	7b
 
@@ -1795,6 +1851,33 @@ task_setup_stack$:
 	clc
 9:	ret
 
+
+KAPI_DECLARE schedule_task_setopt
+# in: eax = pid
+# in: ebx = option ID
+# in: edx = option value
+schedule_task_setopt:
+	push_	ebx edx ecx esi
+	mov	esi, ebx	# backup option id
+	mov	ecx, edx	# backup option value
+	call	task_get_by_pid	#out: ebx + edx
+	jc	91f
+
+	cmp	esi, TASK_FLAG_OPT_DEV_PCI
+	jnz	92f
+	mov	[ebx + edx + task_irq_service_pci_class], ecx # TODO, WIP
+
+0:	clc
+0:	pop_	esi ecx edx ebx
+	ret
+
+92:	PUSH_TXT "unknown option"
+	jmp	9f
+91:	PUSH_TXT "unknown pid"
+9:	printc 4, "schedule_task_setopt: "
+	call	_s_println
+	stc
+	jmp	0b
 ############################################################################
 # Task Privileged Stack Allocation
 TASK_PRIV_STACK_DEBUG		= 0	# general messages
@@ -2594,7 +2677,7 @@ mov edx, [eax + ebx + task_stack0_top]
 	PRINTFLAG edx, TASK_FLAG_DONE,		"D", " "
 	PRINTFLAG edx, TASK_FLAG_CHILD_JOB,	"C", " "
 	PRINTFLAG edx, TASK_FLAG_WAIT_IO,	"W", " "
-	PRINTFLAG edx, TASK_FLAG_RESCHEDULE,	"r", " "
+	PRINTFLAG edx, TASK_FLAG_RESCHEDULE,	"r", " "	# XXX this is not a live flag
 	PRINTFLAG edx, TASK_FLAG_TASK,		"T", "J"
 	and	edx, TASK_FLAG_RING_MASK
 	shr	edx, TASK_FLAG_RING_SHIFT

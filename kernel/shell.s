@@ -2577,12 +2577,20 @@ sound_dev: .long 0
 sb_play_fhandle: .long 0
 .text32
 get_sound_dev:
-	mov	ebx, [es1371_isr_dev$]
-	mov	[sound_dev], ebx
+	mov	ebx, [sound_dev]
+	or	ebx, ebx
+	jnz	9f
+
+	# iterate sound devices:
+	mov	edx, offset class_sound
+	mov	ebx, offset _iter_sound_dev$
+	call	class_iterate_instances
 
 	mov	ebx, [sound_dev]
 	or	ebx, ebx
 	jnz	9f
+
+	# fallback to soundblaster
 
 	mov	eax, offset class_sb
 	call	class_newinstance
@@ -2595,6 +2603,17 @@ get_sound_dev:
 	call	[ebx + dev_api_constructor]
 	pop	ebx
 9:	ret
+
+_iter_sound_dev$:
+	pushad
+	mov	[sound_dev], eax
+	print	"Using device: "
+	push	eax
+	call	class_obj_print_classname
+	call	newline
+	popad
+	clc	# stop iteration
+	ret
 
 
 cmd_play:

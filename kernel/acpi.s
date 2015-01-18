@@ -393,17 +393,13 @@ acpi_check_facp$:
 	movzx	eax, byte ptr [eax + FADT_SCI_interrupt]
 	mov	cx, cs
 	mov	ebx, offset acpi_isr
-	.if IRQ_SHARING
+	xor	edx, edx	# data arg for add_irq_handler/isr
 	call newline
 	call newline
 	DEBUG_BYTE al, "ADD IRQ HANDLER"
 	call newline
 	call newline
 	call	add_irq_handler
-	.else
-	add	al, offset IRQ_BASE
-	call	hook_isr
-	.endif
 	popad
 	.endif
 	call	newline

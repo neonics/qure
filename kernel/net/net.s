@@ -94,6 +94,7 @@ BUFFER_SIZE = 0x600
 net_buffers: .long 0	# ptr_array
 net_buffer_index: .long 0
 NET_BUFFERS_NUM = 4
+net_tx_buffers_sem: .long 0
 .text32
 ##############################################################################
 .macro DEBUG_NET_BUF
@@ -1153,6 +1154,15 @@ net_rx_queue_schedule:	# target for net_rx_queue_handler if queue not empty
 	# modified for normal (network) interrupts.
 	KAPI_CALL schedule_task
 	jc	91f
+
+	# hint scheduler that this task will process data buffered
+	# by PCI NIC device interrupt handlers
+	push	ebx
+	mov	ebx, TASK_FLAG_OPT_DEV_PCI
+	mov	edx, DEV_PCI_CLASS_NIC
+	KAPI_CALL schedule_task_setopt
+	pop	ebx
+
 1:	ret
 
 91:	DEBUG_BYTE [net_rx_queue_scheduled$]

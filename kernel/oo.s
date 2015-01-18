@@ -102,6 +102,7 @@ CLASS_METHOD_STRUCT_SIZE = 12
 .global class_invoke_static
 .global class_invoke_virtual
 .global class_iterate_classes
+.global class_iterate_instances
 .global class_ref_inc
 # debug
 .global _obj_print_methods$
@@ -1381,6 +1382,21 @@ class_iterate_classes:
 	ret	4
 
 
+# in: edx = class def ptr
+# in: ebx = method to call for each class; CF=1/0: continue/abort iteration
+class_iterate_instances:
+	pushad
+	mov	edi, [class_instances]
+	PTR_ARRAY_ITER_START edi, ecx, eax
+	call	class_instanceof
+	jnz	1f
+	call	ebx
+	jc	2f
+1:	PTR_ARRAY_ITER_NEXT edi, ecx, eax
+2:	popad
+	ret
+	
+
 cmd_classes:
 	lodsd
 	xor	edx, edx
@@ -1484,6 +1500,8 @@ cmd_objects:
 	mov	esi, eax
 	call	println
 	ret
+
+
 
 _class_print$:
 	DEBUG_DWORD esi

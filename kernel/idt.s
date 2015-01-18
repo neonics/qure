@@ -20,9 +20,6 @@
 
 IRQ_PROXIES = 1	# needed for scheduling
 
-# defined in "defines.s" for including
-#IRQ_SHARING = 1	# 0: the last device to hook_isr will be the one to use the IRQ
-
 ##############################################################################
 .equ IDT_ACC_GATE_TASK32, 0b0101 # TASK Gate. selector:offset = TSS:0.
 .equ IDT_ACC_GATE_INT16,  0b0110
@@ -124,12 +121,25 @@ hook_isr:
 	popf
 	ret
 
-.if IRQ_SHARING
 
+
+# BEGIN IRQ_SHARING code
 .data SECTION_DATA_BSS
+# irq_handlers is a pointer to a buffer of 0x10 * MAX_IRQ_HANDLERS_PER_IRQ * 2 dwords;
+# the first half of the buffer contains pointers to the ISRs; the second half contains
+# a dword argument to be passed on to the ISR. These are split and compact for 'repnz scasd'.
+# So, for MAX_IRQ_HANDLERS_PER_IRQ = 8 we have:
+#	[ 0*8+0 ..  0*8+7]: 8 ISR handler pointers for IRQ 0, .....,
+#	[15*8+0 .. 15*8+7]: 8 ISR handler pointers for IRQ 15,
+#	[16*8+0 .. 16*8+7]: 8 argument dwords for IRQ 0, ....,
+#	[31*8+0 .. 31*8+7]: 8 argument dwords for IRQ 15.
+# When listing these on the commandline with 'irq', use 'objects' to find
+# the matching device instance.
+# TODO: add a 'compact listing' function that only prints the non-NULL IRQ handlers
+# and their parameters (with symbol resolution).
 irq_handlers:	.long 0
 MAX_IRQ_HANDLERS_PER_IRQ_SHIFT = 3
-MAX_IRQ_HANDLERS_PER_IRQ = 1 << MAX_IRQ_HANDLERS_PER_IRQ_SHIFT
+MAX_IRQ_HANDLERS_PER_IRQ = (1 << MAX_IRQ_HANDLERS_PER_IRQ_SHIFT)
 .text32
 
 #### NOTE !!! ### the below code ignores cx/codeseg of handler!
@@ -137,14 +147,15 @@ MAX_IRQ_HANDLERS_PER_IRQ = 1 << MAX_IRQ_HANDLERS_PER_IRQ_SHIFT
 # in: al = IRQ (0-based)
 # in: cx = code segment of handler
 # in: ebx = offset of handler
+# in: edx = '(void*)' handler parameter; can be used to hold driver instance
 add_irq_handler:
-	push_	eax ecx edx esi
+	push_	eax ecx esi
 	mov	esi, [irq_handlers]
 	or	esi, esi
 	jnz	1f
 
 	push	eax
-	mov	eax, 0x10 * MAX_IRQ_HANDLERS_PER_IRQ * 4	# 16 hndlr=1kb
+	mov	eax, 0x10 * MAX_IRQ_HANDLERS_PER_IRQ * 4 * 2	# 16 hndlr * 8 isr * 2 dword = 1kb
 	call	mallocz
 	mov	esi, eax
 	pop	eax
@@ -154,7 +165,6 @@ add_irq_handler:
 1:	movzx	eax, al
 	shl	eax, MAX_IRQ_HANDLERS_PER_IRQ_SHIFT + 2	#1<<2=4=dword ptr
 	add	esi, eax
-	mov	dx, cx	# codeseg
 	mov	ecx, MAX_IRQ_HANDLERS_PER_IRQ
 0:	lodsd
 	or	eax, eax
@@ -162,10 +172,15 @@ add_irq_handler:
 	loop	0b
 	jmp	93f
 
-1:	mov	[esi-4], ebx
+1:	mov	[esi-4], ebx	# code
+	mov	[esi-4 + 0x10 * MAX_IRQ_HANDLERS_PER_IRQ * 4], edx
+
+	# enable the IRQ Line on the PIC
+	mov	al, [esp + 8]	# get IRQ from stack
+	call	pic_enable_irq_line32
 
 	clc
-9:	pop_	esi edx ecx eax
+9:	pop_	esi ecx eax
 	#call print_irq_handlers
 	ret
 91:	printlnc 4, "add_irq_handler: mallocz fail"
@@ -193,11 +208,20 @@ remove_irq_handler:
 	jnz	92f
 
 	mov	[edi - 4], dword ptr 0
+	mov	[edi - 4 + 0x10 * MAX_IRQ_HANDLERS_PER_IRQ * 4], dword ptr 0
 	# make compact
 	jecxz	0f
+	push_	ecx edi
 	mov	esi, edi
 	sub	edi, 4
 	rep	movsd
+	pop_	edi ecx
+	# argument space too
+	add	edi, 0x10 * MAX_IRQ_HANDLERS_PER_IRQ * 4
+	mov	esi, edi
+	sub	edi, 4
+	rep	movsd
+
 0:	pop_	edi esi ecx eax
 	#call print_irq_handlers
 	ret
@@ -231,6 +255,21 @@ print_irq_handlers:
 	call	newline
 	pop	ecx
 
+	# again. for the args:
+	pushcolor 8
+	print	"arg:  "
+	push_	ecx esi
+	mov	ecx, MAX_IRQ_HANDLERS_PER_IRQ
+	add	esi, 0x10 * (MAX_IRQ_HANDLERS_PER_IRQ) * 4 - (4 * MAX_IRQ_HANDLERS_PER_IRQ)
+1:	call	printspace
+	lodsd
+	mov	edx, eax
+	call	printhex8
+	loop	1b
+	call	newline
+	pop_	esi ecx
+	popcolor
+
 	loop	0b
 
 9:	popad
@@ -251,7 +290,7 @@ irq_isr:
 	mov	eax, [ebp]	# get return eip
 	cmp	eax, offset irq_proxies
 	jb	91f
-	cmp	eax, offset irq_proxies + 16*256
+	cmp	eax, offset irq_proxies + 0x10 * 256
 	jae	91f
 	# eax points somewere in irq_proxies.
 	# read the interrupt number.
@@ -288,13 +327,14 @@ irq_isr:
 	mov	ecx, MAX_IRQ_HANDLERS_PER_IRQ
 	add	esi, eax
 0:	lodsd
-	or	eax, eax	
+	or	eax, eax
 	.if 1 # expect compact
 		jz	80f
 	.else
 		jz	1f
 	.endif
 
+	mov	edx, [esi - 4 + 0x10 * MAX_IRQ_HANDLERS_PER_IRQ * 4] # arg
 	pushf
 	pushd	cs
 	call	eax
@@ -324,7 +364,7 @@ irq_isr:
 	call	printhex2
 	int 1
 	jmp	0b
-.endif
+# END IRQ_SHARING code
 ###############################################################
 # the following 2 tables comined are 6272 bytes: 256 * (8 + 16)
 isr_jump_table:
@@ -1445,7 +1485,6 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	pop_	edx ebx edi esi
 
 
-.if IRQ_SHARING
 	# register the IRQ core handlers
 	mov	al, IRQ_BASE
 	push	ebx
@@ -1458,7 +1497,6 @@ init_idt: # assume ds = SEL_compatDS/realmodeDS
 	inc	al
 	loop	0b
 	pop	ebx
-.endif
 
 # this is also set in gdt
 #xor eax,eax
