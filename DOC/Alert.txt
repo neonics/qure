@@ -18,9 +18,10 @@ other tasks that may also invoke the keyboard routines. However,
 the alert system is designed for just that, since background routines
 are not supposed to interfere with the shell.
 
+
 kernel/alert.s:
 
-	alert_init:
+	alert_init: [note|https://github.com/neonics/qure/commit/4ee2deb]
 		cmpd	[alert_screen_update], 0; jnz 9f	# protect [screen_update]
 		mov	eax, [screen_update]
 		mov	[alert_screen_update], eax
