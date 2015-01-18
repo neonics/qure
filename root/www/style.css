@@ -16,4 +16,11 @@
 			.box div { margin-left: 1em }
 			.b { color: #0a0 }
 			.s { color: #00a }
+
+			pre a.pre {
+				vertical-align:  super;
+				text-decoration: underline;
+				font-size:       small;
+				font-style:      italic;
+			}
 		</style>
