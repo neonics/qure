@@ -22,7 +22,7 @@ map {
 		my $l = $2;
 
 		$l=~ /^#/ and 1 or
-		$l=~ /^http:/ and 1 or do {
+		$l=~ /^https?:/ and 1 or do {
 			$l =~ s/#.*//;
 			$msg .= check( $_, $p, $l );
 		}
