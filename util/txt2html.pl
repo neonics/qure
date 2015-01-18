@@ -153,6 +153,7 @@ $c=~ s@(?<!\t)\[([^\]\.#]+)(#[^\]\.]*)?\]@<a href="$1.html$2">$1</a>@g;
 # preserve hardlines in paragraphs
 $c=~ s@\n([^<\n]{1,60})\n([^<\n]{70,}\n)@\n$1<br/>\n$2@g;
 
+$c=p($c);
 
 # unpack
 while ($c =~ s@{{PACK (.*?)}}@pack( "H*", $1)@ge){}
