@@ -26,7 +26,7 @@ sub usage {
 			'minimal' for a minimal HTML5 wrapper, or 'default'
 			for the builtin template.html.
 	--template <t>	alias for -t
-	--css <uri>	add custom css
+	--css <uri>	add custom css. (-p before or after makes a diference)
 	-x <xml>	specify dynamic XML content URI to load at runtime.
 	-s <s>		specify XSL stylesheet; more than one allowed.
 	--cid <cid>	specify element ID to receive dynamic content
@@ -49,7 +49,7 @@ sub args {
 		my $a = shift @args;
 		$a eq '-t' || $a eq '--template'
 			and do { $self->{templatefile} = shift @args;1 } or
-		$a eq '--css' and do { push $self->{css}, shift @args or die "--css requires argument" } or
+		$a eq '--css' and do { push $self->{css}, $opts{relpath}.shift @args or die "--css requires argument" } or
 		$a eq '-x' and do { $self->{xml} = shift @args;1} or
 		$a eq '-s' and do { push $self->{styles}, shift @args;1} or
 		$a eq '--cid' and do { $self->{cid} = shift @args;1 } or
@@ -131,7 +131,7 @@ sub process {
 	$self->_fill( "TITLE",	$opts{title} );
 	$self->_fill( "TAGLINE",$opts{tagline} );
 	$self->_fill( "CSS",    join("\n",
-		map { "    <link rel='stylesheet' type='text/css' href='$opts{relpath}$_'/>" }
+		map { "    <link rel='stylesheet' type='text/css' href='$_'/>" }
 		@{$opts{css}} )
 	);
 
