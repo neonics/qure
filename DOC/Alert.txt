@@ -61,6 +61,8 @@ kernel/alert.s:
 		cmp	ax, K_ESC
 		jz	alert_beep
 
+== Discussion ==
+
 The default interrupt handler in ''kernel/idt.s'', which is tightly
 connected to the debugger, will check the context of the interrupt.
 If the active shell/virtual console caused the exception, the debugger
@@ -119,7 +121,7 @@ The ''debugger_exception_alert'' would point to a static object, or,
 a structure containing the text to display, and the options and their
 keyboard codes. It further contains a handler for each option. In the
 case of a boolean dialog, flags can be set. The unroll/yield code
-above could be called in the key handler.s
+above could be called in the key handlers.
 
 Also, the unroll is incomplete, as the IP is still pointing to within
 the interrupt handler, and, thus occupying the system stack and possibly
