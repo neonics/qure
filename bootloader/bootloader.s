@@ -494,7 +494,8 @@ mbr:
 			# 81 is invalid, bit 1 is used to mark partition
 			# table bootsector (not MBR). When bit 1 = 0,
 			# chainloading occurs. (untested)
-	status$:	.byte 0x81	# 80 bootable, 00 not bootable
+			# NOTE: reset to 0x80 to boot as MBR on actual PC
+	status$:	.byte 0x80	# 80 bootable, 00 not bootable
 	chs_start$:	.byte 0, 1, 0	# [dh, cl, ch]: head, sector, cylinder
 	part_type$:	.byte 6		# partition type
 	chs_end$:	.byte 0x0e,0xbe,0x94	# [dh, cl, ch]
