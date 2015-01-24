@@ -1,6 +1,8 @@
 # http:#forum.osdev.org/viewtopic.php?t=16990
-
 .intel_syntax noprefix
+
+ACPI_DEBUG = 1
+
 .data SECTION_DATA_BSS
 acpi_rsdp:	.long 0	# ds relative ptr
 acpi_fadt:	.long 0	# ds relative ptr
@@ -677,9 +679,11 @@ acpi_enable:
 	mov	ebx, [acpi_fadt]
 
 	mov	dx, [ebx + FADT_PM1a_CNT_BLK_PORT]
-	DEBUG_WORD dx, "PM1a control reg"
 	in	ax, dx
-	DEBUG_WORD ax
+	.if ACPI_DEBUG
+		DEBUG_WORD dx, "PM1a control reg"
+		DEBUG_WORD ax
+	.endif
 	or	ax, ax
 	jz	0f
 
@@ -690,36 +694,53 @@ acpi_enable:
 	ret
 0:
 	mov	dx, [ebx + FADT_SMI_CMD_PORT]
-	DEBUG_WORD dx,"SMI_CMD port"
 	mov	al, [ebx + FADT_ACPI_ENABLE]
-	DEBUG_BYTE al,"ACPI_ENABLE"
+	.if ACPI_DEBUG
+		DEBUG_WORD dx,"SMI_CMD port"
+		DEBUG_BYTE al,"ACPI_ENABLE"
+		call	newline
+	.endif
 	or	dx, dx
 	jz	0f
 	or	al, al
 	jz	0f
 	PRINTc 3 "Enabling ACPI"
-	push eax; in al, dx; DEBUG_BYTE al,"SMI_CMD val"; pop eax
-	DEBUG_BYTE al,"set val"
+	mov	ah, al
+	in	al, dx
+	.if ACPI_DEBUG
+		DEBUG_BYTE al,"SMI_CMD val"
+		DEBUG_BYTE ah,"set val"
+	.endif
+	mov	al, ah
 	out	dx, al
 
 	mov ecx, 100
 	10: in al, dx
 	loop 10b
-	DEBUG_BYTE al, "SMI_CMD val"
-	call newline
+
+	.if ACPI_DEBUG
+		DEBUG_BYTE al, "SMI_CMD val"
+		call newline
+	.endif
 
 
 	# enable events
 	mov	dx, [ebx + FADT_PM1a_EVT_BLK_PORT]
-	DEBUG_WORD dx,"PM1a_EVT_BLK_PORT"
+	.if ACPI_DEBUG
+		DEBUG_WORD dx,"PM1a_EVT_BLK_PORT"
+	.endif
 	or	dx, dx
 	jz	0f
 
 	movzx	ax, byte ptr [ebx + FADT_PM1_EVT_LEN]
-	DEBUG_WORD ax,"PM1 evt len"
+	.if ACPI_DEBUG
+		DEBUG_WORD ax,"PM1 evt len"
+	.endif
 	shr	ax, 1
 	add	dx, ax
-	DEBUG_WORD dx, "PM1 ENABLE port"
+	.if ACPI_DEBUG
+		DEBUG_WORD dx, "PM1 ENABLE port"
+	.endif
 
 	PM1_EVT_TMR_EN=1<<0
 	PM1_EVT_GBL_EN=1<<5 # global enable
@@ -727,29 +748,40 @@ acpi_enable:
 	PM1_EVT_SLPBTN_EN=1<<9
 	PM1_EVT_RCT_EN=1<<10#enable RTC_STS->wake
 	PM1_EVT_PCIEXP_WAKE_DIS=1<<14
-	in ax, dx
-	DEBUG_WORD ax, "PM1 evt val"
-
+	in	ax, dx
+	.if ACPI_DEBUG
+		DEBUG_WORD ax, "PM1 evt val"
+	.endif
 	mov	ax, PM1_EVT_GBL_EN|PM1_EVT_PWRBTN_EN|PM1_EVT_SLPBTN_EN
-	DEBUG_WORD ax,"set val"
+	.if ACPI_DEBUG
+		DEBUG_WORD ax,"set val"
+	.endif
 	out	dx, ax
-	mov ecx, 10
-	10: in ax, dx
-	loop 10b
-	DEBUG_WORD ax,"PM1_evt val"
+	mov	ecx, 10
+	10:
+	in	ax, dx
+	loop	10b
+	.if ACPI_DEBUG
+		DEBUG_WORD ax,"PM1_evt val"
+	.endif
 
 
 # need timer
 	mov	dx, [ebx + FADT_PM1a_CNT_BLK_PORT]
-	DEBUG_WORD dx,"PM1a_CNT port"
 	in	ax, dx
-	DEBUG_WORD ax
+	.if ACPI_DEBUG
+		DEBUG_WORD dx,"PM1a_CNT port"
+		DEBUG_WORD ax
+	.endif
 	test	ax, PM1_SCI_EN#[ebx + SCI_EN]
 	jnz	1f
 
 	# optional
 	mov	dx, [ebx + FADT_PM1b_CNT_BLK_PORT]
-	DEBUG_WORD dx,"PM1b_CNT port"
+	.if ACPI_DEBUG
+		DEBUG_WORD dx,"PM1b_CNT port"
+		call	newline
+	.endif
 	or	dx, dx
 	jz	1f
 	in	ax, dx
@@ -758,7 +790,8 @@ acpi_enable:
 	PRINTLNc 4 "Failed to initialize ACPI"
 	stc
 	ret
-1: 	clc
+1: 	OK
+	clc
 	ret
 
 0:	PRINTLNc 4 "not enough ACPI information to enable"
