@@ -115,9 +115,7 @@ acpi_get_rsdp$:
 
 	call	newline
 
-	call	acpi_check_rsdt
-
-	clc
+	call	acpi_check_rsdt	# out: CF
 	jmp	0b
 
 
@@ -332,8 +330,11 @@ acpi_check_rsdt:
 	add	eax, 36		# skip header
 	sub	ecx, 36
 	DEBUG_DWORD ecx
+	# lets shr because we add 4:
+	shr	ecx, 2
+	jecxz	3f
 
-0:	push	eax
+0:	push_	eax ecx
 	mov	eax, [eax]
 	add	eax, [acpi_addr_reloc$]
 	ACPI_MAKE_SIG ebx, 'F','A','C','P'
@@ -343,21 +344,22 @@ acpi_check_rsdt:
 	call	acpi_check_facp$
 	jnc	2f
 
-1: 	
-	pop	eax
+1: 	pop_	ecx eax
 	add	eax, 4
 	loop	0b
-	printlnc 4, "FACP not found"
+3:	printlnc 4, "FACP not found"
 	stc
 0:	ret
 
 2:	DEBUG "Found FACP"
 	DEBUG_DWORD eax
-	pop	eax
+	pop_	ecx eax
 	ret
 
 
 acpi_check_facp$:
+	pushad
+
 	print "FADT ('FACP') found: "
 	mov	[acpi_fadt], eax
 
@@ -482,17 +484,18 @@ acpi_check_facp$:
 	shl	dx, 10
 	mov	[SLP_TYPb], dx
 
-	clc
 	PRINTLNc 3 "ACPI found"
-9:	ret
+	clc
+9:	popad
+	ret
 
 .endif
-91:	printlnc 4, "FACP->DSDT checksum error"
+91:	printlnc 4, "FACP->DSDT checksum error" # Label unused
 	stc
-	ret
+	jmp	9b
 92:	printlnc 4, "_S5_ not present"
 	stc
-	ret
+	jmp	9b
 
 # ACPIspec50.pdf section 5.4
 # in: edx = dsdt ptr
