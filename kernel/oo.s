@@ -239,10 +239,10 @@ class_resolve_internal$:
 	push	eax
 	mov	eax, [eax + class_super]
 	or	eax, eax
-	jnz	1f
+	jz	1f
 	xor	ebx, ebx
-1:	call	class_resolve_internal$
-2:	pop	eax
+	call	class_resolve_internal$
+1:	pop	eax
 	jc	91f
 
 	# resolve current class.
