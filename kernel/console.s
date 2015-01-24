@@ -44,7 +44,7 @@ kb_task:
 mov ebx, offset tls_default
 mov [tls], ebx
 	cmp	eax, K_KEY_CONTROL | K_KEY_ALT | K_DELETE
-	jz	1f
+	jz	99f
 	mov	ebx, eax
 	xor	bh, bh
 .if SCREEN_BUFFER
@@ -78,8 +78,8 @@ mov [tls], ebx
 	ret
 
 
-1:	PRINTc 0xe2, "Ctrl-Alt-Delete"
-	ret
+99:	PRINTc 0xe2, "Ctrl-Alt-Delete"
+	jmp	cmd_reboot
 
 2:	PRINTc 0xe2, "^C"
 	printlnc 0xb8, " Stack dump: (nothing's broken! - press enter)"
