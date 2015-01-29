@@ -51,7 +51,7 @@ piix4_ide_init:
 
 	.if 0	# pci_list_devices has filled this in
 	print "Bus Master Interface address: "
-	mov	al, 0x20	# BAR 4
+	mov	dl, 0x20	# BAR 4
 	call	dev_pci_read_config
 	mov	edx, eax
 	call	printhex8
@@ -61,14 +61,14 @@ piix4_ide_init:
 	call	newline
 	.endif
 
-	mov	al, 12	# 0xc..0xf: 0xd = MLT, master latency timer register
+	mov	dl, 12	# 0xc..0xf: 0xd = MLT, master latency timer register
 	call	dev_pci_read_config
 	mov	dl, ah	# 0xd
 	print "MLT "
 	call	printhex2
 	call	printspace
 
-	mov	al, 0x04
+	mov	dl, 0x04
 	call	dev_pci_read_config
 	print "PCI Cmd: "
 	mov	edx, eax
@@ -92,7 +92,7 @@ piix4_ide_init:
 	print	"]"
 	call	newline
 
-	mov	al, 0x40
+	mov	dl, 0x40
 	call	dev_pci_read_config
 	mov	edx, eax	# 40-41: prim, 42-43: second
 	print "IDE Timing:"
@@ -148,7 +148,7 @@ piix4_ide_init:
 
 	call	newline
 
-	mov	al, 0x44
+	mov	dl, 0x44
 	call	dev_pci_read_config
 	mov	edx, eax	# byte: high 3 is reserved
 	print " Slave IDE Timing: "
@@ -170,7 +170,7 @@ piix4_ide_init:
 	call	newline
 
 	print "UDMA/33 Control: "
-	mov	al, 0x48	# [48 UDMACTL][49 -][4a-4b UDMATIM]
+	mov	dl, 0x48	# [48 UDMACTL][49 -][4a-4b UDMATIM]
 	call	dev_pci_read_config
 	mov	edx, eax	# 4byte
 	call	printhex8

@@ -221,26 +221,27 @@ dev_pci_print:
 	ret
 
 # in: ebx: device
-# in: al: pci configuration register
+# in: dl: pci configuration register
 # out: eax
 dev_pci_read_config:
 	push_	ebx edx
-	mov	ebx, [ebx + dev_pci_addr]
-	xchg	eax, ebx
+	mov	eax, [ebx + dev_pci_addr]
+	mov	bl, dl
 	call	pci_read_config	# in: eax=pci addr; bl = pci config reg
 	pop_	edx ebx
 	ret
 
 # in: ebx = device
-# in: al = pci config register
-# in: edx = value to write
+# in: dl = pci config register
+# in: eax = value to write
 # out: eax = readback value
 dev_pci_write_config:
-	push	ebx
+	push_	ebx edx
 	mov	ebx, [ebx + dev_pci_addr]
-	xchg	eax, ebx
-	call	pci_write_config
-	pop	ebx
+	xchg	eax, ebx	# eax = pci addr, ebx = value
+	xchg	edx, ebx	# edx = value, ebx = bl = pci reg
+	call	pci_write_config# in: eax = pci addr, bl=reg, edx=value; out: eax
+	pop_	edx ebx
 	ret
 
 # in: ebx = device

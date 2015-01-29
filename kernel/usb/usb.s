@@ -149,7 +149,7 @@ usb_vmw_ehci_init:
 
 	# read PCI configuration registers specific for USB:
 
-	mov	al, USB_EHCI_PCI_CONFIG_SBRN
+	mov	dl, USB_EHCI_PCI_CONFIG_SBRN
 	call	dev_pci_read_config
 
 	print "USB "
