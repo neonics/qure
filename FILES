@@ -4,9 +4,25 @@ build/			temporary build files (not in repository)
 TODO			Compromises: current status, feature, optimization
 FILES			this file
 .git/			version control
+.tcshrc			various aliases (disassembly, obj inspect, vm start etc)
 
 bootloader/		bootloader source
+  Makefile
+  bootloader.s		bootloader sector 0 - loads sector1
+  sector1.s		BIOS code, high-mem kernel image (RAMDISK) loader
 16/			16 bit shared code used by bootloader
+  print.s		textmode screen writing routines
+  gdt.s			16 bit GDT manipulation and constants
+  pmode.s		16 bit real/unreal/protected mode switching
+
+  (the following files were once the bulk of the bootloader)
+
+  Makefile		generates 16 bit menu driven system inspector
+  keyboard16.s		16 bit keyboard IRQ driver
+  floppy.s		floppy drives list routines
+  gfxmode.s		minimal BIOS VBE graphics test
+  inspect.s		list HDD drives, memory/HDD sector inspector
+  menu.s		text-mode menu combining all features
 
 kernel/			kernel sources
   *.s			core system: pmode/idt/gdt/paging/scheduling etc
@@ -16,14 +32,14 @@ kernel/			kernel sources
   kapi/			Kernel API access routines
   lib/			buffer, handles, memory, strings, arrays etc
   net/			Internet Protocols; network routing and services
-  nic/			AM79c971, I8254, RTL8139, (ne2k uncommitted)
+  nic/			AM79c971, I8254, RTL8139, BCM57xx, (ne2k uncommitted)
   pcibridge/		Intel 440 and PIIX soutbridge drivers
-  sound/		SB16 and ES1371 sound drivers
+  sound/		SB16, ES1371, and AC'97 sound drivers
   usb/			USB legacy, EHCI, OHCI drivers (experimental)
   vbox/			VirtualBox guest driver / video driver
   vmware/		VMWare guest driver / video driver
 
-lib/			base64, SHA1, crc32, sort, huffman, gzip, xml
+lib/			base64, SHA1, crc32, sort, aes128, huffman, gzip, xml
 
 fonts/			graphics mode fonts
 
@@ -34,6 +50,13 @@ sandbox/		various experiments (mostly not committed)
 root/			the root of the OS filesystem, the boot disk
   hello.txt		file to test 'cat'
   www/			HTTPD web root
+    index.html		site front page
+    menu.xml		dynamically loaded for /
+    doc-menu.xml	dynamically loaded menu for /doc
+    doc-src-menu.xml	dynamically loaded menu for /doc/src
+    scene-pack.js	Canvas2D navigation component
+    site.js		site script library
+    style.css		site styling
     doc/		generated: HTML documentation (from DOC/*.(txt|html))
     download/os.iso	Generated during build: embedded iso for download
     www.*/		domain hosting (optionally generated during build)
@@ -56,9 +79,12 @@ util/			build assistance and various scripts
 
  *SITE*
   doctools.pl		interface to DOC/*.(txt|html): list and TOC generation
-  txt2html.pl		conversion routine; includes template.pl functionality
-  template.pl		generate html page
+  txt2html.pl		converts DOC/*.txt format to HTML
+  template.pl		generate HTML page
+  Template.pm		HTML template library
   template.html		page template used by txt2html.pl/template.pl
+  fmtsrc.pl		syntax-highlighting, cross referencing .s sources
+  linkchecker.pl	checks <a href> links in (generated) html files
 
  *VM*
   adm			management interface (perl script);
@@ -67,8 +93,11 @@ util/			build assistance and various scripts
  *DEV/REFERENCE*
   symtab.cpp		C version of symbol table parsing
   coff.cpp		parse COFF files - development aid to verify format
-  iso9660.cpp		parse ISO file
+  iso9660.cpp		parse ISO file - idem
   malloc.cpp		prototype memory management
+ 
+ *ASSIST*
+  genopcodemacros.pl	generates the 'cmovX' macros in kernel/macros.s
 
  *TEST*
   flood.pl		UDP packet flooder to test kernel stability
@@ -80,6 +109,7 @@ util/			build assistance and various scripts
     hex2bin.sh
     hex2str.sh
     mkdoshdd.sh
+    stringdata.sh	.string section optimisation: remove duplicates etc.
 
 
 DOC/			Documents
