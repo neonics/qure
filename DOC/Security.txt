@@ -1,4 +1,4 @@
-
+= Protected mode Ring reference =
 
 				ring 0: pmode, paging
 				ring 1: scheduler, kernel api
@@ -51,8 +51,8 @@ has unlimited data access.
 Ring 3 is probably conforming ring 3, otherwise drivers cannot write in task
 buffers.
 
-Example
--------
+= Example =
+
 Drivers must have access to all task buffers (disk read for instance).
 Unprivileged task (3) calls the kernel API (1) to read from the file system.
 The kernel API executes the driver (2), who reads into the task (3) memory.
@@ -78,8 +78,8 @@ pushall/popall, but rep movsd twice, not to mention the hardware overhead
 (unless there is smart management of a dynamic array of TSS, where the most
 run tasks' TSS is kept intact - TSS caching, as it were.)
 
-Paging
-------
+= Paging =
+
 The paging setup is done in CPL0, after which certain tables can be made
 writable to the whole system (ring 0-2). Starting out with no page tables
 writable, ring 1 code can ask to allocate a PDE or PTE, to be mapped in
@@ -90,9 +90,9 @@ There is no way using paging to indicate a difference between rings 0, 1 and2.
 If they added just one more bit, it would have been.
 To make ring 1 and 2 work, then, selectors must be used.
 Allocating pages from end of memory down allows to limit the selectors for
-rings 1 and 2. (Ring 3 limitation can done using paging). This makes
+rings 1 and 2. (Ring 3 limitation can be done using paging). This makes
 for a reserved region of memory at the end of memory. This can be done in
-layers, each lower ring number having further access.
+layers, each lower ring number having further access; for example:
 
 	Ring 0:	[0-4Gb]
 	Ring 1: [2Mb-3Gb]
@@ -111,3 +111,180 @@ memory. Therefore, this code must offer the table for validation before
 the kernel enables it. This allows ring0 to provide both code and data
 access protection of the kernel (as long as the ringed code and data
 are page aligned).
+
+
+= Driver isolation =
+
+In order to support driver isolation, interrupt handlers should be created
+like tasks (either via task gates or via the scheduler).
+
+When created _as_ tasks, the `irq_isr` method would instead hold a list of
+task IDs (PIDs) rather than the irq handler. These tasks would auto-suspend
+themselves at their start address after handling the job. A second way is
+for them to yield and check some variable.
+Lastly (and most complexly), they can yield on a semaphore. The kernel or
+irq_isr method will hold a write lock on the semaphore, and will release it
+when an interrupt occurs, so as to enable multiple parallel read locks to
+succeed, one for each task. 
+The write lock must then be re-acquired as soon as all IRQ handlers have
+finished, which would require some special scheduler code.
+Task scheduling code already takes care of updating the page table register,
+which should map the task's heap for buffers, some read-only kernel space
+(class definitions etc), the IO ports in the current task descriptor (there
+should be one in use all the time).
+
+For now, `irq_isr` is executing at CPL0 and iteratively calling all registered
+IRQ handlers for the raised IRQ. The simplest solution is to have it decrease
+the CPL to 2 during the handler iteration. It should however resume CPL0
+when returning from the interrupt handler, for two reasons: First, the `iret`
+takes care of restoring the userspace stack, if any, which it does by checking
+the CPL/DPL; Secondly, all interrupts, upon completion, invoke the scheduler,
+which expects to be run at CPL0.
+
+== Malloc, .tls ==
+
+Malloc code would need to have the base pointers to it's structures placed
+in a .tls (task local storage segment) to be able to re-use malloc
+functionality with separate heaps for different tasks.
+
+When not wanting to use a task for each interrupt,
+the `irq_isr` can take on a scheduling role by updating the GDTR,
+(and possibly the IDTR, allow to remap interrupt handling during an IRQ).
+
+It is possibly far faster to only remap part of the page table.
+A region should be reserved/calculated relative to kernel space and it's
+basic heap needs (we don't want the kernel heap/stack to run into this space)
+that serves as the basis of mapping task heap space (within the range of it's
+ds/es). Typically IO drivers consume at a maximum 64kb (due to bus mastering
+limitations), which is 16 pages. 16 `INVLPG` instructions is likely faster
+than switching out `CR3`.
+However it would be better if the kernel could have a view as it has now,
+namely, a flat view of at least kernel applications.
+
+== Driver memory allocation tracking ==
+
+A first step would be to find all mallocs in drivers and replace them
+with a new function `dev_malloc`. There is already caller tracking code,
+and recognizing the caller signature (offset within dev code), malloc could
+use another reserved region. It would malloc a large region, and initialize it's
+beginning with another malloc structure. All malloc calls from dev will
+then be proxied to a malloc call using the beginning of the dev-mallocced
+buffer. This buffer would be so initialized as to treat the space after
+the header as the heap to manage. In this way, malloc becomes a tree.
+It would allow for more freedom than merely remapping .tls.
+
+== Malloc updates ([src:kernel/lib/mem.s]) ==
+
+When not using only .tls based malloc space separation, a more
+general approach is to modify malloc to take one more memory dereference
+(remove references to static variables). This will make it possible to
+multiple memory regions be manageable by the memory management code.
+
+Then, dev_malloc would serve as a template for a recursive malloc,
+restricted to merely allow to compactly group page-aligned regions.
+
+	.data
+		dev_malloc_base$: .long 0
+		dev_malloc_kernel_ptr$: .long 0	 # [mem_kernel] pool
+		dev_malloc_kernel_size$: .long 0 # [mem_kernel] allocated size
+	dev_malloc:
+		push	esi
+		mov	esi, [dev_malloc_base$]
+		or	esi,esi
+		jz	1f
+	2:
+		call	malloc_internal$
+		jc	3f
+
+	9:	pop	esi
+		ret
+
+	1:	push	eax
+		add	eax, 4095 + MEM_STRUCT_SIZE
+		and	eax, ~4095
+		mov	[dev_malloc_kernel_size$], eax
+		push	eax
+		call	mallocz
+	4:
+		# remember original:
+		mov	[dev_malloc_kernel_ptr$], eax
+		# find first page alignment:
+		mov	esi, eax
+		GDT_GET_BASE eax, ds
+		add	esi, eax
+		add	esi, MEM_STRUCT_SIZE + 4096
+		and	esi, ~4095
+		sub	esi, eax
+		mov	[dev_malloc_base$], esi
+
+		lea	eax, [esi + MEM_STRUCT_SIZE]
+		mov	[esi + heap_base], eax
+		pop	[esi + heap_size]
+		mov	[esi + ll_first], dword ptr -1
+		mov	[esi + ll_last], dword ptr -1
+		mov	[esi + mem_handle_ll_(fa|fs|fh) + ll_(first|last)], -1
+		pop	eax
+		jmp	2b
+	
+	3:	push_	edx eax
+		mov	edx, [dev_malloc_kernel_size$]
+		add	edx, eax
+		call	mreallocz
+		jc	1f
+		mov	[dev_malloc_kernel_size$], edx
+	1:	pop_	eax edx
+		jc	9b
+		jmp	4b
+
+See the MEM_FEATURE_STRUCT code in [src:kernel/lib/mem.s]. This code
+affects `malloc_internal$`, which manages the heap reservation.
+This is sufficient to have separate handle structures, however,
+the heap addresses are not localized/dynamic, which is why all `[mem_*]`
+(except `[mem_kernel]`) are fetched using pointer indirection.
+
+We can now either allocate pages from the high memory page pool,
+and map these anywhere,
+or we can allocate page aligned memory and simply change the permissions
+on certain regions of the kernel heap space, knowing that
+1) the kernel doesn't know or need to know what is inside these regions
+ (except as it gets passed pointers to it)
+2) the region itself is managed by special code.
+
+The `dev_malloc` sample above maintains a compact mapping by using
+mreallocz to extend the size of the chunk of memory allocated from
+the kernel heap. This will change all the previously allocated
+memory pointers. Since driver code is interrupt based, such resizes
+can be safely done outside of driver interrupt handlers. Typically
+memory allocation is only done during device initialisation and
+can be restricted. Even though, any mrealloc will change previously
+stored pointers, internal consistency is guaranteed, as the handle
+structure of the nested dev memory pool is untouched. All that then
+remains is to page map the dev_malloc_base to a fixed page address.
+
+Furthermore, buffer memory to be passed as hardware addresses should
+be handled by a separate routine. DMA has certain restrictions, as do
+older ISA cards, which require buffers to be in low memory.
+
+The page pool should scale; it is basically the 4Gb region (above 1mb or so)
+that can be mapped in any sequence. As such it is a dynamic array, and it is
+compact aswell, clustering in high memory. 
+
+The kernel could first make the distinction of DMA memory, knowing that
+this is hardware (CPL2) accessed, and can be in 1 pool.
+Then, the pool should be contiguous regions separated by drivers,
+so that they cannot influence other buffers.
+
+The kernel network code should also be custom mapped to include any
+NIC device buffer space. Bookeeping data mallocced by the driver
+is generally not referenced (passed as pointers) so the driver heap
+can remain hidden to the netq daemon.
+
+The mrealloc scheme above will remain problematic unless some paging solution
+is implemented. This defeats the purpose of having a single flat view for
+the kernel: even though it has access to all pages through identity mapping,
+the sequence and actual mapped addresses differ.
+A space can be reserved for CPL2 mapping; each driver will then use the
+same memory address as a heap. The kernel then cannot access data from
+two device drivers simultaneously. This should however not pose a problem,
+since kernel calls done from a device driver interrupt or API handler
+will have the proper context mapped.

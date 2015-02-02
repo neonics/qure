@@ -26,38 +26,68 @@ MEM_PRINT_HANDLES = 2	# 1 or 2: different formats.
 .include "lib/ll.s"
 .include "lib/handles.s"
 
+MEM_FEATURE_STRUCT = 0	# 0: static kernel mem variables; 1: use pointer
+	# This feature allows to specify a pointer to the memory
+	# bookkeeping structure to most of the code, making it possible
+	# to manage multiple heaps - even recursively.
+	# NOTE: value 1 only partially tested - has some problems.
+
 .data
+mem_phys_total:	.long 0, 0	# total physical memory size XXX
+
+.if MEM_FEATURE_STRUCT
+.struct
+.else
+.data
+.endif
 mem_heap_start:	.long 0, 0
-mem_heap_size:	.long 0, 0
+mem_heap_size:	.long 0, 0	# MEM_FEATURE_STRUCT: XXX malloc_page_phys
 
 mem_heap_alloc_start: .long 0
 
 mem_heap_high_end_phys:	.long 0, 0
 mem_heap_high_start_phys:.long 0, 0
 
-mem_phys_total:	.long 0, 0	# total physical memory size
 
-.data
 # handles struct (from mem_handle.s)
 mem_handles: .long 0
-mem_handles_method_alloc: .long 0
+mem_handles_method_alloc: .long 0 # MEM_FEATURE_STRUCT: Check XXX init only!
 mem_numhandles: .long 0
 mem_maxhandles: .long 0
-mem_handles_handle: .long 0	# unused
+mem_handles_handle: .long 0	# unused (leave here! mem_handle struct!)
 # substructs: pairs of _first and _last need to be in this order!
 # free-by-address
 mem_handle_ll_fa:
+.if MEM_FEATURE_STRUCT
+.long 0,0
+.else
 .long -1#handle_fa_first: .long -1	# offset into [mem_handles]
 .long -1#handle_fa_last: .long -1	# offset into [mem_handles]
+.endif
 # free-by-size
 mem_handle_ll_fs:
+.if MEM_FEATURE_STRUCT
+.long 0,0
+.else
 .long -1#handle_fs_first: .long -1	# offset into [mem_handles]
 .long -1#handle_fs_last: .long -1	# offset into [mem_handles]
+.endif
 # free handles
 mem_handle_ll_fh:
+.if MEM_FEATURE_STRUCT
+.long 0,0
+.else
 .long -1#handle_fh_first: .long -1
 .long -1#handle_fh_last: .long -1	# not really used...
+.endif
 
+.if MEM_FEATURE_STRUCT
+MEM_STRUCT_SIZE = .
+.data
+mem_kernel: .long 1f	# initialize bootstrap memory structure pointer
+# allocate bootstrap memory structure
+1: .space MEM_STRUCT_SIZE - 6*4; .rept 6; .long -1; .endr
+.endif
 
 .text32
 
@@ -302,7 +332,12 @@ mem_handle_ll_fh:
 # of physical memory generally. The first Mb is skipped, reserved for real-mode
 # kernel and legacy 16 bits apps and such.
 mem_init:
-	mov	[mem_handles_method_alloc], dword ptr offset handles_alloc$
+.if MEM_FEATURE_STRUCT
+	mov	eax, [mem_kernel]
+.else
+	xor	eax, eax
+.endif
+	mov	[eax + mem_handles_method_alloc], dword ptr offset handles_alloc$
 
 
 	PRINT " Start           | Size             | Type"
@@ -408,7 +443,12 @@ mov eax, edx
 	call	printhex8
 
 	mov	esi, edi
+.if MEM_FEATURE_STRUCT
+	mov	edi, [mem_kernel]
+	lea	edi, [edi + mem_heap_start]
+.else
 	mov	edi, offset mem_heap_start
+.endif
 	movsd
 	movsd
 	movsd
@@ -422,14 +462,30 @@ mov eax, edx
 
 	# > 4Gb check
 
+.if MEM_FEATURE_STRUCT
+	mov	ebx, [mem_kernel]
+	cmp	dword ptr [ebx + mem_heap_start + 4], 0
+	#cmp	dword ptr [edi - 16 + 4], 0
+.else
+	xor	ebx, ebx	# just in case
 	cmp	dword ptr [mem_heap_start + 4], 0
+.endif
 	jz	0f
 	printlnc 4, "ERROR - Memory offset beyond 4Gb limit"
 	jmp	halt
-0:	cmp	dword ptr [mem_heap_size + 4], 0
+0:
+.if MEM_FEATURE_STRUCT
+	cmp	dword ptr [ebx + mem_heap_size + 4], 0
+.else
+	cmp	dword ptr [mem_heap_size + 4], 0
+.endif
 	jz	0f
 	printlnc 4, "WARNING - Truncating available memory to 4Gb"
+.if MEM_FEATURE_STRUCT
+	lea	edi, [ebx + mem_heap_size]
+.else
 	mov	edi, offset mem_heap_size
+.endif
 	mov	eax, -1
 	stosd
 	inc	eax
@@ -445,18 +501,22 @@ mov eax, edx
 	# Adjust the heap start
 
 	print "Adjust heap base "
-	mov	edx, [mem_heap_start]
+.if MEM_FEATURE_STRUCT
+	mov	eax, [mem_kernel]
+.else
+	xor	eax, eax
+.endif
+	mov	edx, [eax + mem_heap_start]
 	call	printhex8
 	print "->"
-	sub	[mem_heap_start], ebx
-	mov	edx, [mem_heap_start]
+	sub	[eax + mem_heap_start], ebx
+	mov	edx, [eax + mem_heap_start]
+	mov	[eax + mem_heap_alloc_start], edx
 	call	printhex8
 
-	mov	[mem_heap_alloc_start], edx
-
 	print " end "
-	mov	edx, [mem_heap_size]
-	add	edx, [mem_heap_start]
+	mov	edx, [eax + mem_heap_size]
+	add	edx, [eax + mem_heap_start]
 	call	printhex8
 	print "->"
 	sub	edx, ebx
@@ -464,8 +524,9 @@ mov eax, edx
 	call	printhex8
 	call	newline
 
-	mov	[mem_heap_high_end_phys], edx
-	mov	[mem_heap_high_start_phys], edx
+# XXX
+	mov	[eax + mem_heap_high_end_phys], edx
+	mov	[eax + mem_heap_high_start_phys], edx
 	ret
 
 #############################################################################
@@ -694,7 +755,12 @@ malloc_test$:
 
 	.macro ASSERT_NUMHANDLES num
 		push	edx
+.if MEM_FEATURE_STRUCT
+		mov	edx, [mem_kernel]
+		mov	edx, [edx + mem_numhandles]
+.else
 		mov	edx, [mem_numhandles]
+.endif
 		cmp	edx, \num
 		je	9f
 		pushcolor 0xf4
@@ -710,7 +776,14 @@ malloc_test$:
 		push	ebx
 		mov	ebx, \idx
 		HITO	ebx
+.if MEM_FEATURE_STRUCT
+		push	eax
+		mov	eax, [mem_kernel]
+		add	ebx, [eax + mem_handles]
+		pop	eax
+.else
 		add	ebx, [mem_handles]
+.endif
 		test	[ebx + handle_flags], byte ptr \flag
 		j\op	9f
 		printlnc 0xf4, "Flag \flag mismatch"
@@ -823,9 +896,14 @@ malloc_test$:
 	call	mem_print_handles
 	call	more
 
-	mov	esi, [mem_handles]
-	mov	ebx, [mem_handle_ll_fa + ll_last]
-	mov	ecx, [mem_numhandles]
+.if MEM_FEATURE_STRUCT
+	mov	ecx, [mem_kernel]
+.else
+	xor	ecx, ecx
+.endif
+	mov	esi, [ecx + mem_handles]
+	mov	ebx, [ecx + mem_handle_ll_fa + ll_last]
+	mov	ecx, [ecx + mem_numhandles]
 0:	test	byte ptr [esi + ebx + handle_flags], 1 << 7
 	jnz	1f
 	test	byte ptr [esi + ebx + handle_flags], MEM_FLAG_ALLOCATED
@@ -852,15 +930,24 @@ more:	MORE
 #######################################################################
 # in: eax = size to allocate
 # in: edx = physical address alignment
+.if MEM_FEATURE_STRUCT
+# in: esi = memory base structure pointer
+.endif
 malloc_internal_aligned$:	# can only be called from malloc_aligned!
 
 	# calculate worst case scenario for required contiguous memory
 	push	edx
 	push	eax
 	add	eax, edx	# worst case
+.if MEM_FEATURE_STRUCT
+	mov	edx, [esi + mem_heap_alloc_start]
+	add	edx, [esi + mem_heap_size]
+	sub	edx, [esi + mem_heap_start]
+.else
 	mov	edx, [mem_heap_alloc_start]
 	add	edx, [mem_heap_size]
 	sub	edx, [mem_heap_start]
+.endif
 	cmp	eax, edx
 	pop	eax
 	jae	9f	# note: only edx on stack!
@@ -871,21 +958,33 @@ malloc_internal_aligned$:	# can only be called from malloc_aligned!
 	# calculate the required slack for the alignment
 	push_	ebx ecx edi
 	GDT_GET_BASE ecx, ds
+.if MEM_FEATURE_STRUCT
+	mov	edi, [esi + mem_heap_alloc_start]
+.else
 	mov	edi, [mem_heap_alloc_start]
+.endif
 	sub	edi, ecx	# physical address (with id paging)
 	dec	edx
 	add	edi, edx
 	not	edx
 	and	edi, edx
 	add	edi, ecx	# edi now ds el phys aligned
-	push_	esi eax
+	push_	esi eax		# STACKREF esi
 	mov	eax, edi
+.if MEM_FEATURE_STRUCT
+	sub	eax, [esi + mem_heap_alloc_start]# eax = slack size
+.else
 	sub	eax, [mem_heap_alloc_start]	# eax = slack size
+.endif
 	jz	1f
 
 	# register the slack as free space
 
+.if MEM_FEATURE_STRUCT
+	lea	esi, [esi + mem_handles]
+.else
 	lea	esi, [mem_handles]
+.endif
 	call	handle_get	# in: esi; out: ebx
 	jc	4f
 	mov	esi, [esi + handles_ptr] # [mem_handles]
@@ -894,17 +993,38 @@ malloc_internal_aligned$:	# can only be called from malloc_aligned!
 	and	byte ptr [esi + ebx + handle_flags], ~MEM_FLAG_ALLOCATED
 	or	byte ptr [esi + ebx + handle_flags], MEM_FLAG_DBG_SLACK
 
+.if MEM_FEATURE_STRUCT
+	push	edi
+	mov	edi, [esp + 8]	# ref pushed esi
+	push	dword ptr [edi + mem_heap_alloc_start]
+	add	[edi + mem_heap_alloc_start], eax
+	pop	dword ptr [esi + ebx + handle_base]
+	pop	edi
+.else
 	push	dword ptr [mem_heap_alloc_start]
 	add	[mem_heap_alloc_start], eax
 	pop	dword ptr [esi + ebx + handle_base]
+.endif
+
 	# insert the handle in the FS list.
 	push	edi
+.if MEM_FEATURE_STRUCT
+	mov	edi, [esp + 8]
+	lea	edi, [edi + mem_handle_ll_fa]
+.else
 	mov	edi, offset mem_handle_ll_fa
+.endif
 	add	esi, offset handle_ll_el_addr
 	call	ll_append$
 	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
+.if MEM_FEATURE_STRUCT
+	mov	ecx, [esp + 8]
+	lea	edi, [ecx + mem_handle_ll_fs]
+	mov	ecx, [ecx + mem_maxhandles]
+.else
 	mov	edi, offset mem_handle_ll_fs
 	mov	ecx, [mem_maxhandles]
+.endif
 	call	ll_insert_sorted$	# insert
 	pop	edi
 
@@ -923,6 +1043,9 @@ malloc_internal_aligned$:	# can only be called from malloc_aligned!
 	jmp	1b
 
 # in: eax = size to allocate
+.if MEM_FEATURE_STRUCT
+# in: esi = MEM_STRUCT
+.endif
 # out: base address of allocated memory
 malloc_internal$:
 	.if MEM_DEBUG > 1
@@ -931,24 +1054,43 @@ malloc_internal$:
 		mov	edx, eax
 		call	printhex8	# alloc size
 		printchar ' '
+.if MEM_FEATURE_STRUCT
+		mov	edx, [esi + mem_heap_alloc_start]# base
+.else
 		mov	edx, [mem_heap_alloc_start]	# base
+.endif
 		call	printhex8
 		printchar ' '
 	.endif
 
 	push	edx
+.if MEM_FEATURE_STRUCT
+	mov	edx, [esi + mem_heap_alloc_start]
+	add	edx, [esi + mem_heap_size]
+	sub	edx, [esi + mem_heap_start]
+.else
 	mov	edx, [mem_heap_alloc_start]
 	add	edx, [mem_heap_size]
 	sub	edx, [mem_heap_start]
+.endif
 	cmp	eax, edx
 	jae	9f
 
+.if MEM_FEATURE_STRUCT
+	push	dword ptr [esi + mem_heap_alloc_start]
+	add	[esi + mem_heap_alloc_start], eax
+.else
 	push	dword ptr [mem_heap_alloc_start]
 	add	[mem_heap_alloc_start], eax
+.endif
 	pop	eax
 
 	.if MEM_DEBUG > 1
+.if MEM_FEATURE_STRUCT
+		mov	edx, [esi + mem_heap_alloc_start]# new free
+.else
 		mov	edx, [mem_heap_alloc_start]	# new free
+.endif
 		call	printhex8
 		call	newline
 		popcolor 10
@@ -972,8 +1114,14 @@ malloc_internal$:
 # out: edx:eax
 mem_get_used:
 	push	ebx
+.if MEM_FEATURE_STRUCT
+	mov	edx, [mem_kernel]
+	mov	ebx, [edx + mem_handles]
+	mov	edx, [edx + mem_handle_ll_fa + ll_first]
+.else
 	mov	ebx, [mem_handles]
 	mov	edx, [mem_handle_ll_fa + ll_first]
+.endif
 	xor	eax, eax
 0:	test	[ebx + edx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 	jz	1f
@@ -986,15 +1134,29 @@ mem_get_used:
 	ret
 
 mem_get_reserved:
-	xor	edx, edx
+.if MEM_FEATURE_STRUCT
+	mov	edx, [mem_kernel]
+	mov	eax, [edx + mem_heap_alloc_start]
+	sub	eax, [edx + mem_heap_start]
+.else
 	mov	eax, [mem_heap_alloc_start]
 	sub	eax, [mem_heap_start]
-	ret
-mem_get_free:
+.endif
 	xor	edx, edx
+	ret
+
+mem_get_free:
+.if MEM_FEATURE_STRUCT
+	mov	edx, [mem_kernel]
+	mov	eax, [edx + mem_heap_size]
+	add	eax, [edx + mem_heap_start]
+	sub	eax, [edx + mem_heap_alloc_start]
+.else
 	mov	eax, [mem_heap_size]
 	add	eax, [mem_heap_start]
 	sub	eax, [mem_heap_alloc_start]
+.endif
+	xor	edx, edx
 	ret
 
 # in: eax = size
@@ -1074,8 +1236,12 @@ malloc_aligned:
 malloc_aligned_:
 	MUTEX_SPINLOCK MEM
 	push_	ebx esi
-
+.if MEM_FEATURE_STRUCT
+	mov	esi, [mem_kernel]
+	lea	esi, [esi + mem_handles]
+.else
 	lea	esi, [mem_handles]
+.endif
 	call	handle_find_aligned
 	jnc	1f	# : mov eax, base; clc; ret
 	call	handle_get	# in: esi; out: ebx
@@ -1093,7 +1259,7 @@ malloc_aligned_:
 	jnc	3f
 	DEBUG "malloc_internal_aligned error"
 	jmp	3f
-# KEEP-WITH-NEXT malloc_
+# KEEP-WITH-NEXT malloc_ 3f
 
 # in: eax = size
 # out: eax = base pointer
@@ -1118,7 +1284,12 @@ malloc_:
 	.endif
 #call mem_debug
 	push_	ebx esi
+.if MEM_FEATURE_STRUCT
+	mov	esi, [mem_kernel]
+	lea	esi, [esi + mem_handles]
+.else
 	lea	esi, [mem_handles]
+.endif
 	call	handle_find	# in: esi; out: ebx
 	jc	2f
 1:	# malloc_aligned jumps here
@@ -1156,7 +1327,14 @@ malloc_:
 	.endif
 
 	mov	[esi + ebx + handle_size], eax
+.if MEM_FEATURE_STRUCT
+	push	esi
+	mov	esi, [mem_kernel]
 	call	malloc_internal$
+	pop	esi
+.else
+	call	malloc_internal$
+.endif
 3:	jc	3f	# malloc_aligned jumps here
 	.if MEM_DEBUG
 		push	edx
@@ -1169,10 +1347,16 @@ malloc_:
 	mov	[esi + ebx + handle_base], eax
 
 	push	edi
-	mov	edi, offset mem_handle_ll_fa
-	add	esi, offset handle_ll_el_addr
 	push	ecx
+.if MEM_FEATURE_STRUCT
+	mov	edi, [mem_kernel]
+	mov	ecx, [edi + mem_maxhandles]
+	lea	edi, [edi + mem_handle_ll_fa]
+.else
 	mov	ecx, [mem_maxhandles]
+	mov	edi, offset mem_handle_ll_fa
+.endif
+	add	esi, offset handle_ll_el_addr
 	call	ll_insert_sorted$
 	pop	ecx
 	sub	esi, offset handle_ll_el_addr
@@ -1247,7 +1431,12 @@ malloc_:
 	push	edi
 
 	MUTEX_SPINLOCK MEM
+.if MEM_FEATURE_STRUCT
+	mov	esi, [mem_kernel]
+	lea	esi, [esi + mem_handles]
+.else
 	lea	esi, [mem_handles]
+.endif
 	call	handle_get_by_base	# in: esi, eax; out: ebx
 	jc	0f
 
@@ -1343,14 +1532,28 @@ malloc_:
 	# handle_fs - free-by-size
 	# Clear them both out.
 	mov	ebx, edi
-	mov	edi, offset mem_handle_ll_fs
 	add	esi, offset handle_ll_el_size
+.if MEM_FEATURE_STRUCT
+	mov	ecx, [mem_kernel]	# ecx not used in ll_unlink
+	lea	edi, [ecx + mem_handle_ll_fs]
+.else
+	mov	edi, offset mem_handle_ll_fs
+.endif
 	call	ll_unlink$
+.if MEM_FEATURE_STRUCT
+	lea	edi, [ecx + mem_handle_ll_fa]
+.else
 	mov	edi, offset mem_handle_ll_fa
+.endif
 	add	esi, offset handle_ll_el_addr - offset handle_ll_el_size
 	call	ll_unlink$
+.if MEM_FEATURE_STRUCT
+	lea	edi, [ecx + mem_handle_ll_fh]
+	mov	ecx, [ecx + mem_maxhandles]
+.else
 	mov	edi, offset mem_handle_ll_fh
 	mov	ecx, [mem_maxhandles]
+.endif
 	call	ll_insert_sorted$
 
 	# eax is unchanged
@@ -1444,6 +1647,12 @@ mreallocz:
 # out: CF
 mreallocz_:
 .if 1
+	push	ebx
+.if MEM_FEATURE_STRUCT
+	mov	ebx, [mem_kernel]
+.else
+	xor	ebx, ebx
+.endif
 	push	edi
 	push	esi
 	push	ecx
@@ -1459,10 +1668,10 @@ mreallocz_:
 # XXX get old size: copied from mfree_; TODO: refactor;
 
 	MUTEX_SPINLOCK MEM
-		mov	ecx, [mem_numhandles]
+		mov	ecx, [ebx + mem_numhandles]
 		jecxz	1f
-		mov	esi, [mem_handles]
-		mov	edi, [mem_handle_ll_fa + ll_last]
+		mov	esi, [ebx + mem_handles]
+		mov	edi, [ebx + mem_handle_ll_fa + ll_last]
 
 	0:	cmp	edi, -1
 		jz	1f
@@ -1503,6 +1712,7 @@ mreallocz_:
 	pop	ecx
 	pop	esi
 	pop	edi
+	pop	ebx
 	ret
 9:	pop	eax
 	jmp	0b
@@ -1534,7 +1744,12 @@ mfree_:
 		DEBUG ","
 	.endif
 	push	esi
+.if MEM_FEATURE_STRUCT
+	mov	esi, [mem_kernel]
+	lea	esi, [esi + mem_handles]
+.else
 	lea	esi, [mem_handles]
+.endif
 	call	handle_free_by_base
 	pop	esi
         .if MEM_DEBUG2
@@ -1553,22 +1768,28 @@ mem_debug:
 	push	ebx
 	push	ecx
 	push	edx
+	push	esi
+.if MEM_FEATURE_STRUCT
+	mov	esi, [mem_kernel]
+.else
+	xor	esi, esi
+.endif
 	print "[malloc "
 	mov	edx, eax
 	call	printhex8
 	print " heap "
-	mov	edx, [mem_heap_start]
+	mov	edx, [esi + mem_heap_start]
 	mov	ecx, edx
 	call	printhex8
 	printchar '-'
-	mov	ebx, [mem_heap_size]
+	mov	ebx, [esi + mem_heap_size]
 	add	edx, ebx
 	call	printhex8
 	print " size "
 	mov	edx, ebx
 	call	printhex8
 	print " start "
-	mov	edx, [mem_heap_alloc_start]
+	mov	edx, [esi + mem_heap_alloc_start]
 	call	printhex8
 	print " allocated "
 	sub	edx, ecx
@@ -1661,7 +1882,12 @@ mdup:	push	ebp
 ##############################################################################
 mem_print_handles:
 	push	esi
+.if MEM_FEATURE_STRUCT
+	mov	esi, [mem_kernel]
+	lea	esi, [esi + mem_handles]
+.else
 	lea	esi, [mem_handles]
+.endif
 	call	handles_print
 	pop	esi
 	ret
@@ -1682,6 +1908,11 @@ cmd_mem$:
 	push	ebp
 	push	dword ptr 0	# allocate a flag to mark the options
 	mov	ebp, esp
+.if MEM_FEATURE_STRUCT
+	mov	edi, [mem_kernel]
+.else
+	xor	edi, edi
+.endif
 
 ######## parse options
 	add	esi, 4	# skip cmd name
@@ -1734,13 +1965,13 @@ cmd_mem$:
 
 ######## print heap (default)
 	printc 15, "Heap: "
-	mov	eax, [mem_heap_size]
+	mov	eax, [edi + mem_heap_size]
 	xor	edx, edx
 	call	print_size
 
 	printc 15, " Reserved: "
-	mov	eax, [mem_heap_alloc_start]
-	sub	eax, [mem_heap_start]
+	mov	eax, [edi + mem_heap_alloc_start]
+	sub	eax, [edi + mem_heap_start]
 	call	print_size
 
 	push	eax
@@ -1750,21 +1981,21 @@ cmd_mem$:
 	pop	eax
 
 	printc 15, " Free: "
-	sub	eax, [mem_heap_size]
+	sub	eax, [edi + mem_heap_size]
 	neg	eax
 	call	print_size
 
 	mov	ecx, ds
-	mov	edx, [mem_heap_start]
-	mov	eax, [mem_heap_size]
+	mov	edx, [edi + mem_heap_start]
+	mov	eax, [edi + mem_heap_size]
 	add	eax, edx
 	call	cmd_mem_print_addr_range$
 	call	newline
 
 	# print paging info
 	printc 15, "Paging: "
-	mov	eax, [mem_heap_high_end_phys]
-	sub	eax, [mem_heap_high_start_phys]
+	mov	eax, [edi + mem_heap_high_end_phys]
+	sub	eax, [edi + mem_heap_high_start_phys]
 	xor	edx, edx
 	call	print_size
 	shr	eax, 12
@@ -1799,8 +2030,8 @@ cmd_mem$:
 	print " pages)"
 
 	mov	ecx, ds
-	mov	edx, [mem_heap_high_start_phys]
-	mov	eax, [mem_heap_high_end_phys]
+	mov	edx, [edi + mem_heap_high_start_phys]
+	mov	eax, [edi + mem_heap_high_end_phys]
 	call	cmd_mem_print_addr_range$
 	call	newline
 
@@ -1947,17 +2178,35 @@ cmd_mem$:
 	jmp	2f
 1:	test	dword ptr [ebp], CMD_MEM_OPT_HANDLES_A
 	jz	1f
+.if MEM_FEATURE_STRUCT
+	lea	esi, [edi + mem_handles]
+	lea	ebx, [edi + mem_handle_ll_fa]
+	push	edi
+	mov	edi, offset handle_ll_el_addr
+	call	handles_print_ll
+	pop	edi
+.else
 	lea	esi, [mem_handles]
 	mov	ebx, offset mem_handle_ll_fa
 	mov	edi, offset handle_ll_el_addr
 	call	handles_print_ll
+.endif
 	jmp	2f
 1:	test	dword ptr [ebp], CMD_MEM_OPT_HANDLES_S
 	jz	1f
+.if MEM_FEATURE_STRUCT
+	lea	esi, [edi + mem_handles]
+	lea	ebx, [edi + mem_handle_ll_fs]
+	push	edi
+	mov	edi, offset handle_ll_el_size
+	call	handles_print_ll
+	pop	edi
+.else
 	lea	esi, [mem_handles]
 	mov	ebx, offset mem_handle_ll_fs
 	mov	edi, offset handle_ll_el_size
 	call	handles_print_ll
+.endif
 2:
 ######## print memory map
 1:	test	dword ptr [ebp], CMD_MEM_OPT_KERNEL_MEMMAP
@@ -2088,10 +2337,20 @@ cmd_mem$:
 	PRINT_MEMRANGE "relocation table", [kernel_reloc], [kernel_reloc_size], sz=1
 	PRINT_MEMRANGE "symbol table", [kernel_symtab], [kernel_symtab_size], sz=1
 	PRINT_MEMRANGE "stabs", [kernel_stabs], [kernel_stabs_size], sz=1
+.if MEM_FEATURE_STRUCT
+	mov	edi, [mem_kernel]
+	mov	edi, [edi + mem_heap_high_start_phys]
+.else
 	mov	edi, [mem_heap_high_start_phys]
+.endif
 	sub	edi, [database]
 	PRINT_MEMRANGE "<free>", ecx, edi
+.if MEM_FEATURE_STRUCT
+# XXX different addresssing style
+	PRINT_MEMRANGE "paging", ds:[mem_kernel+4+mem_heap_high_start_phys], ds:[mem_kernel+4+mem_heap_high_end_phys],fl=1
+.else
 	PRINT_MEMRANGE "paging", ds:[mem_heap_high_start_phys], ds:[mem_heap_high_end_phys],fl=1
+.endif
 
 ######## print memory map
 1:	test	dword ptr [ebp], CMD_MEM_OPT_MEMORY_MAP
@@ -2223,8 +2482,14 @@ cmd_mem_print_graph$:
 	# iterate through handles, printing blocks
 	push	esi
 	push	eax
+.if MEM_FEATURE_STRUCT
+	mov	esi, [mem_kernel]
+	mov	ecx, [esi + mem_numhandles]
+	mov	esi, [esi + mem_handles]
+.else
 	mov	esi, [mem_handles]
 	mov	ecx, [mem_numhandles]
+.endif
 	xor	edx, edx
 
 3:	.if 1
@@ -2278,7 +2543,12 @@ mallocz_aligned:
 
 mem_validate_handles:
 	push	esi
+.if MEM_FEATURE_STRUCT
+	mov	esi, [mem_kernel]
+	lea	esi, [esi + mem_handles]
+.else
 	lea	esi, [mem_handles]
+.endif
 	call	handles_validate_contiguous_address$
 	pop	esi
 	ret
@@ -2297,7 +2567,10 @@ mem_pages_free:		.long 0	# array of bit-strings (size = 1/32th of mem_pages)
 malloc_page_phys:
 	LOCK_WRITE [mem_pages_sem]
 	push_	ebx edx esi ecx
-
+.if MEM_FEATURE_STRUCT
+	push	edi
+	mov	edi, [mem_kernel]
+.endif
 	########################
 	mov	esi, [mem_pages_free]
 	or	esi, esi
@@ -2340,6 +2613,17 @@ malloc_page_phys:
 
 
 	mov	eax, 4096
+.if MEM_FEATURE_STRUCT
+	cmp	eax, [edi + mem_heap_size]
+	jae	9f
+
+	sub	[edi + mem_heap_high_start_phys], eax
+	sbb	[edi + mem_heap_high_start_phys+4], dword ptr 0
+
+	sub	[edi + mem_heap_size], eax
+	sbb	[edi + mem_heap_size+4], dword ptr 0
+
+.else
 	cmp	eax, [mem_heap_size]
 	jae	9f
 
@@ -2348,11 +2632,15 @@ malloc_page_phys:
 
 	sub	[mem_heap_size], eax
 	sbb	[mem_heap_size+4], dword ptr 0
-
+.endif
 ###################
 	# register page
 	PTR_ARRAY_NEWENTRY [mem_pages], 4, 9f
+.if MEM_FEATURE_STRUCT
+	mov	ebx, [edi + mem_heap_high_start_phys]
+.else
 	mov	ebx, [mem_heap_high_start_phys]
+.endif
 	mov	[eax + edx], ebx
 
 	mov	eax, [mem_pages_free]	# pipelining
@@ -2383,8 +2671,11 @@ malloc_page_phys:
 	# we ignore edx, and calc it again
 2:
 	btr	[eax + ebx], ecx	# mark allocated
-
+.if MEM_FEATURE_STRUCT
+	mov	eax, [edi + mem_heap_high_start_phys]
+.else
 	mov	eax, [mem_heap_high_start_phys]
+.endif
 	clc
 
 0:
@@ -2392,6 +2683,10 @@ malloc_page_phys:
 		call	page_phys_print_free$
 	.endif
 
+
+.if MEM_FEATURE_STRUCT
+	pop	edi
+.endif
 	pop_	ecx esi edx ebx
 	UNLOCK_WRITE [mem_pages_sem]
 	ret
