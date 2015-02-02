@@ -1845,17 +1845,65 @@ dev_pci_qemu_vid_driver:
 
 
 
-#Bus 00 Slot 00 Vendor 8086 7190 Command 0006 Status 0200
-#Bus 00 Slot 01 Vendor 8086 7191 Command 011f Status 0220 Revision 01 Class 06.04.00 PCI-to-PCI Single functionPCI-to-CardBus Bridge
-#Bus 00 Slot 07 Vendor 8086 7110 Command 0007 Status 0280 Revision 08 Class 06.01.00 ISA Bridge Device Multiple function General device SubSystem Vendor ID 15ad ID 1976
-#Bus 00 Slot 0f Vendor 15ad 0405 Command 0003 Status 0290 Revision 00 Class 03.00.00 VGA Compatible Display Controller > VMWare SVGA II
-#Bus 00 Slot 10 Vendor 104b 1040 Command 0007 Status 0280 Revision 01 Class 01.00.00 SCSI Bus Mass Storage Controller Single function General device  SubSystem Vendor ID 104b ID 1040
-#Bus 00 Slot 11 Vendor 15ad 0790 Command 0007 Status 0290 Revision 02 Class 06.04.01 PCI-to-PCI (Subtractive Decode) Bridge Device
-#Bus 00 Slot 16 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Multiple functionPCI-to-CardBus Bridge
-#Bus 00 Slot 17 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Multiple functionPCI-to-CardBus Bridge
-#Bus 00 Slot 18 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Single function General device  SubSystem Vendor ID 15ad 1976
-#Bus 02 Slot 01 Vendor 1022 2000 Command 0003 Status 0280 Revision 10 Class 02.00.00 Ethernet Network Controller SubSystem Vendor ID 1022 ID 2000
-#Bus 02 Slot 02 Vendor 1274 1371  Revision 02 Class 04.01.00 Audio Device Multimedia Controller Single function General device  SubSystem Vendor ID 1274 ID 1371
-#Bus 02 Slot 03 Vendor 15ad 0770 Command 0002 Status 0000 Single function General device  SubSystem Vendor ID 15ad ID 0770 > EHCI Driver USB 2.14
+#Bus 00 Slot 00 Fn 0 Vendor 8086 7190 Command 0006 Status 0200
+#Bus 00 Slot 01 Fn 0 Vendor 8086 7191 Command 011f Status 0220 Revision 01 Class 06.04.00 PCI-to-PCI Single functionPCI-to-CardBus Bridge
+#Bus 00 Slot 07 Fn 0 Vendor 8086 7110 Command 0007 Status 0280 Revision 08 Class 06.01.00 ISA Bridge Device Multiple function General device SubSystem Vendor ID 15ad ID 1976
+#Bus 00 Slot 07 Fn 1 Vendor 8086 7111 Command 0005 Status 0280 Revision 01 Class 01.01.8a IDE Mass Storage Controller (Intel PIIX4 IDE Bridge)
+#Bus 00 Slot 07 Fn 3 Vendor 8086 ID 7113 class 06.80.00 Other Bridge Device; Subsys: 15ad 1976  pIIX4-ACPI / Intel 82371AB/EB/MB PIIX4 ACPI
+#Bus 00 Slot 07 Fn 7 Vendor 15ad ID 0740 class 06.80.00 OTher Base System peripheral subsys: 14ad 0740  // Virtual machine Communication Interface
+#   CAPs: MSI, MSI-X. IRQ 9. BAR0: 0x1080-0x10c0 IO; BAR1: febfe000-fec00000 MEMIO 64
+#Bus 00 Slot 0f Fn 0 Vendor 15ad 0405 Command 0003 Status 0290 Revision 00 Class 03.00.00 VGA Compatible Display Controller > VMWare SVGA II
+#Bus 00 Slot 10 Fn 0 Vendor 104b 1040 Command 0007 Status 0280 Revision 01 Class 01.00.00 SCSI Bus Mass Storage Controller Single function General device  SubSystem Vendor ID 104b ID 1040
+#Bus 00 Slot 11 Fn 0 Vendor 15ad 0790 Command 0007 Status 0290 Revision 02 Class 06.04.01 PCI-to-PCI (Subtractive Decode) Bridge Device
+#Bus 00 Slot 15 Fn 0 Vendor 15ad 07a0 PCI Express Root Port
+#Bus 00 Slot 16 Fn 0 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Multiple functionPCI-to-CardBus Bridge
+#Bus 00 Slot 17 Fn 0 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI Multiple functionPCI-to-CardBus Bridge
+#Bus 00 Slot 18 Fn 0 Vendor 15ad 07a0 Command 0007 Status 0010 Revision 01 Class 06.04.00 PCI-to-PCI 
+#Bus 02 Slot 00 Fn 0 Vendor 1022 2000 Command 0003 Status 0280 Revision 10 Class 02.00.00 Ethernet Network Controller SubSystem Vendor ID 1022 ID 2000
+#Bus 02 Slot 01 Fn 0 Vendor 1274 1371  Revision 02 Class 04.01.00 Audio Device Multimedia Controller SubSystem Vendor ID 1274 ID 1371 es1371 Ensoniq AudioPCI-97
+#Bus 02 Slot 03 Fn 0 Vendor 15ad 0770 Command 0002 Status 0000 Single function General device  SubSystem Vendor ID 15ad ID 0770 > EHCI Driver USB 2.14
+#Bus 02 Slot 04 Fn 0 Vendor 15ad 0774 USB1.1 UHCI Controller
+
+
+# PCI Devices for HP Compaq d330 DT: (manual from june 2003)
+# Bus 00 Slot 00 Fn 0 Vendor 8086 2570 Command 0106 Status 2090 Revision 02 Class 06.00.00 Host Bridge Device			Subsystem Vendor 103c 12bc (cap agp)	host0
+#                           Intel 8286G/PE/P DRAM Controller/Host-Hub Interface									 d330 uT
+# Bus 00 Slot 01 Fn 0 Vendor 8086 2571 Command 0107 Status 00a0 Revision 02 Class 06.04.00 PCI-to-PCI Bridge Device		(no subsystem)				br0
+#			    Intel 82865G/PE/P AGP Bridge
+# Bus 00 Slot 1d Fn 0 Vendor 8086 24d2 Command 0005 Status 0280 Revision 02 Class 0c.03.00 USB (UHCS) Serial Bus Controller	Subsystem vendor 103c 12bc		usb0
+#			    Intel 82801EB/ER (ICH5/ICH5R) USB UHCI Controller 1									 d530 CMT (DG746A)
+# Bus 00 Slot 1d Fn 1 Vendor 8086 24d4 Command 0005 Status 0280 Revision 02 Class 0c.03.00 USB (UHCS) Serial Bus Controller	Subsystem vendor 103c 12bc		usb1
+#			    Intel 82801EB/ER (ICH5/ICH5R) USB UHCI Controller 2
+# Bus 00 Slot 1d Fn 2 Vendor 8086 24d7 Command 0005 Status 0280 Revision 02 Class 0c.03.00 USB (UHCS) Serial Bus Controller	Subsystem vendor 103c 12bc		usb2
+#			    Intel 82801EB/ER (ICH5/ICH5R) USB UHCI Controller 3
+# Bus 00 Slot 1d Fn 7 Vendor 8086 24dd Command 0106 Status 0290 Revision 02 Class 0c.03.20 USB (UHCS) Serial Bus Controller	Subsystem vendor 103c 12bc		usb3
+#			    Intel 82801EB/ER (ICH5/ICH5R) USB2 EHCI Controller (CAPS: powermgt, debug port)
+# Bus 00 Slot 1e Fn 0 Vendor 8086 244e Command 0170 Status 0080 Revision c2 Class 06.04.00 PCI-to-PCI Bridge Device		(no subsystem)				br1
+#			    Intel 82801 PCI Bridge
+# Bus 00 Slot 1f Fn 0 Vendor 8086 24d0 Command 010f Status 0280 Revision 02 Class 06.01.00 ISA Bridge Device			SubSystem vendor 0000 0000		isa0
+#			    Intel 82801EB/ER (ICH5/ICH5R) LPC Interface Bridge
+# Bus 00 Slot 1f Fn 1 Vendor 8086 24db Command 0005 Status 0280 Revision 02 Class 01.01.8a IDE Mass Storage Controller		SubSystem vendor 103c 12bc		ide0
+#			    Intel 82801EB/ER (ICH5/ICH5R) IDE Controller
+# Bus 00 Slot 1f Fn 2 Vendor 8086 24d1 Command 0005 Status 02a0 Revision 02 Class 01.01.8f IDE Mass Storage Controller		SubSystem vendor 103c 12bc		ide1
+#			    Intel 82801EB/ER (ICH5/ICH5R) SATA Controller
+# Bus 00 Slot 1f Fn 5 Vendor 8086 24d5 Command 0007 Status 0290 Revision 02 Class 04.01.00 Audio Device Multimedia Controller	SysSystem vendor 103c 12bc
+#			    Intel 82801EB/ER AC'97 Audio Controller
+# Bus 01 Slot 00 Fn 0 Vendor 1002 4150 Command 0107 Status 02b0 Revision 00 Class 02.00.00 VGA Compatible Display COntroller	Subsystem Vendor 148c 2070		display0
+#			      AMD RV350 AP (Radeon 9600) 	// subsys: PowerColor ..? (148c 206[46] is closest)
+# Bus 01 Slot 00 Fn 1 Vendor 1002 4170 Command 0007 Status 02b0 Revision 00 Class 03.80.00 Other Display Controller		Subsystem Vendor 148c 2071		unknown0
+#			      AMD RV350 AP (Radeon 9600) Secondary.
+# Bus 05 Slot 02 Fn 0 Vendor 14e4 1696 Command 0106 Status 02b0 Revision 03 Class 02.00.00 Ethernet Network Controller		Subsystem Vendor 103c 12bc 		eth0
+#  			 BroadCom NetXtreme BCM5782 Gigabit Ethernet								          	 d530 CMT (DG746A)
+#
+# Graphics: 82865 GMCH component (AGP 8X) integrating Intel Extreme Graphics 2 (DVMT,dynamic video mem tech);
+# Also: integrated AC97 audio controller, ADI 1981B audio codec.
+#
+# Intel 82801EB/ER:
+# 4 logical devices:
+# -B0:D30 (0x1e) is the hub interface-to-PCI bridge, 
+# -B0:D31 (0x1f) contains the PCI-to-LPC Bridge, IDE controller, SATA controller, SMBus controller and the AC ’97 Audio and Modem controller functions
+# -B0:D29 (0x1d) contains the four USB UHCI controllers and one USB EHCI controller.
+# -B1:D8	is the integrated LAN controller.
+
 
 .endif
