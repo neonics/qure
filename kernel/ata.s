@@ -1022,7 +1022,7 @@ read$:	call	print
 
 	# 7: removable
 	test	dl, 1<<7
-	jnz	0f
+	jz	0f
 	PRINT	" Removable "
 0:
 

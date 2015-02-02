@@ -612,7 +612,7 @@ loop$:
 	call	pci_read_config
 
 	inc	eax
-	jz	1f	# nonexistent device
+	jz	cont$
 	dec	eax
 
 			push	eax	# remember device, vendor (pop as edi)
@@ -679,7 +679,7 @@ loop$:
 			push	eax	# remember pci-class
 			bswap	eax
 			and	eax, 0x00ffffff
-			call	pci_instantiate_dev$
+			call	pci_instantiate_dev$ # out: edi
 			pop	edx	# store pci-class in edx
 
 	PRINTc	8, " Revision "
@@ -950,9 +950,10 @@ std$:	# Header Type 0
 ###################
 cont$:
 
-	.if 1	# Check again for multiple function device, and iterate if so
+	# Check again for multiple function device, and iterate if so
 	mov	bl, 12	# BIST, header type, latency timer, cache line size
 	mov	eax, ecx
+	and	eax, 0xffff	#mask out the function: only Fn 0 usually is multiple function!
 	call	pci_read_config
 	test	eax, 0x00800000
 	jz	1f
@@ -969,8 +970,6 @@ cont$:
 	cmp	ecx, 0x0007ff1f
 	ja	1f
 	jmp	loop$
-	.endif
-
 
 1:	and	ecx, 0xffff	# clear func
 	inc	cl

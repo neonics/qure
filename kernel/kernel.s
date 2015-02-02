@@ -454,7 +454,8 @@ SCHEDULE_EARLY = 0
 	mov	[kernel_boot_time], edx
 
 	I "Boot Time "
-	call print_datetime
+	call	print_datetime
+	call	newline
 
 	COLOR 7
 

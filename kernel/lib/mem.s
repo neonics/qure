@@ -2263,7 +2263,7 @@ mallocz_aligned:
 	jc	9f
 	push_	edi eax
 	push	ecx
-	and	cl, 3
+	and	ecx, 3
 	mov	edi, eax
 	xor	eax, eax
 	rep	stosb

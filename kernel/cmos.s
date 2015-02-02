@@ -91,7 +91,7 @@ cmos_list:
 
 	# 0x0e: Readonly
 	PRINTc	9, "Status E: Diagnostics: "
-	CMOS_READ 0x0d
+	CMOS_READ 0x0e
 	mov	dl, al
 	call	printhex2
 	PRINTFLAG dl, 1<<7, " | Clock lost power"
@@ -106,7 +106,7 @@ cmos_list:
 
 	# 0x0f: Readonly
 	PRINTc	9, "Status F: Reset Code: "
-	CMOS_READ 0x0d
+	CMOS_READ 0x0f
 	mov	dl, al
 	call	printhex2
 	PRINTCHAR ' '
