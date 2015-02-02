@@ -1,4 +1,3 @@
-		/*<style type='text/css'>*/
 			.ss { width: 144px; }
 			.ss:hover { width: 738px; }
 			dl { padding-left: 1em; }
@@ -56,5 +55,4 @@ span.n.footnote.open {
 	font-baseline: super;
 }
 
-
-		/*</style>*/
+.n.src { font-family: courier, fixed-width; }

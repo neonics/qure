@@ -10,7 +10,11 @@ my ($PATH) = $0=~/^(.*)\/[^\/]*$/;
 
 $VERBOSE = 0;
 
-$dir="./";
+my $cwd = `pwd`; chomp $cwd;
+$spath = $cwd;
+
+$dir="./";	# output directory
+$srelpath = "";
 $incremental = 1;
 
 $template = undef;	# Template object
@@ -26,6 +30,16 @@ while ( $ARGV[0] =~ /^-/ )
 	or $_ eq '-v' and $VERBOSE++
 	or $_ eq "-i" and $incremental = 1	# TODO
 
+	# without this option, when run from kernel/Makefile, which
+	# knows all the kernel sources,
+	# kernel/kernel.s ends up in root/www/doc/src/kernel.s, and
+	# lib/foo.s ends up as root/www/doc/src/.._lib_foo.s
+	# (using --dir ../root/www/doc/src/).
+	# This option will rewrite the paths, so that '--srelpath ..'
+	# results in kernel/kernel.s and lib/foo.s ending up in
+	# root/www/doc/src/kernel/kernel.s and root/.../src/lib/foo.s.
+	or $_ eq '--srelpath' and $srelpath = shift @ARGV
+
 	or $_ eq "--template" and do {
 		$template = new Template;
 		@ARGV = $template->args( "-t", @ARGV );
@@ -40,7 +54,6 @@ defined $template or do {
 	$template = new Template;
 	$template->args( "--template", "none" );
 };
-
 
 # unique  (not needed if $^ is used in makefile)
 #my %infiles; foreach (@ARGV) { $infiles{$_}=1; }; @ARGV = keys %infiles; print "INFILES: @ARGV\n";
@@ -66,7 +79,7 @@ writehtml( "${dir}index.html", "Index",
 );
 
 foreach ( @files ) {
-	my $f = $_->{file}; $f=~tr@/@_@;
+	my $f = $_->{sfile}; $f=~tr@/@_@;
 
 	# add references
 	$_->{content} =~ s@(<span class="glabelref">\s*)([^<\s]+)(\s*</span>)@$1.getref($_, "$2").$3@ge;
@@ -87,6 +100,7 @@ Usage: $0 [options] [template-options] <file.s> [out.html]
 options:
 	-h --help	this help message (<file.s> can be omitted)
 	--dir <dir>	the output directory; defaults to '.'
+	--srelpath <..>	see source code
 	-v		increase verbosity
 	-i		incremental; uses src.ref in <dir>
 	--template <..>	speficy template name to use. This also begins
@@ -238,11 +252,41 @@ EOF
 sub process_source {
 	my @labels=(), @const=();
 	my $file = $_[0];
+	my $sfile = $file;	# modified relative filename for $srelpath
 	my $line=0;
 	my $out="";
 
+	$srelpath and do {
+		my @tmp = split( '/', $srelpath );
+		my @tmp2= split( '/', $cwd );
+		my $tmp = join('/',
+			grep {$_}
+			map {
+				if ( $_ eq '..' )
+				{
+					if ( $sfile =~ /^\.\.\//  )
+					{
+						# ../fonts -> fonts/
+						$sfile = substr( $sfile, 3 );
+						undef
+					}
+					else
+					{
+						pop @tmp2
+					}
+				}
+				else {
+					die "unknown relpath: not '..': $_"
+				}
+			} @tmp
+		);
+		$sfile = $tmp ? "$tmp/$sfile" : $sfile;
+	};
+
+
+
 	$|=1;
-	printf "Processing %-40s [%3d%%]  \r", $file, 100.0 * (1+scalar @files)/$numfiles -1;
+	printf "Processing %-40s [%3d%%]  \r", $sfile, 100.0 * (1+scalar @files)/$numfiles -1;
 
 	open IN, "<", $file or die "can't read $file: $!";
 	my $f = $file; $f=~s@/@_@g;
@@ -336,13 +380,13 @@ sub process_source {
 	@ref = filterref( $file, @ref );
 	$VERBOSE and printf "Adding %d label references\n", scalar @labels;
 	map {
-		push @ref, { file => $file, line=>$_->{line}, name=>$_->{name} };
+		push @ref, { file => $sfile, line=>$_->{line}, name=>$_->{name} };
 	}  @labels;
 
 	$out .= list( "Globals", \@labels );
 	$out .= list( "Constants", \@const );
 
-	return { file => $_[0], content => $out,
+	return { file => $_[0], sfile=> $sfile, content => $out,
 		labels => \@labels, const => \@const };
 }
 ################################################################

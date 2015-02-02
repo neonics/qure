@@ -14,7 +14,7 @@ my $t = new Template();
 @ARGV = $t->args( @ARGV );
 
 $ARGV[0] or do {
-	print "XXUsage : $0 [--no-autop] [options] <txtfile> [out.html]\n"
+	print "Usage : $0 [--no-autop] [options] <txtfile> [out.html]\n"
 	."\t--no-autop\tdo not generate <p> tags on multiple newlines.\n"
 	."\noptions:\n";
 	Template::usage();
@@ -140,7 +140,10 @@ $c=~ s@(?<!\t)\[!([^\]]+)\]@<div class='note $_[0]'>$1</div>@g;
 # [http://....]  (same as [label|site] but without 'label|')
 $c=~ s@(?<!\t)\[(https?://.*?)\]@<a href="$1" class="$_[0]">$1</a>@g;
 
-# [type: message]
+# [src: filename]
+$c=~ s@(?<!\t)\[(src):\s*(.*?)\s*\]@"<a class='n $1 $_[0]' href='src/".&sfile($2)."'>".&sname($2)."</a>"@ges;
+
+# [type: message], generic
 $c=~ s@(?<!\t)\[(\S+?):\s*(.*?)\]@<span class='n $1 $_[0]'>$1: $2</span>@gs;
 
 shift and return;
@@ -148,6 +151,9 @@ shift and return;
 # [Foo#anchor] aswell
 $c=~ s@(?<!\t)\[([^\]\.#]+)(#[^\]\.]*)?\]@<a href="$1.html$2">$1</a>@g;
 }
+
+sub sfile { my $tmp = shift; $tmp=~ s@/@_@g; $tmp=~ s/(#.*?)?$/.html$1/; $tmp }
+sub sname { my $tmp = shift; $tmp=~ /#(.+)$/ ? $1 : $tmp }
 
 
 # preserve hardlines in paragraphs

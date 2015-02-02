@@ -123,7 +123,7 @@ sub process {
 	defined $overrides and
 		map { $opts{$_} = $overrides->{$_} } keys %$overrides;
 
-	$opts{toc} and $opts{toc} = gentoc( $content );
+	$opts{toc} and ($opts{toc}, $content) = gentoc( $content );
 
 	$self->{content} = $opts{template};
 
@@ -174,7 +174,7 @@ sub gentoc {
 		$id++;
 	}
 
-	$c = $o . $tmp;
+	my $c = $o . $tmp;
 
 	my $toc;
 	if ( scalar @toc ) {
@@ -199,7 +199,7 @@ sub gentoc {
 			$toc .= "</ol>";
 		}
 	}
-	$toc;
+	( $toc, $c )
 }
 
 

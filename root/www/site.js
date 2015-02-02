@@ -67,7 +67,8 @@ lib.fn = lib.prototype = {
 					cb.call( this, this.context[i] );
 			}
 			else
-				console.warn( "unknown context: ", this.context );
+				console.warn( "unknown context: ", this.context,
+				"\n",(new Error()).stack );
 			return this;
 		}
 

@@ -14,7 +14,7 @@
 
 Items: a vector: realmode segment, offset.
 
-Size and location can be changed (using to ''lidt'').
+Size and location can be changed (using ''lidt'').
 
 
 == Protected Mode: IDT - Interrupt Descriptor Table.
@@ -82,7 +82,7 @@ For Protected mode, the master PIC interrupts need to be remapped so as to not
 overlap with the CPU Exception interrupts, by programming the PIC.
 
 
-== PIC ==
+= PIC =
 
 The 8259A Programmable Interrupt Controller.
 
@@ -109,4 +109,37 @@ ICW - Initialization Command Word
 
 ICW1: A0 = 0 & D4 = 1: 
 
-(see source code: ''kernel/pit.s'').
+(see source code: [src:kernel/pit.s]).
+
+
+= Kernel Implementation =
+
+Interrupts are currently configurable as follows:
+by default all 256 interrupts are directed to
+[src:kernel/idt.s#jmp_table_target],
+the default interrupt handler. It handles PIC EOI and CPU Exceptions.
+Each handler structure is in the code segment:
+	# simulate an interrupt call
+	pushf
+	lcall	SEL_compatCS, jmp_table_target
+	jmp	schedule_isr
+	.word INT_NR
+
+The old code was similar, except it pushed the interrupt and jumped; however
+this would complicate stack examination. Now, `jmp_table_target` examines
+the caller address to lie within the handler table and fetch the INT_NR word.
+
+IRQ handlers are registered using [src:kernel/idt.s#hook_isr] which updates
+the default call address (`jmp_table_target` above).
+The [src:kernel/schedule.s#schedule_isr] handler is the main
+scheduler entry point, returning from an interrupt. Both kernel calls and
+hardware interrupts will thus invoke the scheduler.
+
+For IRQ handlers (PIC), which are mapped to INT 0x20-0x30
+(see `IRQ_BASE` in [src:kernel/pmode.s]), the called address
+is [src:kernel/idt.s#irq_isr], which sets up `ds` and `es`
+and simulates an interrupt call to registered `isr` routines for the IRQ
+using the current `cs`.
+These IRQ handlers are registered using [src:kernel/idt.s#add_irq_handler];
+devices should simply call [src:kernel/dev.s#dev_add_irq_handler] which
+uses the `dev_irq` and `dev_api_isr` device object fields.

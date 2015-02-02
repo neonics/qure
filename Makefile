@@ -192,6 +192,7 @@ root/www/doc/%.html: DOC/%.txt $(HTMLDEPS)
 		-t util/template.html \
 		--css /style.css \
 		--js /site.js \
+		--toc \
 		-p ${RP} \
 		--onload "template( null, '${RP}', [], 'menu.xml');" \
 		$< > $@
