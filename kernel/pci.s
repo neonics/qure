@@ -63,6 +63,18 @@ PCI_CFG_BAR4	= 0x20
 PCI_CFG_BAR5	= 0x24
 PCI_CFG_CARDBUS_CIS_PTR	= 0x28
 
+PCI_X_REG_CMD	= 0x42	# PCI-X Command Register
+	PCI_X_REG_CMD_DPERE		= 1<<0	# Data Parit Error Recovery Enable
+	PCI_X_REG_CMD_ERO		= 1<<1	# Enable Relaxed Ordering
+	PCI_X_REG_CMD_MMRBC_MASK	= 0b0001100	# Maximum Memory Read Byte Count
+	PCI_X_REG_CMD_MMRBC_SHIFT	= 2		# 0..3 -> 512..4096
+	PCI_X_REG_CMD_MMRBC_512		= 0 << 2
+	PCI_X_REG_CMD_MMRBC_1024	= 1 << 2
+	PCI_X_REG_CMD_MMRBC_2048	= 2 << 2
+	PCI_X_REG_CMD_MMRBC_4096	= 3 << 2
+	PCI_X_REG_CMD_MOST_MASK 	= 0b1110000	# Maximum Outstanding Split Transactions
+	PCI_X_REG_CMD_MOST_SHIFT	= 4		# [0,1,2,3,4,5,6,7] => [1,2,3,4,8,12,16,32]
+
 # 11 bits word
 PCI_CMD_IO_SPACE		= 0b00000000001	# 1=can respond, 0=disable resp
 PCI_CMD_MEM_SPACE		= 0b00000000010	# 1=can respond, 0=disable resp

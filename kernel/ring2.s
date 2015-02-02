@@ -59,6 +59,7 @@ include "nic.s"
 include "nic/rtl8139.s"
 include "nic/i8254.s"
 include "nic/am79c971.s"
+include "nic/bcm57xx.s"
 code_nic_end:
 
 include "net/net.s", net

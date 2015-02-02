@@ -120,7 +120,7 @@ VBOX_SRC = vbox/vbva.s vbox/vbga.s
 
 BRIDGE_SRC = pcibridge/i440.s pcibridge/ipiix4.s
 
-NIC_SRC = nic/rtl8139.s nic/i8254.s nic/am79c971.s
+NIC_SRC = nic/rtl8139.s nic/i8254.s nic/am79c971.s nic/bcm57xx.s
 
 NET_SRC = net/*.s
 
