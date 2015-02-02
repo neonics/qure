@@ -4,6 +4,7 @@
 .code32
 ##############################################################################
 RTL8139_DEBUG = 0 # NIC_DEBUG
+RTl8139_DEBUG_SPURIOUS_IRQ = 0	# 1 gives false positives due to IRQ Sharing.
 RTL8139_STATUS_COMPACT = 1
 ##############################################################################
 # Constants
@@ -375,7 +376,7 @@ rtl8139_isr:
 	add	dx, RTL8139_ISR
 	in	ax, dx
 	or	ax, ax
-	.if 1
+	.if RTl8139_DEBUG_SPURIOUS_IRQ
 	jnz	1f
 	printlnc 4, "rtl8139_isr: spurious IRQ"
 	jmp	9f

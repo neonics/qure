@@ -109,7 +109,7 @@ HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s dma.s \
 
 DBG_SRC = debugger/export.s debugger/debugger.s debugger/hwdebug.s
 
-SOUND_SRC = sound/sb.s sound/es1371.s
+SOUND_SRC = sound/sb.s sound/es1371.s sound/ac97.s
 
 USB_SRC = usb/usb.s usb/usb_ohci.s
 

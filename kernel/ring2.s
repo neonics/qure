@@ -84,6 +84,7 @@ include "vbox/vbga.s", vbox
 code_sound_start:
 include "sound/es1371.s", es1371
 include "sound/sb.s", sb
+include "sound/ac97.s", ac97
 code_sound_end:
 
 ############# exports
