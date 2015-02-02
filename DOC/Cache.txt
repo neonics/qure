@@ -1,0 +1,19 @@
+Caching Kernel
+==============
+
+(Also see [Paging] and [Library]).
+
+The kernel can offer a cache for library pages, by using CoW[footnote:copy-on-write].
+
+Versioning Kernel
+-----------------
+
+The kernel could be a Versioning Kernel, if it were to take a snapshot of all
+memory and record any changes during specified lifecycle events. For
+libraries, a snapshot would be made after the static initialisation code has
+executed. At this point, data has been loaded from disc, and a function has
+been called. We shall assume that it may transform the static data in any way
+it sees fit (this also includes containing references to dynamic
+resources[footnote:kernel handles such as malloc and IO]).
+
+

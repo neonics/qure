@@ -1,4 +1,4 @@
-		<style type='text/css'>
+		/*<style type='text/css'>*/
 			.ss { width: 144px; }
 			.ss:hover { width: 738px; }
 			dl { padding-left: 1em; }
@@ -23,4 +23,38 @@
 				font-size:       small;
 				font-style:      italic;
 			}
-		</style>
+
+			#content > h1.title { font-family: courier; font-size: normal; font-style: italic; }
+
+span.n.footnote:before {
+	color: blue;
+	content: "*)";
+	font-family: helvetica; /* size, width depend on this */
+	font-size: 9pt;
+	font-weight: bold;
+	vertical-align: top;
+}
+span.n.footnote:after {
+	content: "";
+}
+
+span.n.footnote {
+	/* show only '*)' */
+	display: inline-block;
+	box-sizing: content-box;
+	height: 1em;
+	width: 7pt;
+	overflow: hidden;
+
+	font-style: italic;
+}
+span.n.footnote.open {
+	display: inline;
+	width: auto;
+	overflow: initial;
+	border: 2px solid blue;
+	font-baseline: super;
+}
+
+
+		/*</style>*/

@@ -180,7 +180,7 @@ DOC_SRC=$(addprefix DOC/, $(addsuffix .txt,${WWW_DOC}))
 HTML_DOC=$(addprefix root/www/doc/, $(addsuffix .html,${HTMLDOC})) \
 	root/www/doc/menu.xml root/www/doc/src/menu.xml
 
-HTMLDEPS = util/template.pl util/template.html # util/txt2html.pl util/Template.pm # Makefile (disabled: slow)
+HTMLDEPS = util/template.pl util/template.html util/txt2html.pl util/Template.pm Makefile # (disabled: slow)
 
 root/www/doc/%.html: RP = $(shell echo $(patsubst %,../,$(subst /, ,$(dir $<)))|sed -e 's/ //g')www.neonics.com/
 root/www/doc/%.html: DOC/%.txt $(HTMLDEPS)
@@ -191,6 +191,7 @@ root/www/doc/%.html: DOC/%.txt $(HTMLDEPS)
 		--rawtitle $(lastword $(subst /, ,$<)) \
 		-t util/template.html \
 		--css /style.css \
+		--js /site.js \
 		-p ${RP} \
 		--onload "template( null, '${RP}', [], 'menu.xml');" \
 		$< > $@

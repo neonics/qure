@@ -4,6 +4,10 @@
 #
 #  pod2man doctools.pl | nroff -man
 
+
+$W = "\x1b[1;33m";
+$Z = "\x1b[0m";
+
 %options = (
 	dir	=> '.',
 	type	=> undef,	# 'txt' or 'html'
@@ -151,7 +155,7 @@ sub process_index {
 	@_ = grep { $_->{n}=~ /\.$options{type}$/ } @_ if $options{type};
 	@_ = map { $_->{n} =~ /^=/ and $_->{label}=$'; $_ } @_;
 	@_ = grep { my $a=$_->{n}; chomp $a; $_->{label} || -f $options{dir}."/".$a
-		or do { warn "WARNING: missing $options{dir}/$_->{n}"; $options{ignoremissing}} } @_;
+		or do { warn "${W}WARNING: missing $options{dir}/$_->{n}$Z"; $options{ignoremissing}} } @_;
 }
 
 sub strip_type {

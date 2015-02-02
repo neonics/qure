@@ -33,7 +33,7 @@ state to the initial state, yet since the data of more algorithms will be
 packed in a single page - which must be done in an efficient order - all
 initialization routines sharing data on that page must be called, or whether
 they are initialized or not must be remembered. Given certain conditions,
-it is potentially more efficient to simply 'cache' the original data.
+it is potentially more efficient to simply [Cache] the original data.
 
 Run-Time Optimization
 ---------------------

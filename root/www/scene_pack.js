@@ -934,7 +934,7 @@ var unit;
 
 				if ( r < 3*unit )
 				{
-					impetus[0]+=-dx/20.0;
+					impetus[0]+=dx/20.0;
 					impetus[1]+=dy/20.0;
 				}
 
