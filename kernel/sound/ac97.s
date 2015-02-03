@@ -116,12 +116,16 @@ AC97_PIO_ONLY	= 1	# 3) set to 1 to use PIO optimized code, 0 to auto-detect MMIO
 # method is folded into 1 instruction.
 
 DECLARE_CLASS_BEGIN ac97, sound
-ac97_mixer_pio:	.long 0
-ac97_bus_pio:	.long 0
-ac97_mixer_mmio:.long 0
-ac97_bus_mmio:	.long 0
+ac97_mixer_pio:		.long 0
+ac97_mixer_pio_size:	.long 0
+ac97_bus_pio:		.long 0
+ac97_bus_pio_size:	.long 0
+ac97_mixer_mmio:	.long 0
+ac97_mixer_mmio_size:	.long 0
+ac97_bus_mmio:		.long 0
+ac97_bus_mmio_size:	.long 0
 
-ac97_buf_po:	.long 0	# PCM out mallocced buffer descriptor ring (256 bytes)
+ac97_buf_po:		.long 0	# PCM out mallocced buffer descriptor ring (256 bytes)
 DECLARE_CLASS_METHOD dev_api_constructor,	ac97_init, OVERRIDE
 DECLARE_CLASS_METHOD dev_api_isr,		ac97_isr, OVERRIDE
 DECLARE_CLASS_METHOD sound_set_samplerate,	ac97_set_samplerate,	OVERRIDE
@@ -330,11 +334,17 @@ AC97_GLOBAL_CONTROL_SSM		= 0b00 << 30	# ($/W) S/PDIF Slot Map: 00=resvd, 01=7&8,
 
 
 .macro AC97_CHANNEL_READ offs, dest=eax
+	.if AC97_DEBUG > 1
+		DEBUG "AC97 chan read \offs, \dest"
+	.endif
   .if IO_MULTI_INLINE
 		cmpd	[ebx + ac97_bus_mmio], 0
 		jz	101f
   .endif
   .if AC97_MMIO_ONLY | IO_MULTI_INLINE
+	.if AC97_DEBUG > 1
+		DEBUG_DWORD esi, "MMIO"
+	.endif
 		mov	\dest, [esi + AC97_CHANNEL_REG_\offs]
   .endif
   .if IO_MULTI_INLINE
@@ -344,27 +354,42 @@ AC97_GLOBAL_CONTROL_SSM		= 0b00 << 30	# ($/W) S/PDIF Slot Map: 00=resvd, 01=7&8,
   .if AC97_PIO_ONLY | IO_MULTI_INLINE
 		mov	dx, [ebx + ac97_bus_pio]
 		add	dx, AC97_CHANNEL_REG_\offs
+	.if AC97_DEBUG > 1
+		DEBUG_WORD dx, "PIO"
+	.endif
 		in	\dest, dx
   .endif
   .if !(AC97_PIO_ONLY | AC97_MMIO_ONLY | IO_MULTI_INLINE )
+	.if AC97_DEBUG > 1
+		DEBUG "GENErIC"
+	.endif
 		pushd	AC97_CHANNEL_REG_\offs
 		call	[ebx + ac97_api_chan_read]
   .endif
    .if IO_MULTI_INLINE
 	109:
   .endif
+	.if AC97_DEBUG > 1
+		DEBUG_DWORD eax
+		call newline
+	.endif
 .endm
 
 
 
-
 .macro AC97_CHANNEL_WRITE offs, val=eax
+	.if AC97_DEBUG > 1
+		DEBUG "AC97 chan write \offs, \val"
+	.endif
   .if IO_MULTI_INLINE
 		cmpd	[ebx + ac97_bus_mmio], 0
 		jz	101f
   .endif
   .if AC97_MMIO_ONLY | IO_MULTI_INLINE
-		mov	[ebx + AC97_CHANNEL_REG_\offs], \val
+	.if AC97_DEBUG > 1
+		DEBUG_DWORD esi, "MMIO"
+	.endif
+		mov	[esi + AC97_CHANNEL_REG_\offs], \val
   .endif
   .if IO_MULTI_INLINE
 		jmp	109f
@@ -373,6 +398,9 @@ AC97_GLOBAL_CONTROL_SSM		= 0b00 << 30	# ($/W) S/PDIF Slot Map: 00=resvd, 01=7&8,
   .if AC97_PIO_ONLY | IO_MULTI_INLINE
 		mov	dx, [ebx + ac97_bus_pio]
 		add	dx, AC97_CHANNEL_REG_\offs
+	.if AC97_DEBUG > 1
+		DEBUG_WORD dx, "PIO"
+	.endif
 		out	dx, \val
   .endif
   .if !(AC97_PIO_ONLY | AC97_MMIO_ONLY | IO_MULTI_INLINE )
@@ -382,16 +410,25 @@ AC97_GLOBAL_CONTROL_SSM		= 0b00 << 30	# ($/W) S/PDIF Slot Map: 00=resvd, 01=7&8,
   .if IO_MULTI_INLINE
 	109:
   .endif
+	.if AC97_DEBUG > 1
+		call newline
+	.endif
 .endm
 
 
 
 .macro AC97_MIXER_WRITE reg, val=ax
+	.if AC97_DEBUG > 1
+		DEBUG "AC97 mixer write \reg, \val"
+	.endif
   .if IO_MULTI_INLINE
 		cmpd	[ebx + ac97_bus_mmio], 0
 		jz	101f
   .endif
   .if AC97_MMIO_ONLY | IO_MULTI_INLINE
+	.if AC97_DEBUG > 1
+		DEBUG_DWORD esi, "MMIO"
+	.endif
 		mov	word ptr [esi + AC97_MIXER_REG_\reg], \val
   .endif
   .if IO_MULTI_INLINE
@@ -404,6 +441,9 @@ AC97_GLOBAL_CONTROL_SSM		= 0b00 << 30	# ($/W) S/PDIF Slot Map: 00=resvd, 01=7&8,
 	.endif
 		mov	dx, [ebx + ac97_mixer_pio]
 		add	dx, AC97_MIXER_REG_\reg
+	.if AC97_DEBUG > 1
+		DEBUG_WORD dx, "PIO"
+	.endif
 		outw	dx, ax
   .endif
   .if !(AC97_PIO_ONLY | AC97_MMIO_ONLY | IO_MULTI_INLINE )
@@ -413,6 +453,9 @@ AC97_GLOBAL_CONTROL_SSM		= 0b00 << 30	# ($/W) S/PDIF Slot Map: 00=resvd, 01=7&8,
   .if IO_MULTI_INLINE
 	  109:
   .endif
+	.if AC97_DEBUG > 1
+		call newline
+	.endif
 .endm
 
 
@@ -532,40 +575,59 @@ ac97_init:
 	# (note: f0000000 is nearly 4Gb, so is virtual mem as the box only has 3Gb)
 	# XXX fix pci code - must be 2100! read is ffff2100
 
-	mov	ecx, [ebx + dev_pci_addr]
-	xor	dl, dl
 	lea	edi, [ebx + ac97_mixer_pio]
-0:	mov	al, dl
-	call	pci_get_bar_addr
-	stosd
-	inc	dl
-	cmp	dl, 4
-	jb	0b
+	xor	al, al
+	call	dev_pci_get_bar_addr_size
+	mov	al, 1
+	call	dev_pci_get_bar_addr_size
+	mov	al, 2
+	call	dev_pci_get_bar_addr_size
+	mov	al, 3
+	call	dev_pci_get_bar_addr_size
 
-	DEBUG "Mixer";
-	DEBUG_DWORD [ebx + ac97_mixer_pio], "PIO"
-	DEBUG_DWORD [ebx + ac97_mixer_mmio], "MMIO"
-	DEBUG "Bus"
-	DEBUG_DWORD [ebx + ac97_bus_pio], "PIO"
-	DEBUG_DWORD [ebx + ac97_bus_mmio], "MMIO"
-	call	newline
+	.if AC97_DEBUG
+		DEBUG "Mixer";
+		DEBUG_DWORD [ebx + ac97_mixer_pio], "PIO"
+		DEBUG_DWORD [ebx + ac97_mixer_pio_size], "SIZE"
+		DEBUG_DWORD [ebx + ac97_mixer_mmio], "MMIO"
+		DEBUG_DWORD [ebx + ac97_mixer_mmio_size], "SIZE"
+		call	newline
+		DEBUG "Bus"
+		DEBUG_DWORD [ebx + ac97_bus_pio], "PIO"
+		DEBUG_DWORD [ebx + ac97_bus_pio_size], "SIZE"
+		DEBUG_DWORD [ebx + ac97_bus_mmio], "MMIO"
+		DEBUG_DWORD [ebx + ac97_bus_mmio_size], "SIZE"
+		call	newline
+	.endif
 
-.if !(AC97_MMIO_ONLY|AC97_PIO_ONLY|IO_MULTI_INLINE)
 	# set up instance methods. We can override the VPTR methods.
 	cmpd	[ebx + ac97_mixer_mmio], 0	# detect MMIO
 	jz	1f
+
+	mov     esi, [page_directory_phys]
+	mov     eax, [ebx + ac97_mixer_mmio]
+	mov     ecx, [ebx + ac97_mixer_mmio_size]
+	call    paging_idmap_memrange
+	mov     eax, [ebx + ac97_bus_mmio]
+	mov     eax, [ebx + ac97_bus_mmio_size]
+	call    paging_idmap_memrange
+
+.if !(AC97_MMIO_ONLY|AC97_PIO_ONLY|IO_MULTI_INLINE)
 	mov	[ebx + ac97_api_chan_read], dword ptr offset ac97_chan_read_mmio$
 	mov	[ebx + ac97_api_chan_write], dword ptr offset ac97_chan_write_mmio$
 	mov	[ebx + ac97_api_mixer_read], dword ptr offset ac97_mixer_read_mmio$
 	mov	[ebx + ac97_api_mixer_write], dword ptr offset ac97_mixer_write_mmio$
+.endif
 	jmp	2f
+
 1:
+.if !(AC97_MMIO_ONLY|AC97_PIO_ONLY|IO_MULTI_INLINE)
 	mov	[ebx + ac97_api_chan_read], dword ptr offset ac97_chan_read_pio$
 	mov	[ebx + ac97_api_chan_write], dword ptr offset ac97_chan_write_pio$
 	mov	[ebx + ac97_api_mixer_read], dword ptr offset ac97_mixer_read_pio$
 	mov	[ebx + ac97_api_mixer_write], dword ptr offset ac97_mixer_write_pio$
-2:
 .endif
+2:
 
 	# reset mixer
 	AC97_MIXER_WRITE RESET, 42
