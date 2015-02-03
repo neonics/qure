@@ -233,6 +233,7 @@ SHELL_COMMAND "base64"		cmd_base64
 SHELL_COMMAND "svga"		cmd_svga
 SHELL_COMMAND "xml"		cmd_xml
 SHELL_COMMAND "play"		cmd_play
+SHELL_COMMAND "soundtest"	cmd_soundtest # when no filesystem with wav
 SHELL_COMMAND "kapi"		cmd_kapi
 SHELL_COMMAND "kapi_test"	cmd_kapi_test
 SHELL_COMMAND "uptime"		cmd_uptime
@@ -2615,6 +2616,57 @@ _iter_sound_dev$:
 	clc	# stop iteration
 	ret
 
+cmd_soundtest:
+	call	get_sound_dev	# out: ebx = [sound_dev]
+	jc	91f
+	mov	eax, 44100
+	call	[ebx + sound_set_samplerate]
+	mov	al, 0b11	# 16 bit stereo
+	call	[ebx + sound_set_format]
+
+	mov	[dma_buffersize], dword ptr 0x10000
+	call	dma_allocbuffer
+	jc	92f
+	# fillbuffer with sawtooth
+	mov	edi, [dma_buffer]
+	mov	ecx, [dma_buffersize]
+	shr	ecx, 2+4	# 2: dword, 4: 16 samples
+	mov	eax, 0x7fff7fff#0008000
+0:	
+	mov	eax, 0x80008000
+	stosd	# 1
+	stosd	# 2
+	stosd	# 3
+	stosd	# 4
+	stosd	# 5
+	stosd	# 6
+	stosd	# 7
+	stosd	# 8
+	mov	eax, 0x7fff7fff
+	stosd	# 9
+	stosd	# 10
+	stosd	# 11
+	stosd	# 12
+	stosd	# 13
+	stosd	# 14
+	stosd	# 15
+	mov	eax, 0x80008000
+	stosd	# 16
+1:	loop	0b
+
+	mov	eax, offset sound_play_null$
+	call	[ebx + sound_playback_init]
+	call	[ebx + sound_playback_start]
+	println "Playing..."
+	call	more
+	call	[ebx + sound_playback_stop]
+	ret
+91:	printlnc 12, "no sound dev"
+	ret
+92:	printlnc 12, "dma alloc fail"
+	ret
+
+sound_play_null$: ret
 
 cmd_play:
 	push	ebp
