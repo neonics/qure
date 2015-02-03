@@ -1493,8 +1493,9 @@ pci_list_bar$:
 	test	al, 1
 	jnz	1f
 	and	dl, ~15	# MMIO
-1:	and	dl, ~3	# PIO
-	not	edx
+	jmp	2f
+1:	and	edx, ~(3|0xffff0000)	# PIO
+2:	not	edx
 	inc	edx	# edx = memory/io size used
 
 			mov	[edi], edx
@@ -1504,8 +1505,9 @@ pci_list_bar$:
 	test	dl, 1
 	jnz	1f
 	and	dl, ~15	# MMIO
-1:	and	dl, ~3	# PIO
-	call	printhex8
+	jmp	2f
+1:	and	edx, ~(3|0xffff0000)	# PIO
+2:	call	printhex8
 	# restore original address
 	pop	edx
 	mov	eax, ecx
@@ -1692,7 +1694,7 @@ pci_get_bar_addr:
 	call	pci_get_bar
 	test	al, 1
 	jz	1f
-	and	al, ~3
+	and	eax, ~(3|0xffff0000)
 	ret
 1:	and	al, ~15
 	ret
@@ -1729,8 +1731,9 @@ pci_get_bar_size:
 		test	al, 1
 		jnz	1f
 		and	al, ~15
-	1:	and	al, ~3
-		not	eax
+		jmp	2f
+	1:	and	eax, ~(3|0xffff0000)
+	2:	not	eax
 		inc	eax	# mem/io size used
 
 	# restore original value
@@ -1752,8 +1755,9 @@ pci_get_bar_size:
 		test	al, 1
 		jnz	1f
 		and	al, ~15
-	1:	and	al, ~3
-		not	eax
+		jmp	2f
+	1:	and	eax, ~(3|0xffff0000)
+	2:	not	eax
 		inc	eax	# mem/io size used
 
 	mov	[esp + 4], eax	# update return value
