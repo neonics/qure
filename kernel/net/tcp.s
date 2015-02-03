@@ -242,6 +242,9 @@ TCP_CONN_STATE_CLOSED		= 11	# fictional: no conn state
 # expected sequence number.
 #
 # In all the above cases, the connection does not change state.
+# NOTE: RFC 4987 sect 2.2 states that upon sending a SYN+ACK
+# response to a spoofed IP which responds with RST the connection
+# control block can be immediately freed.
 #
 # rx ACK for out-of-window data
 # {CLOSED}       -> rx !RST / tx RST -> {CLOSED}   (!RST means anything but RST)
@@ -260,7 +263,7 @@ TCP_CONN_STATE_CLOSED		= 11	# fictional: no conn state
 # IRS: initial receive sequence nr - learned during 3way handshake.
 
 .align 4
-TCP_CONN_STRUCT_SIZE = .
+TCP_CONN_STRUCT_SIZE = .  # 1*2+ 2*2 + 4*20 = 86 bytes
 .data SECTION_DATA_BSS
 tcp_connections: .long 0	# volatile array
 .text32
@@ -349,7 +352,11 @@ net_tcp_conn_newentry:
 	jnb	1f
 2:	ARRAY_ENDL
 
-9:	ARRAY_NEWENTRY [tcp_connections], TCP_CONN_STRUCT_SIZE, 4, 9f
+9:
+	.if NET_TCP_DEBUG
+		DEBUG, "allocating TCP conn entry"
+	.endif
+	ARRAY_NEWENTRY [tcp_connections], TCP_CONN_STRUCT_SIZE, 4, 9f
 1:	
 	add	eax, edx	# eax = abs conn ptr
 	xchg	edx, [esp]	# [esp]=eax retval; edx = ipv4
@@ -462,7 +469,7 @@ net_tcp_conn_update:
 		DEBUG "ack"
 		DEBUG_DWORD ebx
 	.endif
-0:	clc	# net_tcp_conn_newentry_from_packet ends up here
+0:	clc
 	pop	ebx
 	pop	edx
 	pop	eax
@@ -622,8 +629,10 @@ net_tcp_port_get:
 	jb	2f
 	sub	ax, 0x00ff
 2:
+.if NET_TCP_DEBUG
 	DEBUG_DWORD ecx, "initial port iter count"
 	DEBUG_WORD ax, "initial port"
+.endif
 	pop	ecx
 
 ########
@@ -780,12 +789,20 @@ net_ipv4_tcp_handle:
 	push	edx
 	movzx	edx, word ptr [esi + tcp_dport]
 	xchg	dl, dh
-	or	edx, IP_PROTOCOL_TCP << 16
+	or	edx, IP_PROTOCOL_TCP << 16	# XXX TODO: also test for SOCK_LISTEN
 	call	net_socket_find
 	mov	ebx, edx
 	pop	edx
 	jc	9f
 	mov	edi, offset tcp_rx_sock
+
+	# firewall / unroutable addresses
+	#
+	# (RFC 2872 describes the problem as resources being allocated
+	#  for receiving a SYN, and sending a SYN+ACK to a spoofed/unroutable
+	#  address, never getting a response, tying up resources until timeout.)
+	#
+	# See ipv4.s, the net_route_get check.
 
 	.if NET_TCP_DEBUG
 		printc TCP_DEBUG_COL, "tcp: ACCEPT SYN"
@@ -825,6 +842,12 @@ net_ipv4_tcp_handle:
 	call	newline
 	ret
 
+91:	# DROP
+	.if 1#NET_TCP_DEBUG
+		printc 0x8c, "tcp: DROP SYN: no route"
+	.endif
+	jmp	1f
+
 	#
 8:	# unknown connection, not SYN
 	.if NET_TCP_DEBUG
@@ -844,7 +867,7 @@ net_ipv4_tcp_handle:
 
 .if NET_TCP_RESPOND_UNK_RST
 	.if 1#NET_TCP_DEBUG
-		printc 0x8c, "tcp: REJECT SYN: "
+		printc 0x8c, "tcp: REJECT SYN: no service"
 	.endif
 
 	mov	eax, -1	# nonexistent connection
@@ -2131,7 +2154,9 @@ net_tcp_cleanup:
 
 	cmp	[esi + ebx + tcp_conn_timestamp], edi
 	ja	1f
-
+	.if NET_TCP_DEBUG
+		DEBUG_DWORD ebx, "freeing TCP buffers for connection "
+	.endif
 	xor	eax, eax
 	xchg	eax, [esi + ebx + tcp_conn_recv_buf]
 	or	eax, eax

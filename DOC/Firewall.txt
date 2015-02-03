@@ -1,0 +1,42 @@
+= Kernel Firewall Overview =
+
+These deal only with incoming traffic:
+
+== Ethernet ==
+
+The filtering rules deal with MAC addresses and associated NICs.
+
+[src:kernel/net/net.s#net_handle_packet] rules:
+* (DROP) Ethernet subprotocol unknown
+* (DROP*) non BCAST/MCAST: RX NIC MAC and packet dst MAC mismatch (*: unless promiscuous mode is enabled)
+* (DROP) NIC for eth.dst MAC != RX NIC
+* (DROP) no handler for subprotocol
+
+
+=== IPV4 ===
+
+[src:kernel/net/ipv4.s#net_ipv4_handle] rules:
+
+* (DROP) verify IP header version 4
+* (DROP) verify IP header minimum size 
+* (DROP) verify IP header size smaller than network packet
+* (DROP) verify IP header checksum
+* (DROP) non BCAST: verify NIC for dst IP exists (including multicast
+  membership)
+* (DROP) non BCAST: verify dst IP NIC equals receiving NIC
+* (DROP) verify IP subprotocol handler exists
+* (DROP) verify if the source IP is routable (usually matches when there's a
+  default gateway)
+* (ACCEPT)
+
+
+==== TCP ====
+
+(note: REJECT sends RST)
+
+* (DROP/REJECT) unknown connection and ! SYN   (rest of unknown connection
+  rules are for SYN)
+* (DROP) unknown connection and ACK
+* (DROP) unknown connection and ack_nr != 0
+* (DROP/REJECT) no listening socket for dst port
+* (ACCEPT)

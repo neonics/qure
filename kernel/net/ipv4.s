@@ -388,6 +388,8 @@ net_ipv4_handle:
 
 # XXX FIXME TODO: for DHCP, there is no IP yet, so cannot discard message here.
 # Instead, the handler should receive the nic on which the packet was received.
+# XXX fixed?
+
 	# if broadcast, accept
 	mov	eax, [esi + ipv4_dst]
 	cmp	eax, -1
@@ -395,15 +397,41 @@ net_ipv4_handle:
 	# ebx is already known: check if all is ok:
 		mov	edx, ebx
 	call	nic_get_by_ipv4	# out: ebx
-	jc	92f	# not for us
+	jc	92f	# DROP: not for us
 	cmp	edx, ebx	# verify the nic
-	jnz	93f
+	jnz	93f	# DROP: nic mismatch
 1:
 	# forward to ipv4 sub-protocol handler
 	mov	al, [esi + ipv4_protocol]
 	call	ipv4_get_protocol_handler	# out: edi
-	jc	91f
+	jc	91f	# DROP: no protocol
 
+	# firewall / routing
+	#
+	# check if the route resolves to the nic
+	#
+	# in: eax = target ip
+	# out: ebx = nic to use
+	# out: edx = gateway ip
+	# free to use: edx, eax; ebx = nic (=edx)
+	push	ebx
+	mov	eax, [esi + ipv4_src]
+	call	net_route_get	# (ip=eax -> ip=edx, nic=ebx)
+	mov	edx, ebx
+	pop	ebx
+	jc	95f	# DROP: no route
+	cmp	ebx, edx
+	jnz	96f	# DROP: incoming NIC does not match outgoing route
+
+	# TODO: if ipv4_src is LAN and route is default gateway, DROP.
+	# The default gateway could also be the gateway to other LAN
+	# networks. In this case though, routing entries for LAN masks
+	# should be added explicitly, with the default gw the catch all.
+	# We must then extend net_route_get to return the matching rule's
+	# network/netmask or an 'is_lan' flag.
+
+
+	# delegate processing to the protocol handler, edi
 	mov	edx, esi
 	add	esi, ebp	# payload offset
 	sub	ecx, ebp	# subtract header len
@@ -436,6 +464,8 @@ net_ipv4_handle:
 	DEBUG_DWORD edx;PRINT_CLASS edx
 	DEBUG_DWORD ebx;PRINT_CLASS ebx
 	jmp	0b
-94:	printlnc 4, "ipv4: dropped packet: no handler"
-	jmp	1b
-
+94:	call	0f;	printlnc 1, "no handler";	jmp 1b
+95:	call	0f;	printlnc 1, "no route";		jmp 1b	# DROP - do not send ICMP!
+96:	call	0f;DEBUG_DWORD edx;DEBUG_DWORD ebx;	printlnc 1, "rx nic != tx nic";	jmp 1b	# DROP - do not send ICMP!
+0:	printc 4, "ipv4: dropped packet: "
+	ret

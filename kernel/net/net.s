@@ -576,26 +576,28 @@ net_handle_packet:
 	push	esi
 	mov	ax, [esi + eth_type]
 	call	net_eth_protocol_get_handler$	# out: edi
-	jc	2f
+	jc	91f	# firewall: DROP
 	# non-promiscuous mode: check target mac
 	.if 1
 	# check broad/multicast bit
 	test	[esi + eth_dst], byte ptr 1 # IG bit
-	jnz	0f
-	.else
+	jnz	0f	# ACCEPT
+	.else	# if the b/mcast bit is not set, -1 is impossible
 	# check broadcast mac (all -1)
 	cmp	[esi + eth_dst], dword ptr -1
-	jnz	2f
+	jnz	2f	# not broadcast
 	cmp	[esi + eth_dst + 4], word ptr -1
-	jz	0f
+	jz	0f	# ACCEPT
+	2:
 	.endif
-2:	# verify nic mac
+	# verify nic mac
 	mov	eax, ebx
 	call	nic_get_by_mac # in: esi = mac ptr
-	jc	3f	# promiscuous handler
+	jc	93f	# promiscuous handler
 	cmp	eax, ebx
-	jnz	4f
-0:	mov	edx, [eth_proto_struct$ + proto_struct_handler + edi]
+	jnz	94f
+0:	# ACCEPT
+	mov	edx, [eth_proto_struct$ + proto_struct_handler + edi]
 	or	edx, edx
 	jz	1f
 	add	edx, [realsegflat]
@@ -604,19 +606,22 @@ net_handle_packet:
 	call	edx
 9:	pop	esi
 	ret
-3:	# can't get nic by mac
-4:	# nic's mac doesnt match nic on which pkt was received
-	mov	ebx, eax	# restore receiving nic
-	jmp	0b		# go ahead anyway
+
 ###
-2:	printc 4, "net_handle_packet: dropped packet: unknown protocol: "
-	jmp	2f
+91: 	# DROP: unknown protocol
+	call	0f
+	printc 4, "unknown protocol: "
 	mov	dx, [esi + eth_type]
 	call	printhex4
-	stc
-	ret
+	jmp	9f	# dump packet, goto DROP (9b)
 
-1:	printc 4, "net_handle_packet: dropped packet: "
+93:	# can't get nic by mac
+	printc 4, ""
+94:	# nic's mac doesnt match nic on which pkt was received
+	mov	ebx, eax	# restore receiving nic
+	jmp	0b		# go ahead anyway
+
+1:	call	0f
 	pushcolor 4
 	cmp	ebx, -1
 	jz	1f
@@ -628,14 +633,17 @@ net_handle_packet:
 	call	printspace
 	jmp	2f
 1:	print	"unknown "
-2:	mov	dx, [esi + eth_type]
-	call	printhex4
-	call	newline
+
+
+
+0:	printc 4, "net_handle_packet: dropped packet: "
+	ret
+
+9:	call	newline
 	call	net_print_protocol
 	popcolor
 	stc
-	jmp	9b
-
+	jmp	9b	# DROP
 
 # Protocol packet handlers
 # These are only called when eth.dst_mac is broadcast or matches a nic
