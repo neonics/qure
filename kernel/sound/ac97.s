@@ -22,7 +22,8 @@ AC97_TEST	= 0	# 0 or 1; enable self-tests (requires DEBUG)
 
 
 # in order of decreasing priority:  (set only 1 of them to 1):
-IO_MULTI_INLINE	= 1	# 1) inline both MMIO and PIO code; check mode on each IO access
+IO_MULTI_INLINE	= 0	# 1) inline both MMIO and PIO code; check mode on each IO access
+# unfortunately MMIO causes reboots for AC'97
 AC97_MMIO_ONLY	= 0	# 2) set to 1 to use MMIO optimized code, 0 to auto-detect MMIO/PIO
 AC97_PIO_ONLY	= 1	# 3) set to 1 to use PIO optimized code, 0 to auto-detect MMIO/PIOC
 			# 4) all 0: use MMIO detection and object method pointer updates
@@ -607,9 +608,17 @@ ac97_init:
 	mov     esi, [page_directory_phys]
 	mov     eax, [ebx + ac97_mixer_mmio]
 	mov     ecx, [ebx + ac97_mixer_mmio_size]
+		mov	edx, eax
+		and	edx, 4095
+		add	ecx, edx
+		and	eax, ~4095
 	call    paging_idmap_memrange
 	mov     eax, [ebx + ac97_bus_mmio]
 	mov     eax, [ebx + ac97_bus_mmio_size]
+		mov	edx, eax
+		and	edx, 4095
+		add	ecx, edx
+		and	eax, ~4095
 	call    paging_idmap_memrange
 
 .if !(AC97_MMIO_ONLY|AC97_PIO_ONLY|IO_MULTI_INLINE)
@@ -631,10 +640,14 @@ ac97_init:
 
 	# reset mixer
 	AC97_MIXER_WRITE RESET, 42
+
+.if 0
 	mov	eax, 2	# COLD_RESET
 	AC97_CHANNEL_WRITE GLOBAL_CONTROL, eax #(byte ptr 2)	# COLD_RESET
+
 	mov	eax, 100 * 1000	# 100 ms wait
 	call	udelay	# can't use sleep (requires scheduler)
+.endif
 
 	# set volume
 	TMP_VOLUME = 0	# 0 = max
@@ -841,6 +854,7 @@ ac97_isr:
 	.endif
 
 	AC97_CHANNEL_READ GLOBAL_STATUS, eax
+
 	cmp	eax, -1
 	jnz	1f
 	printc 12, "ac97_isr: STATUS -1"
