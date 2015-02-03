@@ -48,7 +48,7 @@ $c=~ s@(\n\t+[^\n]*)\n+(?=\n\t)@$1\n\t@g;
 # definition lists
 # - item
 #   description
-$c=~ s@\n(\-\s+([^\n]+)\n*?((\n(?!\-|\S)[^\n]*)+))@"\n<dt>$2</dt>\n<dd>".&p(&trim($3))."</dd>\n\n"@ge;
+$c=~ s@\n(\-\s+([^\n]+)\n*?((\n(?!\-|\S)[^\n]+)+))@"\n<dt>$2</dt>\n<dd>".&p(&trim($3))."</dd>\n\n"@ge;
 $c=~ s@((<dt>.*?</dt>\n<dd>.*?</dd>\n*)+)@<dl>\n$1</dl>\n\n@gs;
 
 # ''code''
@@ -121,8 +121,8 @@ $c=~ s@\n(<li>[^\n]+</li>)\n@ <ul>$1</ul>\n@g;
 
 # level 1
 #*foo
-$c=~ s@\n+[-\*] ([^\n]+)@\n<li>$1</li>@g;
-$c=~ s@\n((<li>[^\n]+</li>\n)+)@\n<ul>\n$1</ul>\n@g;
+$c=~ s@\n+[-\*] ([^\n]+(\n  [^\n]*)*)@\n<li>$1</li>@g;
+$c=~ s@\n((<li>.*?</li>\n)+)@\n<ul>\n$1</ul>\n@gs;
 
 labels();
 
