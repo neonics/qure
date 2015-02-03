@@ -3,6 +3,16 @@
 ##############################################################################
 .intel_syntax noprefix
 
+PCI_CALLING_CONVENTION = 0
+
+# TODO's
+#
+# - 64 bit address support. Even though it displays the flag,
+#   it does not treat the next BAR as the upper 32 bits of
+#   of a 64 bit register
+# - disable IO decoding via command register when testing the
+#   size of (the memory pointed to by) a BAR.
+
 .if DEFINE
 
 PCI_DEBUG = 0
@@ -1395,7 +1405,7 @@ pci_list_pcibridge$:
 
 
 
-# in: cx = pci address (bus etc)
+# in: ecx = pci address (bus etc)
 # in: bl = BARx pci address (BAR0 is usualy 0x10 / 16)
 # in: edi = dev ptr, to be updated with dev_io(_size) and dev_mmio(_size).
 #  the last match will be the one used.
@@ -1478,25 +1488,28 @@ pci_list_bar$:
 #
 	mov	eax, ecx
 	mov	edx, -1	# determine memory used
-	call	pci_write_config
+	call	pci_write_config	# out: eax = possible address space bits
 	mov	edx, eax
-	and	dl, bh
+	test	al, 1
+	jnz	1f
+	and	dl, ~15	# MMIO
+1:	and	dl, ~3	# PIO
 	not	edx
 	inc	edx	# edx = memory/io size used
 
 			mov	[edi], edx
 			pop	edi
 
-	#call	printhex8
-	#call	printspace
-	add	edx, [esp]
-	and	dl, bh
+	add	edx, [esp]	# see push eax above (base addr)
+	test	dl, 1
+	jnz	1f
+	and	dl, ~15	# MMIO
+1:	and	dl, ~3	# PIO
 	call	printhex8
 	# restore original address
 	pop	edx
 	mov	eax, ecx
 	call	pci_write_config
-
 4:
 	ret
 
@@ -1577,13 +1590,21 @@ pci_list_caps$:
 # Type 1: [31:24 reserved][23:16 bus][15:11 device][10:8 func][7:2 register][0][1]
 
 
+.ifc PCI_CALLING_CONVENTION, 1
+# in: edx = PCI address = [00] [func] [ah: bus (8bit)] [al: slot (5 bits)]
+.else#; .if PCI_CALLING_CONVENTION = 0
 # in: eax = [00] [func] [ah: bus (8bit)] [al: slot (5 bits)]
+.endif
 # in: bl = register/offset (4 byte align)
 # out: eax
 pci_read_config:
 	push	edx
 
+.ifc PCI_CALLING_CONVENTION, 1
+	mov	eax, edx
+.else
 	mov	edx, eax
+.endif
 	shr	edx, 16
 
 	# eax: |                      | bbbbbbbb  | 000 ddddd |
@@ -1605,13 +1626,23 @@ pci_read_config:
 	pop	edx
 	ret
 
-# in: eax = address [00][func][ah = bus (8 bits)][al = slot (5 bits)]
-# in: bl = register (4 byte align)
+.ifc PCI_CALLING_CONVENTION, 1
+# in: edx = address [00][func][ah = bus (8 bits)][al = slot (5 bits)]
+# in: eax = value to write
+.else
+# in: eax=ecx = address [00][func][ah = bus (8 bits)][al = slot (5 bits)]
 # in: edx = value to write
+.endif
+# in: bl = register (4 byte align)
 # out: eax = value readback
 pci_write_config:
 	push	edx
+.ifc PCI_CALLING_CONVENTION, 1
+	push	ecx
+	mov	ecx, edx
+.else
 	mov	edx, ecx
+.endif
 	shr	edx, 16
 	and	dl, 7
 	and	eax, 0x0000ff1f
@@ -1628,21 +1659,35 @@ pci_write_config:
 	mov	eax, [esp]
 	out	dx, eax
 	in	eax, dx
+.ifc PCI_CALLING_CONVENTION, 1
+	pop	ecx
+.else
+.endif
 	pop	edx
 	ret
 
+.ifc PCI_CALLING_CONVENTION,1
+# in: edx = pci addr
+.else
 # in: ecx = pci addr
-# in: al = bar nr (0..6)
+.endif
+# in: al = bar nr
+# out: eax = BAR IO base address
 pci_get_bar:
-	push_	ecx ebx
+	push	ebx
 	mov	bl, al
 	shl	bl, 2
 	add	bl, PCI_CFG_BAR0
+.ifc PCI_CALLING_CONVENTION,1
+.else
 	mov	eax, ecx
+.endif
 	call	pci_read_config
-	pop_	ebx ecx
+	pop	ebx
 	ret
 
+# in: idem as pci_get_bar
+# out: eax = BAR IO base address
 pci_get_bar_addr:
 	call	pci_get_bar
 	test	al, 1
@@ -1651,6 +1696,128 @@ pci_get_bar_addr:
 	ret
 1:	and	al, ~15
 	ret
+
+.ifc PCI_CALLING_CONVENTION,1
+# in: edx = pci address
+A=edx
+.else
+# in: ecx = pci address
+A=ecx
+.endif
+# in: al = bar number
+# out: eax = bar size
+pci_get_bar_size:
+	push_	edx ebx
+########
+	.if 0
+	movzx	eax, al
+	lea	ebx, [eax * 4 + PCI_CFG_BAR0]
+	.else
+	mov	bl, al
+	shl	bl, 2
+	add	bl, PCI_CFG_BAR0
+	.endif
+
+.ifc PCI_CALLING_CONVENTION,1
+	# save original value
+	call	pci_read_config		# (A=edx,R=bl -> V=eax)
+	push	eax
+
+	# TODO: disable address decoding in PCI_CMD reg
+	mov	eax, -1
+	call	pci_write_config	# (A=edx,R=bl,V=eax -> V=eax)
+		test	al, 1
+		jnz	1f
+		and	al, ~15
+	1:	and	al, ~3
+		not	eax
+		inc	eax	# mem/io size used
+
+	# restore original value
+	pop	eax
+	call	pci_write_config
+	# TODO: enable address decoding in PCI_CMD reg
+.else
+	push	eax	# reserve space for return value
+
+	# save original value
+	mov	eax, ecx
+	call	pci_read_config		# (A=eax,R=bl -> V=eax)
+	push	eax
+
+	# TODO: disable address decoding in PCI_CMD reg
+	mov	eax, ecx
+	mov	edx, -1
+	call	pci_write_config	# (A=eax,R=bl,V=edx -> V=eax)
+		test	al, 1
+		jnz	1f
+		and	al, ~15
+	1:	and	al, ~3
+		not	eax
+		inc	eax	# mem/io size used
+
+	mov	[esp + 4], eax	# update return value
+
+	# restore original value
+	pop	edx
+	mov	eax, ecx
+	call	pci_write_config
+	# TODO: enable address decoding in PCI_CMD reg
+
+	pop	eax	# return value
+.endif
+########
+	pop_	ebx edx
+	ret
+
+
+.if 1
+# in: al = bar number
+# in: edx = pci address
+# in: edi = pointer to .long addr, .long size
+# out: edi+=4
+pci_get_bar_addr_size:
+   .if 1
+	push	eax
+	call	pci_get_bar_addr	# (A=edx/ecx, R=al -> eax)
+	stosd
+	mov	eax, [esp]
+	call	pci_get_bar_size	# (A=edx/ecx, R=al -> eax)
+	stosd
+	pop	eax
+	ret
+   .else
+   	# this method can be optimized: pci_get_bar_size
+	# also reads the bar addr.
+   .endif
+
+.else
+# in: PCI BAR address
+# out: RAM memory range
+pci_get_bar_addr_size:
+.ifc PCI_CALLING_CONVENTION,1	# optimized version
+A=edx	# in: edx = pci address 
+S=ecx	# out: ecx = bar size
+.else
+A=ecx	# in: ecx = pci address 
+S=edx	# out: edx = bar size
+.endif
+I=eax	# in: al = bar number
+O=eax	# out: eax = bar address
+#
+# Rules:
+	# - S must not be used except to receive output
+IA=A	# pci_get_bar_addr PCI Address In
+OA=eax	# OA must be IA; pci_get_bar_addr( A=ecx/edx, B=al -> eax)
+	push	I		# edx/ecx
+	call	pci_get_bar_addr
+	mov	S, OA		# ecx/edx, edx/ecx
+	pop	A
+	call	pci_get_bar_size
+	ret
+.endif
+
+
 
 
 # in: eax = pci addr ( fn << 16 | bus << 8 | slot )

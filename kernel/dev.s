@@ -225,9 +225,13 @@ dev_pci_print:
 # out: eax
 dev_pci_read_config:
 	push_	ebx edx
-	mov	eax, [ebx + dev_pci_addr]
 	mov	bl, dl
-	call	pci_read_config	# in: eax=pci addr; bl = pci config reg
+.ifc PCI_CALLING_CONVENTION, 1
+	mov	edx, [ebx + dev_pci_addr]
+.else
+	mov	eax, [ebx + dev_pci_addr]
+.endif
+	call	pci_read_config	# in: eax/edx=pci addr; bl = pci config reg
 	pop_	edx ebx
 	ret
 
@@ -237,20 +241,60 @@ dev_pci_read_config:
 # out: eax = readback value
 dev_pci_write_config:
 	push_	ebx edx
+.ifc PCI_CALLING_CONVENTION,1
+	mov	bl, dl
+	mov	edx, [ebx + dev_pci_addr]
+.else
 	mov	ebx, [ebx + dev_pci_addr]
 	xchg	eax, ebx	# eax = pci addr, ebx = value
 	xchg	edx, ebx	# edx = value, ebx = bl = pci reg
+.endif
 	call	pci_write_config# in: eax = pci addr, bl=reg, edx=value; out: eax
 	pop_	edx ebx
 	ret
 
 # in: ebx = device
 dev_pci_busmaster_enable:
+.ifc PCI_CALLING_CONVENTION,1
+	push	edx
+	mov	edx, [ebx + dev_pci_addr]
+	call	pci_busmaster_enable
+	pop	edx
+.else
 	push	eax
 	mov	eax, [ebx + dev_pci_addr]
 	call	pci_busmaster_enable
 	pop	eax
+.endif
 	ret
+
+# in: al = pci bar number	# XXX not dl: will become bl for pci
+# out: eax = bar address
+dev_pci_get_bar_addr:
+.ifc PCI_CALLING_CONVENTION,1
+	push	edx
+	mov	edx, [ebx + dev_pci_addr]
+	call	pci_get_bar_addr
+	pop	edx
+.else
+	push	ecx
+	mov	ecx, [ebx + dev_pci_addr]
+	call	pci_get_bar_addr
+	pop	ecx
+.endif
+	ret
+
+ 
+# in: ebx = device
+# in: al = bar number
+# in: edi = pointer to .long addr, .long size
+dev_pci_get_bar_addr_size:
+	push_	edx
+	mov	edx, [ebx + dev_pci_addr]
+	call	pci_get_bar_addr_size
+	pop_	edx
+	ret
+
 
 # Wrapper method for add_irq_handler using dev_irq and dev_api_isr
 # Can ba considered a 'class method' (static) (except 'this' = ebx not eax)

@@ -13,7 +13,7 @@ DEFINE=0
 .include "export.h"
 .include "kapi/export.h"
 .include "lib/hash.s"
-#.include "pci.s"
+.include "pci.s"
 .include "gdt.s"
 .include "pic.s"
 .include "mutex.s"
