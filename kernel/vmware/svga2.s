@@ -313,17 +313,15 @@ vmwsvga2_init:
 	I "VMWare SVGA II Init"
 	call	newline
 
-	mov	ecx, [ebx + dev_pci_addr]
-
 	xor	al, al
-	call	pci_get_bar_addr		# BAR 0 - dev_io
+	call	dev_pci_get_bar_addr		# BAR 0 - dev_io
 
 	mov	al, 1
-	call	pci_get_bar_addr
+	call	dev_pci_get_bar_addr
 	mov	[ebx + vid_fb_addr], eax	# BAR 1 
 
 	mov	al, 2
-	call	pci_get_bar_addr
+	call	dev_pci_get_bar_addr
 	mov	[ebx + vid_fifo_addr], eax	# BAR 2
 
 
