@@ -22,6 +22,8 @@ SOCK_READPEER	= 0x08000000 	# prepend packetized data with peer address (ip:port
 SOCK_READPEER_MAC=0x04000000 	# prepend packetized data with peer MAC
 SOCK_READTTL	= 0x02000000	# prepend IP ttl (after peer)
 SOCK_READTTL_SHIFT = (24+1)
+# options:
+SOCK_TCP_TFO=0	# TODO, see tcp.s, TCP_OPT_TFO
 
 # internal flags
 SOCK_PEER	= 0x00400000	# socket is 'forked' from SOCK_LISTEN on rx SYN

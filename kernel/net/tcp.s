@@ -45,7 +45,7 @@ tcp_options:	#
 	TCP_OPT_NOP	= 1	# 1		padding; (no len/data)
 	TCP_OPT_MSS	= 2	# 2,4,w  [SYN]	max seg size
 	TCP_OPT_WS	= 3	# 3,3,b  [SYN]	window scale
-	TCP_OPT_SACKP	= 4	# 4,2	 [SYN]	selectice ack permitted
+	TCP_OPT_SACKP	= 4	# 4,2	 [SYN]	selective ack permitted
 	TCP_OPT_SACK	= 5	# 5,N,(BBBB,EEEE)+   N=10,18,26 or 34
 						# 1-4 begin-end pairs
 	TCP_OPT_TSECHO	= 8	# 8,10,TTTT,EEEE
@@ -58,6 +58,28 @@ tcp_options:	#
 	# 03 03 07:	window scale: 03 len: 03 shift 07
 	# 04 02:	tcp SACK permission: true
 	# timestamp 08 len 0a value 66 02 ae a8 echo reply 00 00 00 00
+
+	# TCP Fast Open (RFC http://tools.ietf.org/html/rfc7413#section-2.2)
+	TCP_OPT_TFO	= 34	# SYN only
+	# len: 0 or 6..18 bytes , even, max until option space full (TODO find out what that is)
+	# data: 0 or 4 .. 16 bytes
+	#
+	# client sends SYN+TFO with empty cookie (.byte 34,0)
+	# server responds with cookie: SYN+ACK+TFO+cookie data;
+	#
+	# client sends cookie next time it SYN's
+	# server responds with SYN+ACK (no cookie option)
+	# (possibly with a new cookie option set, which the client
+	#  should then use to replace it's old cookie)
+	#
+	# "The Fast Open Cookie is designed [..] to enable data exchange during
+	#  a handshake".
+	#
+	# This effectively makes it an extension point. The data originally
+	# intended is the payload, however, the TFO cookie itself is also data.
+	# This can be leveraged by the firewall to route the request to a LAN
+	# node. Connections with a proper cookie value will then be directed
+	# towards the same node as last time.
 
 .macro TCP_DEBUG_FLAGS r=ax
 	PRINTFLAG ax, TCP_FLAG_NS, "NS "
