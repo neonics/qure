@@ -230,7 +230,7 @@ $(REFDIR):
 	[ -d $@ ] || mkdir -p $@
 
 $(REFFILES) $(REFDIR)/index.html: $(REFSRC)
-$(REFDIR)/src.ref: $(REFSRC) ../util/fmtsrc.pl $(REFDIR)
+$(REFDIR)/src.ref: $(REFSRC) | ../util/fmtsrc.pl $(REFDIR)
 	#optional dep: ../util/Template.pm
 	@echo "  REF   $?"
 	@../util/fmtsrc.pl --dir ../root/www/doc/src/ \
