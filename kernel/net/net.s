@@ -412,6 +412,36 @@ net_print_ip:
 	pop	eax
 	ret
 
+# in: eax
+.global net_print_ipv4_mask
+net_print_ipv4_mask:
+	# if the mask is /^1{N}0{32-N$/ then print as bits, else as IP.
+	push_	eax ecx edx
+	mov	ecx, -1# for debug
+	bsr	ecx, eax	# find highest bit set (IP is in NBO: A.B.C.D = 0xDDCCBBAA)
+	jz	1f		# no bits set	# XXX http://web.itu.edu.tr/~aydineb/index_files/instr/bsr.html has it wrong!
+	# ecx = highest bit set.
+	# check if all bits below it are also set:
+	mov	edx, 2
+	shl	edx, cl
+	dec	edx
+	cmp	eax, edx
+	jnz	2f
+	# all low bits set.
+	lea	edx, [ecx + 1]	# bit 0 set: mask /1
+	pushcolor 3
+	call	printdec32
+	popcolor
+	jmp	9f
+
+2:	# not all high bits set. print as IP
+	call	net_print_ipv4
+	jmp	9f
+
+1:	printc 12, "0";DEBUG_DWORD eax;DEBUG_DWORD ecx; call net_print_ipv4
+9:	pop_	edx ecx eax
+	ret
+
 # in: eax = stringpointer
 # out: eax = ip
 .global net_parse_ip

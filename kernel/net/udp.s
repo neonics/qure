@@ -292,6 +292,9 @@ ph_ipv4_udp:
 	cmp	[eax + udp_sport], dword ptr ( (68 << 8) | (67 << 24))
 	jz	ph_ipv4_udp_dhcp_c2s
 
+	cmp	[eax + udp_dport], word ptr (69 << 8) # not sure what client port is
+	jz	ph_ipv4_udp_tftp
+
 	mov	esi, eax	# restore udp frame for error message below
 
 	LOAD_TXT "unknown port", eax

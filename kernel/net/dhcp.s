@@ -6,7 +6,7 @@
 # TODO: match response packet mac before reconfiguring network.
 # TODO: allow remote configuration changes using latest XID.
 
-NET_DHCP_DEBUG = 0
+NET_DHCP_DEBUG = 1
 
 .struct 0
 dhcp_op:	.byte 0
@@ -38,19 +38,24 @@ dhcp_options:	# variable. Format: .byte DHCP_OPT_..., len; .space [len]
 	DHCP_OPT_DNS		= 6	# 4*n	ip list
 	# other servers: (all ip lists:)
 	# 7=log 8=cookie 9=lpr 10=impress 11=resource location
+	DHCP_OPT_RL_SERVER	= 11	# ?resource location server
 	DHCP_OPT_HOSTNAME	= 12	# ?	string
 	DHCP_OPT_BOOT_FILE_SIZE	= 13	# 2	sectors
 	# 14=merit dump file (core dump file)
-	DHCP_OPT_DOMAINNAME	= 15	# 1+	string
-	# 16=swap server 17=root path 18=extensions path (TFTP)
-	# 19=ip forward enable/disable	# 1	0 or 1
+	DHCP_OPT_DOMAIN_NAME	= 15	# 1+	string
+	DHCP_OPT_SWAP_SERVER	= 16	# ?
+	DHCP_OPT_ROOT_PATH	= 17	# 1+	string (?)
+	DHCP_OPT_EXT_PATH	= 18	# 1+	string (?)  extensions path (TFTP)
+	DHCP_OPT_IPFW_ENABLE	= 19	# 1	0 or 1
 	# 26 = interface mtu opt	# 2	unsigned word; 68+
-	# 31 - router discover
-	# 33 - static route
-	# 43 - vendor specific info
-	# 44 - netbios/tcpip name server
-	# 46 - netbios/tcpip node type
-	# 47 - netbios/tcpip scope
+	DHCP_OPT_ROUTER_DISCOVER= 31
+	DHCP_OPT_STATIC_ROUTE	= 33
+
+	DHCP_OPT_VENDOR_INFO	= 43 	# ? vendor specific info
+	DHCP_OPT_NB_NAME_SERVER	= 44	# ? netbios/tcpip name server
+	DHCP_OPT_NB_NODE_TYPE	= 46	# ? netbios/tcpip node type
+	DHCP_OPT_NB_SCOPE	= 47	# ? netbios/tcpip scope
+
 	DHCP_OPT_REQ_IP		= 50	# 4	ip	# requested ip address
 	DHCP_OPT_IP_LEASE_TIME	= 51	# 4	seconds
 	DHCP_OPT_OPTION_OVERLOAD= 52	# 1	1=file,2=sname,3=both have opts
@@ -64,30 +69,48 @@ dhcp_options:	# variable. Format: .byte DHCP_OPT_..., len; .space [len]
 		DHCP_MT_NAK			= 6
 		DHCP_MT_RELEASE			= 7
 		# not in rfc1533:
-		#DHCP_MT_INFORM			= 8
-		#DHCP_MT_FORCE_RENEW		= 9
+		DHCP_MT_INFORM			= 8
+		DHCP_MT_FORCE_RENEW		= 9
+		DHCP_MT_MAX_		= 9
 	DHCP_OPT_SERVER_IP	= 54	# 4	ip
 	DHCP_OPT_PARAM_REQ_LIST	= 55	# ?	option nr [,option nr,...]
 	DHCP_OPT_MESSAGE	= 56	# 1+	string	(NAK/DECLINE err msg)
 	DHCP_OPT_MAX_MSG_SIZE	= 57	# 2	576+ (DISCOVER/REQUEST)
 	DHCP_OPT_RENEWAL_TIME	= 58	# 4	seconds	(T1) (assign->RENEW)
 	DHCP_OPT_REBINDING_TIME	= 59	# 4	seconds	(T2) (assign->REBIND)
-	# 60 - vendor class identifier
+	DHCP_OPT_VENDOR_CLASSID	= 60	# 1+	string vendor class identifier ("MSFT 5.0")
 	DHCP_OPT_CLIENT_ID	= 61	# 2+(7)	custom (hwtype(1),mac)
+	DHCP_OPT_BOOT_FILENAME	= 67	# 1+	string (?)
 	DHCP_OPT_CLIENT_FQDN	= 81	# 3+?	flags, A_RR, PTR_RR, string
-	# 121 - classless static route
-	# 249 - private/classless static route (MSFT)
+	DHCP_OPT_CLIENT_SYSARCH	= 93	# word: 0 = IA x86 PC	Client System Architecture
+	DHCP_OPT_CLIENT_DEVIFACE= 94	# NBO hi, lo client device interface
+	DHCP_OPT_CLIENT_UUID	= 97	# 17
+	DHCP_OPT_CLASSLESS_ST_RT= 121	# ?	 classless static route
+	DHCP_OPT_DOCSIS		= 128	# ?
+	DHCP_OPT_PXE_0		= 129	# ?	PXE
+	DHCP_OPT_PXE_1		= 120	# ?	PXE
+	DHCP_OPT_PXE_2		= 131	# ?	PXE
+	DHCP_OPT_PXE_3		= 132	# ?	PXE
+	DHCP_OPT_PXE_4		= 133	# ?	PXE
+	DHCP_OPT_PXE_5		= 134	# ?	PXE
+	DHCP_OPT_PXE_6		= 135	# ?	PXE
+	DHCP_OPT_PVTCL_ST_RT	= 249	# ?	private/clasless static route (MSFT)
 	DHCP_OPT_EOO		= 255	# N/A	N/A - end of options.
+
 DHCP_HEADER_SIZE = .
 .struct 0	# transaction list
+# These are used both by the client and the server, depending on FLAG_SC
 dhcp_txn_xid:		.long 0
 dhcp_txn_nic:		.long 0
+dhcp_txn_mac:		.space 6# mac of peer
 dhcp_txn_server_ip:	.long 0	# ip of server offering
 dhcp_txn_server_mac:	.long 0	# ip of server offering XXX MAC?
 dhcp_txn_yiaddr:	.long 0	# ip server offered (0 for discover)
 dhcp_txn_router:	.long 0
 dhcp_txn_netmask:	.long 0
 dhcp_txn_state:		.word 0	# lo byte = last sent msg; hi=last rx'd msg
+dhcp_txn_flags:		.word 0
+	DHCP_TXN_FLAG_SC	= 1<<0	# Server/Client: 1 = server
 DHCP_TXN_STRUCT_SIZE = .
 .data
 mac_broadcast: .space 6, -1
@@ -125,6 +148,7 @@ pop	eax
 1:
 
 	push	eax
+	# TODO: lock
 	ARRAY_NEWENTRY [dhcp_transactions], DHCP_TXN_STRUCT_SIZE, 1, 9f
 	mov	ecx, eax
 	mov	[ecx + edx + dhcp_txn_nic], ebx
@@ -133,16 +157,30 @@ pop	eax
 	mov	eax, [ebx + nic_mac + 2]
 	call	random
 	mov	[ecx + edx + dhcp_txn_xid], eax
+	mov	[ecx + edx + dhcp_txn_mac+0], dword ptr 0
+	mov	[ecx + edx + dhcp_txn_mac+4], word ptr 0
 9:	pop	eax
+	# TODO: unlock
 	ret
 
 
 # destroys: eax, ebx, ecx, edx, esi
 dhcp_txn_list:
 	ARRAY_LOOP [dhcp_transactions], DHCP_TXN_STRUCT_SIZE, ebx, ecx, 9f
+	testw	[ebx + ecx + dhcp_txn_flags], DHCP_TXN_FLAG_SC
+	jz	1f	# client
+	printc 13, "SERVER "
+	jmp	2f
+1:	printc 13, "CLIENT "
+2:
 	printc 11, "xid "
 	mov	edx, [ebx + ecx + dhcp_txn_xid]
 	call	printhex8
+
+	printc 11, " MAC "
+	lea	esi, [ebx + ecx + dhcp_txn_mac]
+	call	net_print_mac
+
 	printc 11, " nic "
 	mov	edx, [ebx + ecx + dhcp_txn_nic]
 	lea	esi, [edx + dev_name]
@@ -164,18 +202,19 @@ dhcp_txn_list:
 	jmp	2f
 1:	call	printhex2
 2:
+	call	newline
 	printc 11, " server "
 	mov	eax, [ebx + ecx + dhcp_txn_server_ip]
-	call	net_print_ip
+	call	net_print_ipv4
 	printc 11, " yip "
 	mov	eax, [ebx + ecx + dhcp_txn_yiaddr]
-	call	net_print_ip
+	call	net_print_ipv4
 	printc 11, "/"
 	mov	eax, [ebx + ecx + dhcp_txn_netmask]
-	call	net_print_ip
+	call	net_print_ipv4_mask
 	printc 11, " gw "
 	mov	eax, [ebx + ecx + dhcp_txn_router]
-	call	net_print_ip
+	call	net_print_ipv4
 
 
 	call	newline
@@ -314,9 +353,10 @@ DHCP_OPTIONS_SIZE = 32
 
 	# send packet
 
-	clc
-8:	pop	esi
-	jc	9f
+#	clc
+#8:	# unused label
+	pop	esi
+#	jc	9f
 	NET_BUFFER_SEND
 
 9:	ret
@@ -324,6 +364,10 @@ DHCP_OPTIONS_SIZE = 32
 
 ###########################################################################
 # DHCP protocol handlers
+# TEMPORARY HERE: TFTP (to detect)
+ph_ipv4_udp_tftp:
+	printlnc 0xf0, "!!!!!!! TFP !!!!!!!"
+	ret
 
 # client to server message:
 # in: ebx = nic
@@ -332,11 +376,448 @@ DHCP_OPTIONS_SIZE = 32
 # in: esi = payload
 # in: ecx = payload len
 ph_ipv4_udp_dhcp_c2s:
+	pushad
+	mov	ebp, esp
+	pushd	0	# dhcp txn element offset
+	pushd	0	# client UUID
+
 	.if NET_DHCP_DEBUG
-		println "    DHCP client to server"
+		printlnc 11, "DHCP client to server"
+		call	net_dhcp_print
 	.endif
+
 	# handler for DHCP server goes here.
+
+	cmp	byte ptr [esi + dhcp_op], DHCP_OP_BOOTREQUEST
+	jnz	91f
+
+	# check type 1 (ethernet) hw addrsize 6
+	cmp	word ptr [esi + dhcp_hwaddrtype], (6<<8)|1
+	jnz	92f	# addresstype we don't know about
+
+
+	mov	dl, DHCP_OPT_MSG_TYPE
+	call	net_dhcp_get_option$
+	jc	93f
+	movzx	edi, byte ptr [edx]	# message type
+
+	cmp	edi, DHCP_MT_MAX_
+	ja	94f
+	.if NET_DHCP_DEBUG
+		DEBUG_WORD di, "Message type: "
+		pushcolor 14
+		pushd	[dhcp_message_type_labels$ + edi * 4]
+		call	_s_println
+		popcolor
+	.endif
+
+#DHCP_MT_DISCOVER                = 1
+#DHCP_MT_OFFER                   = 2
+#DHCP_MT_REQUEST                 = 3
+#DHCP_MT_DECLINE                 = 4
+#DHCP_MT_ACK                     = 5
+#DHCP_MT_NAK                     = 6
+#DHCP_MT_RELEASE                 = 7
+	cmp	di, DHCP_MT_DISCOVER
+	jz	1f
+	cmp	di, DHCP_MT_REQUEST
+	jnz	95f
+1:
+	mov	eax, [esi + dhcp_xid]
+	# ecx (payload len), edx (ipv4 frame) no longer needed
+	call	dhcp_txn_get	# out: ecx + edx
+	jc	1f
+	DEBUG "known transaction!"
+
+		# XXX FIXME - assume received DISCOVER
+		movb	[ecx + edx + dhcp_txn_state+1], DHCP_MT_REQUEST 
+		movb	[ecx + edx + dhcp_txn_state], DHCP_MT_ACK  # premature but
+
+	jmp	2f
+1:	
+	DEBUG "unknown transaction, allocating"
+	call	dhcp_txn_new	# out: ecx + edx
+	jc	96f
+		movb	[ecx + edx + dhcp_txn_state+1], DHCP_MT_DISCOVER
+		movb	[ecx + edx + dhcp_txn_state+0], DHCP_MT_OFFER # premature but..
+2:
+		mov	[ebp - 4], edx
+		mov	[ecx + edx + dhcp_txn_xid], eax
+		movw	[ecx + edx + dhcp_txn_flags], DHCP_TXN_FLAG_SC # server entry
+		# lo byte = last sent msg; hi=last rx'd msg
+
+		# copy peer MAC
+		mov	esi, [ebp + PUSHAD_EDX]	# get ipv4 frame
+		lea	esi, [esi - ETH_HEADER_SIZE + eth_src]
+		lea	edi, [ecx + edx + dhcp_txn_mac]
+		movsd
+		movsw
+		# verify ETH MAC = DHCP client MAC
+		mov	eax, [ebp + PUSHAD_ESI]		# DHCP frame
+		lea	esi, [eax + dhcp_chaddr]	# client mac
+		lea	edi, [ecx + edx + dhcp_txn_mac]
+		mov	ecx, 3
+		repz	cmpsw
+		jnz	97f
+
+		# check if the request contains a boot file name
+		mov	dl, DHCP_OPT_PARAM_REQ_LIST	# in: dl = DHCP_OPT_...
+		mov	esi, [ebp + PUSHAD_ESI]		# in: esi = dhcp frame
+		mov	ecx, [ebp + PUSHAD_ECX]		# in: ecx = dhcp frame len
+		call	net_dhcp_get_option$
+		# out: eax = al = option len
+		# out: edx = ptr to option ([eax-1]=opt len)
+		# out: CF
+		jc	98f
+		mov	ecx, eax
+		mov	esi, edx
+	0:	lodsb
+		DEBUG_BYTE al
+		cmp	al, DHCP_OPT_BOOT_FILENAME
+		jz	0f
+		loop	0b
+		jmp	99f
+	0:	DEBUG "FOUND BOOT_FILENAME OPT!"
+
+		# 3 required options (not in option list) accto RFC4578 (PXE for Intel)
+		#
+		# 94: client network interface identifier
+		# len 3, type t = 1 (UNDI); .byte major(2), minor (1)
+		# handled. (not copied though! XXX)
+		
+		# 93: client system architecture:
+		# len: n (even, >0: usually word); .word type
+		# type: 0=intel x86PC; 6=EFI IA32;9: EFI x86-64
+		# handled (not copied xxx)
+
+		# 97: client UUID (machine identifier)
+		mov	dl, DHCP_OPT_CLIENT_UUID
+		mov	esi, [ebp + PUSHAD_ESI]
+		mov	ecx, [ebp + PUSHAD_ECX]
+		call	net_dhcp_get_option$
+		jc	910f
+		mov	[ebp - 8], edx	# points to 17 bytes: .byte 0; .space 16 (GUID)
+		# 
+
+
+		# ok. Send a response
+		call	dhcp_server_tx_disc_resp
+
+2: # OLD
+
+	printlnc 11, "DHCP Server: TODO"
+
+9:	
+	mov	esp, ebp	# free stack variables
+	popad
 	ret
+
+91:	printlnc 14, "DHCP SERVER: not BOOTREQUEST"
+	jmp	9b
+92:	printlnc 12, "DHCP SERVER: unknown hw addrsize"
+	jmp	9b
+93:	printlnc 12, "DHCP SERVER: no MSG_TYPE opt"
+	jmp	9b
+94:	printlnc 12, "DHCP SERVER: unknown MSG_TYPE"
+	jmp	9b
+95:	printlnc 14, "DHCP SERVER: not DISCOVER/REQUEST"
+	jmp	9b
+96:	printlnc 12, "DHCP SERVER: transactino allocation fail"
+	jmp	9b
+97:	printlnc 12, "DHCP SERVER: ETH MAC != DHCP MAC"
+	jmp	9b
+98:	printlnc 12, "DHCP SERVER: no PARAM_REQ_LIST"
+	jmp	9b
+99:	printlnc 14, "DHCP_SERVER: no BOOT_FILENAME option"
+	jmp	9b
+910:	printlnc 12, "DHCP_SERVER: no CLIENT_UUID option"
+	jmp	9b
+	
+
+dhcp_server_tx_disc_resp:
+	.if NET_DHCP_DEBUG
+		printlnc 11, "DHCP Server: sending DISCOVER response"
+	.endif
+
+	# add copy of net_dhcp_request,
+	# while iterating the options and setting values
+
+	# POSSIBLY use the OFFER from the default gateway as IP settings
+#net_dhcp_request:
+# in: ebx = nic
+	mov	ebx, [ebp + PUSHAD_EBX]
+# in: eax = ptr to dhcp_txn structure (or 0: will be allocated)
+	mov	eax, [ebp - 4]
+	add	eax, [dhcp_transactions]
+
+	NET_BUFFER_GET	# out: edi
+	jc	91f
+	push	edi	# start of ETH frame
+
+	call	dhcp_make_tx_resp_packet$
+		# udp checksum
+
+	mov	eax, [ebx + nic_ip] # in: eax = src ip
+	mov	edx, -1 # in: edx = dst ip
+	#mov	esi, [esp] # in: esi = udp frame pointer
+	# in: ecx = tcp frame len
+	DHCP_OPTIONS_SIZE = 40 + 6*6 + 5+4+3+4 +19
+	mov	ecx, UDP_HEADER_SIZE + DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE
+	#alternatively:
+	#mov	ecx, edi
+	#sub	ecx, [esp]
+	#sub	ecx, ETH_HEADER_SIZE + IPV4_HEADER_SIZE
+	# in: eax = src ip
+	# in: edx = dest ip
+	# in: esi = udp frame pointer
+	# in: ecx = udp frame len (header and data)
+	call	net_udp_checksum
+
+	# send packet
+	pop	esi
+	NET_BUFFER_SEND
+9:	ret
+
+91:	printlnc 12, "DHCP SERVER: error allocating packet"
+	jmp	9b
+
+
+# in: ebx = NIC
+# in: eax = DHCP_TXN (dhcp_transactions) struct ptr
+# in: edi = start of network packet (ETH)
+# out: edi = end of DHCP frame
+# out: esi = UDP frame pointer
+dhcp_make_tx_resp_packet$:
+	DHCP_OPTIONS_SIZE = 40 + 6*6 + 5+4+3+4 +19
+	# ETH, IPV4, UDP headers
+	push	eax
+		mov	eax, -1		# broadcast
+		mov	esi, offset mac_broadcast
+		mov	dx, IP_PROTOCOL_UDP #| 1 << 8	# don't use ip
+
+		mov	ecx, UDP_HEADER_SIZE + DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE
+		call	net_ipv4_header_put
+		mov	esi, edi	# remember udp frame ptr for checksum
+		mov	eax, (67 << 16) | 68	# sport dport: server->client
+		mov	ecx, DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE
+		call	net_udp_header_put
+
+		xor	eax, eax
+		rep	stosb
+		mov	ecx, DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE
+		sub	edi, ecx
+	pop	eax
+
+	# DHCP header
+	movb	[edi + dhcp_op], DHCP_OP_BOOTREPLY
+	movb	[edi + dhcp_hwaddrtype], 1
+	movb	[edi + dhcp_hwaddrlen], 6
+	movb	[edi + dhcp_hops], 0	# due to rep stosb not needed
+	push	eax
+	mov	eax, [eax + dhcp_txn_xid]
+	mov	[edi + dhcp_xid], eax
+	pop	eax
+	movw	[edi + dhcp_secs], 0	# due to rep stosb not needed
+	mov	[edi + dhcp_flags], word ptr 0x0080 # broadcast
+
+	# addresses:
+	mov	[edi + dhcp_ciaddr], dword ptr 0 # XXX client ip from request
+	YIADDR = 192 | (168<<8) | ( 1 << 16 ) | ( 50 << 24 )
+	mov	[edi + dhcp_yiaddr], dword ptr YIADDR # XXX FIXME
+	push	eax
+	mov	eax, [ebx + nic_ip]
+	mov	[edi + dhcp_siaddr], eax	# next server ip (bootp)
+	mov	[edi + dhcp_giaddr], eax	# 'relay agent' (gw) (bootp)
+	pop	eax
+
+	# client hw addr
+	push_	esi
+	mov	esi, [ebp + PUSHAD_ESI]		# DHCP frame
+	lea	esi, [esi + dhcp_chaddr]	# client mac
+	add	edi, offset dhcp_chaddr
+	movsd
+	movsw
+	pop	esi
+	sub	edi, offset dhcp_chaddr + 6	# reset edi to DHCP packet start
+
+	# sname: server host name (64)
+	#mov	[edi + dhcp_sname], 
+	# file: boot filename (128)
+	push_	edi esi ecx
+	LOAD_TXT "/boot.img", esi, ecx
+	lea	edi, [edi + dhcp_file]
+	rep	movsb
+	pop_	ecx esi edi
+
+	mov	dword ptr [edi + dhcp_magic], DHCP_MAGIC
+
+	# DHCP options
+	push	eax	# backup txn ptr
+	OPT_OFFS = 0
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_MSG_TYPE	# dhcp message type
+	movb	[edi + dhcp_options + OPT_OFFS + 1], byte ptr 1	# len
+	mov	dl, [eax + dhcp_txn_state]	# DHCP_MT_OFFER/ACK
+	mov	[edi + dhcp_options + OPT_OFFS + 2], dl
+	#mov	[edi + dhcp_options + 2], byte ptr 1	# message type: see dl above
+	OPT_OFFS = OPT_OFFS + 3
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_SERVER_IP
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 4
+	mov	eax, [ebx + nic_ip]
+	mov	[edi + dhcp_options + OPT_OFFS + 2], eax
+	OPT_OFFS = OPT_OFFS + 6
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_IP_LEASE_TIME
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 4
+	mov	eax, 3600*24
+	bswap	eax
+	mov	[edi + dhcp_options + OPT_OFFS + 2], eax
+	OPT_OFFS = OPT_OFFS + 6
+
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_SUBNET_MASK
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 4
+	mov	eax, [ebx + nic_netmask]
+	mov	[edi + dhcp_options + OPT_OFFS + 2], eax
+	OPT_OFFS = OPT_OFFS + 6
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_ROUTER
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 4
+	and	eax, [ebx + nic_ip]	# calc network
+	or	eax, 1 << 24	# .1	# XXX
+	mov	[edi + dhcp_options + OPT_OFFS + 2], eax
+	OPT_OFFS = OPT_OFFS + 6
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_NAME_SERVER
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 4
+	mov	[edi + dhcp_options + OPT_OFFS + 2], eax	# XXX (gw ip)
+	OPT_OFFS = OPT_OFFS + 6
+
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_VENDOR_CLASSID
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 4
+	mov	[edi + dhcp_options + OPT_OFFS + 2], dword ptr ('Q')|('u'<<8)|('R'<<16)|('e'<<24)
+	OPT_OFFS = OPT_OFFS + 6
+
+
+	# EAX = gw ip
+# TODO URGENT XXX add to DHCP_OPTIONS_SIZE
+
+	# just send some response options found in the request
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_DNS
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 4
+	mov	[edi + dhcp_options + OPT_OFFS + 2], eax	# XXX (gw ip)
+	OPT_OFFS = OPT_OFFS + 6
+
+	mov	eax, [ebx + nic_ip]
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_RL_SERVER
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 4
+	mov	[edi + dhcp_options + OPT_OFFS + 2], eax
+	OPT_OFFS = OPT_OFFS + 6
+
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_HOSTNAME
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 4
+	mov	[edi + dhcp_options + OPT_OFFS + 2], dword ptr ('t')|('e'<<8)|('s'<<16)|('t'<<24)
+	OPT_OFFS = OPT_OFFS + 6
+
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_BOOT_FILE_SIZE
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 2	# must be 2
+	push	eax
+	mov	ax, 1440 * 2	# build/boot.img sector size:1.44Mb floppy
+	mov	ax,  400 * 2	# kernel + reloc is below 400kb
+	xchg	al, ah	# bswap for nbo
+	mov	[edi + dhcp_options + OPT_OFFS + 2], ax	# sectors!
+	pop	eax
+	OPT_OFFS = OPT_OFFS + 6 # leave for now - actually + 4 (.byte 0,0=padding
+
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_DOMAIN_NAME
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 2
+	mov	[edi + dhcp_options + OPT_OFFS + 2], dword ptr ('q')|('r'<<8)
+	OPT_OFFS = OPT_OFFS + 4
+
+	
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_SWAP_SERVER
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 4
+	mov	[edi + dhcp_options + OPT_OFFS + 2], eax
+	OPT_OFFS = OPT_OFFS + 6
+
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_ROOT_PATH
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 1
+	mov	[edi + dhcp_options + OPT_OFFS + 2], byte ptr '/'
+	OPT_OFFS = OPT_OFFS + 3
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_EXT_PATH
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 4
+	mov	[edi + dhcp_options + OPT_OFFS + 2], dword ptr ('/')|('e'<<8)|('x'<<16)|('t'<<24)
+	OPT_OFFS = OPT_OFFS + 6
+
+	
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_CLIENT_SYSARCH
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 2
+	movw	[edi + dhcp_options + OPT_OFFS + 2], 0	# IA x86 PC
+	OPT_OFFS = OPT_OFFS + 4
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_CLIENT_DEVIFACE
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 3
+	movb	[edi + dhcp_options + OPT_OFFS + 2], 1	# type? 1= UNDI?
+	movb	[edi + dhcp_options + OPT_OFFS + 3], 2	# major version	
+	movb	[edi + dhcp_options + OPT_OFFS + 4], 1	# minor version	
+	OPT_OFFS = OPT_OFFS + 5
+	# SKIP: vendor class identifier: opt 60, len 32,"PXEClient:Arch:00000:UNDI:002001"
+	# SKIP: opt 57 max DHCP msg size (1260)
+	# opt 97 (UUID/GUID client id), len 17,...
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_CLIENT_UUID
+	movb	[edi + dhcp_options + OPT_OFFS + 1], 17
+	push_	edi esi
+	lea	edi, [edi + dhcp_options + OPT_OFFS + 2]
+	mov	esi, [ebp - 8]
+	movsb	# type 0 (GUID)
+	movsd
+	movsd
+	movsd
+	movsd
+	pop_	esi edi
+	OPT_OFFS = OPT_OFFS + 19
+	
+
+	# PARAMETER REQUEST LIST:
+	# 1 subnet mask CHECK
+	# 2 time offset
+	# 3 router
+	# 5 name server
+	# 6 domain name server
+	# 11 resource location server
+	# 12 hostname
+	# 13 boot file size
+	# 15 domain name
+	# 16 swap server
+	# 17 root path
+	# 18 extensions path
+	# 43 vendor specific info
+	# 54 DHCP server identifie
+	# 60 vendor class identifier
+	# 67 bootfile name
+	# 128 DOCSIS full security server ip
+	# 129 PXE
+	# ..
+	# 135 PXE
+
+
+# END ADD TO DHCP_OPTIONS_SIZE
+	
+	pop	eax	# restore txn ptr
+
+	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_EOO	# end of options
+	add	edi, DHCP_HEADER_SIZE + OPT_OFFS + 1
+	ret
+
+
 
 # server to client message:
 # in: ebx = nic
@@ -346,15 +827,9 @@ ph_ipv4_udp_dhcp_c2s:
 # in: ecx = payload len
 ph_ipv4_udp_dhcp_s2c:
 	.if NET_DHCP_DEBUG
-		println "    DHCP server to client"
-	.endif
-
-	.if NET_DHCP_DEBUG
-		push	edx
+		printlnc 11, "DHCP server to client"
 		call	net_dhcp_print
-		pop	edx
 	.endif
-
 
 	cmp	byte ptr [esi + dhcp_op], DHCP_OP_BOOTREPLY
 	jnz	19f
@@ -412,8 +887,8 @@ ph_ipv4_udp_dhcp_s2c:
 	jc	18f
 	movzx	edi, byte ptr [edx]	# message type
 
-	cmp	edi, 8
-	jae	17f
+	cmp	edi, DHCP_MT_MAX_
+	ja	17f
 	.if NET_DHCP_DEBUG
 		pushd	[dhcp_message_type_labels$ + edi * 4]
 		call	_s_print
@@ -488,7 +963,7 @@ ph_ipv4_udp_dhcp_s2c:
 	mov	eax, [edx]
 	mov	[edi + dhcp_txn_router], eax
 	.if NET_DHCP_DEBUG
-		print "router: "
+		print " router: "
 		call	net_print_ip
 	.endif
 1:
@@ -503,7 +978,7 @@ ph_ipv4_udp_dhcp_s2c:
 	mov	[ebx + nic_netmask], edx
 
 	.if NET_DHCP_DEBUG
-		print "netmask: "
+		print " netmask: "
 		mov eax, edx
 		call 	net_print_ip
 	.endif
@@ -807,8 +1282,9 @@ dhcp_option_labels$:
 .endm
 # params
 DHCP_DECLARE_OPTION_LABEL 1, 	ip,	"subnet mask"	# garbled printed
-DHCP_DECLARE_OPTION_LABEL 2, 	0,	"time offset"
+DHCP_DECLARE_OPTION_LABEL 2, 	time,	"time offset"	# seconds
 DHCP_DECLARE_OPTION_LABEL 3, 	ip,	"router"
+DHCP_DECLARE_OPTION_LABEL 4, 	ip,	"time server"
 DHCP_DECLARE_OPTION_LABEL 5, 	ip,	"name server"
 DHCP_DECLARE_OPTION_LABEL 6, 	ip,	"domain name server"
 DHCP_DECLARE_OPTION_LABEL 11,	0,	"resource location server"
@@ -825,16 +1301,19 @@ DHCP_DECLARE_OPTION_LABEL 44, 	0,	"netbios name server"
 DHCP_DECLARE_OPTION_LABEL 46, 	0,	"netbios node type"
 DHCP_DECLARE_OPTION_LABEL 47, 	0,	"netbios scope"
 DHCP_DECLARE_OPTION_LABEL 50,	ip,	"requested ip address"
+DHCP_DECLARE_OPTION_LABEL 51,	time,	"lease time"
 DHCP_DECLARE_OPTION_LABEL 53,	mt,	"message type" #1, ? = message type, len 1, 1=DISCOVER,2=offer,3=req,4=decline,5=ACK, 8=inform"
 DHCP_DECLARE_OPTION_LABEL 54,	ip,	"server_ip"
-DHCP_DECLARE_OPTION_LABEL 51,	time,	"lease time"
-DHCP_DECLARE_OPTION_LABEL 54,	0,	"dhcp server identifier"
+DHCP_DECLARE_OPTION_LABEL 54,	0,	"dhcp server identifier"	# XXX dup!
 DHCP_DECLARE_OPTION_LABEL 55,	optlst,	"param req list"
+DHCP_DECLARE_OPTION_LABEL 56,	s,	"message"
 DHCP_DECLARE_OPTION_LABEL 57,	0,	"max message size"	# TODO: print value (word)
+DHCP_DECLARE_OPTION_LABEL 58,	time,	"renewal time"		# 4, seconds
+DHCP_DECLARE_OPTION_LABEL 59,	time,	"rebinding time"	# 4, seconds
 DHCP_DECLARE_OPTION_LABEL 60, 	s,	"vendor class identifier"
 DHCP_DECLARE_OPTION_LABEL 61,	cid,	"client identifier" #hwtype=1(ethernet), mac (client identifier)"
-DHCP_DECLARE_OPTION_LABEL 67,	0,	"bootfile name" #hwtype=1(ethernet), mac (client identifier)"
-DHCP_DECLARE_OPTION_LABEL 81,	s,	"fqdn"
+DHCP_DECLARE_OPTION_LABEL 67,	s,	"bootfile name"
+DHCP_DECLARE_OPTION_LABEL 81,	s,	"client fqdn"
 DHCP_DECLARE_OPTION_LABEL 93,	0,	"client system architecture" # TODO: print value (word; 0 = IA x86 PC)
 DHCP_DECLARE_OPTION_LABEL 94,	0,	"client device interface" # TODO: print (version: byte hi, byte lo (network order));
 DHCP_DECLARE_OPTION_LABEL 97,	0,	"client uuid"		# TODO: print value (17 bytes)
