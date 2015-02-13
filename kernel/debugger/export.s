@@ -239,8 +239,17 @@ DEBUG_DWORD \r
 	pushstring	"\label"
 	call	breakpoint
 	nop	# the function may modify it into int3
+	.else; printc 0xf4, "BREAKPOINT: \label";
 	.endif
 .endm
+
+.irp f, Z,C,S,NZ,NC,NS
+.macro BREAKPOINT_\f\()F label
+	jn\f	9001f
+	BREAKPOINT "\label"
+9001:
+.endm
+.endr
 
 .macro ASSERT_ARRAY_IDX index, arrayref, elsize, mutex=0
 	.ifnc 0,\mutex
@@ -298,13 +307,12 @@ debugger_state: .long 1
 
 .text32
 nop # so that disasm doesnt point to code_debug_start
-
+# in: [esp] = label
 breakpoint:
+	push_	ebp ebx eax
+	mov	ebp, esp
 	pushf
-	push_	ebx eax
-	push	ebp
-	lea	ebp, [esp + 4 + 8 + 4]
-.if 0
+.if 1
 	PRINTC 0xf0, "breakpoint "
 	push	esi
 	mov	esi, [ebp + 4]
@@ -313,7 +321,7 @@ breakpoint:
 	pop	esi
 .endif
 
-	mov	ebx, [ebp] # [esp + 12] # get return address
+	mov	ebx, [ebp + 12] # get return address
 	mov	al, [ebx] # get opcode
 	# verify integrity
 	cmp	al, 0x90
@@ -324,16 +332,16 @@ breakpoint:
 	mov	al, 0x90 # nop
 1:	bt	dword ptr [debugger_state], _DEBUGGER_STATE_BP_BIT
 	jnc	9f
-	printc 0xf0, "BREAKPOINT "
-	pushd	[ebp + 4]
-	pushw	 0xf0
-	call	_s_printc
+	PUSHCOLOR 0xf0
+	print "BREAKPOINT "
+	pushd	[ebp + 12+4]
+	call	_s_print
+	POPCOLOR
 
 	mov	al, 0xcc # int 3
 9:	mov	[ebx], al # modify opcode
-	pop	ebp
-	pop_	eax ebx
 	popf
+	pop_	eax ebx ebp
 	ret	4
 
 91:	printc 0xf4, "breakpoint: corrupt opcode: "
