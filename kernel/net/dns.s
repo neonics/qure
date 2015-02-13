@@ -204,7 +204,7 @@ net_service_dnsd_main:
 	push	eax
 	# SOCK_READPEER effect handling:
 	mov	eax, [esi]		# in: peer address
-	mov	edx, 53 << 24		# in: local port in network byte owrder
+	mov	edx, 53 << 24		# in: local port in network byte order
 	mov	dx, word ptr [esi + 4]	# in: peer port
 	add	esi, 12	# skip the peer/dest address
 	sub	ecx, 12

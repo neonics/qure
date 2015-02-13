@@ -2,6 +2,7 @@
 ##############################################################################
 # IPv4
 .struct 0	# offset 14 in ethernet frame
+IP_PROTOCOL_VERSION = 4	# mostly a marker for the use of the constant
 ipv4_header:
 ipv4_v_hlen: .byte 0 # .byte (4<<4) | 5
 # lo = header len (4 byte/32 bit units), hi = version
@@ -55,7 +56,56 @@ ipv4_src: .long 0	# .byte 10,0,2,33
 ipv4_dst: .long 0	# .byte 10,0,2,1
 # if headerlen > 5:
 ipv4_options:
-IPV4_HEADER_SIZE = .
+	# http://www.iana.org/assignments/ip-parameters/ip-parameters.xhtml
+	#
+	# .byte option_type;
+	#	IS_COPY << 7 | CLASS_[0123] << 5 | NUMBER_[0..31]
+	IP_OPTFLAG_COPY		= 1 << 7
+	IP_OPTFLAG_CLASS2	= 2 << 5 # apparently only 0 and 2 are used
+	IP_OPTMASK_COPY		= 0b10000000
+	IP_OPTMASK_CLASS	= 0b01100000
+	IP_OPTMASK_NUMBER	= 0b00011111
+	#
+	# if option & ~1	# only option 0 and 1 are 1 byte length
+	# .byte option_length
+	# .space option_length - 2
+	# fi
+	IPFLAG_C = IP_OPTFLAG_COPY
+	IPFLAG_2 = IP_OPTFLAG_CLASS2
+	IPFLAG_6 = IPFLAG_C | IPFLAG_2
+	# RFC6814:  ENCODE, EIP, SDB, ...
+	IP_OPTION_EOO	= 0	# end of options ('EEOL')
+	IP_OPTION_NOP	= 1
+	IP_OPTION_SEC	= 2 | IPFLAG_C	# security
+	IP_OPTION_LSR	= 3 | IPFLAG_C	# loose source route
+	IP_OPTION_LSR	= 4 | IPFLAG_2	# timestamp
+	IP_OPTION_ESEC	= 5 | IPFLAG_C	# extended security
+	IP_OPTION_CIPSO	= 6 | IPFLAG_C	# commercial security
+	IP_OPTION_RR	= 7		# record route
+	IP_OPTION_SID	= 8 | IPFLAG_C	# stream id
+	IP_OPTION_SSR	= 9 		# strict source route
+	IP_OPTION_ZSU	= 10 		# experimental measurement
+	IP_OPTION_MTUP	= 11		# MTU Probe
+	IP_OPTION_MTUR	= 12		# MTU Reply
+	IP_OPTION_FINN	= 13		# experimental flow control
+	IP_OPTION_VISA	= 14 | IPFLAG_C	# experimental access control
+	IP_OPTION_ENCODE= 15		# ENCODE (rfc6814)
+	IP_OPTION_IMITD	= 16 | IPFLAG_C	# IMI Traffic Descriptor
+	IP_OPTION_EIP	= 17 | IPFLAG_C	# Extended Internet Protocol(rfc1385,6814)
+	IP_OPTION_TR	= 18 | IPFLAG_2	# traceroute (rfc6814)
+	IP_OPTION_ADDEXT= 19 | IPFLAG_C # address extension
+	IP_OPTION_RTRALT= 20 | IPFLAG_C	# router alert (rfc2113)
+	IP_OPTION_SDB	= 21 | IPFLAG_C # selective directed broadcast (rfc6814)
+	IP_OPTION__FREE_= 22 | IPFLAG_C	# unassigned (since 10 years)
+	IP_OPTION_DPS	= 23 | IPFLAG_C	# dynamic packet state
+	IP_OPTION_UMP	= 24 | IPFLAG_C	# upstream multicast packet
+	IP_OPTION_QS	= 25		# quick-start (rfc4782)
+
+	IP_OPTION_EXP1	= 30		# rfc3692-style rfc4727 experiment
+	IP_OPTION_EXP2	= 30 | IPFLAG_2	# rfc3692-style rfc4727 experiment
+	IP_OPTION_EXP3	= 30 | IPFLAG_C	# rfc3692-style rfc4727 experiment
+	IP_OPTION_EXP4	= 30 | IPFLAG_6	# rfc3692-style rfc4727 experiment
+IPV4_HEADER_SIZE = .	# 20 bytes without options
 .text32
 
 # in: edi = out packet
@@ -77,7 +127,10 @@ net_ipv4_header_put:
 	jz	1f	# require ebx=nic and esi=mac to be arguments
 	test	dh, 4
 	jnz	1f	# force use of esi MAC
-	call	net_arp_resolve_ipv4	# in: eax; out: ebx=nic, esi=mac for eax
+	# TODO: make suspendable. Only netq task would be allowed
+	# to send packets; netq (or delegated) task would yield.
+	# XXX HTTP responses may hang when the peer IP is not in the ARP table.
+	call	net_arp_resolve_ipv4	# in: eax; out: ebx=nic, esi=mac for eax 
 	jc	0f	# jc arp_err$:printlnc 4,"ARP error";stc;ret
 
 1:	push	edx
@@ -138,6 +191,110 @@ net_ipv4_header_put:
 
 0:	pop	esi
 	ret
+
+# in: esi = IPv4 frame start
+# the standard IPV4_HEADER_SIZE w/o options is assumed.
+net_ipv4_checksum:
+net_ip_checksum:
+	push_	edi ecx
+	mov	edi, offset ipv4_checksum	# in: edi = offset to cksum word
+	mov	ecx, IPV4_HEADER_SIZE		# in: ecx = len in bytes
+	call	protocol_checksum		# in: esi = start
+	pop_	ecx edi
+	ret
+
+# in: esi = IP frame pointer
+# in: ecx = IP payload size (w/o IPv4 header)
+# out: ecx = IP frame size (incl header)
+net_ip_set_size:
+	push_	eax
+	movzx	eax, byte ptr [esi + ipv4_v_hlen]	# preserve options (IPV4_HEADER_SIZE)
+	and	al, 15
+	shl	eax, 2
+	add	ecx, eax
+	mov	ah, cl
+	mov	al, ch
+	mov	[esi + ipv4_totlen], ax
+	pop_	eax
+	jmp	net_ip_checksum
+
+# in: esi = IP frame pointer
+# in: al = option nr
+# in: ah = option data size (ex option header)
+# in: edx = option data pointer
+net_ip_add_option:
+	push_	ecx esi edi ebx
+	# calculate used option space
+	mov	ebx, esi	# backup frame pointer
+	mov	ecx, eax	# backup option
+
+	movzx	edi, byte ptr [esi + ipv4_v_hlen]
+	and	edi, 15
+	lea	edi, [esi + edi * 4]	# end of option space
+0:	cmp	esi, edi
+	jz	51f		# no (more) options, don't parse
+	ja	15f		# indirection to 51f: option overflow
+	call	net_ip_parse_option$	# out: eax; esi updated
+	jnc	0b
+51:
+	mov	edi, esi	# send of options
+	mov	eax, ecx	# restore option
+	mov	esi, ebx	# restore frame pointer
+
+		# append the option
+		test	al, ~1
+		jz	16f	# indirection to 61f
+
+		movzx	ecx, ah
+		add	ah, 2
+		stosw		# option and length
+		rep	movsb	# option data
+	61:
+
+	# update the header
+	mov	ecx, edi
+	sub	ecx, esi	# ip header size
+	add	ecx, 3		# rounding
+	shr	ecx, 2		# size in dwords
+		test	ecx, ~15# max size encoding check
+		jz	17f	# indirection to 71f: cl&=15
+	71:
+	or	cl, IP_PROTOCOL_VERSION << 4
+	mov	[esi + ipv4_v_hlen], cl
+
+9:	pop_	ebx edi esi ecx
+	jmp	net_ip_checksum
+
+15:	BREAKPOINT "IP Option overflow"	# previously...
+	jmp	51b
+
+16:	stosb	# option 0 or 1
+	jmp	61b
+
+17:	BREAKPOINT "Too many IP options"
+	and	cl, 15	# trunc
+	jmp	71b
+
+# in: esi = option pointer
+# in: edi = max offset for esi
+# destroys: eax
+net_ip_parse_option$:
+	xor	eax, eax
+	# for now, increment esi with the option size
+	lodsb
+	test	al, ~1
+	jz	1f	# option 0 or 1
+
+	lodsb		# option length
+	sub	al, 2
+	BREAKPOINT_SF "Malformed IP option"
+	jz	9f	# done, no data. (optimisation)
+	add	esi, eax
+9:	ret
+
+1:	bt	ax, 1	# set CF on end of options
+	ret
+
 
 # Calculates a checksum for UDP and TCP over IPv4 constructing a psesudo-header.
 # in: al = IP_PROTOCOL_...

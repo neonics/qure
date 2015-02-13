@@ -140,7 +140,7 @@ net_ipv4_tcp_print:
 
 ############################################
 # TCP Connection management
-TCP_MTU = 1500 - ETH_HEADER_SIZE - IPV4_HEADER_SIZE - TCP_HEADER_SIZE
+TCP_MTU = ETH_MAX_PACKET_SIZE - ETH_HEADER_SIZE - IPV4_HEADER_SIZE - TCP_HEADER_SIZE
 #
 TCP_CONN_REUSE_TIMEOUT	= 30 * 1000	# 30 seconds
 TCP_CONN_CLEAN_TIMEOUT	= 5 * 60 * 1000	# 5 minutes
@@ -189,8 +189,9 @@ tcp_conn_state:		.byte 0
 	TCP_CONN_STATE_FIN_TX		= 64
 	TCP_CONN_STATE_FIN_ACK_RX	= 128
 
+	TCP_CONN_STATE_LINGER = 0b11011111	# TIME_WAIT; all but FIN_ACK_TX
 # rfc793:
-tcp_conn__state:	.byte 0
+#tcp_conn__state:	.byte 0
 # states:
 TCP_CONN_STATE_LISTEN		= 1	# wait conn req from remote
 TCP_CONN_STATE_SYN_SENT		= 2	# wait match conn req after tx conn req
@@ -333,18 +334,19 @@ tcp_conn_print_state$:
 # out: CF
 net_tcp_conn_get:
 	MUTEX_SPINLOCK TCP_CONN
-	push	ecx
-	push	edx
+	push_	ebx ecx edx
+	mov	ebx, [edx + ipv4_src]
 	mov	ecx, [esi + tcp_sport]
 	rol	ecx, 16
 	ARRAY_LOOP [tcp_connections], TCP_CONN_STRUCT_SIZE, edx, eax, 9f
 	cmp	ecx, [edx + eax + tcp_conn_local_port]
+	jnz	1f
+	cmp	ebx, [edx + eax + tcp_conn_remote_addr]
 	jz	0f
-	ARRAY_ENDL
+1:	ARRAY_ENDL
 9:	stc
 0:	MUTEX_UNLOCK TCP_CONN
-	pop	edx
-	pop	ecx
+	pop_	edx ecx ebx
 	ret
 
 # in: eax = remote ipv4
@@ -368,7 +370,7 @@ net_tcp_conn_newentry:
 	ARRAY_LOOP	[tcp_connections], TCP_CONN_STRUCT_SIZE, eax, edx, 9f
 	cmp	byte ptr [eax + edx + tcp_conn_state], -1
 	jz	1f
-	cmp	byte ptr [eax + edx + tcp_conn_state], 0b11011111
+	cmp	byte ptr [eax + edx + tcp_conn_state], TCP_CONN_STATE_LINGER
 	jnz	2f
 	cmp	edi, [eax + edx + tcp_conn_timestamp]
 	jnb	1f
@@ -935,6 +937,21 @@ net_tcp_handle:
 0:
 
 ########
+	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_RST
+	jz	0f
+	# mark connection as free, for now
+	DEBUG "TCP rx RST"
+	MUTEX_SPINLOCK TCP_CONN
+	push	eax
+	add	eax, [tcp_connections]
+	movb	[eax + tcp_conn_state], TCP_CONN_STATE_LINGER
+	pop	eax
+	MUTEX_UNLOCK TCP_CONN
+	jmp	9f
+
+
+0:
+########
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_FIN
 	jz	0f
 
@@ -1237,7 +1254,7 @@ jz	9f
 # in: eax = tcp connection index
 # in: esi = tcp packet
 # out: eax = -1 if the ACK is for the FIN
-# side-effect: send_buf free'd.
+# side-effect: send_buf freed.
 # (out: CF = undefined)
 net_tcp_conn_update_ack:
 	MUTEX_SPINLOCK TCP_CONN
@@ -2197,3 +2214,4 @@ net_tcp_cleanup:
 9:	MUTEX_UNLOCK TCP_CONN
 10:	pop_	edi ebx esi eax
 	ret
+# tcp code size: 3607 bytes

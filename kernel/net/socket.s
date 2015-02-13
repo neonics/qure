@@ -15,8 +15,8 @@ SOCK_STREAM	= 0x40000000	# 1: continuous buffer; 0: packetized buffer
 SOCK_AF_MASK	= 0x0000000f
 SOCK_AF_IP	= 0x00000000	# backwards compat
 SOCK_AF_ETH	= 0x00000001	
-# NOTE: gnored: the above option is automatically determined based on IP_PROTOCOL_TCP.
-# options affecting socket packetized read/peek contents (i.e. deliver)
+# NOTE: ignored: the above option is automatically determined based on IP_PROTOCOL_TCP.
+# Options affecting socket packetized read/peek contents (i.e. deliver):
 # READPEER: the ordering will be as listed here:
 SOCK_READPEER	= 0x08000000 	# prepend packetized data with peer address (ip:port)
 SOCK_READPEER_MAC=0x04000000 	# prepend packetized data with peer MAC
@@ -414,11 +414,12 @@ socket_buffer_read:
 	ret
 
 9:	printlnc 4, "socket_buffer_sem < 0: "; DEBUG_DWORD [socket_buffer_sem]
-	jmp	1b
+	jmp	2b
 
 61:	DEBUG "sock closed"
 	MUTEX_UNLOCK SOCK
-	jmp	1b
+	stc
+	jmp	2b	# this skips socket_buffer_sem
 
 # in: eax = socket index
 # in: esi = data
@@ -726,15 +727,16 @@ net_socket_in_append$:
 	test	edi, SOCK_STREAM
 	jnz	2f
 
-	# check if SOCK_READPEER makes sense (only for IP)
+	# check if SOCK_READPEER/TTL makes sense (only for IP)
 	mov	edx, edi
 	and	dl, SOCK_AF_MASK
 	cmp	dl, SOCK_AF_IP
+	jz	1f
+	and	edi, ~(SOCK_READPEER|SOCK_READTTL)
+1:
 
 	# write packetized len
 	mov	edx, ecx
-
-	jnz	3f	# not IP, don't write peer/ttl
 
 	test	edi, SOCK_READPEER
 	jz	1f

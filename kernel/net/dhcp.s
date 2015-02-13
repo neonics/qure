@@ -112,8 +112,6 @@ dhcp_txn_state:		.word 0	# lo byte = last sent msg; hi=last rx'd msg
 dhcp_txn_flags:		.word 0
 	DHCP_TXN_FLAG_SC	= 1<<0	# Server/Client: 1 = server
 DHCP_TXN_STRUCT_SIZE = .
-.data
-mac_broadcast: .space 6, -1
 .data SECTION_DATA_BSS
 dhcp_transactions:	.long 0	# array
 random_state$:	.long 0
@@ -255,7 +253,7 @@ DHCP_OPTIONS_SIZE = 32
 	push	eax
 
 	mov	eax, -1		# broadcast
-	mov	esi, offset mac_broadcast
+	mov	esi, offset mac_bcast
 	mov	dx, IP_PROTOCOL_UDP | 1 << 8	# don't use ip
 
 	mov	ecx, UDP_HEADER_SIZE + DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE
@@ -347,7 +345,7 @@ DHCP_OPTIONS_SIZE = 32
 	mov	edx, -1
 	# in: esi = udp frame pointer
 	#mov	esi, [esp]
-	# in: ecx = tcp frame len
+	# in: ecx = udp frame len
 	mov	ecx, UDP_HEADER_SIZE + DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE
 	call	net_udp_checksum
 
@@ -592,7 +590,7 @@ dhcp_make_tx_resp_packet$:
 	# ETH, IPV4, UDP headers
 	push	eax
 		mov	eax, -1		# broadcast
-		mov	esi, offset mac_broadcast
+		mov	esi, offset mac_bcast
 		mov	dx, IP_PROTOCOL_UDP #| 1 << 8	# don't use ip
 
 		mov	ecx, UDP_HEADER_SIZE + DHCP_HEADER_SIZE + DHCP_OPTIONS_SIZE

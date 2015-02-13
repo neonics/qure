@@ -139,6 +139,18 @@ net_udp_checksum:
 	pop	esi
 	ret
 
+# in: esi = UDP frame pointer
+# in: ecx = UDP payload len (ex header)
+# in: edx = IP frame pointer
+# out: ecx = UDP frame size (incl header)
+net_udp_set_size:
+	push_	eax edx
+        mov     eax, [edx + ipv4_src]
+        mov     edx, [edx + ipv4_dst]
+	add	ecx, UDP_HEADER_SIZE
+        call    net_udp_checksum
+	pop_	edx eax
+	ret
 
 
 

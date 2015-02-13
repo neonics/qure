@@ -276,7 +276,6 @@ arp_table_print:
 # out: ecx + edx
 # out: CF
 arp_table_getentry_by_ipv4:
-
 	ARRAY_LOOP [arp_table], ARP_ENTRY_STRUCT_SIZE, ecx, edx, 9f
 .if ARP_TABLE_GENERIC
 	cmp	word ptr [ecx + edx + arp_entry_proto], ETH_PROTO_IPV4
@@ -285,6 +284,7 @@ arp_table_getentry_by_ipv4:
 	cmp	eax, [ecx + edx + arp_entry_ip]
 	jz	0f
 1:	ARRAY_ENDL
+9:
 ########
 	# check mcast
 	mov	edx, eax
@@ -296,7 +296,7 @@ arp_table_getentry_by_ipv4:
 	#	jmp 10f
 	#	11:DEBUG "ARP:mcast"
 	#	10:
-	jnz	9f
+	jnz	0f	# not mcast, do not auto-add entry
 
 	# in: eax = protocol address
 	mov	edx, eax
@@ -321,9 +321,6 @@ arp_table_getentry_by_ipv4:
 	clc
 ########
 0:	ret
-9:	stc
-	ret
-
 
 cmd_arp:
 	lodsd
@@ -478,7 +475,6 @@ net_arp_print:
 	print	" IP "
 	lodsd
 	call	net_print_ipv4
-	#PRINT_IP arp_src_ip
 
 2:	call	newline
 
@@ -496,7 +492,8 @@ net_arp_print:
 	jnz	1f	# warning already printed
 
 	print	" IP "
-	PRINT_IP arp_dst_ip
+	mov	eax, [edi + arp_dst_ip]
+	call	net_print_ipv4
 
 1:	call	newline
 	pop_	edi esi edx eax
@@ -789,7 +786,6 @@ net_arp_resolve_ipv4:
 	push	ecx
 	push	edx
 	push	eax
-
 	# get the route entry
 	call	net_route_get	# in: eax=ip; out: edx=gw ip/eax, ebx=nic
 	jc	9f
