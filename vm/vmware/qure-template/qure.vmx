@@ -14,6 +14,7 @@ guestOS = "other"
 bios.bootDelay = "0000"
 
 guestinfo.hostname = "qure-X"
+guestinfo.dmz_ip = "192.168.1.2"
 
 ide0:0.present = "TRUE"
 ide0:0.fileName = "qure.vmdk"

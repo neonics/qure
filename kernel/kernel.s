@@ -545,19 +545,30 @@ SCHEDULE_EARLY = 0
 	call	newline
 	call	nic_zeroconf
 
-	# get hostname, if running in vmware
+	# get hostname and DMZ IP, if running in vmware
 	pushd 0
 	pushstring "h"
 	pushstring "vmcheck"
 	mov	esi, esp
 	call	cmd_vmcheck
 	jc	1f
+
 	mov	edi, offset hostname
 	call	strlen_
 	cmp	ecx, 16
 	jb	2f
 	mov	ecx, 16
 2:	rep	movsb
+
+	call	vmw_dmz_ip$
+	jc	1f
+	mov	eax, esi
+	call	net_parse_ipv4
+	jc	1f
+	print "Got DMZ_IP from vmware: "
+	call	net_print_ipv4
+	call	newline
+	call	net_route_set_dmz_ip
 1:
 
 	call	cmd_dnsd

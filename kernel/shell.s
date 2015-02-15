@@ -1711,8 +1711,9 @@ cmd_set:
 	add	eax, 4
 	mov	esi, [eax]
 	or	esi, esi
-	jz	1f
-	call	println
+	jz	2f
+	call	print
+2:	call	newline
 
 	mov	edi, esi
 	mov	esi, ebx
@@ -1814,18 +1815,21 @@ shell_variable_unset:
 
 # TODO: locking
 # in: esi = varname
-# in: edi = value
-# in: eax = handler (or 0)
+# in: edi = value (or 0)
+# in: eax = handler (or 0); only set on variable creation.
 # out: eax = var struct: .long name, value
 shell_variable_set:
-	push	ebx
+	pushad	# save all so handler can use all registers
 	mov	ebx, eax
 	call	shell_variable_get	# out: eax + edx
 	jc	1f
 	add	eax, edx
 	# found
 	xchg	eax, edi
-	call	strdup
+	or	eax, eax
+	jnz	2f
+	LOAD_TXT "", eax	# alloc empty string
+2:	call	strdup
 	# free string value
 	xchg	eax, [edi + env_var_value]
 	call	mfree
@@ -1854,7 +1858,7 @@ shell_variable_set:
 0:	or	ebx, ebx
 	jz	1f
 	call	ebx
-1:	pop	ebx
+1:	popad
 	ret
 
 #####################################

@@ -408,9 +408,32 @@ net_print_ip:
 	call	printchar
 	mov	dl, ah
 	call	printdec32
-	ror	eax, 16
 	pop	edx
 	pop	eax
+	ret
+
+.global net_sprint_ipv4
+# in: eax = ip
+# in: edi = dest string - min strlen("000.000.000.000\0")
+# out: edi points to terminating \0
+net_sprint_ipv4:
+	push_	eax edx
+	movzx	edx, al
+	call	sprintdec32
+	mov	al, '.'
+	stosb
+	mov	dl, ah
+	call	sprintdec32
+	stosb
+	ror	eax, 16
+	mov	dl, al
+	call	sprintdec32
+	mov	al, '.'
+	stosb
+	mov	dl, ah
+	call	sprintdec32
+	movb	[edi], 0
+	pop_	edx eax
 	ret
 
 # in: eax
@@ -446,7 +469,9 @@ net_print_ipv4_mask:
 # in: eax = stringpointer
 # out: eax = ip
 .global net_parse_ip
+.global net_parse_ipv4
 net_parse_ip:
+net_parse_ipv4:
 	push	ebx
 	mov	bl, 1
 	call	net_parse_ip$

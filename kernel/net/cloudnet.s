@@ -7,9 +7,6 @@
 .global cmd_cloudnetd
 .global cmd_cloud
 
-# this IP will be used if available
-DMZ_IP = 192 | (168 <<8) | (1<<16) | (11<<24) # 192.168.1.11
-
 CLOUD_PACKET_DEBUG = 0
 
 CLOUD_LOCAL_ECHO = 1
@@ -40,7 +37,16 @@ cmd_cloudnetd:
 
 		LOAD_TXT "cloud.verbosity"
 		LOAD_TXT "1", edi	# set this to at least 2 for boot debug
-		mov	eax, offset cloud_env_var_changed
+		mov	eax, offset cloud_env_var_verbosity_changed
+		call	shell_variable_set
+
+		LOAD_TXT "lan.dmz_ip"
+		LOAD_TXT "000.000.000.000", edi
+		push	edi
+		mov	eax, [lan_dmz_ip]
+		call	net_sprint_ipv4
+		pop	edi
+		mov	eax, offset cloud_env_var_dmz_ip_changed
 		call	shell_variable_set
 
 	# start worker thread/task
@@ -54,29 +60,6 @@ cmd_cloudnetd:
 
 9:	ret
 
-
-# in: eax = env var struct
-cloud_env_var_changed:
-	push	esi
-	printc_ 11, "cloud var changed: "
-	mov	esi, [eax + env_var_label]
-	call	print
-	printcharc 11, '='
-	mov	esi, [eax + env_var_value]
-	call	print
-	call	atoi_
-	jc	9f
-	cmp	eax, 9
-	ja	9f
-	mov	[cloud_verbosity], al
-	OK
-	pop	esi
-	ret
-9:	printlnc 4, " invalid value: not 0..9"
-	pop	esi
-	ret
-
-
 ######################################################
 # worker/main daemon
 
@@ -87,10 +70,61 @@ cloud_sock:	.long 0
 cloud_arp_sock:	.long 0
 .endif
 cloud_flags:	.long 0
-	STOP$	= 1
+	STOP$		= 1
+	MAINTAIN_DMZ$	= 2	# makes sure one local node has [lan_dmz_ip]
+cluster_dmz_ip:	.long 0	# XXX only 1 DMZ (assuming one NIC)
 cloud_verbosity:.byte 0
 cluster_node:	.long 0
 .text32
+
+
+cloud_env_var_verbosity_changed:
+	call	cloud_env_var_changed	# log; out: esi = value
+	mov	eax, [eax + env_var_value]
+	call	atoi_
+	jc	9f
+	cmp	eax, 9
+	ja	9f
+	mov	[cloud_verbosity], al
+	OK
+	ret
+9:	printlnc 4, " invalid value: not 0..9"
+	ret
+
+cloud_env_var_dmz_ip_changed:
+	call	cloud_env_var_changed	# log; out: esi = value
+	mov	eax, [eax + env_var_value]
+	cmpb	[eax], 0
+	jz	1f	# empty
+	call	net_parse_ip	# prints error
+	jc	9f
+	print " set DMZ IP: "
+	call	net_print_ip
+	mov	[lan_dmz_ip], eax
+	or	eax, eax
+	jz	9f
+	orb	[cloud_flags], MAINTAIN_DMZ$
+	OK
+	ret
+9:	printlnc 12, "invalid IP"
+	jmp	2f
+1:	println " clear DMZ IP - not maintaining."
+2:	andb	[cloud_flags], ~MAINTAIN_DMZ$
+	mov	[lan_dmz_ip], dword ptr 0
+	ret
+
+# in: eax = env var struct
+cloud_env_var_changed:
+	printc_ 11, "cloud var changed: "
+	pushd	[eax + env_var_label]
+	call	_s_print
+	printcharc 11, '='
+	pushd	[eax + env_var_value]
+	call	_s_print
+	ret
+
+
+
 
 cloudnet_daemon:
 	#orb	[cloud_flags], STOP$
@@ -162,7 +196,6 @@ mov	[cluster_nodeidx], eax
 
 # out: eax = ip
 cloud_init_ip:
-	printlnc 13, " address verification "
 	mov	ebx, [cloud_nic]
 	or	ebx, ebx
 	jnz	1f
@@ -170,56 +203,11 @@ cloud_init_ip:
 	call	nic_getobject
 	jc	9f
 	mov	[cloud_nic], ebx
-1:	print "  MAC "
-	lea	esi, [ebx + nic_mac]
-	call	net_print_mac
-	call	newline
-	print "  IP "
-	xor	eax, eax
-	xchg	eax, [ebx + nic_ip]
-	call	net_print_ipv4
-	mov	edx, eax	# remember original IP
+1:
 
-	# gratuitious arp
-	call	net_arp_resolve_ipv4
-	jnc	1f	# if not error then in use
-	mov	[ebx + nic_ip], edx
-	mov	eax, edx
-	printlnc 10, "Ok"
-	clc
-	ret
 
-# ip in use
-1:	printc 12, " in use"
-	print " - DHCP "
-
-	mov	ecx, 100	# 100 * .2s = 10s
-0:
-	test	cl, 7
-	jnz	2f
-	printchar '.'
-	mov	dl, 1
-	xor	eax, eax
-	call	net_dhcp_request
-2:
-	mov	eax, 100	# .2s
-	call	sleep
-	cmp	dword ptr [ebx + nic_ip], 0
-	jnz	1f
-	loop	0b
-	printlnc 4, " fail"
-	stc
-	ret
-
-1:	mov	eax, [ebx + nic_ip]
-	call	printspace
-	call	net_print_ipv4
-	OK
-	clc
-	ret
-
-9:	printlnc 4, "no network interfaces"
-	stc
+	cmpd	[ebx + nic_ip], 0
+	jz	nic_init_ip
 	ret
 
 .macro IP_LONG reg, a,b,c,d
@@ -234,7 +222,6 @@ cloud_mcast_init:
 	IP_LONG	eax, 224,0,0,1
 	mov	dx, IGMP_TYPE_QUERY | 1 << 8
 	call	net_igmp_send
-
 	mov	eax, CLOUD_MCAST_IP
 	call	net_igmp_join
 
@@ -671,8 +658,10 @@ cluster_check_status:
 	mov	ebx, eax	# nic ip
 	xor	edi, edi	# count on/offline nodes || (DMZ IP present)<<31
 
+	testb	[cloud_flags], MAINTAIN_DMZ$
+	jz	1f
 	# mark if we have the DMZ IP
-	cmp	eax, DMZ_IP
+	cmp	eax, [lan_dmz_ip]
 	jnz	1f
 	or	edi, 1 << 31
 1:
@@ -734,14 +723,17 @@ cluster_check_status:
 		call	newline
 		pop_	esi eax
 1:
+		testb	[cloud_flags], MAINTAIN_DMZ$
+		jz	1f
+		mov	edx, [lan_dmz_ip]	# edx free here
 		# check if it has DMZ IP
-		cmpd	[eax + esi + node_addr], DMZ_IP
+		cmpd	edx, [eax + esi + node_addr]
 		jnz	1f
 		or	edi, 1<<31	# mark found
 1:	ARRAY_ENDL
 
 	# ~(1<<31) & edi: lo: online nodes, hi: total nodes
-	mov	eax, edi	# see below
+	mov	eax, edi	# see cluster_check_dmz_ip$
 
 	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_PING_RESULT
 	jb	1f
@@ -758,13 +750,22 @@ cluster_check_status:
 	mov	edx, edi
 	call	printdec32
 1:
+
+	call	cluster_check_dmz_ip$	# in: eax top bit: 1=DMZ IP present in cluster
+
+	popad
+	ret
+
+cluster_check_dmz_ip$:
+	testb	[cloud_flags], MAINTAIN_DMZ$
+	jz	1f
 	# check for DMZ IP and take over IP.
 	test	eax, 1<<31	# see above (edi destroyed)
 	jnz	1f
 	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_DMZ_IP
 	jb	2f
 	printc 12, " taking DMZ IP "
-2:	mov	eax, DMZ_IP
+2:	mov	eax, [lan_dmz_ip]
 	call	arp_table_getentry_by_ipv4 # in: eax = ipv4; out: ecx + edx
 	jc	3f
 	movb	[ecx + edx + arp_entry_status], 0
@@ -780,7 +781,7 @@ cluster_check_status:
 		mov	eax, -1		# UNARP wants BCAST
 		call	arp_unarp
 
-		mov	eax, DMZ_IP	# restore eax
+		mov	eax, [lan_dmz_ip]	# restore eax
 
 	call	set_ip$
 
@@ -788,7 +789,7 @@ cluster_check_status:
 		mov	eax, CLOUD_MCAST_IP
 		call	net_igmp_join
 
-		mov	eax, DMZ_IP	# restore eax
+		mov	eax, [lan_dmz_ip]	# restore eax
 
 	printc 14, " DMZ IP "
 	call	net_print_ipv4
@@ -798,10 +799,14 @@ cluster_check_status:
 	jb	2f
 	call	newline
 2:
-	popad
 	ret
+
 91:	printlnc 4, "DMZ ip taken"
 	jmp	1b
+
+
+
+
 
 set_ip$:
 	push	ebx
@@ -964,7 +969,6 @@ cloudnet_handle_packet:
 	pop	esi
 
 	mov	eax, [cluster_node]
-
 	# adopt cluster information
 	.if CLUSTER_DEBUG
 		printc 13, " analyzing: "
@@ -1017,7 +1021,7 @@ cloudnet_handle_packet:
 	call	newline
 
 3:	# persist
-	call	[eax + oofs_persistent_api_save]
+	call	[eax + oofs_persistent_api_save] # XXX sometimes eax = 0 here!
 	# update local node in nodelist
 	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_UPDATE
 	jb	3f
@@ -1302,13 +1306,17 @@ cmd_cloud_reboot_node:
 # in: edi = format/verbose level:
 cmd_cloud_print$:
 	printc 11, "CloudNet status: "
-	mov	ax, [cloud_flags]
-	PRINTFLAG ax, STOP$, "passive", "active"
+	mov	eax, [cloud_flags]
+	PRINTFLAG al, STOP$, "passive", "active"
+	PRINTFLAG al, MAINTAIN_DMZ$, " maintain_dmz", ""
 	mov	eax, [cloud_nic]
 	mov	eax, [eax + nic_ip]
 	call	printspace
 	call	net_print_ipv4
-	call	newline
+	cmp	eax, [lan_dmz_ip]
+	jnz	1f
+	printc 10, " (DMZ)"
+1:	call	newline
 
 	cmp	edi, 1
 	jb	2f

@@ -229,6 +229,17 @@ net_route_get:
 	pop	ebp
 	ret
 
+####################
+
+.data
+.global lan_dmz_ip
+lan_dmz_ip:
+.text32
+# in: eax = a global DMZ IP.
+.global net_route_set_dmz_ip
+net_route_set_dmz_ip:
+	mov	[lan_dmz_ip], eax
+	ret
 
 ##############################################
 

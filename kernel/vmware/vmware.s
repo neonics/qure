@@ -332,14 +332,7 @@ vmw_caps$:
 # out: CF
 vmw_hostname$:	
 	# first check if there is a message
-	call	vmware_tclo_poll
-	jc	1f
-	call	vmware_tclo_handle
-1:
-
-	mov	eax, offset vmware_chan_rpcout
-	call	vmware_chan_receive
-
+	call	vmw_poll$
 /*
 	# major << 10 + minor << 5 + base
 	# 8 4 2 -> 2052
@@ -347,6 +340,15 @@ vmw_hostname$:
 	call	vmware_rpc_call
 */
 	LOAD_TXT "info-get guestinfo.hostname"
+	call	vmware_rpc_call
+	ret
+
+
+
+# get dmz-ip:
+vmw_dmz_ip$:
+	call	vmw_poll$
+	LOAD_TXT "info-get guestinfo.dmz_ip"
 	call	vmware_rpc_call
 	ret
 

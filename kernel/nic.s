@@ -107,7 +107,6 @@ nic_getobject:
 	cmp	edx, [eax + array_index]
 	cmc
 	jc	1f
-	#add	ebx, [eax + edx]
 	mov	ebx, [eax + edx]
 	.if NIC_DEBUG
 		DEBUG_DWORD ebx, "found nic object"
@@ -630,13 +629,58 @@ nic_parse:
 
 ##############################################################################
 
+# also see root/etc/init.rc for an alternative
+# TODO: implement rfc3927 "Dynamic Configuration of IPv4 Link-Local Addresses"
 nic_zeroconf:
 	push	esi
 	push	eax
+
+	xor	eax, eax	# get the first NIC
+	call	nic_getobject	# out: ebx (and eax+edx)
+	jc	91f
+
+
+	# default route without gateway
+	.data
+77:	STRINGPTR "route"
+	STRINGPTR "add"
+	STRINGPTR "default"
+	# no gateway
+	STRINGPTR "metric"
+	STRINGPTR "0x80000010"	# little hack: 0x80000000=dynamic flag
+	STRINGPTR "eth0"
+	STRINGNULL
+	.text32
+	mov	esi, offset 77b
+	mov	eax, esi
+	call	cmdline_print_args$
+	call	cmd_route
+	jc	0f
+
+	# multicast route
+	.data
+77:	STRINGPTR "route"
+	STRINGPTR "add"
+	STRINGPTR "net"
+	STRINGPTR "224.0.0.0"
+	STRINGPTR "mask"
+	STRINGPTR "240.0.0.0"
+	STRINGPTR "metric"
+	STRINGPTR "0x00000080"
+	STRINGPTR "eth0"
+	STRINGNULL
+	.text32
+	mov	esi, offset 77b
+	mov	eax, esi
+	call	cmdline_print_args$
+	call	cmd_route
+	jc	0f
+
+	# bring device up
 	.data
 77:	STRINGPTR "ifconfig"
 	STRINGPTR "eth0"
-	STRINGPTR "192.168.1.11"
+	#STRINGPTR "0.0.0.0"	# redundant
 	STRINGPTR "mask"
 	STRINGPTR "255.255.255.0"
 	STRINGPTR "up"
@@ -647,22 +691,43 @@ nic_zeroconf:
 	call	cmdline_print_args$
 	call	cmd_ifconfig
 	jc	0f
-	# set up route
+
+	# try DHCP ("dhcp eth0")
+	call	nic_init_ip	# uses gratuitious ARP, DHCP
+	jnc	1f
+
+
+	# try the 192.168.1.0/24 local network
 	.data
-77:	STRINGPTR "route"
-	STRINGPTR "add"
-	STRINGPTR "default"
-	STRINGPTR "gw"
-	STRINGPTR "192.168.1.1"
-	STRINGPTR "metric"
-	STRINGPTR "0x80000010"	# little hack: 0x80000000=dynamic flag
+77:	STRINGPTR "ifconfig"
+	STRINGPTR "eth0"
+	STRINGPTR "192.168.1.0"
+	STRINGPTR "mask"
+	STRINGPTR "255.255.255.0"
+	STRINGPTR "up"
 	STRINGNULL
 	.text32
 	mov	esi, offset 77b
 	mov	eax, esi
 	call	cmdline_print_args$
-	call	cmd_route
-	jc	0f
+	call	cmd_ifconfig
+
+	# find a free IP
+	mov	eax, 0x0201a8c0	# 192.168.1.2, but is incremented first:
+10:	rol	eax, 8
+	inc	al
+	cmp	al, 254
+	jae	0f
+	ror	eax, 8
+	call	net_arp_resolve_ipv4
+	jnc	10b
+
+	print "Found free IP: "
+	call	net_print_ipv4
+	call	newline
+
+	# set up local route
+	call    net_route_delete_dynamic        # in: ebx
 	.data
 77:	STRINGPTR "route"
 	STRINGPTR "add"
@@ -680,15 +745,16 @@ nic_zeroconf:
 	call	cmdline_print_args$
 	call	cmd_route
 	jc	0f
+
+	# set up default gateway
 	.data
 77:	STRINGPTR "route"
 	STRINGPTR "add"
-	STRINGPTR "net"
-	STRINGPTR "224.0.0.0"
-	STRINGPTR "mask"
-	STRINGPTR "240.0.0.0"
+	STRINGPTR "default"
+	STRINGPTR "gw"
+	STRINGPTR "192.168.1.1"
 	STRINGPTR "metric"
-	STRINGPTR "0x00000080"
+	STRINGPTR "0x80000010"	# little hack: 0x80000000=dynamic flag
 	STRINGNULL
 	.text32
 	mov	esi, offset 77b
@@ -696,7 +762,7 @@ nic_zeroconf:
 	call	cmdline_print_args$
 	call	cmd_route
 	jc	0f
-
+1:
 .if 0
 	.data
 77:	STRINGPTR "ping"
@@ -712,4 +778,65 @@ nic_zeroconf:
 0:
 	pop	eax
 	pop	esi
+	ret
+91:	printlnc 4, "No network interaces"
+	jmp	0b
+
+
+# in: ebx
+nic_init_ip:
+	print "  MAC "
+	lea	esi, [ebx + nic_mac]
+	call	net_print_mac
+	call	newline
+	print "  IP "
+	xor	eax, eax
+	xchg	eax, [ebx + nic_ip]
+	call	net_print_ipv4
+	mov	edx, eax	# remember original IP
+
+	# gratuitious arp
+	or	eax, eax
+	jz	2f	# ip is 0, so no ip.
+	call	net_arp_resolve_ipv4
+	jnc	1f	# if not error then in use
+	mov	[ebx + nic_ip], edx
+	mov	eax, edx
+	printlnc 10, "Ok"
+	clc
+	ret
+
+# ip in use
+1:	printc 12, " in use"
+2:	print " - DHCP "
+
+	mov	ecx, 100	# 100 * .1s = 10s
+0:
+	test	cl, 7
+	jnz	2f
+	printchar '.'
+	mov	dl, 1
+	xor	eax, eax
+	push ecx
+	call	net_dhcp_request
+	pop ecx
+2:
+	mov	eax, 100	# .1s
+	call	sleep
+	cmp	dword ptr [ebx + nic_ip], 0
+	jnz	1f
+	loop	0b
+	printlnc 4, " fail"
+	stc
+	ret
+
+1:	mov	eax, [ebx + nic_ip]
+	call	printspace
+	call	net_print_ipv4
+	OK
+	clc
+	ret
+
+9:	printlnc 4, "no network interfaces"
+	stc
 	ret
