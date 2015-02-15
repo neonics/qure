@@ -5,6 +5,7 @@
 
 
 NET_SOCKET_DEBUG = 0
+NET_SOCKET_LOG_UDP_DROP = 0
 
 SOCKET_BUFSIZE	= 2048
 
@@ -697,7 +698,16 @@ net_socket_deliver_udp:
 	pop	edx
 	ret
 
-91:	#printc 4, "udp: packet dropped - no socket"
+91:
+	.if NET_SOCKET_LOG_UDP_DROP
+		printc 4, "udp: packet dropped - no socket: "
+		mov	eax, [esp]
+		call	net_print_ipv4
+		printchar ':'
+		movzx	edx, word ptr [esp + 8]
+		call	printdec32
+		call	newline
+	.endif
 	jmp	0b
 
 92:	printc 4, "net_socket_deliver_udp: error opening peer socket"
