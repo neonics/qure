@@ -129,6 +129,10 @@ net_udp_checksum:
 	add	edx, ecx
 	shr	ecx, 8
 
+	xchg	cl, ch
+	mov	[esi + udp_len], cx
+	xchg	cl, ch
+
 	mov	edi, offset udp_checksum	#
 	call	protocol_checksum_	# in: ecx=len, esi=start,esi+edi=cksum
 
@@ -157,8 +161,8 @@ net_udp_set_size:
 
 net_ipv4_udp_print:
 	cmp	ecx, UDP_HEADER_SIZE
-	jbe	9f
-	print	"UDP "
+	jb	9f
+	printc	15, "UDP "
 	print	"sport "
 	xor	edx, edx
 	mov	dx, [esi + udp_sport]
@@ -207,7 +211,7 @@ net_ipv4_udp_print:
 
 0:	ret
 
-9:	printlnc 4, "udp: short packet"
+9:	printlnc 4, "udp: short packet"; DEBUG_DWORD ecx
 	ret
 # XXX keep with next!
 
