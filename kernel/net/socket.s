@@ -647,9 +647,9 @@ net_sock_deliver_raw:
 # (out: CF = undefined)
 net_socket_deliver_udp:
 	MUTEX_SPINLOCK SOCK
-	push	edx
+	push	edx	# stackref errormsg
 	push	ebx
-	push	eax
+	push	eax	# stackref errormsg
 	call	net_socket_find_
 	jc	91f
 	# got a local socket
@@ -687,9 +687,9 @@ net_socket_deliver_udp:
 	##add	eax, edx
 	mov	eax, edx
 ######### packet oriented socket: write in local (!SOCK_LISTEN) or peer socket
-1:	mov	ebx, [esp + 4]				# in : ebx = ip frame
-	mov	dx, [esi - UDP_HEADER_SIZE + udp_sport]	# in: dx = port
-	call	net_socket_in_append$	# in: eax=sock,esi,ecx
+1:	mov	ebx, [esp + 4]				# in: ebx = ip frame
+	mov	edx, [esi - UDP_HEADER_SIZE + udp_sport]# in: edx = [dport] [sport]
+	call	net_socket_in_append$	# in: eax=sock,esi,ecx,edx
 ########
 0:	MUTEX_UNLOCK SOCK
 9:	pop	eax
@@ -757,7 +757,7 @@ net_socket_in_append$:
 	call	buffer_put_word
 	mov	edx, [ebx + ipv4_dst]
 	call	buffer_put_dword
-	mov	edx, [esp+2]
+	mov	dx, [esp+2]
 	call	buffer_put_word
 
 1:	test	edi, SOCK_READPEER_MAC
