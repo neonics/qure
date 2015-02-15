@@ -6,7 +6,7 @@
 # TODO: match response packet mac before reconfiguring network.
 # TODO: allow remote configuration changes using latest XID.
 
-NET_DHCP_DEBUG = 1
+NET_DHCP_DEBUG = 0
 
 .struct 0
 dhcp_op:	.byte 0
@@ -362,10 +362,6 @@ DHCP_OPTIONS_SIZE = 32
 
 ###########################################################################
 # DHCP protocol handlers
-# TEMPORARY HERE: TFTP (to detect)
-ph_ipv4_udp_tftp:
-	printlnc 0xf0, "!!!!!!! TFP !!!!!!!"
-	ret
 
 # client to server message:
 # in: ebx = nic
@@ -425,7 +421,6 @@ ph_ipv4_udp_dhcp_c2s:
 	# ecx (payload len), edx (ipv4 frame) no longer needed
 	call	dhcp_txn_get	# out: ecx + edx
 	jc	1f
-	DEBUG "known transaction!"
 
 		# XXX FIXME - assume received DISCOVER
 		movb	[ecx + edx + dhcp_txn_state+1], DHCP_MT_REQUEST 
@@ -433,7 +428,6 @@ ph_ipv4_udp_dhcp_c2s:
 
 	jmp	2f
 1:	
-	DEBUG "unknown transaction, allocating"
 	call	dhcp_txn_new	# out: ecx + edx
 	jc	96f
 		movb	[ecx + edx + dhcp_txn_state+1], DHCP_MT_DISCOVER
@@ -470,13 +464,11 @@ ph_ipv4_udp_dhcp_c2s:
 		mov	ecx, eax
 		mov	esi, edx
 	0:	lodsb
-		DEBUG_BYTE al
 		cmp	al, DHCP_OPT_BOOT_FILENAME
 		jz	0f
 		loop	0b
 		jmp	99f
-	0:	DEBUG "FOUND BOOT_FILENAME OPT!"
-
+	0:	
 		# 3 required options (not in option list) accto RFC4578 (PXE for Intel)
 		#
 		# 94: client network interface identifier
@@ -495,15 +487,9 @@ ph_ipv4_udp_dhcp_c2s:
 		call	net_dhcp_get_option$
 		jc	910f
 		mov	[ebp - 8], edx	# points to 17 bytes: .byte 0; .space 16 (GUID)
-		# 
-
 
 		# ok. Send a response
 		call	dhcp_server_tx_disc_resp
-
-2: # OLD
-
-	printlnc 11, "DHCP Server: TODO"
 
 9:	
 	mov	esp, ebp	# free stack variables
@@ -724,8 +710,15 @@ dhcp_make_tx_resp_packet$:
 	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_BOOT_FILE_SIZE
 	movb	[edi + dhcp_options + OPT_OFFS + 1], 2	# must be 2
 	push	eax
-	mov	ax, 1440 * 2	# build/boot.img sector size:1.44Mb floppy
-	mov	ax,  400 * 2	# kernel + reloc is below 400kb
+	push	ecx	# get boot image filesize
+		LOAD_TXT "/a/boot/pxeboot.img", eax
+		mov     cl, [boot_drive]
+		add     cl, 'a'
+		mov     [eax + 1], cl
+		KAPI_CALL fs_stat		# in: eax; out: ecx, al
+		lea	eax, [ecx + 511]	# rounding
+		shr	eax, 9			# convert to sectors
+	pop	ecx
 	xchg	al, ah	# bswap for nbo
 	mov	[edi + dhcp_options + OPT_OFFS + 2], ax	# sectors!
 	pop	eax

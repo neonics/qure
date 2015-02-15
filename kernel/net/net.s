@@ -263,6 +263,7 @@ net_buffers_print:
 
 # services
 .include "net/dhcp.s"
+.include "net/tftp.s"
 .include "net/dns.s"
 .include "net/httpd.s"
 .include "net/smtp.s"

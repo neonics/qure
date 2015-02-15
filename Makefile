@@ -24,7 +24,7 @@ endef
 
 all: os.iso
 
-CODE_ISO_DEPS = root/boot/boot.img
+CODE_ISO_DEPS = root/boot/boot.img root/boot/pxeboot.img
 
 DATA_ISO_DEPS = $(shell find root/ -type f|grep -v www/download/os.iso.gz) \
 	root/boot/boot.img
@@ -78,6 +78,10 @@ root/boot/boot.img: build/boot.img
 	@echo "  COPY  $< $@"
 	@cp --sparse=always build/boot.img root/boot/boot.img
 
+root/boot/pxeboot.img: build/pxeboot.img
+	@echo "  COPY  $< $@"
+	@cp build/pxeboot.img root/boot/pxeboot.img
+
 BOOT_DEPS = build/boot.bin build/kernel.bin build/kernel.reloc \
 	build/kernel.sym build/kernel.stabs
 
@@ -95,6 +99,10 @@ build/boot.img: $(BOOT_DEPS) build/write.exe
 
 # bootloader
 build/boot.bin: FORCE | init
+	$(call MAKE,bootloader) && cp -u bootloader/boot.bin $@
+
+# temporary: copy bootloader bin
+build/pxeboot.img: FORCE | init
 	$(call MAKE,bootloader) && cp -u bootloader/boot.bin $@
 
 # kernel
