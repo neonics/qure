@@ -233,7 +233,7 @@ net_route_get:
 
 .data
 .global lan_dmz_ip
-lan_dmz_ip:
+lan_dmz_ip: .long 0
 .text32
 # in: eax = a global DMZ IP.
 .global net_route_set_dmz_ip
