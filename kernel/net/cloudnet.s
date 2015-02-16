@@ -79,9 +79,9 @@ cluster_node:	.long 0
 
 
 cloud_env_var_verbosity_changed:
-	call	cloud_env_var_changed	# log; out: esi = value
+	call	cloud_env_var_changed
 	mov	eax, [eax + env_var_value]
-	call	atoi_
+	call	atoi
 	jc	9f
 	cmp	eax, 9
 	ja	9f
