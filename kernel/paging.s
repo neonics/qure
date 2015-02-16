@@ -802,7 +802,6 @@ paging_print_pt_struct$:
 	print "  @"
 	lea	edx, [esi + ebx - 4]
 	call	printhex8
-	call	printspace
 	print "  PTE "
 	mov	edx, 1024
 	sub	edx, ecx

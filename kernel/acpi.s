@@ -1,7 +1,7 @@
 # http:#forum.osdev.org/viewtopic.php?t=16990
 .intel_syntax noprefix
 
-ACPI_DEBUG = 1
+ACPI_DEBUG = 0
 
 .data SECTION_DATA_BSS
 acpi_rsdp:	.long 0	# ds relative ptr
@@ -10,9 +10,10 @@ acpi_addr_reloc$: .long 0 # add this to PTRs in ACPI structures for ds rel
 .text32
 
 acpi_init:
+	I "Detecting ACPI "
 	call	acpi_get_rsdp$
 	jc	9f
-	print "Found RSDP at "
+	print " Found RSDP at "
 	mov	edx, [acpi_rsdp]
 	call	printhex8
 	call	newline
@@ -99,7 +100,9 @@ acpi_get_rsdp$:
 	mov	[acpi_rsdp], eax
 	mov	ebx, eax
 
-	DEBUG_DWORD eax, "ACPI RSDP"
+	.if ACPI_DEBUG
+		DEBUG_DWORD eax, "ACPI RSDP"
+	.endif
 
 
 	PRINT	"OEMID: "
@@ -111,11 +114,12 @@ acpi_get_rsdp$:
 	mov	dl, [ebx + RSDP_revision]
 	call	printhex2
 
-	PRINT	" RSDT: "
 	mov	edx, [ebx + RSDP_rsdt_addr]
-	call	printhex8
-
-	call	newline
+	.if ACPI_DEBUG
+		PRINT	" RSDT: "
+		call	printhex8
+		call	newline
+	.endif
 
 	call	acpi_check_rsdt	# out: CF
 	jmp	0b
@@ -296,19 +300,25 @@ no_acpi$: printlnc 12, "no ACPI"
 	ret
 
 acpi_check_rsdt:
-	DEBUG "Checking RSDT"
+	.if ACPI_DEBUG
+		DEBUG "Checking RSDT"
+	.endif
 
 	mov	eax, [acpi_rsdp]
 	mov	eax, [eax + RSDP_rsdt_addr]
 	add	eax, [acpi_addr_reloc$]
-	DEBUG_DWORD eax,"addr"
+	.if ACPI_DEBUG
+		DEBUG_DWORD eax,"addr"
+	.endif
+
 
 	ACPI_MAKE_SIG ebx, 'R','S','D','T'
 	call	acpi_check_header$
 	jc	no_acpi$
 
-
-	DEBUG "RSDT subtables:"
+	.if ACPI_DEBUG
+		DEBUG "RSDT subtables:"
+	.endif
 	pushad
 	mov	ecx, [eax + 4]
 	sub	ecx, 36
@@ -319,19 +329,24 @@ acpi_check_rsdt:
 0:	mov	ebx, [esi]
 	add	esi, 4
 	mov	ebx, [ebx]
-	PRINTSIG		# FACP BOOT APIC MCFG SRAT HPET WAET
-	call	printspace
+	.if ACPI_DEBUG
+		PRINTSIG		# FACP BOOT APIC MCFG SRAT HPET WAET
+		call	printspace
+	.endif
 	loop	0b
 1:	popad
-	call	newline
 
-
-	PRINTLNc 0xf0 "Analyzing data structure"
+	.if ACPI_DEBUG
+		call	newline
+		PRINTLNc 0xf0 "Analyzing data structure"
+	.endif
 
 	mov	ecx, [eax + 4]	# len
 	add	eax, 36		# skip header
 	sub	ecx, 36
-	DEBUG_DWORD ecx
+	.if ACPI_DEBUG
+		DEBUG_DWORD ecx
+	.endif
 	# lets shr because we add 4:
 	shr	ecx, 2
 	jecxz	3f
@@ -353,8 +368,10 @@ acpi_check_rsdt:
 	stc
 0:	ret
 
-2:	DEBUG "Found FACP"
-	DEBUG_DWORD eax
+2:
+	.if ACPI_DEBUG
+		DEBUG_DWORD eax, "Found FACP"
+	.endif
 	pop_	ecx eax
 	ret
 
@@ -362,30 +379,34 @@ acpi_check_rsdt:
 acpi_check_facp$:
 	pushad
 
-	print "FADT ('FACP') found: "
 	mov	[acpi_fadt], eax
 
-	DEBUG_DWORD [eax + acpi_tbl_size]
-	DEBUG_DWORD [eax + FADT_DSDT_ptr]
-	DEBUG_DWORD [eax + FADT_SMI_CMD_PORT]
-	DEBUG_BYTE [eax + FADT_ACPI_ENABLE]
-	DEBUG_BYTE [eax + FADT_ACPI_DISABLE]
-	call	newline
-	DEBUG_DWORD [eax + FADT_PM1a_CNT_BLK_PORT],"PM1a CNT"
-	DEBUG_DWORD [eax + FADT_PM1b_CNT_BLK_PORT], "PM1b CNT"
-	DEBUG_BYTE [eax + FADT_PM1_CNT_LEN],"CNT LEN"
-	call	newline
+	.if ACPI_DEBUG
+		print "FADT ('FACP') found: "
 
-	DEBUG_DWORD [eax + FADT_PM1a_EVT_BLK_PORT],"PM1a EVT"
-	DEBUG_DWORD [eax + FADT_PM1b_EVT_BLK_PORT], "PM1b EVT"
-	DEBUG_BYTE [eax + FADT_PM1_EVT_LEN],"EVT LEN"
-	call	newline
+		DEBUG_DWORD [eax + acpi_tbl_size]
+		DEBUG_DWORD [eax + FADT_DSDT_ptr]
+		DEBUG_DWORD [eax + FADT_SMI_CMD_PORT]
+		DEBUG_BYTE [eax + FADT_ACPI_ENABLE]
+		DEBUG_BYTE [eax + FADT_ACPI_DISABLE]
+		call	newline
+		DEBUG_DWORD [eax + FADT_PM1a_CNT_BLK_PORT],"PM1a CNT"
+		DEBUG_DWORD [eax + FADT_PM1b_CNT_BLK_PORT], "PM1b CNT"
+		DEBUG_BYTE [eax + FADT_PM1_CNT_LEN],"CNT LEN"
+		call	newline
+
+		DEBUG_DWORD [eax + FADT_PM1a_EVT_BLK_PORT],"PM1a EVT"
+		DEBUG_DWORD [eax + FADT_PM1b_EVT_BLK_PORT], "PM1b EVT"
+		DEBUG_BYTE [eax + FADT_PM1_EVT_LEN],"EVT LEN"
+		call	newline
 
 
 
-	DEBUG_DWORD [eax + FADT_PM1b_CNT_BLK_PORT], "PM2 CNT"
-	call	newline
-	DEBUG_WORD [eax + FADT_SCI_interrupt]
+		DEBUG_DWORD [eax + FADT_PM1b_CNT_BLK_PORT], "PM2 CNT"
+		call	newline
+		DEBUG_WORD [eax + FADT_SCI_interrupt]
+
+	.endif
 
 	push	eax
 	movzx	eax, word ptr [eax + FADT_SCI_interrupt]
@@ -398,40 +419,45 @@ acpi_check_facp$:
 	mov	cx, cs
 	mov	ebx, offset acpi_isr
 	xor	edx, edx	# data arg for add_irq_handler/isr
-	call newline
-	call newline
-	DEBUG_BYTE al, "ADD IRQ HANDLER"
-	call newline
-	call newline
 	call	add_irq_handler
 	popad
 	.endif
-	call	newline
+	.if ACPI_DEBUG
+		call	newline
+	.endif
 
 	# reference facp->dsdt (pointer to dsdt)
 
  	push	eax
 	mov	eax, [eax + FADT_DSDT_ptr]
 	add	eax, [acpi_addr_reloc$]
-	DEBUG_DWORD eax,"DSDT"
+	.if ACPI_DEBUG
+		DEBUG_DWORD eax,"DSDT"
+	.endif
 	ACPI_MAKE_SIG ebx, 'D','S','D','T'
 	call	acpi_check_header$
 	mov	edx, eax
 	pop	eax
 	jc	92f
 
-	DEBUG "Found DSDT:"
 	mov ebx, [edx]
-	PRINTSIG
+	.if ACPI_DEBUG
+		DEBUG "Found DSDT:"
+		PRINTSIG
+	.endif
 
 	call	parse_dsdt$
 
 	mov	ecx, [edx + acpi_tbl_size]
 	add	edx, ACPI_TBL_HDR_SIZE # 36 # skip header
-	DEBUG_DWORD ecx, "DSDT size"
+	.if ACPI_DEBUG
+		DEBUG_DWORD ecx, "DSDT size"
+	.endif
 	sub	ecx, ACPI_TBL_HDR_SIZE # 36
 
-	DEBUG "Finding _S5_"
+	.if ACPI_DEBUG
+		DEBUG "Finding _S5_"
+	.endif
 
 	# after the header (+36) the structure is AML.
 	# manual scan for "_S5_":
@@ -442,7 +468,10 @@ acpi_check_facp$:
 	inc	edx
 	loop	0b
 	jmp	92f
-2:	DEBUG "found _S5_";
+2:
+	.if ACPI_DEBUG
+		DEBUG "found _S5_";
+	.endif
 
 .if 1
 	mov	esi, edx
@@ -461,7 +490,9 @@ acpi_check_facp$:
 	cmp	al, 0x12
 	jnz	9f
 1:
-	PRINTLNc 0xf0 "Found valid AML structure"
+	.if ACPI_DEBUG
+		PRINTLNc 0xf0 "Found valid AML structure"
+	.endif
 #S5Addr += 5;
 #S5Addr += ((*S5Addr &0xC0)>>6) +2;   # calculate PkgLength size
 	add	esi, 5
@@ -486,7 +517,7 @@ acpi_check_facp$:
 	shl	dx, 10
 	mov	[SLP_TYPb], dx
 
-	PRINTLNc 3 "ACPI found"
+	PRINTc 3 " ACPI found"
 	clc
 9:	popad
 	ret
@@ -508,28 +539,30 @@ parse_dsdt$:
 	add	esi, ACPI_TBL_HDR_SIZE
 	sub	ecx, ACPI_TBL_HDR_SIZE 
 	mov	edi, esi	# backup
-	call	newline
-	printc 11, "DSDT: size="
 	mov	edx, ecx
-	call	printhex8
-	call	newline
+	.if ACPI_DEBUG
+		call	newline
+		printc 11, "DSDT: size="
+		call	printhex8
+		call	newline
 
-	push_ esi ecx
-	.rept 3
-	mov ecx, 0x8
-0:	lodsb
-	call	printchar
-	loop	0b
-	mov	ecx, 8
-	sub	esi, 8
-0:	call	printspace
-	lodsb
-	mov	dl, al
-	call	printhex2
-	loop	0b
-	call	newline
-	.endr
-	pop_ ecx esi
+		push_ esi ecx
+		.rept 3
+		mov ecx, 0x8
+	0:	lodsb
+		call	printchar
+		loop	0b
+		mov	ecx, 8
+		sub	esi, 8
+	0:	call	printspace
+		lodsb
+		mov	dl, al
+		call	printhex2
+		loop	0b
+		call	newline
+		.endr
+		pop_ ecx esi
+	.endif
 
 inc esi
 
@@ -539,16 +572,20 @@ inc esi
 
 	mov	edx, esi
 	sub	edx, edi
-	call	printhex8
-	print ": "
+	.if ACPI_DEBUG
+		call	printhex8
+		print ": "
+	.endif
 
 	lodsb	# leadbyte
-	print "lead: "
 	mov	dl, al
-	call	printhex2
-	print " ("
-	call	printbin8
-	print ")"
+	.if ACPI_DEBUG
+		print "lead: "
+		call	printhex2
+		print " ("
+		call	printbin8
+		print ")"
+	.endif
 
 	# hi 2 bits = nr of bytes to follow for pkglen
 	# 2 bits below that only used for 1-byte pkglen (maxlen 0x3f)
@@ -559,7 +596,9 @@ inc esi
 
 	shr	dl, 6	# hi 2 bits = nr of bytes for pkglen follow
 	movzx	edx, dl
-	DEBUG_BYTE dl
+	.if ACPI_DEBUG
+		DEBUG_BYTE dl
+	.endif
 
 	cmp	dl, 1
 	jz	1f
@@ -571,7 +610,10 @@ inc esi
 	jnz	5f
 	and	eax, 0x3f
 	jmp	4f
-5:	DEBUG_BYTE dl, "WARN: illegal value"
+5:
+	.if ACPI_DEBUG
+		DEBUG_BYTE dl, "WARN: illegal value"
+	.endif
 	jmp	9f
 
 # bytes follow:
@@ -597,30 +639,32 @@ inc esi
 4:
 ## eax = pkglen
 	mov	edx, eax
-	print " pkglen: "
-	call	printhex8
+	.if ACPI_DEBUG
+		print " pkglen: "
+		call	printhex8
 
-	call	printspace
-	push eax
-	mov eax, [esi]
-	call	printchar; shr eax, 8
-	call	printchar; shr eax, 8
-	call	printchar; shr eax, 8
-	call	printchar
-	call	printspace
-	pop eax
-	mov	edx, [esi]
-	call	printhex2; shr edx, 8
-	call	printhex2; shr edx, 8
-	call	printhex2; shr edx, 8
-	call	printhex2
-	call	printspace
-	cmpw	[esi], '\\'
-	jnz	1f
-	printc 11, "ROOT"
-1:
+		call	printspace
+		push eax
+		mov eax, [esi]
+		call	printchar; shr eax, 8
+		call	printchar; shr eax, 8
+		call	printchar; shr eax, 8
+		call	printchar
+		call	printspace
+		pop eax
+		mov	edx, [esi]
+		call	printhex2; shr edx, 8
+		call	printhex2; shr edx, 8
+		call	printhex2; shr edx, 8
+		call	printhex2
+		call	printspace
+		cmpw	[esi], '\\'
+		jnz	1f
+		printc 11, "ROOT"
+	1:
 
-	call	newline
+		call	newline
+	.endif
 
 	or	eax, eax
 	jle	9f
@@ -645,14 +689,18 @@ acpi_check_header$:
 
 	cmp	ebx, [eax]
 	jnz	9f
-	DEBUG "sig ok:"
-	PRINTSIG
-0:	
+	.if ACPI_DEBUG
+		DEBUG "sig ok:"
+		PRINTSIG
+	.endif
+0:
 	mov	ecx, [eax+4] #assume size is 2 
 
-	mov	edx, ecx
-	print " size: "
-	call	printhex8
+	.if ACPI_DEBUG
+		mov	edx, ecx
+		print " size: "
+		call	printhex8
+	.endif
 
 	push	esi
 	mov	esi, eax
@@ -662,7 +710,9 @@ acpi_check_header$:
 	loop	0b
 	pop	esi
 
-	DEBUG_BYTE dl, "checksum"
+	.if ACPI_DEBUG
+		DEBUG_BYTE dl, "checksum"
+	.endif
 
 	or	dl, dl
 	jz	1f	# maybe with a cmc here somewhere...
@@ -801,7 +851,7 @@ acpi_enable:
 
 
 
-acpi_shutdown:	
+acpi_shutdown:
 	PRINTLNc 0xf2 "ACPI shutdown"
 
 cli
@@ -814,7 +864,7 @@ call paging_disable
 #	call	acpi_init
 #	pop	ax
 #	jc	no_acpi$
-	
+
 #	cmp	word ptr [SCI_EN], 0	# shutdown possibility
 #	jz	no_acpi$
 #
@@ -836,7 +886,7 @@ call paging_disable
 	mov	ax, [SLP_TYPb]
 	or	ax, PM1_SLP_EN
 	out	dx, ax
-0:	
+0:
 	PRINTc	4, "ACPI Shutdown failure"
 	ret
 

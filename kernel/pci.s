@@ -17,6 +17,26 @@ PCI_CALLING_CONVENTION = 0
 
 PCI_DEBUG = 0
 
+.data
+pci_verbosity: .byte 0
+	PCI_VERBOSITY_REGISTERS = 1
+
+	.macro PCI_VERBOSITY_BEGIN level
+		cmpb	[pci_verbosity], PCI_VERBOSITY_\level
+		jb	9081f
+	.endm
+
+	# optional
+	.macro PCI_VERBOSITY_ELSE
+	jmp	9082f
+	9081:
+	.endm
+
+	.macro PCI_VERBOSITY_END
+	9082:
+	9081:
+	.endm
+
 .text32
 
 IO_PCI_CONFIG_ADDRESS	= 0xcf8
@@ -639,12 +659,13 @@ loop$:
 
 			push	eax	# remember device, vendor (pop as edi)
 	###################
+PCI_VERBOSITY_BEGIN REGISTERS
 	call	newline
+
 	PRINTc	10, "Bus "
 	mov	dl, ch
 	COLOR	7
 	call	printhex2
-
 
 	PRINTc	11, " Slot "
 	mov	dl, cl
@@ -656,7 +677,19 @@ loop$:
 	shr	edx, 16
 	COLOR	7
 	call	printhex1
-
+PCI_VERBOSITY_ELSE
+	PRINTc 10, "pci"
+	printcharc 8, '/'
+	mov	edx, ecx
+	xchg	dl, dh
+	call	printhex2	# ch
+	printcharc 8, '/'
+	shr	edx, 8
+	call	printhex2	# cl
+	printcharc 8, '/'
+	shr	edx, 8
+	call	printhex1
+PCI_VERBOSITY_END
 	###################
 	PRINTc	12, " Vendor "
 	mov	edx, eax
@@ -676,6 +709,7 @@ loop$:
 
 	mov	esi, eax	# backup command & status
 
+PCI_VERBOSITY_BEGIN REGISTERS
 	PRINTc	8, " Command "
 	mov	edx, eax
 	COLOR	7
@@ -688,6 +722,7 @@ loop$:
 
 
 	call	newline
+PCI_VERBOSITY_END
 
 	#################
 	mov	bl, 8	# class code, subclass, prog IF, revision id
@@ -704,27 +739,37 @@ loop$:
 			call	pci_instantiate_dev$ # out: edi
 			pop	edx	# store pci-class in edx
 
+PCI_VERBOSITY_BEGIN REGISTERS
 	PRINTc	8, " Revision "
 	COLOR	7
 	call	printhex2
 
 	PRINTc	8, " Class "
 	COLOR	7
+PCI_VERBOSITY_END
+
 	rol	edx, 8	# subclass, prog if, rev id, class
+
+PCI_VERBOSITY_BEGIN REGISTERS
 	call	printhex2
 	PRINTCHAR '.'
-
+PCI_VERBOSITY_END
 			mov	[edi + dev_pci_class], dl
 
 
 	rol	edx, 8	# prog if, rev id, class, subclass
+
+PCI_VERBOSITY_BEGIN REGISTERS
 	call	printhex2
 	PRINTCHAR '.'
-
+PCI_VERBOSITY_END
 			mov	[edi + dev_pci_subclass], dl
 
 	rol	edx, 8	# rev id, class, subclass, prog if
+
+PCI_VERBOSITY_BEGIN REGISTERS
 	call	printhex2
+PCI_VERBOSITY_END
 
 			mov	[edi + dev_pci_progif], dl
 
@@ -766,7 +811,7 @@ loop$:
 	mov	eax, ecx
 	call	pci_read_config
 
-	.if 1
+PCI_VERBOSITY_BEGIN REGISTERS
 	PRINTc	8, "   Cache Line Size "	# (optional) - word units
 	mov	edx, eax
 	COLOR	7
@@ -782,8 +827,8 @@ loop$:
 	# x01: PCI-to-PCI bridge
 	# x02: cardbus bridge
 	# bit 7: multiple functions (1)/single function (0)
-	PRINTc	8, " Header Type "
 	shr	edx, 8
+	PRINTc	8, " Header Type "
 	COLOR	7
 	call	printhex2
 
@@ -800,23 +845,26 @@ loop$:
 	call	printhex2
 4:
 	call	newline
-	.else
+PCI_VERBOSITY_ELSE
 	mov	edx, eax
 	ror	edx, 16
 	ror	dx, 8
-	.endif
+PCI_VERBOSITY_END
 
+	COLOR 7
 	#################### detailed print of header type
 	# dh = header type field.
+	mov	dl, dh	# backup
+PCI_VERBOSITY_BEGIN REGISTERS
 	push	esi	# preserve command & status
 	LOAD_TXT " Single function"
-	mov	dl, dh	# backup
 	test	dh, 0x80
 	jz	2f
 	LOAD_TXT " Multiple function"
-2:	COLOR 7
+2:	
 	call	print
 	pop	esi
+PCI_VERBOSITY_END
 	and	dh, 0x7f
 	jz	std$
 	cmp	dh, 1
@@ -833,7 +881,9 @@ loop$:
 
 # Header Type 2: PCI-to-CardBus bridge
 cardbus$:
+PCI_VERBOSITY_BEGIN REGISTERS
 	PRINTLNc 	6, " PCI-to-CardBus Bridge"
+PCI_VERBOSITY_END
 	# 0x10: dd cardbus socket/ExCa base address
 	# 0x14: dw secondary status, db reserved, db offset of cap list
 	# 0x18: latency timer, subordinate bus nr, cardbus nr, pci bus nr
@@ -852,13 +902,17 @@ cardbus$:
 
 # Header type 1
 pci2pci$:
+PCI_VERBOSITY_BEGIN REGISTERS
 	PRINTLNc 	7, " PCI-to-PCI Bridge"
 	call	pci_list_pcibridge$
-
+PCI_VERBOSITY_END
 	jmp	0f
 
 std$:	# Header Type 0
+
+PCI_VERBOSITY_BEGIN REGISTERS
 	PRINTc 	3, " General device"
+PCI_VERBOSITY_END
 
 	# print 0x10-0x24 (inclusive): Base Address #0-#5
 	mov	bl, 0x10
@@ -872,6 +926,7 @@ std$:	# Header Type 0
 
 	mov	eax, ecx
 	call	pci_read_config
+PCI_VERBOSITY_BEGIN REGISTERS
 	or	eax, eax
 	jz	4f
 	PRINTc	8, "   CIS Ptr " # Card Information Structure
@@ -879,6 +934,7 @@ std$:	# Header Type 0
 	call	printhex8
 4:
 	call	newline
+PCI_VERBOSITY_END
 
 	# 0x2c: subsystem id, subsystem vendor id
 	mov	bl, 0x2c
@@ -887,6 +943,7 @@ std$:	# Header Type 0
 
 			mov	[edi + dev_pci_subvendor], eax
 
+PCI_VERBOSITY_BEGIN REGISTERS
 	PRINTc	8, " SubSystem Vendor ID "
 	mov	edx, eax
 	call	printhex4
@@ -904,6 +961,7 @@ std$:	# Header Type 0
 	call	printhex8
 4:
 	call	newline
+PCI_VERBOSITY_END
 
 	##################################################
 	# 0x34: reserved db 3 dup(0), cap_ptr db 0
@@ -911,7 +969,9 @@ std$:	# Header Type 0
 	test	esi, PCI_STATUS_CAPABILITIES_LIST << 16
 	jz	4f
 
+PCI_VERBOSITY_BEGIN REGISTERS
 	call	pci_list_caps$
+PCI_VERBOSITY_END
 4:
 
 	# skip 0x38 - reserved
@@ -922,11 +982,11 @@ std$:	# Header Type 0
 	call	pci_read_config
 	or	eax, eax
 	jz	0f
-	PRINTc	8, "   Interrupt Line "
 	mov	edx, eax
-	call	printhex2
-
 			mov	[edi + dev_irq], dx
+PCI_VERBOSITY_BEGIN REGISTERS
+	PRINTc	8, "   Interrupt Line "
+	call	printhex2
 
 	PRINTc	8, "   Interrupt PIN "
 	shr	edx, 8
@@ -941,6 +1001,7 @@ std$:	# Header Type 0
 	call	printhex2
 
 	call	newline
+PCI_VERBOSITY_END
 0:
 
 			cmp	byte ptr [edi + dev_state], DEV_STATE_INITIALIZED
@@ -1428,15 +1489,20 @@ pci_list_bar$:
 	# bits 31:2:	4 byte aligned base address
 	# bit  1:	reserved
 	# bit  0:	1
-	PRINTc	8, "  BAR"
 	mov	dl, bl
 	sub	dl, 16
 	shr	dl, 2
+PCI_VERBOSITY_BEGIN REGISTERS
+	PRINTc	8, "  BAR"
 	call	printhex1
+PCI_VERBOSITY_END
 
-	PRINT ": "
 	mov	edx, eax
+
+PCI_VERBOSITY_BEGIN REGISTERS
+	PRINT ": "
 	call	printhex8
+PCI_VERBOSITY_END
 
 	# create mask: bit 0 = 1: 11b (IO) bit 0 = 0: 1111b (MEM)
 	push	ecx
@@ -1453,24 +1519,36 @@ pci_list_bar$:
 	test	al, 1
 	jz	3f
 #
+PCI_VERBOSITY_BEGIN REGISTERS
 	print " IO "
+PCI_VERBOSITY_END
 	and	dl, ~ 0b11
 
 			mov	[edi + dev_io], edx
 			add	edi, dev_io_size
 
+PCI_VERBOSITY_BEGIN REGISTERS
 	jmp	5f
+PCI_VERBOSITY_ELSE
+	jmp	7f
+PCI_VERBOSITY_END
+
 #
-3:	print " MEM "
+3:	
+PCI_VERBOSITY_BEGIN REGISTERS
+	print " MEM "
 	test	dl, 1<<3
 	jz	3f
 	print "PF "	# prefetchable
-3:	and	dl, ~ 0b1111
+3:	
+PCI_VERBOSITY_END
+	and	dl, ~ 0b1111
 
 			mov	[edi + dev_mmio], edx
 			add	edi, dev_mmio_size
 
 	and	al, 0b110
+PCI_VERBOSITY_BEGIN REGISTERS
 	cmp	al, 0 << 1
 	jz	3f
 	cmp	al, 2 << 1
@@ -1483,8 +1561,9 @@ pci_list_bar$:
 	#jmp	5f
 5:
 	call	printhex8
-	print "-"
-
+	print "-"	# !!! this is printed!!!
+PCI_VERBOSITY_END
+7:
 #
 	mov	eax, ecx
 	mov	edx, -1	# determine memory used
@@ -1507,7 +1586,10 @@ pci_list_bar$:
 	and	dl, ~15	# MMIO
 	jmp	2f
 1:	and	edx, ~(3|0xffff0000)	# PIO
-2:	call	printhex8
+2:	
+PCI_VERBOSITY_BEGIN REGISTERS
+	call	printhex8
+PCI_VERBOSITY_END
 	# restore original address
 	pop	edx
 	mov	eax, ecx

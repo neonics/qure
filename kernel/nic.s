@@ -10,6 +10,7 @@ IFCONFIG_OLDSKOOL = 0
 NIC_MCAST_RX_MEMBER_ONLY = 0	# 1: only net_igmp_join-ed 224/3 IP's; 0=all
 
 NIC_DEBUG = 0
+NIC_VERBOSE = 0
 ############################################################################
 DECLARE_CLASS_BEGIN nic, dev_pci
 nic_status:	.word 0
@@ -473,13 +474,15 @@ cmd_ifconfig:
 	call	nic_parse	# out: ebx
 	jc	9f
 
-	push	esi
-	mov	esi, [ebx + dev_drivername_short]
-	pushcolor 9
-	call	print
-	call	printspace
-	popcolor
-	pop	esi
+	.if NIC_VERBOSE
+		push	esi
+		mov	esi, [ebx + dev_drivername_short]
+		pushcolor 9
+		call	print
+		call	printspace
+		popcolor
+		pop	esi
+	.endif
 	.if IFCONFIG_OLDSKOOL
 		xor	edi, edi
 		mov	eax, [ebx + nic_gateway]
@@ -523,8 +526,10 @@ cmd_ifconfig:
 		lodsd
 		call	net_parse_ip
 		jc	9f
+	.if NIC_VERBOSE
 		printc 11, " mask "
 		call	net_print_ip
+	.endif
 		mov	[ebx + nic_netmask], eax
 
 		#mov	ecx, eax
@@ -552,10 +557,12 @@ cmd_ifconfig:
 	# parse ip
 	call	net_parse_ip
 	jc	9f
-	printc 11, "ip "
-	call	net_print_ip
-	call	newline
 	mov	[ebx + nic_ip], eax
+	.if NIC_VERBOSE
+		printc 11, "ip "
+		call	net_print_ip
+		call	newline
+	.endif
 
 	.if IFCONFIG_OLDSKOOL
 		mov	[ebx + nic_netmask], ecx # dword ptr 0x00ffffff
@@ -565,8 +572,11 @@ cmd_ifconfig:
 
 	jmp	0b
 
-0:	# print nic status
+0:
+	.if NIC_VERBOSE
+	# print nic status
 	call	[ebx + nic_api_print_status]
+	.endif
 
 	.if IFCONFIG_OLDSKOOL
 		mov	eax, [ebx + nic_gateway]
@@ -652,8 +662,10 @@ nic_zeroconf:
 	STRINGNULL
 	.text32
 	mov	esi, offset 77b
-	mov	eax, esi
-	call	cmdline_print_args$
+	.if NIC_VERBOSE
+		mov	eax, esi
+		call	cmdline_print_args$
+	.endif
 	call	cmd_route
 	jc	0f
 
@@ -671,8 +683,10 @@ nic_zeroconf:
 	STRINGNULL
 	.text32
 	mov	esi, offset 77b
-	mov	eax, esi
-	call	cmdline_print_args$
+	.if NIC_VERBOSE
+		mov	eax, esi
+		call	cmdline_print_args$
+	.endif
 	call	cmd_route
 	jc	0f
 
@@ -687,8 +701,10 @@ nic_zeroconf:
 	STRINGNULL
 	.text32
 	mov	esi, offset 77b
-	mov	eax, esi
-	call	cmdline_print_args$
+	.if NIC_VERBOSE
+		mov	eax, esi
+		call	cmdline_print_args$
+	.endif
 	call	cmd_ifconfig
 	jc	0f
 
@@ -708,8 +724,10 @@ nic_zeroconf:
 	STRINGNULL
 	.text32
 	mov	esi, offset 77b
-	mov	eax, esi
-	call	cmdline_print_args$
+	.if NIC_VERBOSE
+		mov	eax, esi
+		call	cmdline_print_args$
+	.endif
 	call	cmd_ifconfig
 
 	# find a free IP
@@ -741,8 +759,10 @@ nic_zeroconf:
 	STRINGNULL
 	.text32
 	mov	esi, offset 77b
-	mov	eax, esi
-	call	cmdline_print_args$
+	.if NIC_VERBOSE
+		mov	eax, esi
+		call	cmdline_print_args$
+	.endif
 	call	cmd_route
 	jc	0f
 
@@ -758,8 +778,10 @@ nic_zeroconf:
 	STRINGNULL
 	.text32
 	mov	esi, offset 77b
-	mov	eax, esi
-	call	cmdline_print_args$
+	.if NIC_VERBOSE
+		mov	eax, esi
+		call	cmdline_print_args$
+	.endif
 	call	cmd_route
 	jc	0f
 1:
@@ -770,8 +792,10 @@ nic_zeroconf:
 	STRINGNULL
 	.text32
 	mov	esi, offset 77b
-	mov	eax, esi
-	call	cmdline_print_args$
+	.if NIC_VERBOSE
+		mov	eax, esi
+		call	cmdline_print_args$
+	.endif
 	call	cmd_ping
 	jc	0f
 .endif
@@ -785,10 +809,12 @@ nic_zeroconf:
 
 # in: ebx
 nic_init_ip:
-	print "  MAC "
-	lea	esi, [ebx + nic_mac]
-	call	net_print_mac
-	call	newline
+	.if NIC_VERBOSE
+		print "  MAC "
+		lea	esi, [ebx + nic_mac]
+		call	net_print_mac
+		call	newline
+	.endif
 	print "  IP "
 	xor	eax, eax
 	xchg	eax, [ebx + nic_ip]
