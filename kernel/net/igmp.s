@@ -14,6 +14,7 @@
 #   01:00:5e:[0 bbbbbbb]:[cccccccc]:[dddddddd] for IPv4 a.b.c.d
 
 IGMP_LOG = 1	# 1: print dropped packets
+IGMP_VERBOSE = 0# 1: print incoming IGMP packets
 
 .struct 0
 # http://www.iana.org/assignments/igmp-type-numbers/igmp-type-numbers.xhtml
@@ -428,8 +429,9 @@ ph_ipv4_igmp:
 
 1:	# done with ipv4 frame (edx available)
 
+.if IGMP_VERBOSE
 	call	net_ipv4_igmp_print
-
+.endif
 
 	mov	dl, [esi + igmp_type]
 	mov	dh, 1 # v1

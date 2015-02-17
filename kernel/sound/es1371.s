@@ -291,7 +291,7 @@ es1371_init:
 	mov	dx, [ebx + dev_io]
 	xor	eax, eax
 	out	dx, eax	# turn off
-	in eax, dx; DEBUG_DWORD eax,"reg0"
+	in	eax, dx	#; DEBUG_DWORD eax,"reg0"
 
 	add	dx, ES1371_REG_LEGACY
 	out	dx, eax
@@ -302,8 +302,7 @@ es1371_init:
 	out	dx, eax
 
 	mov	dx, [ebx +dev_io]
-	in	eax, dx
-	DEBUG_DWORD eax, "CTRL"
+	in	eax, dx #; DEBUG_DWORD eax, "CTRL"
 	or	eax, 0x0100 # XCTL0
 	or	eax, 0x0002 # CDC_EN
 	out	dx, eax	#enable codec
