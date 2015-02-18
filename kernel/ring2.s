@@ -44,6 +44,7 @@ data_pci_driverinfo_start: # .word vendorId, deviceId
 data_ring2_bss_start:; .global data_ring2_bss_start
 #############################################
 include "dev.s" dev
+include "uart.s" uart
 include "pci.s", pci
 include "ata.s", ata
 include "partition.s", partition
@@ -126,6 +127,7 @@ code_sound_end:
 	.global dev_api_constructor
 	.global class_dev
 	.global dev_name	# struct field
+	.global dev_io		# struct field
 	.global dev_irq		# struct field
 	.global cmd_dev
 .global code_dev_end

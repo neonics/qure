@@ -104,7 +104,9 @@ KERNEL_SRC = kernel.s defines.s macros.s \
 	mutex.s console.s paging.s
 
 HARDWARE_SRC = keyboard.s keycodes.s pit.s pci.s bios.s cmos.s ata.s dma.s \
-	nic.s dev.s $(USB_SRC) $(NIC_SRC) $(VMWARE_SRC) $(VBOX_SRC) \
+	uart.s \
+	nic.s dev.s \
+	$(USB_SRC) $(NIC_SRC) $(VMWARE_SRC) $(VBOX_SRC) \
 	$(BRIDGE_SRC) $(SOUND_SRC)
 
 DBG_SRC = debugger/export.s debugger/debugger.s debugger/hwdebug.s

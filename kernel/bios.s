@@ -3,6 +3,52 @@
 ##############################################################################
 # Memory address: 0000:0400 Size 100h
 
+bios_init_serial:
+	push	fs
+	mov	eax, SEL_flatDS
+	mov	fs, eax
+
+	mov	ax, fs:[0x410]	# equipment word
+	mov	esi, 0x400
+	movzx	ecx, ax
+	shr	ecx, 9
+	and	ecx, 7
+	# 0x00, 0x02, 0x04, 0x06 (int 14h): base io serial
+	xor	edi, edi
+0:	mov	dx, fs:[esi]
+	or	dx, dx
+	jz	1f
+	# we have a nonzero port, instantiate a serial device:
+
+		pushad
+
+		mov     eax, offset class_uart
+		call    class_newinstance
+		jc      1f
+
+		#initialize device name:
+		add	edi, '0'
+		shl	edi, 24
+		or	edi, dword ptr ('s')|('e'<<8)|('r'<<16)
+		mov	[eax + dev_name], edi
+
+		# set IO port:
+		mov	[eax + dev_io], dx
+
+		mov     ebx, eax        # dev often uses ebx as this
+		INVOKEVIRTUAL dev constructor
+		2:
+
+		popad
+
+
+1:	add	esi, 2
+	inc	edi
+	loop	0b
+
+	pop	fs
+	ret
+
 bios_list_bda:
 	push	es
 

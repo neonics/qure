@@ -463,6 +463,14 @@ SCHEDULE_EARLY = 0
 	MORE
 .endif
 	###################################################################
+	I "Serial Ports: "
+	call	newline
+	call	bios_init_serial
+
+.if SHOWOFF
+	MORE
+.endif
+	###################################################################
 
 	I "Listing PCI devices:"
 	call	newline

@@ -16,6 +16,16 @@ bios.bootDelay = "0000"
 guestinfo.hostname = "qure-X"
 guestinfo.dmz_ip = "192.168.1.2"
 
+; NOTE: With file logging, an append/overwrite dialog wil popup on vm start/reset,
+; (but not on control-alt-delete or shell reboot)
+;serial0.present = "TRUE"
+;serial0.fileType = "file"
+;serial0.fileName = "serial.log"
+; - or - (undocumented)
+;serial0.fileType = "network"
+;serial0.fileName = "telnet://0.0.0.0:10000"
+
+
 ide0:0.present = "TRUE"
 ide0:0.fileName = "qure.vmdk"
 ide1:0.present = "TRUE"
