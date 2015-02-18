@@ -6,7 +6,11 @@ NET_TCP_RESPOND_UNK_RST = 0	# whether to respond with RST packet for unknown
 
 NET_TCP_DEBUG		= 0#2
 NET_TCP_CONN_DEBUG	= 0
-NET_TCP_OPT_DEBUG	= 0
+NET_TCP_OPT_DEBUG	= 0	# only used in copy_options
+
+# rfc879 "TCP Maximum Segment Size"
+NET_IP_DEFAULT_MSS	= 576
+NET_TCP_DEFAULT_MSS	= NET_IP_DEFAULT_MSS - 40	# i.e. 536
 
 .struct 0
 tcp_sport:	.word 0
@@ -174,6 +178,7 @@ tcp_conn_remote_seq:	.long 0
 tcp_conn_remote_seq_ack:.long 0
 tcp_conn_sock:		.long 0	# -1 = no socket; peer socket
 tcp_conn_handler:	.long 0	# -1 or 0 = no handler
+tcp_conn_remote_mss:	.long 0	# Maximum Segment Size peer supports (.word; long for easy math)
 tcp_conn_state:		.byte 0
 	# incoming
 	TCP_CONN_STATE_SYN_RX		= 1
@@ -1416,11 +1421,12 @@ net_tcp_sendbuf_flush_partial$:
 	mov	esi, [ebx + tcp_conn_send_buf]
 	add	esi, [ebx + tcp_conn_send_buf_start]
 
+	mov	edx, [ebx + tcp_conn_remote_mss]
 	mov	ecx, [ebx + tcp_conn_send_buf_len]
-	sub	ecx, TCP_MTU
+	sub	ecx, edx
 	js	1f
-	mov	[ebx + tcp_conn_send_buf_len], ecx
-	mov	ecx, TCP_MTU
+	mov	[ebx + tcp_conn_send_buf_len], ecx	# update remaining len
+	mov	ecx, edx
 	jz	3f
 	add	[ebx + tcp_conn_send_buf_start], ecx
 	jmp	2f
@@ -1428,7 +1434,7 @@ net_tcp_sendbuf_flush_partial$:
 	jmp	2f
 
 1:
-	xor	ecx,ecx
+	xor	ecx,ecx	# make sure ecx=0 in case we jz 2f
 	xor	esi, esi
 	xchg	esi, [ebx + tcp_conn_send_buf_start]
 	or	esi, esi
@@ -1472,12 +1478,13 @@ net_tcp_sendbuf_flush:
 	mov	esi, [ebx + tcp_conn_send_buf]
 	add	esi, [ebx + tcp_conn_send_buf_start]
 	xor	ecx, ecx
+	mov	edx, [ebx + tcp_conn_remote_mss]
 	xchg	ecx, [ebx + tcp_conn_send_buf_len]
-	cmp	ecx, TCP_MTU
+	cmp	ecx, edx
 	jbe	1f
-	sub	ecx, TCP_MTU
+	sub	ecx, edx
 	mov	[ebx + tcp_conn_send_buf_len], ecx
-	mov	ecx, TCP_MTU
+	mov	ecx, edx
 	add	[ebx + tcp_conn_send_buf_start], ecx
 	jmp	2f
 1:	mov	[ebx + tcp_conn_send_buf_start], dword ptr 0
@@ -1834,11 +1841,82 @@ net_tcp_tx_rst$:
 # in: ecx = tcp frame len
 # (out: CF = undefined)
 net_tcp_handle_syn$:
-	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
+	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE, TCP_CONN
 	pushad
 	push	ebp
 	mov	ebp, esp
-	push	eax
+	push	eax			# [ebp - 4] = tcp conn idx
+	pushd	NET_TCP_DEFAULT_MSS	# [ebp - 8] = remote MSS
+	pushd	0			# [ebp -12] = remote WS ; unused.
+
+# parse TCP options and set remote MSS
+# in: esi, ecx = TCP frame
+# out: [ebp - 8] = TCP MSS
+	#call	net_tcp_parse_options$	# in: esi, ecx; out: 
+	push_	esi ecx eax
+	movzx	ecx, byte ptr [esi + tcp_flags]
+	shr	cl, 4	# cl = hlen
+	shl	cl, 2	# * dwords
+	sub	ecx, offset tcp_options
+	jz	1f	# no options
+	lea	esi, [esi + tcp_options]
+	xor	eax, eax
+0:	lodsb
+	or	al, al
+	jz	0f	#TCP_OPT_END	= 0	# 0		end of options (no len/data)
+	cmp	al, 1	#TCP_OPT_NOP = 1
+	jz	1f
+	cmp	al, 2	#TCP_OPT_MSS
+	jz	2f
+	cmp	al, 3	#TCP_OPT_WS  .byte 2, 4; .word winscale
+	jz	3f
+
+	DEBUG_BYTE al, "TCP: unimplemented option"
+	# unimplemented option: at least 2 bytes:opcode,len
+	jecxz	0f	# TODO: warn: short option (require len field)
+	lodsb	# load len
+	sub	ecx, eax	# includes option code and len field
+	jz	0f	# reached the end, done.
+	jl	0f	# TODO: warn: short option
+	lea	esi, [esi + eax - 2]	# len includes option+len fields
+	jmp	1f	# continue parsing options
+
+3:	#TCP_OPT_WS	= 3	# 3,3,b  [SYN]	window scale
+	sub	ecx, 2	# account for opt code and len field
+	jle	0f	# TODO: jl warn
+	lodsb		# load length
+	sub	al, 2
+	jle	0f	# TODO: warn: jz: empty value; jl: invalid len
+	cmp	al, 1	# we only support window scale of 1 byte length:
+	jnz	0f	# TODO: warn (abort scanning - sync error)
+	dec	ecx	# we should have at least 1 more byte in the header
+	jz	0f	# TODO: warn: short header
+	lodsb		# safe to read option value
+	mov	[ebp - 12], eax
+	jmp	1f	# continue parsing options
+
+2:	#TCP_OPT_MSS	= 2	# 2,4,w  [SYN]	max seg size
+	sub	ecx, 2	# account for the opt code and the len field
+	jle	0f	# TODO: warn
+	lodsb		# safe to load len
+	sub	al, 2	# we don't want to overflow into eax
+	js	0f	# TODO: warn
+	# we only support word-sized MSS values
+	cmp	al, 2
+	jnz	0f	# TODO: warn: unsupported data length
+	sub	ecx, 2	# 
+	jl	0f	# TODO: warn
+	lodsw		# load the MSS value
+	xchg	al, ah
+	mov	[ebp - 8], eax
+	xor	ah, ah	# make sure high 3 byte sof eax are clear
+	jecxz	0f
+	# fallthrough to the loop
+
+1:	#TCP_OPT_NOP	= 1	# 1		padding; (no len/data)
+	dec ecx; jnz 0b;#loop	0b
+0:	pop_	eax ecx esi
+
 
 #### accept tcp connection
 
@@ -1857,7 +1935,7 @@ net_tcp_handle_syn$:
 	push	esi
 	lea	esi, [edx - ETH_HEADER_SIZE + eth_src] # optional
 	mov	ecx, _TCP_HLEN
-	call	net_ipv4_header_put # mod eax, esi, edi
+	call	net_ipv4_header_put # mod eax, esi, edi, ebx
 	pop	esi
 	pop	edx
 	jc	92f
@@ -1890,6 +1968,14 @@ net_tcp_handle_syn$:
 	bswap	eax
 	mov	[edi + tcp_ack_nr], eax
 
+mov eax, [ebp - 8]
+cmp eax, TCP_MTU
+jb 10f
+DEBUG_DWORD eax, "TCP: Reducing remote MSS"
+mov eax, TCP_MTU
+10:
+mov [edx + tcp_conn_remote_mss], eax
+
 		# calculate a seq of our own
 		mov	eax, [edx + tcp_conn_local_seq]
 		bswap	eax
@@ -1921,8 +2007,9 @@ net_tcp_handle_syn$:
 	add	esi, TCP_HEADER_SIZE
 	mov	esi, edi
 	add	edi, TCP_HEADER_SIZE
-	mov	eax, 0x01010101	# 'nop'
+	mov	eax, TCP_OPT_MSS | (4<<8) | ((TCP_MTU & 0xff) << 24) | ((TCP_MTU>>8) << 16)
 	stosd
+	mov	eax, 0x01010101	# 'nop'
 	stosd
 	stosd
 	.else
@@ -1941,20 +2028,23 @@ net_tcp_handle_syn$:
 	NET_BUFFER_SEND
 	jc	91f
 
-	pop	eax
+	mov	eax, [ebp - 4]
 	add	eax, [tcp_connections]
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_SYN_ACK_TX | TCP_CONN_STATE_SYN_TX
 	MUTEX_UNLOCK TCP_CONN
 
-0:	pop	ebp
+0:	mov	esp, ebp
+	pop	ebp
 	popad
 	ret
 
+# these errors occur while TCP_CONN is locked
+93:	# net buffer send fail
+	jmp	1b
 # these errors occur before TCP_CONN is locked
 92:	# ipv4 header put fail (arp lookup failure etc)
 	pop	edi
-91:	# net buffer get/send fail
-	pop	eax
+91:	# net buffer get fail
 	jmp	0b
 
 # in: esi = source tcp frame
