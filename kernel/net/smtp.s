@@ -2,6 +2,7 @@
 # SMTP - Simple Mail Transfer Protocol
 #
 # rfc 821
+# rfc 2821 (obsoletes 821/974/1869; updates 1123)
 
 SMTPD_MAX_CLIENTS	= 1
 
@@ -63,6 +64,8 @@ smtpd_handle_client:
 	ret
 
 1:	lock inc word ptr [smtp_num_clients]
+	enter 0,0
+	pushd	0	# [ebp - 4]: state
 
 	printc 11, "SMTP connection: "
 	KAPI_CALL socket_print
@@ -73,7 +76,7 @@ smtpd_handle_client:
 	KAPI_CALL socket_write
 	KAPI_CALL socket_flush
 
-0:	mov	ecx, 10000
+0:	mov	ecx, 20000
 	KAPI_CALL socket_read
 	jc	9f
 	call	smtp_parse
@@ -82,6 +85,7 @@ smtpd_handle_client:
 
 1:	call	smtp_close
 
+	leave
 	lock dec word ptr [smtp_num_clients]
 	ret
 
@@ -108,6 +112,67 @@ net_service_tcp_smtp:
 	call	smtp_parse
 	ret
 
+# SMTP Response code format: "RCD"
+#
+# R (Reply):
+#   1yz Positive preliminary reply
+#   2yz Positive completion reply
+#   3yz Positive intermediate reply
+#   4yz Transient Negative completion reply
+#   5yz Permanent Negative completion reply
+#
+# C (Category)
+#
+#   x0z Syntax
+#   x1z Information
+#   x2z Connection
+#   x3z unspecified
+#   x4z unspecified
+#   x5z Mail System status
+#
+# D (Detail)
+#
+#
+# List:
+#
+# 
+# 250 (NOOP)
+# 500 syntax error, command unrecognized
+# 501 syntax error in parameters/arguments
+# 502 command not implemented
+# 503 bad sequence of commands
+# 504 command parameter not implemented
+#
+# 211 system status or HELP reply
+# 214 HELP message
+# 220 <domain> service ready
+# 221 <domain> closing transmission channel
+# 421 <domain> service not available, closing channel
+#
+# 250 requested mail action ok, completed
+# 251 user not local, will forward to <forward path>
+# 252 cannot VRFY user but will accept message and attempt delivery
+# 450 requested mailbox operation not taken: mailbox unavailable (busy etc)
+# 550 requested action not taken: mailbox unavailable (not found, no access)
+# 451 requested action aborted: processing error
+# 551 user not local, try <forward path>
+# 452 action not taken - insufficient storage
+# 552 mail action aborted - exceeded storage
+# 553 action not taken - mailbox name not allowed (i.e. syntax error in mb name)
+# 354 start mail input; end with <CRLF>.<CRLF>
+# 554 transaction failed (or when connection response: no service)
+#
+# Reply format:
+#  Single line:
+#    xyz\r\n
+#    xyz Text\r\n		
+#  Multiline:
+#    xyz-First Line\r\n
+#    xyz-Next Line\r\n
+#    xyz Last Line\r\n
+#
+# 
+
 
 .data
 smtp_commands:
@@ -132,16 +197,25 @@ smtp_states:	# acceptable commands in each state; -1 means no state transition
 .word 0b1100000000000000	# HELP
 .word 0b1100000000000000	# NOOP
 .word 0	# QUIT
-.word 0
+.word 0	# TURN
 .text32
 11:	LOAD_TXT "250 Hello!\r\n"	# HELO
 	jmp	2f
 12:	LOAD_TXT " FROM:<", edi		# MAIL
 	call	smtp_parse_path
 	jnz	501f
+	LOAD_TXT "250 OK\r\n"
+	jmp	2f
 
-13:	jmp	502f			# RCPT
-14:	jmp	502f			# DATA
+13:	LOAD_TXT " TO:<", edi		# RCPT
+	call	smtp_parse_path
+	jnz	501f
+	LOAD_TXT "250 OK\r\n"
+	jmp	2f
+
+14:	LOAD_TXT "354 DATA Ok - end with <CRLF>.<CRLF>\r\n"	# DATA
+	orb	[ebp - 4], 1	# state
+	jmp	2f
 15:	jmp	502f			# RSET
 16:	jmp	502f			# SEND
 17:	jmp	502f			# SOML
@@ -149,8 +223,9 @@ smtp_states:	# acceptable commands in each state; -1 means no state transition
 19:	jmp	502f			# VRFY
 20:	jmp	502f			# EXPN
 21:	jmp	502f			# HELP
-22:	jmp	502f			# NOOP
-23:	stc; jmp 221f			# QUIT
+22:	LOAD_TXT "250 NOOP Ok\r\n"	# NOOP
+	jmp	2f
+23:	stc; jmp 221f#sends 221		# QUIT
 24:	jmp	502f			# TURN
 
 # in: esi = str
@@ -188,6 +263,7 @@ smtp_parse:
 	push	edi
 	push	ecx
 	mov	edi, esi
+
 0:	mov	al, '\n'
 	repnz	scasb
 	jnz	500f
@@ -200,6 +276,31 @@ smtp_parse:
 	printc 11, "SMTP rx: "
 	call	println
 
+	testb	[ebp - 4], 1 # check if in DATA mode and process differently
+	jz	1f	# command mode
+	# data mode
+	# in DATA mode, check for <CRLF>.<CRLF>
+	# text line max len = 1000 (+ 1 for double-dot)
+	# assume that esi is line based, terminated with 0 (\r\n or \n)
+	cmpw	[esi], '.'
+	jnz	3f
+	DEBUG "SMTP: got end of message"
+	andb	[ebp - 4], ~1
+	LOAD_TXT "250 OK\r\n"
+	jmp	2f
+
+	3:DEBUG "SMTP: not end of message"
+	# TODO: append message body
+	# continue parsing:
+	or	ecx, ecx
+	jnz	0b
+	# end of packet
+	clc
+	jmp	9f
+
+
+
+1:	# command mode
 	lodsd
 	and	eax, ~0x20202020	# to uppercase
 	mov	edi, offset smtp_commands
@@ -213,13 +314,14 @@ smtp_parse:
 	jnz	500f
 
 1:	jmp	[edi + 13*4]
-	
+
 502:	LOAD_TXT "502 Not implemented\r\n"
 2:	call	strlen_
 	mov	eax, [esp + 8]	# socket
 	KAPI_CALL socket_write
 	KAPI_CALL socket_flush
 	clc
+9:
 
 221:	pop	ecx
 	pop	edi
@@ -229,5 +331,5 @@ smtp_parse:
 500:	LOAD_TXT "500 Syntax error\r\n"
 	jmp	2b
 
-501:	LOAD_TXT "501 Syntax error in paramters\r\n"
+501:	LOAD_TXT "501 Syntax error in parameters\r\n"
 	jmp	2b
