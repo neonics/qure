@@ -496,6 +496,7 @@ ph_ipv4_udp_dhcp_c2s:
 	popad
 	ret
 
+.if NET_DHCP_DEBUG
 91:	printlnc 14, "DHCP SERVER: not BOOTREQUEST"
 	jmp	9b
 92:	printlnc 12, "DHCP SERVER: unknown hw addrsize"
@@ -516,6 +517,10 @@ ph_ipv4_udp_dhcp_c2s:
 	jmp	9b
 910:	printlnc 12, "DHCP_SERVER: no CLIENT_UUID option"
 	jmp	9b
+.else
+91:; 92:; 93:; 94:; 95:; 96:; 97:; 98:; 99:; 910:; 
+jmp 9b; 
+.endif
 	
 
 dhcp_server_tx_disc_resp:
