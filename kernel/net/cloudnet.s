@@ -30,6 +30,7 @@ CLOUD_VERBOSITY_ACTION_DMZ_IP	= 1	# taking on DMZ IP
 CLOUD_VERBOSITY_PING		= 2	# prints ping action
 CLOUD_VERBOSITY_PING_RESULT	= 1	# prints online nodes
 CLOUD_VERBOSITY_PING_NODELIST	= 3	# prints times for each node
+CLOUD_VERBOSITY_NODE_OFFLINE	= 2	# prints name, ip, mac of offline nodes
 
 # start daemon
 cmd_cloudnetd:
@@ -708,6 +709,8 @@ cluster_check_status:
 	jb	1f
 	#call	cluster_reboot_node
 
+		cmpb	[cloud_verbosity], CLOUD_VERBOSITY_NODE_OFFLINE
+		jb	1f
 		printc 12, "cluster node offline: "
 		push_	eax esi
 		add	eax, esi
