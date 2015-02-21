@@ -1624,7 +1624,7 @@ net_tcp_send:
 		popcolor
 	.endif
 
-	mov	[edi + tcp_windowsize], word ptr 0x20
+	movw	[edi + tcp_windowsize], ((TCP_CONN_BUFFER_SIZE&0xff)<<8)|(TCP_CONN_BUFFER_SIZE>>8) # word ptr 0x20
 
 	mov	[edi + tcp_checksum], word ptr 0
 	mov	[edi + tcp_urgent_ptr], word ptr 0
@@ -1992,8 +1992,9 @@ mov [edx + tcp_conn_remote_mss], eax
 	xchg	al, ah
 	mov	[edi + tcp_flags], ax
 
-	mov	ax, [esi + tcp_windowsize]
-	mov	[edi + tcp_windowsize], ax
+	#mov	ax, [esi + tcp_windowsize]
+	#mov	[edi + tcp_windowsize], ax
+	movw	[edi + tcp_windowsize], ((TCP_CONN_BUFFER_SIZE&0xff)<<8)|(TCP_CONN_BUFFER_SIZE>>8) # word ptr 0x20
 
 	mov	[edi + tcp_checksum], word ptr 0
 	mov	[edi + tcp_urgent_ptr], word ptr 0
