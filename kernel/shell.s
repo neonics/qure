@@ -2070,10 +2070,10 @@ cmd_breakpoint:
 	mov	bl, 1
 	cmp	ax, 'b'
 	jz	1f
-	add	bl, bl
+	inc	bl
 	cmp	ax, 'w'
 	jz	1f
-	add	bl, bl
+	inc	bl
 	cmp	ax, 'd'
 	jz	1f
 	xor	bl, bl
