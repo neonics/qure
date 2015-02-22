@@ -12,12 +12,13 @@
 #
 # Verify if the object file is pe-i386
 $_ = `objdump -a $ARGV[0]` or die;
-if ( /file format pei-/s )
+if ( /file format pei-/s || /file format pe-i/s )
 {
 	$infile = $ARGV[0];
 }
 else
 {
+	warn "file format '$_' requires conversion";
 	$infile = "build/kernel.pe";
 	`objcopy -O pei-i386 $ARGV[0] $infile`;
 	# note: no 'or die' since objcopy returns error on success
