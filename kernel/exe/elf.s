@@ -276,11 +276,9 @@ xor ecx, ecx
 	push	edx
 	retf
 
-1:	mov	edx, cs
-	cmp	edx, SEL_compatCS
-	jz	1f
-	call	SEL_kernelCall:0
 1:
+	ENTER_CPL0
+
 	mov	esp, ebp
 	pop	es
 	pop	ds

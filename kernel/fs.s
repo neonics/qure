@@ -1869,6 +1869,7 @@ fs_close:	# fs_free_handle
 # 
 # in: eax = pointer to path string
 # out: eax = directory handle (pointer to struct), to be freed with fs_close.
+# out: ecx = filesize (if file)
 KAPI_DECLARE fs_openfile
 KAPI_DECLARE fs_opendir
 fs_openfile:
@@ -1880,7 +1881,7 @@ fs_opendir:
 	ret
 
 fs_stat_:
-	call	SEL_kernelCall:0
+	ENTER_CPL0
 # in: eax = path string
 # out: ecx = file size
 # out: al = file/directory attributes XXX TODO posix

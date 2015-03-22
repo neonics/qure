@@ -1251,12 +1251,8 @@ cmd_gfx:
 	or	eax, eax
 	jnz	9f
 
+	ENTER_CPL0 0
 
-	mov	eax, cs
-	and	al, 3
-	jz	1f
-	call	SEL_kernelCall, 0
-1:
 	mov	eax, cr3
 	push	eax
 	mov	eax, [page_directory_phys]
@@ -1320,13 +1316,8 @@ init_textmode$:
 	ret
 
 svga_txt_screen_update:
-	push	eax
-	mov	eax, cs
-	and	al, 3
-	pop	eax
-	jz	1f
-	call	SEL_kernelCall, 0
-1:
+	ENTER_CPL0
+
 	push_	eax ds es
 	mov	eax, SEL_compatDS
 	mov	ds, eax

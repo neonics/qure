@@ -2096,11 +2096,8 @@ cmd_breakpoint:
 	ret
 
 cmd_pic:
-	mov	ax, cs
-	test	al, 3
-	jz	1f
-	call	SEL_kernelCall, 0
-1:	call	pic_get_mask32
+	ENTER_CPL0
+	call	pic_get_mask32
 	mov	dx, ax
 	call	printbin16
 	call	newline
@@ -2848,11 +2845,8 @@ sb_play_wave_file$:
 
 
 cmd_paging:
-	mov	eax, cs
-	and	al, 3
-	jz	1f
-	call	SEL_kernelCall:0
-1:
+	ENTER_CPL0
+
 	cli	# don't allow task switching as it will trash cr3
 
 	mov	eax, cr3

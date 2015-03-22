@@ -441,7 +441,7 @@ sleep:
 	ret
 
 pit_test:
-#	call	SEL_kernelCall:0
+#	ENTER_CPL0
 	mov	ecx, 0
 0:	
 
@@ -488,11 +488,8 @@ last_clock_ms_fp:.long 0,0
 .text32
 # out: edx:eax >> 24 = milliseconds (24 bit fractional part)
 get_time_ms_40_24:
-	mov	eax, cs
-	and	al, 3
-	jz	1f
-	call	SEL_kernelCall:0
-1:
+	ENTER_CPL0
+
 	pushf
 	cli	# lock pit port / disable scheduler
 	MUTEX_SPINLOCK TIME

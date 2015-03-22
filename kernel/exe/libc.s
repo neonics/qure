@@ -30,7 +30,7 @@ _c___main:
 	mov	[proc_ebp], ebp
 
 	.if LIBC_DEBUG
-		#call	SEL_kernelCall:0
+		#ENTER_CPL0
 
 		printc 0xb0, "MAIN!"
 		# remember these for exit..
@@ -50,7 +50,7 @@ _c___main:
 _c_exit:
 	mov	eax, [esp + 4]
 	.if LIBC_DEBUG #NOTE! different behaviour! runs in kernel when enabled
-		call	SEL_kernelCall:0
+		ENTER_CPL0
 		printc	0xb0, "exit "
 		mov	edx, eax
 		call	printdec32
@@ -64,7 +64,7 @@ _c_hello:
 	ret
 
 _c_malloc:
-	call SEL_kernelCall:0
+	ENTER_CPL0
 	printlnc 0xb0, "malloc"
 	ret
 
@@ -107,17 +107,17 @@ _c_asnprintf:
 	ret
 
 _c_lseek:
-	call	SEL_kernelCall:0
+	ENTER_CPL0
 	printlnc 0xb0, "lseek"
 	ret
 
 _c_open:
-	call	SEL_kernelCall:0
+	ENTER_CPL0
 	printlnc 0xb0, "open"
 	ret
 
 _c_perror:
-	call	SEL_kernelCall:0
+	ENTER_CPL0
 	.if LIBC_DEBUG
 		printlnc 0xb0, "perror"
 	.endif
@@ -127,7 +127,7 @@ _c_perror:
 	ret
 
 _c_read:
-	call	SEL_kernelCall:0
+	ENTER_CPL0
 	printlnc 0xb0, "read"
 	ret
 

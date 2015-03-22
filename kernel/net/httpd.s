@@ -60,7 +60,6 @@ net_service_httpd_main:
 	ret
 
 httpd_sched_client:
-	call	SEL_kernelCall:0
 	PUSH_TXT "httpc-"
 	push	dword ptr TASK_FLAG_TASK | TASK_FLAG_RING_SERVICE
 	push	cs
@@ -1075,8 +1074,8 @@ expr_krnl_get_data_size:
 # in: [ebp+4] = www_file (the file containing the expression)
 #[in: edi,ecx=1kb expr buffer]
 expr_include:
-		DEBUG "include"
-		DEBUGS ebx
+	#	DEBUG "include"
+	#	DEBUGS ebx
 	pushad
 
 	# use static www_file$

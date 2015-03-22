@@ -753,12 +753,8 @@ paging_show_struct:
 
 # this method is user callable.
 paging_show_task_struct:
-	push_	eax esi
-	mov	eax, cs
-	and	al, 3
-	jz	1f
-	call	SEL_kernelCall, 0
-1:	cli
+	ENTER_CPL0
+	cli
 	mov	esi, cr3
 	push	esi
 	mov	eax, [page_directory_phys]

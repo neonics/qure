@@ -216,7 +216,7 @@ pm_gdtr:.word . - GDT -1
 rm_gdtr:.word 0
 	.long 0
 
-.endif
+.endif # DEFINE
 
 .ifndef __GDT_DECLARED
 __GDT_DECLARED=1
@@ -794,7 +794,35 @@ _MEH2:
 	pop_	ecx ebx eax
 	ret
 
+.endif	# DEFINE
+
 .text32
+
+# This macro registers a call to SEL_kernelCall in a special segment.
+# The kernel_callgate method will check whether the caller is allowed
+# to enter kernel mode.
+.macro ENTER_CPL0 preserve_eax=1
+	.section .kernel_callgate
+		.long 9011f	# register return address
+	.text32
+	# test if we aren't already in CPL0
+	.if \preserve_eax
+		push	eax
+		mov	eax, cs
+		and	al, 3
+		pop	eax
+	.else
+		mov	eax, cs
+		and	al, 3
+	.endif
+	jz	9011f
+	call	SEL_kernelCall, 0
+9011:	# in CPL0. See kernel_callgate below.
+	# ret to exit CPL0.
+.endm
+
+.if DEFINE
+
 # This method at current can be called from anywhere, using:
 # 	call SEL_kernelCall:whatever
 # and it will return with cs in kernel mode. The stack will be modified
@@ -915,9 +943,29 @@ kernel_callgate:
 	mov	ds, edx
 	mov	es, edx
 	pop	edx
+
+	# check if the call was made from a registered position 
+	push_	edi ecx eax
+	mov	edi, offset data_kernel_callgate_start
+	mov	ecx, offset KERNEL_CALLGATE_NUM_CALLS
+	mov	eax, [esp + 8 + 12]	# the 'call SEL_kernelCall,0' return address
+#printc 0xf0, "KC"
+#DEBUG_DWORD ecx
+#DEBUG_DWORD eax
+	repnz	scasd
+	pop_	eax ecx edi
+	jz	1f
+	printc	0xf4, "Kernel callgate called from illegal address: "
+	pushd	[esp + 8]
+	call	_s_printhex8
+	call	newline
+	jmp	2f	# skip the privileged caller call
+1:
+	######## call the caller
 	call	[esp + 8]
 
-	###################
+
+	######## return to caller
 	push	ebp
 	lea	ebp, [esp + 12]
 	pushf
@@ -935,7 +983,7 @@ kernel_callgate:
 	popf
 	pop	ebp
 	####################
-
+2:
 	pop	ds
 	pop	es
 .if 0

@@ -77,6 +77,29 @@ SECTIONS
 		data_kapi_end = .;
 	}
 
+
+	.kernel_callgate :
+	{
+		/* -- Kernel Callgate */
+		data_kernel_callgate_start = .;
+		*(.kernel_callgate)
+		data_kernel_callgate_end   = .;
+		KERNEL_CALLGATE_NUM_CALLS = ABSOLUTE( (data_kernel_callgate_end - data_kernel_callgate_start)/4 );
+	}
+
+	.nethandler :
+	{
+		data_nethandler_start = .;
+		*(.nethandler)	/* in case kernel.link-sections */
+		data_nethandler_ports = .;
+		*(.nethandler$ports)
+		data_nethandler_names = .;
+		*(.nethandler$names)
+		data_nethandler_end = .;
+		NETHANDLER_COUNT = ABSOLUTE( (data_nethandler_end - data_nethandler_start) / (2+4+4) );
+	}
+
+
 	.shellcmd :
 	{
 		*(.shellcmd)
