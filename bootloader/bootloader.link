@@ -1,0 +1,50 @@
+/* Script for ld -r: link without relocation */
+
+/* http://sourceware.org/binutils/docs/ld/Builtin-Functions.html#Builtin-Functions */
+
+OUTPUT_FORMAT(pe-i386)
+SEARCH_DIR("/usr/i686-cygwin/lib"); SEARCH_DIR("/usr/lib"); SEARCH_DIR("/usr/lib/w32api");
+SECTIONS
+{
+/*  --image-base 0x...
+	__ImageBase = 0;
+	__image_base__ = 0;
+*/
+
+  .text : 
+  {
+		kernel_start = . ;
+		KERNEL_START = . ;
+
+		/* Realmode Kernel */
+
+		*(.text)
+		*(.data)
+  }
+
+  /DISCARD/	: { *(.sig) }
+
+  /*
+  .data  :
+  {
+    *(.data)
+    *(.data2)
+    *(.jcr)
+  }
+  */
+
+  .rdata  :
+  {
+    *(.rdata)
+    *(.rdata_runtime_pseudo_reloc)
+  }
+  .eh_frame	: { *(.eh_frame*) }
+  .pdata		: { *(.pdata) }
+  .edata		: { *(.edata) }
+  .idata		: { }
+  .tls			: { }
+  .rsrc			: { *(.rsrc) }
+  .reloc		: { *(.reloc) }
+  .stab			: { *(.stab) }
+  .stabstr	: { *(.stabstr) }
+}

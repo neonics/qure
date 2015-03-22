@@ -78,9 +78,9 @@ root/boot/boot.img: build/boot.img
 	@echo "  COPY  $< $@"
 	@cp --sparse=always build/boot.img root/boot/boot.img
 
-root/boot/pxeboot.img: build/pxeboot.img
+root/boot/pxeboot.img: build/pxeboot.bin
 	@echo "  COPY  $< $@"
-	@cp build/pxeboot.img root/boot/pxeboot.img
+	@cp $< $@
 
 BOOT_DEPS = build/boot.bin build/kernel.bin build/kernel.reloc \
 	build/kernel.sym build/kernel.stabs
@@ -102,8 +102,8 @@ build/boot.bin: FORCE | init
 	$(call MAKE,bootloader) && cp -u bootloader/boot.bin $@
 
 # temporary: copy bootloader bin
-build/pxeboot.img: FORCE | init
-	$(call MAKE,bootloader) && cp -u bootloader/boot.bin $@
+build/pxeboot.bin: FORCE | init
+	$(call MAKE,bootloader) && cp -u bootloader/pxeboot.bin $@
 
 # kernel
 build/kernel.bin: FORCE fonts build/coff.exe util

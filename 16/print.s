@@ -21,6 +21,7 @@ cls:
 # uses: ax, dx, di
 # arg: dx
 .if BOOTSECTOR
+.print "bootsector - not defining."
 .else
 #.print " * including printhex2"
 printhex2:
@@ -113,7 +114,12 @@ print:	lodsb
 .endif
 
 
-.macro PRINTHEX r
+.macro PRINTCHAR c
+	mov	al, \c
+	stosw
+.endm
+
+.macro PRINTHEX r=dx
 	.if \r eq dx
 	call	printhex
 	.else
@@ -125,25 +131,25 @@ print:	lodsb
 .endm
 
 .macro PRINT a
-	PRINT_16 a
+	PRINT_16 "\a"
 .endm
 
 .macro	PRINT_16 a
 	.data
-	9: .asciz "\a"
+	109: .asciz "\a"
 	.text
 	push	si
-	mov	si, offset 9b
+	mov	si, offset 109b
 	call	print
 	pop	si
 .endm
 
 .macro PRINTLN a
 	.data
-	9: .asciz "\a"
+	109: .asciz "\a"
 	.text
 	push	si
-	mov	si, offset 9b
+	mov	si, offset 109b
 	call	println
 	pop	si
 .endm
