@@ -1,0 +1,496 @@
+
+Abstract protocol Overview
+==========================
+
+Protocol initiation
+
+	-> Hello
+	<- Hello 
+
+
+Conversation
+	
+	parallell {
+		initiative
+		response
+	}
+
+
+
+Protocol termination
+
+	-> bye
+	<- bye
+
+(note the recursion:
+
+
+	A
+		a
+		z
+	m
+		a
+		z
+	Z
+		a
+		z
+)
+
+
+We can also use other symbols:
+
+	I
+		?	Hello
+		?	Hello
+	C
+		?	initiative
+		!	response
+
+	T	!	bye
+		!	bye
+
+
+
+TCP
+===
+
+The official TCP protocol specification of the initiative/response states
+is asymmetrical (see below) and far too complex.
+
+== Connection States ==
+
+The TCP implementation of this kernel doesn't use the 11 distinct states,
+but allows for 256 structured states. The low 4 bits deal with the SYN
+sequence, and the high 4 bits with the FIN sequence. The high 2 bits of each
+of these concern local initiation, whereas the low 2 bits concern responding
+to remotely originating requests. The low bit of each of these pairs refers to 
+a request, the high bit to it's response.
+Thus:
+
+						# FFFFSSSS	F=FIN, S=SYN
+						# ttrrttrr	t=transmit, r=receive
+						# !?!?!?!?	!=ack,  ?=ACK||SYN
+	TCP_CONN_STATE_SYN_RX           = 1	# 00000001 # SYN; incoming; ?
+	TCP_CONN_STATE_SYN_ACK_TX       = 2	# 00000010 # SYN: incoming; !
+	TCP_CONN_STATE_SYN_TX           = 4	# 00000100 # SYN: outgoing; ?
+	TCP_CONN_STATE_SYN_ACK_RX       = 8	# 00001000 # SYN: outgoing; !
+	TCP_CONN_STATE_FIN_RX           = 16	# 00010000 # FIN: incoming; ?
+	TCP_CONN_STATE_FIN_ACK_TX       = 32	# 00100000 # FIN: incoming; !
+	TCP_CONN_STATE_FIN_TX           = 64	# 01000000 # FIN: outgoing; ?
+	TCP_CONN_STATE_FIN_ACK_RX       = 128	# 10000000 # FIN: outgoing; !
+
+These are the states in the RFC:
+
+	TCP_CONN_STATE_LISTEN           = 1     # wait conn req from remote (wait for rx SYN)
+	TCP_CONN_STATE_SYN_SENT         = 2     # wait match conn req after tx conn req         (wait rx SYN after tx SYN)
+	TCP_CONN_STATE_SYN_RECEIVED     = 3     # wait conn req ack after rx AND tx conn req    (wait rx ACK for tx SYN after rx AND tx SYN)
+	TCP_CONN_STATE_ESTABLISHED      = 4     # open connection, normal
+	TCP_CONN_STATE_FIN_WAIT_1       = 5     # wait rx (fin | ack for tx fin)                we sent FIN, but haven't received any yet
+	TCP_CONN_STATE_FIN_WAIT_2       = 6     # wait rx fin (wait rx FIN)
+	TCP_CONN_STATE_CLOSE_WAIT       = 7     # wait local close command from 'local user'    # we received FIN, haven't sent FIN yet
+	TCP_CONN_STATE_CLOSING          = 8     # wait rx ack for tx fin (wait rx ACK on tx FIN)
+	TCP_CONN_STATE_LAST_ACK         = 9     # wait rx ack for tx fin (wait rx ACK on tx FIN including ACK on its tx FIN)
+	TCP_CONN_STATE_TIME_WAIT        = 10    # delay ensure remote rx ack for rx fin         (wait until remote has rx ACK our tx ACK on its tx FIN)
+	TCP_CONN_STATE_CLOSED           = 11    # fictional: no conn state; both start and end.
+
+Here we see 3 states before ESTABLISHED and 7 after it: asymmetrical.
+
+
+== State transition Grammar ==
+
+State grammar for the three-way-handshake state transition diagram:
+
+
+			# legend:
+			# | event;
+			# -(xxxx)-> action/state transition
+
+
+	0000 CLOSED
+		: PASSIVE_OPEN	{ nop;    LISTEN; }	# 0000
+		| ACTIVE_OPEN	{ tx SYN; SYN_SENT }	# 0000      -(0100)-> 0100
+		;
+
+	0000 LISTEN
+		: rx SYN  	{ tx SYN ACK; SYN_RCVD}	# 0000|0001 -(0110) -> 0111
+		;
+	
+	0100 SYN_SENT 
+		: rx SYN ACK	{ tx ACK; ESTABLISHED }	# 0100|1001 -(0010)-> 1111
+		| rx SYN	{ tx ACK; SYN_RCVD }	# 0100|0001 -(0010)-> 0111                      
+		;
+	
+	0111 SYN_RCVD
+		: rx ACK 1	{ nop;    ESTABLISHED }	# 0111|1000 --------> 1111
+		;
+
+	1111 ESTABLISHED:
+		...
+		;
+		
+
+Now for the top 4 bits:
+
+
+	0000 ESTABLISHED
+		: CLOSE		{ tx FIN; FIN_WAIT_1; }	# 0000      -(0100)-> 0100
+		| rx FIN	{ tx ACK; CLOSE_WAIT; }	# 0000|0001 -(0010)-> 0011
+		;
+
+	0100 FIN_WAIT_1:
+		: rx ACK	{ nop;    FIN_WAIT_2; }	# 0100|1000 --------> 1100
+		| rx FIN	{ tx ACK; CLOSING;    }	# 0100|0001 -(0010)-> 0111
+		;
+
+	1100 FIN_WAIT_2:
+		: rx FIN	{ tx ACK; TIME_WAIT;  } # 1100|0001 -(0010)-> 1111
+		;
+
+	0111 CLOSING
+		: rx ACK	{ nop;    TIME_WAIT;  }	# 0111|1000 --------> 1111
+		
+	
+	1111 TIME_WAIT
+		: 		{ wait(2MSL); CLOSED; }	# 1111
+
+
+	0011 CLOSE_WAIT
+		: CLOSE		{ tx FIN; LAST_ACK; }	# 0011 -(0100)-> 0111
+		;
+
+	0111 LAST_ACK
+		: rx ACK	{ nop;    CLOSED; }	# 0111|1000 -> 1111
+		;
+	
+	1111 CLOSED
+		:		{ delete TCB;}
+
+
+
+The mapping of the TCP states then is:
+
+
+					  FIN_ SYN_	# the initiation/termination flags
+					  TXRX TXRX	# TX = transmitted, RX = received
+					  !?!? !?!?	# ? = received; ! = + ACK sent
+	TCP_CONN_STATE_LISTEN           = 0000 0000	
+	TCP_CONN_STATE_SYN_SENT         = 0000 0100	
+	TCP_CONN_STATE_SYN_RECEIVED     = 0000 0111	
+	TCP_CONN_STATE_ESTABLISHED      = 0000 1111
+	TCP_CONN_STATE_FIN_WAIT_1       = 0100 1111
+	TCP_CONN_STATE_FIN_WAIT_2       = 1100 1111
+	TCP_CONN_STATE_CLOSE_WAIT       = 0011 1111
+	TCP_CONN_STATE_CLOSING          = 0111 1111	# same as LAST_ACK!
+	TCP_CONN_STATE_LAST_ACK         = 0111 1111	# same as CLOSING!
+	TCP_CONN_STATE_TIME_WAIT        = 1111 1111	# same as CLOSED!
+	TCP_CONN_STATE_CLOSED           = 1111 1111	# same as TIME_WAIT!
+
+
+
+The connection state register can hold 8 bits, and thus represent 256
+different states, 245 of which are invalid according to [rfc:RFC793].
+
+Without defining state there are virtually infinite possible state transitions.
+The first limitation imposed on the 256 possible states
+is that once a state bit is set, it is never unset.  This limits the initial number
+of possible state transitions from infinite to 8*7*6*5*4*3*2*1 = 40320. 
+
+
+The state transitioning code will not allow a FIN bit to be set until all 4
+SYN bits are set. Therefore, there are 4*3*2*1 = 24 possible SYN states so
+far. This goes for the FIN states too, making a total of 24*24 = 576 possible states.
+
+Each high pair of bits in a nybble deals with sending the flag, and
+each low pair deals with receiving the flag. This is done in such a way
+the the high bit of a pair is only set in response to the low bit being set.
+We thus introduce 4 conditional bits. For a single flag, the possible states
+are 2*2 = 4 (2 for either receiving or sending the flag, and 2 for either
+sending or receiving the acknowledgement). We then have 4+4=8 possible states
+total (using + because of the SYN->FIN sequence).
+
+Here are all possible states for a connection state flag:
+
+	0000	LISTEN
+	
+	0001	rx SYN
+	0011	tx ACK
+
+	0100	tx SYN
+	1100	rx ACK
+
+	1111	ESTABLISHED
+
+where 0001/0011 are independent of 0100/1100.
+
+
+Illegal states:
+
+	10??	(4)
+	??10	(4)
+
+
+Actual States for the server:
+
+	0000	LISTEN
+	
+	0111	rx SYN => tx SYN,ACK	( 0000 | 0001 -(0110)-> 0111 )
+	1111	rx ACK
+
+	1111	ESTABLISHED
+
+
+Actual states for the client:
+
+	0000	LISTEN
+	
+	0100	tx SYN
+	0111	rx SYN     => tx ACK	( 0100 | 1001 -(0010)-> 1111 )
+	1100	rx SYN,ACK => tx ACK	( 0100 | 1001 -(0010)-> 1111 )
+
+	1111	ESTABLISHED
+
+
+
+For the FIN there are more states, since it does not have the restriction that
+SYN has of it having to be executed bidirectionally.
+Decoupling the two channels makes for much simpler code aswell as allowing
+unidirectional channels. A client may negotiate a SYN with a server, which
+may ACK but does not SYN until it has parsed the request and found a need
+to respond. It would then be possible to repeatedly open and close a channel.
+A client may negotiate a FIN while the server-to-client stream is kept open.
+This will allow the server to release the buffers associated with that side of
+the stream.  At a later point, the client may send another SYN over the same TCP
+connection along with some data. The server would then allocate a window to
+process the request. It can send an ACK to both the new SYN aswell as the
+data. In this way, no extra space is needed - only a bit that is normally set
+to 0 is set to 1 (SYN) on the request; the response to it will merely count
+the SYN bit in the ACK-ed sequence. The server might ACK the SYN (seq+=1)
+but not the data, if it needs another round trip to allocate the resources,
+in which case the client will resend the packet, this time without the SYN
+bit set as it is already negotiated. This time the server will accept data.
+
+
+==== What effect does it have to decouple the channels? ====
+
+(line, stream, channel: all the same, referring to one side of a bidirectional
+send-receive connection).
+
+If the kernel were to only keep 2-bit state of one side of one flag, that is,
+2 bits for sending the flag and receiving the ACK, and
+2 bits for receiving the flag and sending the ACK,
+aswell as establishing that SYN must complete before FIN,
+then it can effectively manage the opening and closing of each side of
+the connection independently.
+
+There don't seem to be any problems with managing the FIN state that way;
+the 7 states are more than are needed:
+
+	0000 1111	ESTABLISHED
+	0011 1111	rx FIN (0001) tx ACK (0010)	CLOSE_WAIT
+	0111 1111	tx FIN (0100)			CLOSING/LAST_ACK
+	0100 1111	tx FIN (0100)			FIN_WAIT_1
+	1100 1111	rx ACK (1000)			FIN_WAIT_2
+	1111 1111	CLOSED
+
+In effect, not counting ESTABLISHED and CLOSED, there are only 4 states
+needed. If we look at the bit patterns of the official states
+and remove ESTABLISHED and CLOSED and reduce the duplicates CLOSING/LAST_ACK 
+and TIME_WAIT/CLOSED, we have:
+
+	TCP_CONN_STATE_FIN_WAIT_1       = 0100 1111
+	TCP_CONN_STATE_FIN_WAIT_2       = 1100 1111
+	TCP_CONN_STATE_CLOSE_WAIT       = 0011 1111
+	TCP_CONN_STATE_CLOSING/LAST_ACK = 0111 1111
+
+
+As such, the TCP implementation using separate channels will behave as specified
+in the RFC, with the proviso that it must tx SYN when it ACKs the rx SYN,
+which it does, since the underlying protocol handlers provide the response.
+
+
+The code can then become much simpler.
+
+		SYN=0
+		FIN=4
+		RX=0
+		TX=2
+		# in: al = conn_flags
+		# in: ah = packet flags
+		# in: edx = sequence from packet
+		# out: al ||= 0b11 << [0,2,4,6]
+		.macro TEST_FLAG flag, direction
+
+			and	al, ~0b0010	# sent ack bit => send ack bit
+
+			test	ah, TCP_FLAG_\flag
+			jz	1f	# not set
+			test	al, 1 << (\flag + \direction)	# rx \flag before?
+			jz	2f	# no: ok
+
+			# duplicate! Let's check if the sequence is the same,
+			# in which case it is a retransmission
+			cmp	edx, [ebx + tcp_conn_seq_\flag\()_rx]
+			jnz	tcp_send_rst	# we can deal with retransmission but not this
+
+		2:	mov	[ebx + tcp_conn_seq_\flag\()_rx], edx	
+
+			# ok so we have received the flag, we must send
+			# response:
+
+			or	al, 1+2 << \shift	# rx ACK + tx ACK
+		1:
+		.endm
+
+
+	# in: ebx = tcp_conn struct pointer
+	# in: esi = tcp in frame pointer
+	# in: edi = tcp out frame pointer
+	tcp_receive:
+		mov	al, [ebx + tcp_conn_flags]
+		mov	ah, [esi + tcp_flags + 1]	# get the low 8 bits
+		mov	edx, [esi + tcp_seq_nr]
+		bswap	edx
+		mov	ecx, [ebx + tcp_conn_local_seq]
+
+		cmp	al, 0b00001111
+		jae	established	# always 1 jump deciding SYN/FIN
+
+	initiating:	
+		TEST_FLAG SYN RX
+
+		test	al, 1 << (SYN + RX)	# rx SYN?
+		jz	1f			# no
+		test	al, 2 << (SYN + RX)	# yes: tx ACK? (send ack bit?)
+		jz	1f			# no
+		inc	edx			# count the flag
+		or	ah, TCP_FLAG_ACK	# ack 
+	1:	
+		test	al, 0b1000		# is our SYN ACKed?
+		jnz	1f			# yes; skip
+		or	ah, TCP_FLAG_SYN	# no, send it
+		inc	ecx			# and count it
+	1:
+		jmp	tcp_respond
+
+
+	established:
+		TEST_FLAG FIN RX		# out: al = 0 or 0b0011 0000
+
+		test	al, 1 << (FIN + RX)	# rx FIN?
+		jz	1f
+
+			test	al, 2 << (FIN + RX)	# acked FIN?
+			jz	2f			# no - good
+
+				cmp	edx, [ebx + tcp_conn_remote_fin_seq]
+				jz	2f	# it's a retransmission
+				# TODO: error
+			2:
+
+			#
+
+			tx fin
+
+
+		1:
+
+
+		test	al, 2 << (FIN + RX)	# tx ACK? (send ack bit?)
+		jz	1f
+		inc	edx		# count the flag
+		or	ah, TCP_FLAG_SYN
+	1:	
+	# fallthrough KEEP-WITH-NEXT
+
+	# in: edi = tcp out frame
+	# in: edx = seq
+	# in: ah = flags
+	tcp_respond:
+		...
+		ret
+
+
+
+So, we split the code into two parts: analyzing the packet, setting action
+bits, and the sending code that updates the packets, sets the correct flags,
+sequence numbers etc.
+
+	tcp_respond:
+		test	al, TCP_CONN_STATE_(FIN|SYN)_ACK_TX
+		jz	1f
+
+			or	ah, TCP_FLAG_ACK
+			inc	edx
+
+		1:
+
+		test	al, TCP_CONN_STATE_(FIN_SYN)_TX
+		jz	1f
+			
+			or	ah, TCP_FLAG_(FIN|SYN)
+			inc	ecx
+
+		1:
+
+		xor	al, al
+		mov	[edi + tcp_flags], ax	# ah = low 8 bits
+
+		mov	[ebx + tcp_conn_local_seq], ecx
+		bswap	ecx
+		mov	[edi + tcp_seq_nr], ecx
+
+		mov	[ebx + tcp_conn_remote_seq], ecx
+		bswap	edx
+		mov	[edi + tcp_ack_nr], edx
+
+		ret
+
+
+
+== TCP Header Flags ==
+
+		TCP_FLAG_RESERVED       = 7 << 9
+		TCP_FLAG_NS             = 1 << 8 # NS: ECN NONCE concealment
+		TCP_FLAG_CWR            = 1 << 7 # congestion window reduced
+		TCP_FLAG_ECE            = 1 << 6 # ECN-Echo indicator: SN=ECN cap
+		TCP_FLAG_URG            = 1 << 5 # urgent pointer field significant
+		TCP_FLAG_ACK            = 1 << 4 # acknowledgement field significant
+		TCP_FLAG_PSH            = 1 << 3 # push function (send buf data to app)
+		TCP_FLAG_RST            = 1 << 2 # reset connection
+		TCP_FLAG_SYN            = 1 << 1 # synchronize seq nrs
+		TCP_FLAG_FIN            = 1 << 0 # no more data from sender.
+
+The "flags" are aptly named, as they represent the visual queues from the
+conversation partner, whereas the conversation content will be audible words.
+Ofcourse, sound can be made visible, as can light be made audible. The flags
+'register' in the TCP header is an always present constant channel no matter
+the content or what is said about it.
+
+The connection boundaries are the SYN ("Hello") and FIN ("Bye") flags,
+since they determine whether any of the two - independent, multiplexed,
+unidirectional - lines, representing a mutually binary connection, are actively used.
+
+A connection always implies that it
+is shared equally: it is what both have in common. If one is able to receive,
+the other is able to receive, and, the other must be able to send, otherwise
+receiving becomes meaningless, and therefore, one must be able to send.
+Thus, as soon as any party has the means to either receive or send,
+all parties (including any party) have the means to both receive and send.
+
+
+
+Before a conversation is begun, a flag must be raised by the initiating party.
+The responding party will also raise that same flag, twice, to indicate it
+has seen the first flag. Twice, because the meaning of holding up only one flag
+in response to one flag is ambiguous: to reflect initiative does not indicate
+a response to initiative. Both parties could have decided to initiate
+conversation simultaneously[footnote: within a number of minutes].
+Ofcourse, such limitations do not apply when the flags have predetermined location
+and meaning.
+
+The initiating party raises the SYN flag.
+The responding party raises the SYN flag and the ACK flag. One could say that
+the ACK flag ACKs the SYN flag, but TCP inserts the conversation boundaries[footnote: beginning and ending]
+into the conversation tracker: it counts it as a byte of content, without it taking
+any space. This makes the conversation sequential.
+

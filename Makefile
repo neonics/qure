@@ -194,6 +194,7 @@ root/www/doc/%.html: RP = $(shell echo $(patsubst %,../,$(subst /, ,$(dir $<)))|
 root/www/doc/%.html: DOC/%.txt $(HTMLDEPS)
 	@[ -d root/www/doc ] || mkdir root/www/doc
 	@[ -d root/www/doc/notes ] || mkdir root/www/doc/notes
+	@[ -d root/www/doc/Design ] || mkdir root/www/doc/Design
 	@echo "  HTML  $@"
 	@util/txt2html.pl \
 		--rawtitle $(lastword $(subst /, ,$<)) \
@@ -228,7 +229,7 @@ site-doc: root/www/doc.inc root/www/doc/index.html
 	root/www/doc/src/tree.inc \
 	root/www/doc/src/tree.html
 
-site-src:
+site-src: fonts
 	make -s --no-print-directory -C kernel ../root/www/doc/src/src.ref
 
 root/www/doc.inc: $(WWW_DOC) $(HTML_DOC) util/doctools.pl DOC/.index

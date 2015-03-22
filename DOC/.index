@@ -36,6 +36,8 @@ Architecture.txt
 # Compression-Stabs.txt
 # DNS.txt
 =Design
+  Design/TCP_Protocol.txt
+  Instructions.txt
   Filesystem.txt
     OOFS.txt
     GitFS.txt

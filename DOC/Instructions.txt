@@ -1,0 +1,397 @@
+
+=(WIP!)=
+
+The kernel might be able to be compressed, by finding all
+possible instructions and their parameters, detecting constants
+and variables.
+
+The most used instruction will be 'mov', the least used 'gdtr' etc.
+
+
+We will then end up with a couple of hands of instructions (especially
+that few if we group all js/jnbe etc).
+
+In effect, the entire kernel is then merely say 23-26 instructions,
+repeated in different numbers (order and quantity), with different
+variables and constants.
+
+At this time,
+
+	cat `find kernel/ -name \*.s` | \
+	perl -ne 's/^#*//; s/^\s*//; s/\s*$//; length( $_ ) and print $_,"\n"'|wc
+	  76236  296733 1800562
+
+that is, 1.8 million characters (without comments),
+almost 300.000 words, and 76 thousand lines.
+
+
+Removing labels and lines where the first word is not lowercase (as only
+constants, macros and such are capitalized in the code):
+
+	 cat `find kernel/ -name \*.s` | perl -ne 's/#.*//;
+	 s/^\s*[a-z0-9_\$\(\)\\]+://;s/^\..+//; s/^\s*//; s/\s*$//; /^([a-z]+)/ and
+	 print $_,"\n"'| wc
+	   42074  125143  691565
+
+This is roughly 40 thousand instructions. Now lets see how many unique ones:
+
+
+	cat `find kernel/ -name \*.s` | perl -ne 's/#.*//;
+	s/^\s*[a-zA-Z0-9_\$\(\)\\]+://;s/^\..+//; s/^\s*//; s/\s*$//; /^([a-z]+)/ and
+	print $1,"\n"' | sort | uniq|wc
+	    195     195    1004
+	# still some errors, but:
+
+
+The kernel consists of 155 instructions:
+
+
+System instructions:
+
+	cpuid
+	hlt
+	nop
+
+	verr	# gdt table lookup
+	lsl	# idem
+
+	lgdt	# protected mode
+	lidt	# interrupts
+	lldt
+	sgdt
+	sidt
+	sldt
+
+	ltr	# context switching
+	str
+	rdtsc	# (unused) timestamp
+
+	invlpg	# paging
+
+	wrmsr		# (unused) kernel call
+	rdmsr
+	sysenter
+	sysexit
+
+
+Interrupts:
+	int	# debugger
+	iret
+
+
+IO:
+	in
+	out
+	outw
+	# (ins/outs apparently not used - ata PIO used it)
+
+
+
+Integer Math:
+
+	lea		# V = [R1 + R2*{1,2,4,8} + C]
+
+	mov		# equation
+	movb
+	movsx
+	movw
+	movzx
+
+
+	adc
+	adcd
+	add
+	addd
+
+	sbb
+	sub
+	subd
+	subw
+
+	mul
+	div
+	idiv
+	imul
+
+	inc
+	incd
+
+	dec
+	decb
+	decd
+
+	neg		#  1 + not
+
+	rcr
+	rol
+	ror
+	sar
+
+	shl
+	shld
+	shr
+	shrd
+
+Transformation:
+
+	xchg
+	bswap		# big/little endian conversion; net/, pci.s, ata.s
+	xlatb		# small table lookup
+
+
+Segment register:
+	les
+	lss		# stack switching; usually iret
+
+
+Boolean Math:
+	and
+	andb
+	andd
+
+	or
+	orb
+	ord
+
+	xor
+	xorb
+
+	not
+
+	bsf		# bit manipulation
+	bsr
+	bt		
+	btr
+	bts
+
+
+
+Methods:
+	call
+	lcall
+
+	enter
+
+	push
+	pushad
+	pushd
+	pushf
+	pushfd
+	pushw
+
+
+	pop
+	popad
+	popd
+	popf
+	popfd
+	popw
+
+	leave
+
+	ret
+	retf
+
+Flag Register manipulation:
+	stc
+	std
+	sti
+	clc
+	cld
+	cli
+	setc
+	cmc
+	lahf
+	sahf
+
+String operations:
+	rep
+	repne
+	repnz
+	repz
+
+	lodsb
+	lodsd
+	lodsw
+
+	stosb
+	stosd
+	stosw
+
+	movsb
+	movsd
+	movsw
+
+	scasb
+	scasd
+	scasw
+
+
+Conditionals:
+	cmp	# arithmetic subtraction only affecting flags
+	cmpb
+	cmpd
+	cmpsd
+	cmpsw
+	cmpw
+
+	test	# bitmask testing
+	testb
+	testd
+	testw
+
+Branching:
+	ja
+	jae
+	jb
+	jbe
+	jc
+	je
+	jecxz
+	jg
+	jge
+	jl
+	jle
+	jmp	
+	ljmp
+	jnb
+	jnbe
+	jnc
+	jne
+	jnl
+	jnle
+	jns
+	jnz
+	js
+	jz
+
+	loop
+	loopnz
+
+
+Ofcourse, some instructions are multi purpose so this categorisation
+is an approximation.
+
+
+= Reduction =
+If we strip the size of the operands:
+
+
+System/IO instructions: (12)
+	cpuid
+	hlt
+	nop
+
+	verr / lsl
+	lgdt / lidt / lldt  /  sgdt / sidt / sldt
+
+	ltr / str	# context switching
+	rdtsc		# (unused) timestamp
+
+	invlpg	# paging
+
+	wrmsr / rdmsr		# (unused) kernel call
+	sysenter
+	sysexit
+
+	in / out
+
+
+Integer Math: (13)
+
+	lea		# V = [R1 + R2*{1,2,4,8} + C]
+
+	mov
+
+	add / adc
+	sub / sbb
+	mul / imul
+	div / idiv
+
+	inc
+	dec
+
+	neg		#  1 + not
+
+	shl 		# no sal
+	rcr		# no rcl
+	rol / ror
+	shr / sar
+
+Transformation: (4)
+
+	xchg
+	bswap		# big/little endian conversion; net/, pci.s, ata.s
+	xlatb		# small table lookup
+	movzx / movsx	# mov and mask out other bits
+
+Segment register: 
+	les / lss
+
+Boolean Math: (6)
+
+	and
+	or
+	xor
+	not
+	bsf / bsr
+	bt / btr / bts	# semaphores etc
+
+
+Methods: (8)
+	int
+	call
+	enter
+	push
+	pop
+	leave
+	ret
+	iret
+
+Flag Register manipulation: (4)
+	stc / std / sti
+	clc / cld / cli
+	setc / cmc
+	lahf / sahf
+
+String operations: (6)
+	rep / repnz / repz
+
+	lods
+	stos
+	movs
+	scas
+	cmps
+
+Conditionals: (1)
+	cmp / test
+
+Branching: (3 instructions)
+	jecxz
+	loop / loopnz
+	ja / jae / jb / jbe / jc / je / jg / jge / jl / jle / 
+	jmp
+	jn / jnb / jnbe / jnc / jne / jnl / jnle / jns / jnz / js / jz
+
+
+
+
+===========
+
+
+System/IO instructions: (12)
+Integer Math: (13)
+Transformation: (4)
+Segment register:  (1)
+Boolean Math: (6)
+Methods: (8)
+Flag Register manipulation: (4)
+String operations: (1+5)
+Conditionals: (1)
+Branching: (3)
+
+This can be further reduced by abstracting writing to control registers (GDT,
+MSR etc).
+Without size, sign, or conditional flags variations the essential instructions
+needed are less than: 12+13+3+1+6+8+4+6+2+3 = 58.
+
