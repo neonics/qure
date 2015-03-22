@@ -10,7 +10,7 @@ MUTEX_ASSERT = 3
 # 2: also print the mutexes and process list
 # 3: and finally, invoke debugger
 
-MUTEX_SPINLOCK_TIMEOUT=100	# number of yields; 0=no timeout.
+MUTEX_SPINLOCK_TIMEOUT=20	# number of yields; 0=no timeout.
 
 
 .if DEFINE
@@ -166,7 +166,7 @@ mutex_fail$:
 	call	_s_println
 	.if MUTEX_ASSERT > 1
 		call	mutex_print
-		call	cmd_ps$
+#		call	cmd_ps$
 	.endif
 	.if MUTEX_ASSERT > 2
 		int 3
@@ -244,6 +244,9 @@ mutex_print:
 	printc_ 11, "mutex: "
 	mov	edx, [mutex]
 	call	nprintbin
+	printc_ 11, " current task: "
+	pushd	[scheduler_current_task_idx]
+	call	_s_printhex4
 	call	newline
 	mov	ebx, edx
 
@@ -287,9 +290,9 @@ mutex_print:
 
 	mov	eax, NUM_MUTEXES
 	sub	eax, ecx
-#	mov	edx, [mutex_lock_time + eax * 4]
-#	call	printhex8
-#	call	printspace
+	mov	edx, [mutex_lock_time + eax * 4]
+	call	printhex8
+	call	printspace
 
 	mov	edx, [mutex_lock_task + eax * 4]
 	add	edx, [task_queue]
@@ -318,9 +321,9 @@ mutex_print:
 	mov	edx, [mutex_released + eax * 4]
 	call	printhex8
 	call	printspace
-#	mov	edx, [mutex_unlock_time + eax * 4]
-#	call	printhex8
-#	call	printspace
+	mov	edx, [mutex_unlock_time + eax * 4]
+	call	printhex8
+	call	printspace
 
 	mov	edx, [mutex_unlock_task + eax * 4]
 	add	edx, [task_queue]

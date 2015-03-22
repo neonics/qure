@@ -1318,6 +1318,13 @@ _s_printcharc:
 	pop	eax
 	ret	COLOR_STACK_SIZE
 
+_s_printhex4:
+	push	edx
+	mov	edx, [esp + 8]
+	call	printhex4
+	pop	edx
+	ret	4
+
 _s_printhex8:
 	push	edx
 	mov	edx, [esp + 8]
