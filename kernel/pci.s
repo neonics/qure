@@ -18,7 +18,7 @@ PCI_CALLING_CONVENTION = 0
 PCI_DEBUG = 0
 
 .data
-pci_verbosity: .byte 0
+pci_verbosity: .byte 1
 	PCI_VERBOSITY_REGISTERS = 1
 
 	.macro PCI_VERBOSITY_BEGIN level
@@ -1038,7 +1038,9 @@ cont$:
 	mov	eax, ecx
 	and	eax, 0xffff	#mask out the function: only Fn 0 usually is multiple function!
 	call	pci_read_config
-	test	eax, 0x00800000
+	cmp	eax, -1		# check if fn 0 exists
+	jz	1f
+	test	eax, 0x00800000	# test for multiple function bit
 	jz	1f
 
 	mov	bl, 8	# class code, subclass, prog IF, revision id
