@@ -1,3 +1,31 @@
+##############################################################################
+# Memory Management
+#
+# This implementation combines multiple linked lists to track memory
+# efficiently across two dimensions of space: address and size.
+#
+# It offers the ability to cut up a space into pieces of different
+# sizes and keep track of where they belong.
+#
+# = Extension Points =
+#
+# == mrealloc ==
+#
+# When it is possible to avoid copying data, it will do so. When the
+# requested size is larger, it's tail will be allocated.
+#
+#
+#
+#
+# These two basic linked lists are ordered, so that they have to be traversed
+# at most once to find the smallest accommodating size.
+#
+# = Known limitations =
+#
+# - those of the linked list implementation
+#
+#
+#
 # TODO: free does not always merge properly
 # TODO: handle_fa (base) keeps the list ordered by address. The idea
 # was to have the second list, size, be used for malloc. A list is needed
@@ -22,15 +50,42 @@ MEM_DEBUG = 0
 MEM_DEBUG2 = 0
 MEM_PRINT_HANDLES = 2	# 1 or 2: different formats.
 
-
-.include "lib/ll.s"
-.include "lib/handles.s"
-
-MEM_FEATURE_STRUCT = 0	# 0: static kernel mem variables; 1: use pointer
+MEM_FEATURE_STRUCT = 1	# 0: static kernel mem variables; 1: use pointer
 	# This feature allows to specify a pointer to the memory
 	# bookkeeping structure to most of the code, making it possible
 	# to manage multiple heaps - even recursively.
 	# NOTE: value 1 only partially tested - has some problems.
+
+.include "lib/ll.s"
+.include "lib/handles.s"
+
+
+
+.macro CHECK_MEM_STRUCT_POINTER
+	.if MEM_FEATURE_STRUCT
+	push	eax
+	mov	eax, [mem_kernel]
+	lea	eax, [eax + mem_handles]	# adds 0
+	cmp	esi, eax
+	jz	9900f
+	printc 12, "check_handle_struct_pointer"
+	DEBUG_DWORD esi
+	DEBUG_DWORD eax
+	int 3
+9900:
+	pop	eax
+
+	.else
+
+	cmp	esi, offset mem_handles
+	jz	9900f
+	printc 12, "check_handle_struct_pointer"
+	DEBUG_DWORD esi
+	DEBUG_DWORD (offset mem_handles)
+	int 3
+9900:
+	.endif
+.endm
 
 .data
 mem_phys_total:	.long 0, 0	# total physical memory size XXX
@@ -40,14 +95,6 @@ mem_phys_total:	.long 0, 0	# total physical memory size XXX
 .else
 .data
 .endif
-mem_heap_start:	.long 0, 0
-mem_heap_size:	.long 0, 0	# MEM_FEATURE_STRUCT: XXX malloc_page_phys
-
-mem_heap_alloc_start: .long 0
-
-mem_heap_high_end_phys:	.long 0, 0
-mem_heap_high_start_phys:.long 0, 0
-
 
 # handles struct (from mem_handle.s)
 mem_handles: .long 0
@@ -81,12 +128,26 @@ mem_handle_ll_fh:
 .long -1#handle_fh_last: .long -1	# not really used...
 .endif
 
+
+# extension of handles struct
+# (so we can keep same addr for malloc_internal and handle_get/handles_alloc
+mem_heap_start:	.long 0, 0
+mem_heap_size:	.long 0, 0	# MEM_FEATURE_STRUCT: XXX malloc_page_phys
+
+mem_heap_alloc_start: .long 0
+
+mem_heap_high_end_phys:	.long 0, 0
+mem_heap_high_start_phys:.long 0, 0
+
+
+
 .if MEM_FEATURE_STRUCT
 MEM_STRUCT_SIZE = .
 .data
 mem_kernel: .long 1f	# initialize bootstrap memory structure pointer
 # allocate bootstrap memory structure
-1: .space MEM_STRUCT_SIZE - 6*4; .rept 6; .long -1; .endr
+1:	.space HANDLES_STRUCT_SIZE - 6*4; .rept 6; .long -1; .endr
+	.space MEM_STRUCT_SIZE - HANDLES_STRUCT_SIZE
 .endif
 
 .text32
@@ -904,7 +965,7 @@ malloc_test$:
 	mov	esi, [ecx + mem_handles]
 	mov	ebx, [ecx + mem_handle_ll_fa + ll_last]
 	mov	ecx, [ecx + mem_numhandles]
-0:	test	byte ptr [esi + ebx + handle_flags], 1 << 7
+0:	test	byte ptr [esi + ebx + handle_flags], MEM_FLAG_HANDLE # 1 << 7
 	jnz	1f
 	test	byte ptr [esi + ebx + handle_flags], MEM_FLAG_ALLOCATED
 	jz	1f
@@ -934,7 +995,7 @@ more:	MORE
 # in: esi = memory base structure pointer
 .endif
 malloc_internal_aligned$:	# can only be called from malloc_aligned!
-
+	CHECK_MEM_STRUCT_POINTER
 	# calculate worst case scenario for required contiguous memory
 	push	edx
 	push	eax
@@ -1048,6 +1109,9 @@ malloc_internal_aligned$:	# can only be called from malloc_aligned!
 .endif
 # out: base address of allocated memory
 malloc_internal$:
+	.if MEM_FEATURE_STRUCT
+	CHECK_MEM_STRUCT_POINTER
+	.endif
 	.if MEM_DEBUG > 1
 		push	edx
 		pushcolor 10
@@ -1230,10 +1294,12 @@ malloc_aligned:
 	pop	ebp
 	ret
 
+
 # in: eax = size
 # in: ebp = caller return stack ptr
 # in: edx = physical alignment (power of 2)
 malloc_aligned_:
+	TIMING_BEGIN
 	MUTEX_SPINLOCK MEM
 	push_	ebx esi
 .if MEM_FEATURE_STRUCT
@@ -1246,6 +1312,8 @@ malloc_aligned_:
 	jnc	1f	# : mov eax, base; clc; ret
 	call	handle_get	# in: esi; out: ebx
 	jc	4f	# error: no more handles
+
+	push	esi
 	mov	esi, [esi + handles_ptr] # [mem_handles]
 
 	mov	[esi + ebx + handle_size], eax
@@ -1255,11 +1323,13 @@ malloc_aligned_:
 	mov	[esi + ebx + handle_caller], edx
 	pop	edx
 
+	xchg	esi, [esp]
 	call	malloc_internal_aligned$
+	pop	esi
 	jnc	3f
 	DEBUG "malloc_internal_aligned error"
 	jmp	3f
-# KEEP-WITH-NEXT malloc_ 3f
+# KEEP-WITH-NEXT malloc_ 1f, 3f, 4f
 
 # in: eax = size
 # out: eax = base pointer
@@ -1276,6 +1346,7 @@ malloc:
 # out: edx = base pointer
 # out: CF = out of mem
 malloc_:
+	TIMING_BEGIN
 #DEBUG_REGSTORE
 	MUTEX_SPINLOCK MEM
 
@@ -1290,7 +1361,9 @@ malloc_:
 .else
 	lea	esi, [mem_handles]
 .endif
+	TIMING_BEGIN
 	call	handle_find	# in: esi; out: ebx
+	TIMING_END "malloc_ handle_find"
 	jc	2f
 1:	# malloc_aligned jumps here
 	mov	esi, [esi + handles_ptr]
@@ -1310,7 +1383,10 @@ malloc_:
 	mov	eax, [esi + ebx + handle_base]
 	jmp	0f
 
-2:	call	handle_get	# in: esi; out: ebx
+2:
+	TIMING_BEGIN
+	call	handle_get	# in: esi; out: ebx
+	TIMING_END "malloc_ handle_get"
 	jc	4f
 	mov	esi, [esi + handles_ptr] # [mem_handles]
 
@@ -1326,6 +1402,7 @@ malloc_:
 		popcolor
 	.endif
 
+		TIMING_BEGIN
 	mov	[esi + ebx + handle_size], eax
 .if MEM_FEATURE_STRUCT
 	push	esi
@@ -1335,6 +1412,7 @@ malloc_:
 .else
 	call	malloc_internal$
 .endif
+		TIMING_END "malloc_ malloc_internal"
 3:	jc	3f	# malloc_aligned jumps here
 	.if MEM_DEBUG
 		push	edx
@@ -1357,7 +1435,9 @@ malloc_:
 	mov	edi, offset mem_handle_ll_fa
 .endif
 	add	esi, offset handle_ll_el_addr
+		TIMING_BEGIN
 	call	ll_insert_sorted$
+		TIMING_END "malloc_ ll_insert_sorted"
 	pop	ecx
 	sub	esi, offset handle_ll_el_addr
 	pop	edi
@@ -1384,8 +1464,11 @@ malloc_:
 		call mem_validate_handles
 	.endif
 	MUTEX_UNLOCK MEM
+
 #DEBUG_REGDIFF
+	TIMING_END "malloc_"
 	ret	# WEIRD BUG: 0x001008f0 on stack (called from mdup@net.s:685)
+
 
 4:	printlnc 4, "malloc: no more handles"	# malloc_aligned jumps here
 	stc
@@ -1666,13 +1749,12 @@ mreallocz_:
 	jc	9f
 #	DEBUG "mreallocz";DEBUG_DWORD esi;DEBUG_DWORD edi;DEBUG_DWORD edx
 # XXX get old size: copied from mfree_; TODO: refactor;
-
 	MUTEX_SPINLOCK MEM
 		mov	ecx, [ebx + mem_numhandles]
 		jecxz	1f
 		mov	esi, [ebx + mem_handles]
+		#mov	esi, [esi + handles_ptr]
 		mov	edi, [ebx + mem_handle_ll_fa + ll_last]
-
 	0:	cmp	edi, -1
 		jz	1f
 		cmp	edx, [esi + edi + handle_base]
@@ -1736,6 +1818,7 @@ mfree:
 	ret
 
 mfree_:
+	TIMING_BEGIN
 	MUTEX_SPINLOCK MEM
 	.if MEM_DEBUG2
 		DEBUG "["
@@ -1757,6 +1840,7 @@ mfree_:
                 DEBUG "]"
         .endif
 	MUTEX_UNLOCK MEM
+	TIMING_END "mfree_"
 	STACKTRACE ebp
 	ret
 

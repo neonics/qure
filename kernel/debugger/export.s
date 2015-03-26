@@ -11,6 +11,10 @@
 # 3: memory addresses
 # 4: interrupts - use fixed screen coordinates
 
+.ifndef TIMING_ENABLED
+TIMING_ENABLED = 0
+.endif
+
 
 ############################# 32 bit macros 
 .if DEFINE
@@ -569,6 +573,58 @@ stacktrace_ebp:
 	pop	edx
 	ret
 
+.if TIMING_ENABLED
 
+# in: [esp + 0] = return address (as usual)
+# in: [esp + 4] = label to print
+# in: [esp + 8] = [clock] from TIMING_BEGIN
+# callee clears stack
+timing_end$:
+	push	ebp
+	lea	ebp, [esp + 8]	# stackarg base
+	push	edx
+	pushf
+	mov	edx, [clock]
+	sub	edx, [ebp + 4]	# stackarg [clock]
+	cmp	edx, 1		# if clocks 0 or 1 then don't print
+	jbe	1f
+	pushcolor 0xf4
+	printchar '['
+	color	0xf1
+	pushd	[ebp + 0]	# stackarg label
+	call	_s_print
+	call	printhex8
+	color 0xf4
+	printchar ']'
+	popcolor
+1:	popf
+	pop	edx
+	pop	ebp
+	ret	8
+
+
+	#.data; void: .long 0; .text32	# for TIMING_END
+.endif
+
+	.macro TIMING_BEGIN
+	  .if TIMING_ENABLED
+		pushd	[clock]
+	  .endif
+	.endm
+	.macro TIMING_END label
+	  .if TIMING_ENABLED
+		.if 1
+			PUSHSTRING "\label clocks="
+			call	timing_end$
+		.else
+			push edx
+			pushf
+			mov edx, [clock]; sub edx, [esp + 8]; DEBUG_DWORD edx, "\label clocks", 0xf1, 0xf4
+			popf
+			pop edx;
+			popd [void]	# pop orig clock
+		.endif
+	  .endif
+	.endm
 
 .endif	# DEFINE

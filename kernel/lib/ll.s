@@ -1,6 +1,12 @@
 ###############################################################################
 # Linked List with indirect pointers
 #
+# This file implements a digital chain.
+#
+#
+#
+# Technical Details
+#
 # This implementation of a linked list takes a base and offset approach so that
 # the elements it refers to are capable of being stored in an array that can be
 # mreallocced. To use this implementation for 'absolute' pointers, simply
@@ -195,7 +201,10 @@ ll_update_left$:
 	push	ecx
 	push	edx
 
-	mov	ecx, [mem_numhandles]	# circular list protection
+	# set a limit: struct size is 12 bytes, assume at least 4 more bytes
+	# so, 4Gb >> 4
+	mov	ecx, 1 << 28	# circular list protection
+
 	mov	edx, [esi + ebx + ll_value]
 	mov	eax, [esi + ebx + ll_prev]
 	cmp	eax, -1		# already first, dont move
@@ -206,9 +215,12 @@ ll_update_left$:
 
 0:	cmp	edx, [esi + eax + ll_value]
 	ja	2f
+	mov	eax, [esi + eax + ll_prev]
+	cmp	eax, -1
+	jz	3f
 	loop	0b
 	# first
-	call	ll_unlink$
+3:	call	ll_unlink$
 	call	ll_prepend$
 	jmp	1f
 
@@ -257,7 +269,10 @@ ll_update_right$:
 	push	ecx
 	push	edx
 
-	mov	ecx, [mem_numhandles]	# circular list protection
+	# set a limit: struct size is 12 bytes, assume at least 4 more bytes
+	# so, 4Gb >> 4
+	mov	ecx, 1 << 28	# circular list protection
+
 	mov	edx, [esi + ebx + ll_value]
 	mov	eax, [esi + ebx + ll_next]
 	cmp	eax, -1		# already last, dont move
@@ -268,9 +283,12 @@ ll_update_right$:
 
 0:	cmp	edx, [esi + eax + ll_value]
 	ja	2f
+	mov	eax, [esi + eax + ll_next]
+	cmp	eax, -1
+	jz	3f
 	loop	0b
 	# last
-	call	ll_unlink$
+3:	call	ll_unlink$
 	call	ll_append$
 	jmp	1f
 
