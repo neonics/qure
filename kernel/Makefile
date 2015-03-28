@@ -8,6 +8,7 @@ clean:
 		kernel.obj* \
 		kernel.o ring2.o ring2_.o export.h kapi/export.h \
 		../root/www/doc/src/ \
+		_empty_ _empty_.s \
 		|| true
 	@echo "  CLEAN fs/oofs"
 	@make -s -C fs/oofs $@
@@ -41,10 +42,19 @@ AS = as --32 -march=i486 -n --warn --fatal-warnings --gstabs --MD kernel.dep $(A
 # --cref: cross reference (symbol and which obj files declare it)
 # --noinhibit-exec: produce target object file even if errors
 LD_OPTS = -nostartfiles -nodefaultlibs -nostdlib --exclude-libs ALL \
-	--no-leading-underscore --no-undefined --no-demangle --no-define-common \
+	--no-undefined --no-demangle --no-define-common \
 	--warn-section-align
 
 KERNEL_OBJECTS = kernel.o ring2.o
+
+
+ifeq ($(IS_ELF),1)
+FIXUP_CMD = echo "WARNING - skip fixup: not supported on ELF yet"
+LD_OPTS += -m elf_i386
+else
+FIXUP_CMD = ../build/coff.exe $1 --remove-padding .shellcmd 10
+LD_OPTS += --no-leading-underscore
+endif
 
 # a fixup routine that adjusts the size for the section headers of structures.
 # I have not found a way to specify section padding to AS, nor to change it
@@ -53,7 +63,16 @@ KERNEL_OBJECTS = kernel.o ring2.o
 # contains.
 define FIXUP
 	@echo "  FIXUP $1"
-	@../build/coff $1 --remove-padding .shellcmd 10
+	@$(FIXUP_CMD)
+	@#../build/coff.exe $1 --remove-padding .shellcmd 10
+endef
+
+
+# For ELF hosts only:
+define MAKE_COFF
+	@echo "  ELF2COFF $1"
+	@mv $1 $1.orig
+	@objcopy -O pei-i386 --debug --keep-file-symbols --localize-hidden $1.orig $1
 endef
 
 
@@ -67,11 +86,14 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 	@ld $(LD_OPTS) \
 		--script kernel.link \
 		-Map $@.map \
-		--image-base 0 \
 		-r \
 		$(KERNEL_OBJECTS) \
 		-o $@.r
 	@#objdump -r -j .text $@.r > $@.reloc.txt
+
+ifeq ($(IS_ELF),1)
+	@$(call MAKE_COFF,$@.r)
+endif
 
 	@#hack: we use kernel.obj.r and link it ourselves:
 	@cp $@.r $@ && ../build/coff.exe $@ --link .text
@@ -84,7 +106,7 @@ kernel.obj: $(KERNEL_OBJECTS) kernel.link
 	@objcopy --change-addresses 0x13000 --debugging kernel.obj kernel.obj.debug
 
 	@#update stabs
-	@../build/coff kernel.obj.debug --adjust-source 0x13000
+	@../build/coff.exe kernel.obj.debug --adjust-source 0x13000
 
 
 KLIB_SRC = lib/mem.s lib/handles.s \
@@ -174,7 +196,7 @@ ring2_.o: $(RING2_SRC)
 
 ring2.o: ring2_.o fs/oofs/oofs.o
 	@echo "  LD    $@"
-	@ld -r -o $@ $^
+	@$(LD) $(LD_OPTS) -r -o $@ $^
 	@$(call FIXUP,$@)
 
 ring3.o: ring3.s
@@ -206,7 +228,7 @@ export.h: kernel.o Makefile ../.git
 	>> $@
 	@echo "KERNEL_REVISION=$(KERNEL_REVISION)" \
 	>> $@
-	@echo ".macro LOAD_KERNEL_VERSION_TXT reg:vararg;LOAD_TXT \"$(BRANCH)-$(KERNEL_REVISION)\",\reg;.endm" \
+	@echo ".macro LOAD_KERNEL_VERSION_TXT _reg:vararg;LOAD_TXT \"$(BRANCH)-$(KERNEL_REVISION)\",\_reg;.endm" \
 	>> $@
 	@# create file with constants: list absolute symbols.
 	@#  (-g: only global/external symbols - speed)
