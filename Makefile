@@ -47,8 +47,9 @@ os.iso: $(CODE_ISO_DEPS) root/ | init
 	@#-no-emul-boot
 	@#-hard-disk-boot
 
-	@[ -d vm/vmware/cluster/qure-test/ ] && \
-		cp --sparse=always os.iso.tmp vm/vmware/cluster/qure-test/os.iso
+	@[ -d vm/vmware/cluster/qure-test/ ] && ( \
+		cp --sparse=always os.iso.tmp vm/vmware/cluster/qure-test/os.iso ) \
+		|| true
 	@# && rm os.iso.tmp
 
 data.iso: $(DATA_ISO_DEPS) root/www/download/os.iso.gz | init site
