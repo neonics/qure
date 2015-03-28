@@ -3,8 +3,12 @@
 LIBC_DEBUG = 1
 
 # NULL-base (flat cs/ds)
-.macro DEFSTUB name
+.macro DEFSTUB name, code_label=0
+  .ifnc \code_label,0
+	_c_\code_label:
+  .else
 	_c_\name:
+  .endif
 		printc 0xb0, "\name";
 		int 3
 		pushfd
@@ -133,7 +137,7 @@ _c_read:
 
 # cygwin1.dll / ansi
 # cygwin1.dll:
-DEFSTUB "_dll_crt0@0"
+DEFSTUB "_dll_crt0@0", _dll_crt0	# @ invalid mnemonic on ELF targets
 DEFSTUB _impure_ptr
 DEFSTUB calloc
 DEFSTUB cygwin_detach_dll
