@@ -109,6 +109,20 @@ _TLS_SIZE = .
 .endm
 
 
+.macro LOOP_ label
+	.if \label < .
+	_TMP_DISTANCE = . - \label
+	.else
+	_TMP_DISTANCE = \label - .
+	.endif
+	.if _TMP_DISTANCE > 127
+	dec	ecx
+	jnz	\label
+	.else
+	loop	\label
+	.endif
+.endm
+
 ##############################################################################
 # Register macros
 
