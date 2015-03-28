@@ -51,9 +51,11 @@ KERNEL_OBJECTS = kernel.o ring2.o
 ifeq ($(IS_ELF),1)
 FIXUP_CMD = echo "WARNING - skip fixup: not supported on ELF yet"
 LD_OPTS += -m elf_i386
+KERNEL_LINK_FILE = kernel.link-elf
 else
 FIXUP_CMD = ../build/coff.exe $1 --remove-padding .shellcmd 10
 LD_OPTS += --no-leading-underscore
+KERNEL_LINK_FILE = kernel.link
 endif
 
 # a fixup routine that adjusts the size for the section headers of structures.
@@ -80,11 +82,11 @@ kernel.bin: kernel.obj
 	@echo "  OBJ   $@"
 	@objcopy -O binary -j .text $< $@
 
-kernel.obj: $(KERNEL_OBJECTS) kernel.link
+kernel.obj: $(KERNEL_OBJECTS) $(KERNEL_LINK_FILE)
 	@echo "  LD    $@ <- $^"
 
 	@ld $(LD_OPTS) \
-		--script kernel.link \
+		--script $(KERNEL_LINK_FILE) \
 		-Map $@.map \
 		-r \
 		$(KERNEL_OBJECTS) \
