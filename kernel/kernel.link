@@ -2,7 +2,11 @@
 
 /* http://sourceware.org/binutils/docs/ld/Builtin-Functions.html#Builtin-Functions */
 
-OUTPUT_FORMAT(pe-i386)
+/*OUTPUT_FORMAT(pei-i386)
+-- can't use this:
+Relocatable linking with relocations from format elf32-i386 (kernel.o) to format pei-i386 (kernel.obj.r.native) is not supported
+
+*/
 SEARCH_DIR("/usr/i686-cygwin/lib"); SEARCH_DIR("/usr/lib"); SEARCH_DIR("/usr/lib/w32api");
 SECTIONS
 {
