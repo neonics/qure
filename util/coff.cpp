@@ -274,7 +274,8 @@ int main(int argc, char ** argv)
 		printf("Flags: %x\n", h->h_flags);
 	}
 
-	if ( h->h_magic != 0x014c )
+	// PE magic also: 742e
+	if ( h->h_magic != 0x014c && h->h_magic != 0x5a4d )
 	{
 		printf("Wrong magic: %x\n", h->h_magic);
 		return 1;

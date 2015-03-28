@@ -5,6 +5,13 @@
 #define malloc(...) my_malloc( __VA_ARGS__ )
 #define free(...) my_free( __VA_ARGS__ )
 
+#include <bits/wordsize.h>
+#if __WORDSIZE == 64
+typedef long ptr;
+#else
+typedef int ptr;
+#endif
+
 #define MALLOC_SIZE 10240
 #define ALLOC_HANDLES 1024
 
@@ -148,7 +155,7 @@ void * malloc( long size )
 			{
 				// todo: align
 				handles[numhandles++] = { 
-					(void*)((int)(handles[i].addr) + size),
+					(void*)((ptr)(handles[i].addr) + size),
 					handles[i].size - size,
 					true, -1, -1
 				};
@@ -193,7 +200,7 @@ void * malloc( long size )
 bool inline contiguous( int i, int j )
 {
 	return i < 0 || j < 0 ? false :
-		(int) handles[i].addr + handles[i].size == (int) handles[j].addr;
+		(ptr) handles[i].addr + handles[i].size == (ptr) handles[j].addr;
 }
 
 //void inline swap( int a, int b ) { int tmp = a; a = b; b = tmp; }
