@@ -1709,7 +1709,11 @@ OBJ_STRUCT_SIZE = .
 		_DECL_CLASS_SUPER = 0
 		_class_vptr_offs = 0
 	.else
+	  .if ELF
 		_DECL_CLASS_SUPER = offset class_\super
+	  .else
+		_DECL_CLASS_SUPER = class_\super
+	  .endif
 		_class_vptr_offs = \super\()_vptr	# super.vptr missing!!!
 	.endif
 
