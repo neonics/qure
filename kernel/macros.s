@@ -9,8 +9,24 @@ __MACROS_INCLUDED=1
 #   1 = create .text16/.data16 section
 REALMODE_SEP = 1
 
+.ifndef ELF
+.error "Please assemble with '--defsym ELF=1' or '--defsym ELF=0'"
+.endif
 
 .if REALMODE_SEP
+	.if ELF
+		.macro .text16
+			.section ".text16", "ax"
+			.code16
+		.endm
+
+		.macro .data16 sub=0
+			.section ".data16", "aw"
+			.ifnc \sub,0
+			.subsection \sub
+			.endif
+		.endm
+	.else
 
 	TEXT16 = .text16
 
@@ -38,6 +54,8 @@ REALMODE_SEP = 1
 		.section .data16, 99		###
 		.code16
 	.endm
+
+	.endif
 
 .else
 

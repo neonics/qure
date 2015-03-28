@@ -17,7 +17,10 @@ KERNEL_SPLIT_RINGS=1
 
 GIT = /usr/bin/git	# i have a wrapper script in my path
 
+IS_ELF = $(shell touch _empty_.s && as -o _empty_ _empty_.s && file _empty_ | grep -c ELF )
+
 AS_DEFS = # --defsym __KERNEL_SPLIT_RINGS=$(KERNEL_SPLIT_RINGS)
+AS_DEFS = --defsym ELF=$(IS_ELF)
 
 # i486 due to bswap (and cmpxchg)
 AS = as --32 -march=i486 -n --warn --fatal-warnings --gstabs --MD kernel.dep $(AS_DEFS)

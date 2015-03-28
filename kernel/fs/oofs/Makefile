@@ -1,11 +1,14 @@
 all: oofs.o export.h
 
 clean:
-	rm -f *.o .dep export.h || true
+	rm -f *.o .dep export.h _empty_ _empty_.s || true
 
 INC = -I ../../
 
-AS = as --32 -march=i486 -n --warn --fatal-warnings --gstabs --MD .dep $(INC)
+IS_ELF = $(shell touch _empty_.s && as -o _empty_ _empty_.s && file _empty_ | grep -c ELF )
+AS_DEFS = --defsym ELF=$(IS_ELF)
+
+AS = as --32 -march=i486 -n --warn --fatal-warnings --gstabs --MD .dep $(INC) $(AS_DEFS)
 
 DEPS = ../fs_oofs.s ../../fs.s ../../oo.s ../../lib/hash.s \
 	../../debugger/export.s \
