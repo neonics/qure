@@ -1709,7 +1709,7 @@ OBJ_STRUCT_SIZE = .
 		_DECL_CLASS_SUPER = 0
 		_class_vptr_offs = 0
 	.else
-		_DECL_CLASS_SUPER = class_\super
+		_DECL_CLASS_SUPER = offset class_\super
 		_class_vptr_offs = \super\()_vptr	# super.vptr missing!!!
 	.endif
 
@@ -1904,7 +1904,7 @@ OBJ_STRUCT_SIZE = .
 		.long CLASS_STRUCT_SIZE			# class_def_size
 		.long 0					# class_flags
 		.long _DECL_CLASS_SUPER			# class_super
-		.long _DECL_CLASS_OBJ_SIZE		# class_object_size
+		.long _DECL_CLASS_OBJ_SIZE &0xffffffff	# class_object_size
 		# TODO: .long _DECL_CLASS_OBJ_ALLOC_SIZE - variable length
 		.long 999b				# class_name
 		.long _DECL_CLASS_VPTR			# class_object_vptr
