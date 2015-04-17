@@ -90,7 +90,7 @@ PROTO_STRUCT_SIZE = .
 #############################################################################
 .data SECTION_DATA_BSS
 ipv4_id$: .word 0
-BUFFER_SIZE = 0x600
+NET_TX_BUFFER_SIZE = 0x600	# 1536
 net_buffers: .long 0	# ptr_array
 net_buffer_index: .long 0
 NET_BUFFERS_NUM = 4
@@ -142,14 +142,14 @@ net_tx_buffers_sem: .long 0
 .endm
 
 
-# out: eax = mem address of BUFFER_SIZE bytes, paragraph aligned
+# out: eax = mem address of NET_TX_BUFFER_SIZE bytes, paragraph aligned
 # modifies: edx
 net_buffer_allocate$:
 	PTR_ARRAY_NEWENTRY [net_buffers], NET_BUFFERS_NUM, 9f	# out: eax + edx
 	jc	9f
 	mov	[net_buffer_index], edx
 	add	edx, eax
-	mov	eax, BUFFER_SIZE + 16
+	mov	eax, NET_TX_BUFFER_SIZE + 16
 	call	mallocz
 	mov	[edx], eax
 	jnc	1f
@@ -184,9 +184,9 @@ net_buffer_get:
 	# clear buffer
 	push	ecx
 	xor	eax, eax
-	mov	ecx, BUFFER_SIZE >> 2
+	mov	ecx, NET_TX_BUFFER_SIZE >> 2
 	rep	stosd
-	sub	edi, BUFFER_SIZE
+	sub	edi, NET_TX_BUFFER_SIZE
 	pop	ecx
 
 	pop_	edx eax
@@ -240,7 +240,7 @@ net_buffers_print:
 	call	printdec32
 	print " x "
 	xor	edx, edx
-	mov	eax, BUFFER_SIZE
+	mov	eax, NET_TX_BUFFER_SIZE
 	call	print_size
 	call	newline
 	ret
@@ -816,6 +816,7 @@ net_rx_queue:		.long 0
 net_rx_queue_head:	.long 0
 net_rx_queue_tail:	.long 0
 net_rx_buffer:		.long 0	# receive packet buffer containing copies
+NET_RX_BUFFER_SIZE	= 0x600	# 1536
 .text32
 
 #
@@ -889,7 +890,7 @@ net_rx_queue_newentry:
 1:	or	eax, eax
 	jnz	1f
 	# queue is not set up. Allocate a buffer to contain the packet data.
-	mov	eax, 1500 * NET_RX_QUEUE_MIN_SIZE
+	mov	eax, NET_RX_BUFFER_SIZE * NET_RX_QUEUE_MIN_SIZE
 	call	malloc
 	jnc	10f
 	printc 12, "cannot allocate rx packet buffers"
@@ -906,7 +907,7 @@ net_rx_queue_newentry:
 	mov	ecx, NET_RX_QUEUE_MIN_SIZE
 10:	mov	[eax + net_rx_queue_buf], edx
 	add	eax, NET_RX_QUEUE_STRUCT_SIZE
-	add	edx, 1500
+	add	edx, NET_RX_BUFFER_SIZE
 	loop	10b
 	# array_newentry will simply increase array_index.
 ################################################################################
@@ -1054,7 +1055,7 @@ net_rx_packet:
 
 	call	net_check_reboot_packet
 
-cmp ecx, 2000
+cmp ecx, NET_RX_BUFFER_SIZE
 jb 1f
 printc 4, "net_rx_packet: packet size too large: ";DEBUG_DWORD ecx
 int 3
@@ -1362,8 +1363,6 @@ net_rx_queue_print_:
 	call	newline
 .if 1
 	mov	eax, [net_rx_queue]
-	or	eax, eax
-	jz	9f
 	xor	ecx, ecx
 
 0:	mov	edx, ecx
