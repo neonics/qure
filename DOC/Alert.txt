@@ -151,3 +151,58 @@ exception occured in an interrupt handler, the exception may occur again,
 although the TSS might be marked busy, giving rise to another exception.
 
 
+
+== Alert States ==
+
+Recently there have been some HTTP SYN flood 'attacks' from certain hosts.
+The TCP code is updated to check the number of connections to a port
+from a host and ignore (DROP) all such requests until more are freed up.
+At current the setting is 10 connections per host per port.
+
+It would be nice to have a fixed popup with a movie style alert.
+Such an alert would first raise a warning level in the top bar,
+before showing the popup with administrative options.
+This would circumvent any console flooding issues.
+
+A partial remedy would be to have system log levels using
+kernel shell environment variables and handlers.
+
+Code from a particular task executing print calls will
+then be filterable.
+
+Approach:
+- wrap the console print handlers
+- add env var 'task.<name>.log.level=<int>'
+- vmware unity integration: create popup in host (notification area)
+
+
+=== Wrapping console printing via env var ===
+
+The 'netq' task can then easily be silenced.
+We can determine the color of printing and allow output by color.
+Debug (background blue) can easily be filtered out.
+Kernel Errors use color 4 (dark red)
+Shell, Services (FS, net etc) use 14 (bright red).
+
+For now we can simply use background color:
+- black: unclassified
+- blue: debug
+- orange: warning (unused)
+- red: error  (0xf0 is used)
+
+TODO: modify the print code to store color parameters and call stack.
+
+TODO: introduce color classes (COLOR_WARNING etc)
+
+
+For now, a console handler can be installed to overwrite the top bar.
+This can be tested with the scheduler debug output which already
+prints the top bar.
+
+
+
+== Simple approach ==
+
+We simply add the alert handler as detailed above.
+
+

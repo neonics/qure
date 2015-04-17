@@ -76,6 +76,7 @@ include "schedule.s", scheduler
 
 include "lib/token.s", tokenizer
 include "oo.s", oo
+include "alert.s", alert	# console
 DEFINE = 0
 include "fs.s"
 include "shell.s"
