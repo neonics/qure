@@ -3103,14 +3103,5 @@ cmd_iproute:
 
 
 .include "../lib/crc32.s"
-cmd_crc32:
-	lodsd
-	lodsd
-	mov	esi, eax
-	call	strlen_
-	call	crc32
-	push	eax
-	call	_s_printhex8
-	call	newline
-	ret
+
 .endif
