@@ -7,6 +7,14 @@ crc32_table$:	.space 1024	# 256 dwords
 
 .text32
 crc32_calctable:
+	push	ebx
+	mov	ebx, 0xedb88320 # standard: 0xedb88320; ethernet: 0x104C11DB7 (magic const: 0xC704DD7B)
+	call	crc32_calctable_
+	pop	ebx
+	ret
+
+# in: ebx = polynomial
+crc32_calctable_:
 	push_	eax ecx edx
 	xor	ecx, ecx
 	xor	al, al
@@ -14,7 +22,7 @@ crc32_calctable:
 	mov	ah, 8
 1:	shr	edx, 1
 	jnc	2f
-	xor	edx, 0xedb88320
+	xor	edx, ebx
 2:	dec	ah
 	jnz	1b
 3:
