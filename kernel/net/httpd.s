@@ -11,6 +11,8 @@ stats_httpd_requests: .long 0
 NET_HTTP_DEBUG = 1		# 1: log requests; 2: more verbose
 WWW_EXPR_DEBUG = 0
 
+HTTPD_CHECK_HOST_HEADER = 1	# 1: 404 all 'Host:' headers (even public IP) but our domain and LAN IP
+
 
 cmd_httpd:
 	I "Starting HTTP Daemon"
@@ -251,8 +253,9 @@ net_service_tcp_http:
 	mov	ebp, esp
 
 	#sub	esp, 16 # reserve some space for header pointers.
+	pushd	0;	HTTP_STACK_HOSTIP	= 36	# IP value when Host header is IP
 	pushd	0;	HTTP_STACK_FNAME	= 32	# file name buffer
-	pushd	eax;	HTTP_STACK_SOCK		= 28	# file socket
+	pushd	eax;	HTTP_STACK_SOCK		= 28	# net socket
 	pushd	0;	HTTP_STACK_FHANDLE	= 24	# file handle
 	pushd	0;	HTTP_STACK_FBUF		= 20	# file buffer
 	pushd	0;	HTTP_STACK_FSIZE	= 16	# file size
@@ -260,7 +263,7 @@ net_service_tcp_http:
 	pushd	0;	HTTP_STACK_HDR_REFERER	= 8	# Referer
 	pushd	0;	HTTP_STACK_HDR_HOST	= 4
 	pushd	0;	HTTP_STACK_HDR_RESOURCE	= 0
-	HTTP_STACKARGS = 36
+	HTTP_STACKARGS = 40
 
 	call	http_parse_header	# in: esi,ecx; out: edx=uri, ebx=host
 
@@ -322,9 +325,56 @@ net_service_tcp_http:
 	mov	[www_docroot$ + 1], al
 
 	xor	ecx, ecx
+.if HTTPD_CHECK_HOST_HEADER
 	cmp	ebx, -1
-	jz	1f	# no host
+	#jz	1f	# no host
+	jz	404f
 	mov	esi, ebx
+
+		pushad
+		mov	eax, esi
+		xor	bl, bl # dont print errors
+		call	net_parse_ip_
+		jc	2f	# not an ip
+		mov	[ebp - HTTP_STACKARGS + HTTP_STACK_HOSTIP], eax
+		cmp	eax, [internet_ip]
+		jnz	2f
+		stc
+		jmp	3f
+	2:	clc
+	3:	popad
+	# CF=1: Host header is internet ip
+	4:	jc	404f
+
+	# the Host header is not an ip, check for our domain:
+		pushad
+			call	strlen_	# in: esi out: ecx
+			LOAD_TXT ".neonics.com", edi, edx, 1
+			cmp	ecx, edx
+			jbe	2f		# too short to be our domain
+			add	esi, ecx	# go to end of string
+			sub	esi, edx	# rewind to domain
+			mov	ecx, edx
+			repz	cmpsb
+			jz	3f	# same!
+		2:	stc
+		3:
+		popad
+		jnc	4f	# it's our domain, proceed
+
+		# check if it is our LAN IP:
+		push_	eax ebx
+			mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_HOSTIP]
+			or	eax, eax
+			stc
+			jz	2f	# request was not for host ip
+			call	nic_get_by_ipv4	# eax -> ebx | CF
+			# no CF = our nic, proceed
+		2:
+		pop_	ebx eax
+		jc	404f	# not our host ip
+		4:
+.endif
 	call	strlen_
 	inc	ecx
 1:
