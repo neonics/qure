@@ -845,3 +845,42 @@ TODO: bootp server
 
 DONE: DMZ cluster node switching
 
+TODO: undefined symbols don't always fail kernel build
+
+TODO: src2html:
+	The assembly syntax symbol interpreter producing syntax highlighting,
+	lists of constants and cross-references, can be used to produce
+	a graph of source file relations and thus a system architecture image.
+
+
+TODO: objdump -G (stabs) mismatches objdump -d (disasm)
+
+		objdump -d:
+		00010594 <vmware_detect>:
+		000304ff <vix_tools_state$>:
+
+		objdump -G:
+
+		vix_tools_state$:
+		10764  SOL    0      0      00013bdf 311    vmware/vix.s
+		10765  SLINE  0      420    00013bdf 0
+
+		vmware_detect:
+		11076  SOL    0      0      000207b4 338    vmware/vmware.s
+		11077  SLINE  0      25     000207b4 0
+
+
+
+			objdump		-d:		-G
+		<vmware_detect>:	00010594	000207b4 	DIFF: 00010220
+		<vix_tools_state$>:	000304ff	00013bdf	DIFF:-1c920
+
+
+		it appears -G stabs isn't updated with the kernel link script that reorders
+		segments?
+
+DONE: pci_list_devices takes about a second after it detected the last device,
+	as it scans the rest of the ports. Some possibilities:
+	- it checks all functions (this was it!): this is done because sometimes there
+	  are gaps. TODO: make sure it only scans all functions if function 0
+	  yielded a result (DONE).
