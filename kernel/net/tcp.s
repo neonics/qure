@@ -1,5 +1,7 @@
 ################################################################################
-# TCP
+# TCP  (RF793)
+#
+# (TODO: rfc1123)
 #
 NET_TCP_RESPOND_UNK_RST = 0	# whether to respond with RST packet for unknown
 				# connections or non-listening ports.
@@ -163,6 +165,7 @@ tcp_conn_send_buf_start:.long 0 # payload offset start in buf
 tcp_conn_send_buf_len:	.long 0	# size of unsent data
 
 tcp_conn_tx_fin_seq:	.long 0
+tcp_conn_tx_syn_seq:	.long 0
 
 tcp_conn_timestamp:	.long 0	# [clock_ms]
 
@@ -196,19 +199,28 @@ tcp_conn_state:		.byte 0
 
 	TCP_CONN_STATE_LINGER = 0b11011111	# TIME_WAIT; all but FIN_ACK_TX
 # rfc793:
-#tcp_conn__state:	.byte 0
+tcp_conn_state_official:	.byte 0
 # states:
-TCP_CONN_STATE_LISTEN		= 1	# wait conn req from remote
-TCP_CONN_STATE_SYN_SENT		= 2	# wait match conn req after tx conn req
-TCP_CONN_STATE_SYN_RECEIVED	= 3	# wait conn req ack after rx/tx conn req
+TCP_CONN_STATE_LISTEN		= 1	# wait conn req from remote			(wait for rx SYN)
+TCP_CONN_STATE_SYN_SENT		= 2	# wait match conn req after tx conn req		(wait rx SYN after tx SYN)
+TCP_CONN_STATE_SYN_RECEIVED	= 3	# wait conn req ack after rx AND tx conn req	(wait rx ACK for tx SYN after rx AND tx SYN)
 TCP_CONN_STATE_ESTABLISHED	= 4	# open connection, normal
-TCP_CONN_STATE_FIN_WAIT_1	= 5	# wait rx (fin | ack for tx fin)
-TCP_CONN_STATE_FIN_WAIT_2	= 6	# wait rx fin
-TCP_CONN_STATE_CLOSE_WAIT	= 7	# wait local close command
-TCP_CONN_STATE_CLOSING		= 8	# wait rx ack for tx fin
-TCP_CONN_STATE_LAST_ACK		= 9	# wait rx ack for tx fin
-TCP_CONN_STATE_TIME_WAIT	= 10	# delay ensure remote rx ack for rx fin
+TCP_CONN_STATE_FIN_WAIT_1	= 5	# wait rx (fin | ack for tx fin)		(wait rx FIN, or, wait rx ACK on tx FIN) # we sent FIN, but haven't received any yet
+TCP_CONN_STATE_FIN_WAIT_2	= 6	# wait rx fin					(wait rx FIN)
+TCP_CONN_STATE_CLOSE_WAIT	= 7	# wait local close command from 'local user'	# we received FIN, haven't sent FIN yet
+TCP_CONN_STATE_CLOSING		= 8	# wait rx ack for tx fin			(wait rx ACK on tx FIN)
+TCP_CONN_STATE_LAST_ACK		= 9	# wait rx ack for tx fin			(wait rx ACK on tx FIN including ACK on its tx FIN)
+TCP_CONN_STATE_TIME_WAIT	= 10	# delay ensure remote rx ack for rx fin		(wait until remote has rx ACK our tx ACK on its tx FIN)
 TCP_CONN_STATE_CLOSED		= 11	# fictional: no conn state
+
+#
+# So,
+#
+# ESTABLISHED -----(tx FIN)-----> FIN_WAIT_1  --(rx ACK for FIN)--> FIN_WAIT_2 --(rx FIN,tx ACK)--> TIME_WAIT --(delay 2MSL)-->CLOSED
+# ESTBALISHED -----(tx FIN)-----> FIN_WAIT_1  --(rx FIN,tx ACK)---> CLOSING    --(rx ACK of FIN)--> TIME_WAIT --(delay 2MSL)-->CLOSED
+# ESTABLISHED -(rx FIN, tx ACK)-> CLOSE_WAIT  --(tx FIN)----------> LAST_ACK   --(rx ACK of FIN)------------------------------> CLOSED
+
+TCP_MSL = 2 * 60	# maximum segment lifetime in seconds (2 minutes)
 
 ###.....?
 # S: LISTEN->SYN_RECEIVED->ESTABLISHED
@@ -312,25 +324,29 @@ tcp_conn_print_state$:
 	call	printbin8
 	pop	edx
 	ret
-#	.data
-#	tcp_conn_states$:
-#	STRINGPTR "<unknown>"
-#	STRINGPTR "LISTEN"
-#	STRINGPTR "SYN_RECEIVED"
-#	STRINGPTR "ESTABLISHED"
-#	STRINGPTR "FIN_WAIT_1"
-#	STRINGPTR "FIN_WAIT_2"
-#	STRINGPTR "CLOSE_WAIT"
-#	STRINGPTR "LAST_ACK"
-#	STRINGPTR "TIME_WAIT"
-#	STRINGPTR "CLOSED"
-#	.text32
-#	cmp	esi, TCP_CONN_STATE_CLOSED + 1
-#	jl	0f
-#	xor	esi, esi
-#0:	mov	esi, [tcp_conn_states$ + esi * 4]
-#	call	print
-#	ret
+
+tcp_conn_print_state_official$:
+	.data
+	tcp_conn_states_official$:
+	STRINGPTR "<unknown>" # 0, undefined/uninitialized/new
+	STRINGPTR "LISTEN" #	= 1	# wait conn req from remote
+	STRINGPTR "SYN_SENT" #	= 2	# wait match conn req after tx conn req
+	STRINGPTR "SYN_RECEIVED" #= 3	# wait conn req ack after rx/tx conn req
+	STRINGPTR "ESTABLISHED" #= 4	# open connection, normal
+	STRINGPTR "FIN_WAIT_1" #= 5	# wait rx (fin | ack for tx fin)
+	STRINGPTR "FIN_WAIT_2" #= 6	# wait rx fin
+	STRINGPTR "CLOSE_WAIT" #= 7	# wait local close command
+	STRINGPTR "CLOSING" #	= 8	# wait rx ack for tx fin
+	STRINGPTR "LAST_ACK" #	= 9	# wait rx ack for tx fin
+	STRINGPTR "TIME_WAIT" #= 10	# delay ensure remote rx ack for rx fin
+	STRINGPTR "CLOSED" #	= 11	# fictional: no conn state
+	.text32
+	cmp	esi, TCP_CONN_STATE_CLOSED + 1
+	jb	0f
+	xor	esi, esi
+0:	mov	esi, [tcp_conn_states_official$ + esi * 4]
+	call	print
+	ret
 
 
 # in: edx = ip frame pointer
@@ -390,7 +406,8 @@ net_tcp_conn_newentry:
 	add	eax, edx	# eax = abs conn ptr
 	xchg	edx, [esp]	# [esp]=eax retval; edx = ipv4
 
-	mov	[eax + tcp_conn_state], byte ptr 0
+	movb	[eax + tcp_conn_state], 0
+	movb	[eax + tcp_conn_state_official], 0
 	mov	[eax + tcp_conn_sock], dword ptr -1
 	mov	edi, [esp + 8]
 	mov	[eax + tcp_conn_handler], edi
@@ -558,6 +575,8 @@ net_tcp_conn_print$:
 	push	esi
 	movzx	esi, byte ptr [esi + ebx + tcp_conn_state]
 	call	tcp_conn_print_state$
+	movzx	esi, byte ptr [esi + ebx + tcp_conn_state]
+	call	tcp_conn_print_state_official$
 	pop	esi
 
 	print	" last comm: "
@@ -574,7 +593,7 @@ net_tcp_conn_print$:
 
 	call	newline
 
-	.if 1
+	.if NET_TCP_DEBUG > 2
 	cmp	dword ptr [esi + ebx + tcp_conn_send_buf], 0
 	jz	1f
 		DEBUG_DWORD [esi+ebx+tcp_conn_send_buf],"tx buf"
@@ -684,20 +703,63 @@ TCP_DEBUG_COL3   = 0x84
 
 .macro TCP_DEBUG_CONN
 	push	eax
-	push	edx
-	pushcolor TCP_DEBUG_COL
 	print	"tcp["
-	mov	edx, eax
-	call	printdec32
+	push	eax
+	call	_s_printdec32
 	print	"] "
-	popcolor
-	pop	edx
 	pop	eax
+.endm
+
+# PRECONDITION: [tcp_connections] locked
+# in: eax = tcp_conn idx
+.macro TCP_DEBUG_CONN_STATE
+	cmp	eax, -1
+	jz	9990f
+	push	edx
+	push	eax
+	push	esi
+	pushcolor 8
+
+	add	eax, [tcp_connections]
+	mov	dl, byte ptr [eax + tcp_conn_state]
+	call	printbin8
+	printspace
+	movzx	esi, byte ptr [eax + tcp_conn_state_official]
+	call	tcp_conn_print_state_official$
+	printspace
+
+	color TCP_DEBUG_COL_TX
+	mov	edx, [eax + tcp_conn_local_seq]
+	sub	edx, [eax + tcp_conn_local_seq_base]
+	call	printdec32
+	printspace
+	mov	edx, [eax + tcp_conn_local_seq_ack]
+	sub	edx, [eax + tcp_conn_local_seq_base]
+	call	printdec32
+	printspace
+
+
+	color TCP_DEBUG_COL_RX
+	mov	edx, [eax + tcp_conn_remote_seq]
+	sub	edx, [eax + tcp_conn_remote_seq_base]
+	call	printdec32
+	printspace
+	mov	edx, [eax + tcp_conn_remote_seq_ack]
+	sub	edx, [eax + tcp_conn_remote_seq_base]
+	call	printdec32
+	printspace
+
+	popcolor
+	pop	esi
+	pop	eax
+	pop	edx
+9990:
 .endm
 
 .macro TCP_DEBUG_REQUEST
 	pushcolor TCP_DEBUG_COL_RX
-	print "tcp["
+	TCP_DEBUG_CONN
+	print "["
 	color	TCP_DEBUG_COL2
 	push	edx
 	movzx	edx, word ptr [esi + tcp_sport]
@@ -720,6 +782,39 @@ TCP_DEBUG_COL3   = 0x84
 	pop	eax
 	printc TCP_DEBUG_COL_RX "] "
 	popcolor
+	TCP_DEBUG_CONN_STATE
+.endm
+
+.macro TCP_DEBUG_RESPONSE
+	pushcolor TCP_DEBUG_COL_TX
+	TCP_DEBUG_CONN
+	print "["
+
+	push	edx
+	color	TCP_DEBUG_COL2
+	movzx	edx, word ptr [edi + tcp_sport]
+	xchg	dl, dh
+	call	printdec32
+	color	TCP_DEBUG_COL_TX
+	print "->"
+	color	TCP_DEBUG_COL2
+	movzx	edx, word ptr [edi + tcp_dport]
+	xchg	dl, dh
+	call	printdec32
+	pop	edx
+	color	TCP_DEBUG_COL_TX
+	print	"]: Tx ["
+
+	push	eax
+	mov	ax, [edi + tcp_flags]
+	xchg	al, ah
+	color	TCP_DEBUG_COL2
+	TCP_DEBUG_FLAGS ax
+	pop	eax
+
+	printc TCP_DEBUG_COL_TX "] "
+	popcolor
+	TCP_DEBUG_CONN_STATE
 .endm
 
 
@@ -775,7 +870,6 @@ net_ipv4_tcp_handle:
 	jc	0f
 
 	.if NET_TCP_DEBUG
-		TCP_DEBUG_CONN
 		TCP_DEBUG_REQUEST
 	.endif
 
@@ -787,6 +881,7 @@ net_ipv4_tcp_handle:
 
 0:	# firewall: new connection
 	.if NET_TCP_DEBUG
+		mov	eax, -1
 		TCP_DEBUG_REQUEST
 	.endif
 
@@ -801,6 +896,7 @@ net_ipv4_tcp_handle:
 	jnz	3f	# ACK nr must not be set on initial SYN
 
 	.if NET_TCP_DEBUG
+	.if 0	# already printed in TCP_DEBUG_REQUEST
 		pushcolor TCP_DEBUG_COL_RX
 		print	"tcp: Rx SYN "
 		color	TCP_DEBUG_COL2
@@ -811,6 +907,7 @@ net_ipv4_tcp_handle:
 		pop	edx
 		call	printspace
 		popcolor
+	.endif
 	.endif
 
 	# firewall / services:
@@ -833,15 +930,23 @@ net_ipv4_tcp_handle:
 	#
 	# See ipv4.s, the net_route_get check.
 
+
+	# SYN Flooding protection
+	# Several HTTP SYN floods have been detected over the last weeks,
+	# causing system instability.
+	# Here we check how many TCP connections a remote host has to
+	# the current port, and reset the connection if it is unreasonable.
+
+	call	net_tcp_count_peer_connections	# in: edx = ipv4 frame, esi = tcp frame; out: eax = num conns
+	cmp	eax, 10	# let's be generous
+	jae	92f
+
 	.if NET_TCP_DEBUG
-		printc TCP_DEBUG_COL, "tcp: ACCEPT SYN"
+		printlnc TCP_DEBUG_COL, "tcp: ACCEPT SYN"
 	.endif
-	call	net_tcp_conn_newentry_from_packet	# in: edx=ip fr, esi=tcp fr, edi=handler
+	call	net_tcp_conn_newentry_from_packet	# in: edx=ip fr, esi=tcp fr, edi=handler; out: eax tcp conn idx
 	jc	9f	# no more connections, send RST
 	call	net_tcp_handle_syn$
-	.if NET_TCP_DEBUG
-		call	newline
-	.endif
 	# update socket, call handler
 	cmp	ebx, -1
 	jz	1f
@@ -877,6 +982,22 @@ net_ipv4_tcp_handle:
 	.endif
 	jmp	1f
 
+92:	# DROP (1f) or REJECT (9f)
+	.if 1
+		printc 0x8c, "tcp: DROP SYN: flood"
+
+		.data
+		.global tcp_synflood_dropcount
+		.global tcp_synflood_lastdrop
+		tcp_synflood_dropcount: .long 0
+		tcp_synflood_lastdrop: .long 0
+		.text32
+		pushd	[clock]
+		popd	[tcp_synflood_lastdrop]
+		incd	[tcp_synflood_dropcount]
+	.endif
+	jmp	1f	# DROP
+
 	#
 8:	# unknown connection, not SYN
 	.if NET_TCP_DEBUG
@@ -903,7 +1024,7 @@ net_ipv4_tcp_handle:
 2:	call	net_tcp_tx_rst$
 .endif
 
-1:	.if NET_TCP_DEBUG
+1:;	.if NET_TCP_DEBUG
 		call	net_print_ip_pair
 		call	newline
 
@@ -911,6 +1032,42 @@ net_ipv4_tcp_handle:
 	.endif
 	ret
 
+
+# in: edx = ipv4 frame
+# in: esi = tcp frame
+# out: eax = num conns
+net_tcp_count_peer_connections:
+	MUTEX_SPINLOCK TCP_CONN
+	xor	eax, eax	# count
+	push_	edi ebx ecx edx
+	mov	ecx, [edx + ipv4_src]	# peer ip
+	movzx	edx, word ptr [esi + tcp_dport]	# local port
+	#xchg	dl, dh	# this must indeed NOT be done!
+
+	.if 0
+		DEBUG "CHECK peer conns for "
+		push	eax
+		mov	eax, ecx
+		call	net_print_ipv4
+		printchar_ ':'
+		call	printdec32
+		pop	eax
+	.endif
+
+	ARRAY_LOOP      [tcp_connections], TCP_CONN_STRUCT_SIZE, edi, ebx, 9f
+	cmp	ecx, [edi + ebx + tcp_conn_remote_addr]
+	jnz	1f
+	cmp	dx, [edi + ebx + tcp_conn_local_port]
+	jnz	1f
+	inc	eax
+1:;	ARRAY_ENDL
+9:      pop_	edx ecx ebx edi
+	MUTEX_UNLOCK TCP_CONN
+	.if 0
+		DEBUG_DWORD eax, "#"
+	.endif
+	ret
+	
 # in: eax = tcp_conn array index
 # in: edx = ip frame
 # in: esi = tcp frame
@@ -945,11 +1102,12 @@ net_tcp_handle:
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_RST
 	jz	0f
 	# mark connection as free, for now
-	DEBUG "TCP rx RST"
+	DEBUG "TCP rx RST"; push eax; mov eax, [esi - IPV4_HEADER_SIZE + ipv4_src]; call net_print_ipv4; pop eax;
 	MUTEX_SPINLOCK TCP_CONN
 	push	eax
 	add	eax, [tcp_connections]
 	movb	[eax + tcp_conn_state], TCP_CONN_STATE_LINGER
+	movb	[eax + tcp_conn_state_official], TCP_CONN_STATE_CLOSED
 	pop	eax
 	MUTEX_UNLOCK TCP_CONN
 	jmp	9f
@@ -979,19 +1137,39 @@ net_tcp_handle:
 	.endif
 	inc	dword ptr [eax + tcp_conn_remote_seq]
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_RX
+
 2:
 	# byte not allowed - using word.
 	bts	word ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_ACK_TX_SHIFT
+
+		pushf
+		jc	1f
+		# we haven't sent a FIN
+		# XXX TODO check official state 'ESTABLISHED'
+		movb	[eax + tcp_conn_state_official], TCP_CONN_STATE_CLOSE_WAIT
+
+		jmp	2f
+	1:	# we sent a FIN, so in FIN_WAIT_1;
+		# if we also rx ACK on that fin, in FIN_WAIT_2;
+		# we rx a FIN here,
+		# so FIN_WAIT_1 -> CLOSING
+		# and FIN_WAIT_2 ->TIME_WAIT
+		# XXX TODO check official state 'FIN_WAIT_1'
+		movb	[eax + tcp_conn_state_official], TCP_CONN_STATE_CLOSING
+	2:	popf
+
+
 	pop	eax
 	MUTEX_UNLOCK TCP_CONN
-	jc	9f	# don't ack: already sent FIN
+
+	jc	9f	# don't ack: already sent FIN	# XXX maybe must send ACK
 	# havent sent fin, rx'd fin: tx fin ack
 
 	push	edx
 	push	ecx
-	.if NET_TCP_DEBUG
-		printc TCP_DEBUG_COL_TX, "tcp: Tx ACK[FIN] "
-	.endif
+#	.if NET_TCP_DEBUG
+#		printc TCP_DEBUG_COL_TX, "tcp: Tx ACK[FIN] "	# printed in net_tcp_send
+#	.endif
 	mov	dl, TCP_FLAG_ACK
 	xor	ecx, ecx
 	# send ACK [FIN]
@@ -1024,7 +1202,10 @@ net_tcp_handle:
 	# on receiving a SYN+ACK to our SYN
 	# since this method is not called unless the connection is known,
 	# this test, which would match portscanners, would not be executed.
-	cmp	[esi + tcp_flags + 1], byte ptr (TCP_FLAG_SYN)|(TCP_FLAG_ACK)
+	mov	dl, [esp + tcp_flags + 1]
+	and	dl, TCP_FLAG_SYN|TCP_FLAG_ACK
+	cmp	dl, TCP_FLAG_SYN|TCP_FLAG_ACK
+	#cmp	[esi + tcp_flags + 1], byte ptr (TCP_FLAG_SYN)|(TCP_FLAG_ACK)
 	jnz	1f
 	# got a SYN+ACK for a known connection: must be one we initiated.
 	MUTEX_SPINLOCK TCP_CONN
@@ -1037,18 +1218,24 @@ net_tcp_handle:
 	mov	edx, [esi + tcp_seq]
 	bswap	edx
 	inc	edx
-	mov	[eax + tcp_conn_remote_seq_base], edx
+	.if NET_TCP_DEBUG > 1
+		DEBUG_DWORD edx, "set remote_seq_base AGAIN"
+	.endif
+	mov	[eax + tcp_conn_remote_seq_base], edx	# XXX should be 1 less/ already set
 	mov	[eax + tcp_conn_remote_seq], edx
 2:	
 	pop_	edx eax
 	MUTEX_UNLOCK TCP_CONN
 
+	.if NET_TCP_DEBUG
+		printlnc	TCP_DEBUG_COL_RX, ">"
+	.endif
 	pushad
-	call	net_tcp_conn_send_ack
+	call	net_tcp_conn_send_ack	# dup acks! (only on SYN|ACK)
 	popad
 1:
 ################
-	call	net_tcp_handle_payload$
+	call	net_tcp_handle_payload$ #XXX used to send ACK - removed.
 
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_PSH
 	jz	0f
@@ -1056,12 +1243,18 @@ net_tcp_handle:
 		printc TCP_DEBUG_COL_RX, "PSH "
 	.endif
 	# flush the accumulated payload to the handler/socket
-	call	net_tcp_handle_psh
-0:
 	.if NET_TCP_DEBUG
 		printlnc	TCP_DEBUG_COL_RX, ">"
 	.endif
-9:	ret
+	call	net_tcp_handle_psh	# flushes buffer to socket
+	ret
+0:
+
+9:
+	.if NET_TCP_DEBUG
+		printlnc	TCP_DEBUG_COL_RX, ">"
+	.endif
+	ret
 
 # in: eax = tcp_conn array index
 # in: edx = ipv4 frame
@@ -1148,7 +1341,7 @@ net_tcp_handle_payload$:
 	add	eax, [tcp_connections]
 	add	[eax + tcp_conn_remote_seq], ecx
 
-	.if NET_TCP_DEBUG > 1
+	.if NET_TCP_DEBUG > 2
 		call newline
 		DEBUG "rx payload",0xa0
 		DEBUG_DWORD [eax+tcp_conn_recv_buf_start],"start",0xa0
@@ -1165,7 +1358,7 @@ net_tcp_handle_payload$:
 	pop	edi
 	pop	esi
 	add	[eax + tcp_conn_recv_buf_len], ecx
-	.if NET_TCP_DEBUG > 1
+	.if NET_TCP_DEBUG > 2
 		DEBUG_DWORD [eax+tcp_conn_recv_buf_len],"len",0xa0
 		call newline
 		push_ esi ecx
@@ -1180,9 +1373,9 @@ net_tcp_handle_payload$:
 	pop	eax
 	MUTEX_UNLOCK TCP_CONN
 	# send ack
-	push	eax
-	call	net_tcp_conn_send_ack
-	pop	eax
+#	push	eax
+#	call	net_tcp_conn_send_ack
+#	pop	eax
 
 0:	pop	esi
 	pop	edx
@@ -1216,7 +1409,7 @@ net_tcp_handle_psh:
 	add	esi, [edi + tcp_conn_recv_buf_start]
 	mov	ecx, [edi + tcp_conn_recv_buf_len]
 
-	.if NET_TCP_DEBUG > 1
+	.if NET_TCP_DEBUG > 2
 		call newline
 		DEBUG "handle PSH", 0xb0
 		DEBUG_DWORD [edi+tcp_conn_recv_buf_start],"start",0xb0
@@ -1257,30 +1450,182 @@ jz	9f
 	jmp	0b
 
 # in: eax = tcp connection index
-# in: esi = tcp packet
+# in: esi = tcp packet (with ACK flag set)
 # out: eax = -1 if the ACK is for the FIN
 # side-effect: send_buf freed.
 # (out: CF = undefined)
 net_tcp_conn_update_ack:
 	MUTEX_SPINLOCK TCP_CONN
 	push	edx
-	push	eax
+	push	eax	# STACKREF
 	push	ebx
 	add	eax, [tcp_connections]
 	mov	ebx, [esi + tcp_ack_nr]
 	bswap	ebx
-	mov	[eax + tcp_conn_local_seq_ack], ebx
+	mov	[eax + tcp_conn_local_seq_ack], ebx	# XXX
+
+		# use the official states:
+		pushad
+		mov	bl, [eax + tcp_conn_state_official]
+		movzx	esi, bl
+		.if NET_TCP_DEBUG > 1
+			DEBUG "update ACK"
+			call	tcp_conn_print_state_official$
+		.endif
+		mov	esi, [esp + PUSHAD_ESI]
+			# states:
+			#TCP_CONN_STATE_LISTEN		= 1	# wait conn req from remote
+			#TCP_CONN_STATE_SYN_SENT	= 2	# wait match conn req after tx conn req
+			#TCP_CONN_STATE_SYN_RECEIVED	= 3	# wait conn req ack after rx/tx conn req
+			#TCP_CONN_STATE_ESTABLISHED	= 4	# open connection, normal
+			#TCP_CONN_STATE_FIN_WAIT_1	= 5	# wait rx (fin | ack for tx fin)
+			#TCP_CONN_STATE_FIN_WAIT_2	= 6	# wait rx fin
+			#TCP_CONN_STATE_CLOSE_WAIT	= 7	# wait local close command
+			#TCP_CONN_STATE_CLOSING		= 8	# wait rx ack for tx fin
+			#TCP_CONN_STATE_LAST_ACK	= 9	# wait rx ack for tx fin
+			#TCP_CONN_STATE_TIME_WAIT	= 10	# delay ensure remote rx ack for rx fin
+			#TCP_CONN_STATE_CLOSED		= 11	# fictional: no conn state
+		cmp	bl, TCP_CONN_STATE_LISTEN
+		jnz	1f
+		.if NET_TCP_DEBUG > 1
+			DEBUG "CONN_STATE_LISTEN todo"
+		.endif
+		jmp	2f
+	1:
+		cmp	bl, TCP_CONN_STATE_SYN_SENT	# client
+		jnz	1f
+		# fallthrough - identical (except server sends SYN+ACK, client only sends ACK this time)
+	1:
+		cmp	bl, TCP_CONN_STATE_SYN_RECEIVED	# server
+		jnz	1f
+		mov	edx, [esi + tcp_seq]
+		bswap	edx
+		sub	edx, [eax + tcp_conn_remote_seq_base]
+		.if NET_TCP_DEBUG > 1
+			printc 8, " remote seq "
+			call	printdec32
+			call	printspace
+		.endif
+		cmp	edx, 1
+		jnz	2f
+		# received ACK for rel seq 1, our SYN:
+		movb	[eax + tcp_conn_state_official], TCP_CONN_STATE_ESTABLISHED
+
+	1:
+		cmp	bl, TCP_CONN_STATE_ESTABLISHED
+		jnz	1f
+		.if NET_TCP_DEBUG > 1
+			DEBUG "CONN_STATE_ESTABLISHED todo"
+		.endif
+		# either:
+		# A) we send    a FIN: goto FIN_WAIT_1
+		# B) we receive a FIN: goto CLOSE_WAIT
+		jmp	2f
+	1:
+		cmp	bl, TCP_CONN_STATE_FIN_WAIT_1
+		jnz	1f
+		#DEBUG "CONN_STATE_CLOSE_FIN_WAIT_1 todo"
+		# we sent a fin, but haven't received an ack or fin
+		# so see if this ack is for our fin
+
+		mov	edx, [esi + tcp_ack_nr]
+		bswap	edx
+		sub	edx, [eax + tcp_conn_local_seq_base]
+		cmp	edx, [eax + tcp_conn_local_seq]	# once FIN sent, local seq won't change!
+		jnz	3f
+		.if NET_TCP_DEBUG > 1
+			DEBUG "rx ACK for our FIN: FIN_WAIT_1->FIN_WAIT_2"
+		.endif
+		movb	[eax + tcp_conn_state_official], TCP_CONN_STATE_FIN_WAIT_2
+		jmp	2f
+		3:
+		# not ack for our TX fin;
+		# if rx FIN then tx ACK and goto CLOSING
+		jmp	2f
+	1:
+		cmp	bl, TCP_CONN_STATE_FIN_WAIT_2
+		jnz	1f
+		.if NET_TCP_DEBUG > 1
+			DEBUG "CONN_STATE_CLOSE_FIN_WAIT_2 todo"
+		.endif
+		# this state only waits for rx FIN, then  tx ACK and -> TIME_WAIT -> CLOSED
+		testb	[esi + tcp_flags + 1], TCP_FLAG_FIN
+		jz	2f
+		.if NET_TCP_DEBUG > 1
+			DEBUG "FIN_WAIT_2 rx FIN/tx ACK(TODO)->TIME_WAIT"
+		.endif
+		movb	[esi + tcp_conn_state_official], TCP_CONN_STATE_TIME_WAIT
+		jmp	2f
+
+	1:
+		cmp	bl, TCP_CONN_STATE_CLOSE_WAIT
+		jnz	1f
+		.if NET_TCP_DEBUG > 1
+			DEBUG "CONN_STATE_CLOSE_WAIT todo"
+		.endif
+		# CLOSE_WAIT: we received a FIN (but haven't sent one)
+		# Once we tx FIN goto LAST_ACK
+		jmp	2f
+	1:
+		cmp	bl, TCP_CONN_STATE_CLOSING
+		jnz	1f
+		.if NET_TCP_DEBUG > 1
+			DEBUG "CONN_STATE_CLOSING todo"
+		.endif
+		# we tx FIN but not rx ACK, and we rx FIN and tx ACK.
+		# so we wait for ACK on our FIN:
+		mov	edx, [esi + tcp_ack_nr]
+		bswap	edx
+		sub	edx, [eax + tcp_conn_local_seq_base]
+		cmp	edx, [eax + tcp_conn_local_seq]	# once FIN sent, local seq won't change! guaranteed: FIN_WAIT_1 and later have tx FIN
+		jnz	2f
+		.if NET_TCP_DEBUG > 1
+			DEBUG "rx ACK for our FIN: CLOSING->TIME_WAIT"
+		.endif
+		movb	[eax + tcp_conn_state_official], TCP_CONN_STATE_TIME_WAIT
+		jmp	2f
+	1:
+		cmp	bl, TCP_CONN_STATE_LAST_ACK
+		jnz	1f
+		.if NET_TCP_DEBUG > 1
+			DEBUG "CONN_STATE_LAST_ACK todo"
+		.endif
+		jmp	2f
+	1:
+		cmp	bl, TCP_CONN_STATE_TIME_WAIT
+		jnz	1f
+		.if NET_TCP_DEBUG > 1
+			DEBUG "CONN_STATE_TIME_WAIT todo"
+		.endif
+		jmp	2f
+	1:
+		cmp	bl, TCP_CONN_STATE_CLOSED
+		jnz	1f
+		.if NET_TCP_DEBUG > 1
+			DEBUG "CONN_STATE_CLOSED todo"
+		.endif
+		jmp	2f
+	1:
+	2:	popad
+
+
 	movzx	ebx, byte ptr [eax + tcp_conn_state]
 	# see if ACK is for FIN
 	test	bl, TCP_CONN_STATE_FIN_TX
 	jz	1f
+	.if NET_TCP_DEBUG > 1
+		DEBUG "rx ACK; FIN sent;"
+	.endif
 	# see if we already received this ack
 	test	bl, TCP_CONN_STATE_FIN_ACK_RX
-	jnz	1f
+	jnz	4f#1f
 	mov	edx, [eax + tcp_conn_tx_fin_seq]
 	bswap	edx
 	cmp	edx, [esi + tcp_ack_nr]
-	jnz	1f	# ack is not for our tx fin
+	jnz	6f#1f	# ack is not for our tx fin
+	.if NET_TCP_DEBUG > 1
+		DEBUG "got ACK for FIN"
+	.endif
 	or	bh, TCP_CONN_STATE_FIN_ACK_RX
 	# Connection closed now, free buffer:
 	push	eax
@@ -1289,12 +1634,25 @@ net_tcp_conn_update_ack:
 	pop	eax
 	mov	[eax + tcp_conn_send_buf], dword ptr 0
 
+	movb	[eax + tcp_conn_state_official], TCP_CONN_STATE_CLOSED	# XXX
+
 	test	bl, TCP_CONN_STATE_FIN_ACK_RX|TCP_CONN_STATE_FIN_ACK_TX
 	jz	2f
 	mov	[esp + 4], dword ptr -1	# return eax = -1
 2:
 
-1:	# ack is not for our tx fin
+1:	# ack is not for our tx fin since we didn't send a FIN
+	jmp	5f;
+4:	
+	.if NET_TCP_DEBUG > 1
+	DEBUG "dup ACK on FIN"
+	.endif
+	jmp	5f
+6:	
+	.if NET_TCP_DEBUG > 1
+		DEBUG "ACK SEQ FIN mismatch"
+	.endif
+5:
 
 ########
 	test	bl, TCP_CONN_STATE_SYN_TX
@@ -1616,12 +1974,16 @@ net_tcp_send:
 	mov	[edi + tcp_flags], ax
 
 	.if NET_TCP_DEBUG
-		pushcolor TCP_DEBUG_COL_TX
-		print "[Tx "
-		xchg	al, ah
-		TCP_DEBUG_FLAGS ax
-		print "]"
-		popcolor
+		mov	eax, [ebp]	# tcp conn idx
+		TCP_DEBUG_RESPONSE
+		call	newline
+
+		#pushcolor TCP_DEBUG_COL_TX
+		#print "[Tx "
+		#xchg	al, ah
+		#TCP_DEBUG_FLAGS ax
+		#print "]"
+		#popcolor
 	.endif
 
 	movw	[edi + tcp_windowsize], ((TCP_CONN_BUFFER_SIZE&0xff)<<8)|(TCP_CONN_BUFFER_SIZE>>8) # word ptr 0x20
@@ -1835,6 +2197,9 @@ net_tcp_tx_rst$:
 
 
 
+# precondition: the tcp_connection is new (i.e. TCP_CONN_STATE_LISTEN);
+# this is not checked due to code flow enforcing it.
+#
 # in: eax = tcp_conn array index
 # in: edx = ip frame
 # in: esi = tcp frame
@@ -1961,10 +2326,14 @@ net_tcp_handle_syn$:
 		push	edx
 		mov	edx, [ebp - 4]
 		add	edx, [tcp_connections]
+		.if NET_TCP_DEBUG > 1
+			DEBUG_DWORD eax, "set remote_seq_base"
+		.endif
 		mov	[edx + tcp_conn_remote_seq_base], eax
 	inc	eax
 		mov	[edx + tcp_conn_remote_seq_ack], eax
-		or	[edx + tcp_conn_state], byte ptr TCP_CONN_STATE_SYN_RX
+		orb	[edx + tcp_conn_state], TCP_CONN_STATE_SYN_RX
+		movb	[edx + tcp_conn_state_official], TCP_CONN_STATE_SYN_RECEIVED
 	bswap	eax
 	mov	[edi + tcp_ack_nr], eax
 
@@ -1986,11 +2355,17 @@ mov [edx + tcp_conn_remote_mss], eax
 	mov	[edi + tcp_seq], eax
 
 	mov	ax, TCP_FLAG_SYN | TCP_FLAG_ACK | ((_TCP_HLEN/4)<<12)
-	.if NET_TCP_DEBUG
-		printc TCP_DEBUG_COL_TX, "tcp: Tx SYN ACK"
-	.endif
 	xchg	al, ah
 	mov	[edi + tcp_flags], ax
+	.if NET_TCP_DEBUG
+		push	eax
+		mov	eax, [ebp - 4]
+		TCP_DEBUG_RESPONSE
+		pop	eax
+		#printc TCP_DEBUG_COL_TX, "tcp: Tx SYN ACK"
+		call	newline
+	.endif
+
 
 	#mov	ax, [esi + tcp_windowsize]
 	#mov	[edi + tcp_windowsize], ax
@@ -2031,7 +2406,8 @@ mov [edx + tcp_conn_remote_mss], eax
 
 	mov	eax, [ebp - 4]
 	add	eax, [tcp_connections]
-	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_SYN_ACK_TX | TCP_CONN_STATE_SYN_TX
+	orb	[eax + tcp_conn_state], TCP_CONN_STATE_SYN_ACK_TX | TCP_CONN_STATE_SYN_TX
+	movb	[eax + tcp_conn_state_official], TCP_CONN_STATE_SYN_RECEIVED
 	MUTEX_UNLOCK TCP_CONN
 
 0:	mov	esp, ebp
