@@ -22,6 +22,7 @@ CLOUD_VERBOSITY_TX		= 2	# prints sending packets
 CLOUD_VERBOSITY_RX		= 2	# prints receiving packets
 CLOUD_VERBOSITY_INIT_NODE	= 2	# local cluster_node initialisation
 CLOUD_VERBOSITY_ACTION_ADD	= 1	# node discovery
+CLOUD_VERBOSITY_ACTION_ADD_DETAILS= CLOUD_VERBOSITY_ACTION_ADD + 1
 CLOUD_VERBOSITY_ACTION_UPDATE	= 2	# node update
 CLOUD_VERBOSITY_ACTION_REGISTER	= 2	# send registration packet
 CLOUD_VERBOSITY_ACTION_RESPOND	= 3	# send response packet
@@ -31,6 +32,24 @@ CLOUD_VERBOSITY_PING		= 2	# prints ping action
 CLOUD_VERBOSITY_PING_RESULT	= 1	# prints online nodes
 CLOUD_VERBOSITY_PING_NODELIST	= 3	# prints times for each node
 CLOUD_VERBOSITY_NODE_OFFLINE	= 2	# prints name, ip, mac of offline nodes
+
+
+        .macro CLOUD_VERBOSITY_BEGIN level
+                cmpb    [cloud_verbosity], CLOUD_VERBOSITY_\level
+                jb      9081f
+        .endm
+
+        # optional
+        .macro CLOUD_VERBOSITY_ELSE
+        jmp     9082f
+        9081:
+        .endm
+
+        .macro CLOUD_VERBOSITY_END
+        9082:
+        9081:
+        .endm
+
 
 # start daemon
 cmd_cloudnetd:
@@ -262,10 +281,11 @@ cloud_socket_open:
 # out: eax = cluster_node
 # out: edx = MCAST or BCAST IP
 cloud_register:
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_REGISTER
-	jb	1f
-	printc 13, " register "
-1:
+
+	CLOUD_VERBOSITY_BEGIN ACTION_REGISTER
+		printc 13, " register "
+	CLOUD_VERBOSITY_END
+
 	mov	eax, [cluster_node]
 	or	eax, eax
 	jz	9f
@@ -319,15 +339,14 @@ cloud_packet_send:
 	call	cloud_tx_throttle
 	jc	9f	# skip tx
 
-	.if CLOUD_LOCAL_ECHO
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_TX
-	jb	1f
+.if CLOUD_LOCAL_ECHO
+	CLOUD_VERBOSITY_BEGIN TX
 		printc 9, "[cloud-tx] "
 		call	print_ip$
 		call	printspace
 		call	cloudnet_packet_print
-	1:
-	.endif
+	CLOUD_VERBOSITY_END
+.endif
 
 	NET_BUFFER_GET		# cached buffers
 	jc	91f
@@ -533,9 +552,10 @@ cluster_add_node:
 	jz	2f
 0:	ARRAY_ENDL
 	jmp	1f
-2:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_UPDATE
-	jb	2f
-	printc 13, " update node "
+2:
+
+	CLOUD_VERBOSITY_BEGIN ACTION_UPDATE
+		printc 13, " update node "
 		push	eax
 		mov	eax, [eax + edx + node_addr]
 		call	net_print_ipv4
@@ -543,7 +563,8 @@ cluster_add_node:
 		mov	eax, ecx
 		call	net_print_ipv4
 		pop	eax
-	call newline
+		call newline
+	CLOUD_VERBOSITY_END
 	jmp	2f
 
 1:	PTR_ARRAY_NEWENTRY [cluster_ips], 1, 9f	# out: eax+edx; destroys: ecx
@@ -561,35 +582,35 @@ cluster_add_node:
 	mov	eax, [clock]
 	mov	[ebx + node_clock_met], eax
 
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_ADD
-	jb	2f
-	printc 13, " add cluster node "
-	push	esi
-	lea	esi, [esi + pkt_node_hostname]
-	call	print
-	call	printspace
-	pop	esi
-	mov	eax, ecx
-	call	print_ip$
-	print " era "
-	mov	edx, [esi + pkt_cluster_era]
-	call	printdec32
-	print " age "
-	mov	edx, [esi + pkt_node_age]
-	call	printdec32
-	print " krev "
-	mov	edx, [esi + pkt_kernel_revision]
-	call	printdec32
-	call	newline
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_ADD + 1
-	jb	2f
-	print "                  n "
-	mov	edx, [esi + pkt_node_birthdate]
-	call	print_datetime
-	print " c "
-	mov	edx, [esi + pkt_cluster_birthdate]
-	call	print_datetime
-	call	newline
+	CLOUD_VERBOSITY_BEGIN ACTION_ADD
+		printc 13, " add cluster node "
+		push	esi
+		lea	esi, [esi + pkt_node_hostname]
+		call	print
+		call	printspace
+		pop	esi
+		mov	eax, ecx
+		call	print_ip$
+		print " era "
+		mov	edx, [esi + pkt_cluster_era]
+		call	printdec32
+		print " age "
+		mov	edx, [esi + pkt_node_age]
+		call	printdec32
+		print " krev "
+		mov	edx, [esi + pkt_kernel_revision]
+		call	printdec32
+		call	newline
+	CLOUD_VERBOSITY_END
+	CLOUD_VERBOSITY_BEGIN ACTION_ADD_DETAILS
+		print "                  n "
+		mov	edx, [esi + pkt_node_birthdate]
+		call	print_datetime
+		print " c "
+		mov	edx, [esi + pkt_cluster_birthdate]
+		call	print_datetime
+		call	newline
+	CLOUD_VERBOSITY_END
 
 2:	mov	eax, [clock]
 	mov	[ebx + node_clock], eax
@@ -621,10 +642,11 @@ ping_timeout_clocks: .long 0
 .text32
 cluster_ping:
 	pushad
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_PING
-	jb	1f
-	printlnc 11, "ping cluster"
-1:
+
+	CLOUD_VERBOSITY_BEGIN PING
+		printlnc 11, "ping cluster"
+	CLOUD_VERBOSITY_END
+
 	LOAD_PACKET ping
 	mov	eax, [cluster_node]
 	mov	edx, [eax + cluster_era]
@@ -675,31 +697,30 @@ cluster_check_status:
 	jnz	1f
 	mov	[eax + esi + node_clock], ecx
 1:
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_PING_NODELIST
-	jb	1f
-	push	esi
-	lea	esi, [eax + esi + node_node_hostname]
-	call	print
-	pop	esi
 
-	call	printspace
-	push	eax
-	mov	eax, [eax + esi + node_addr]
-	call	net_print_ipv4
-	pop	eax
-	call	printspace
-1:
 	mov	edx, [eax + esi + node_clock]
 	sub	edx, ecx	# cur clock
 	neg	edx
 
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_PING_NODELIST
-	jb	1f
-	call	printhex8
-	call	printspace
-	call	_print_time$
-	call	_print_onoffline$
-	call	newline
+	CLOUD_VERBOSITY_BEGIN PING_NODELIST
+		push	esi
+		lea	esi, [eax + esi + node_node_hostname]
+		call	print
+		pop	esi
+
+		call	printspace
+		push	eax
+		mov	eax, [eax + esi + node_addr]
+		call	net_print_ipv4
+		pop	eax
+		call	printspace
+
+		call	printhex8
+		call	printspace
+		call	_print_time$
+		call	_print_onoffline$
+		call	newline
+	CLOUD_VERBOSITY_END
 1:
 	cmp	edx, [ping_timeout_clocks]
 	adc	edi, 0	# count
@@ -709,8 +730,9 @@ cluster_check_status:
 	jb	1f
 	#call	cluster_reboot_node
 
-		cmpb	[cloud_verbosity], CLOUD_VERBOSITY_NODE_OFFLINE
-		jb	1f
+############## NODE OFFLINE
+
+	CLOUD_VERBOSITY_BEGIN NODE_OFFLINE
 		printc 12, "cluster node offline: "
 		push_	eax esi
 		add	eax, esi
@@ -725,50 +747,72 @@ cluster_check_status:
 		call	net_print_mac
 		call	newline
 		pop_	esi eax
+	CLOUD_VERBOSITY_END
+
+	jmp	2f
+############## END NODE OFFLINE
 1:
+############## NODE ONLINE
+	########
 		testb	[cloud_flags], MAINTAIN_DMZ$
-		jz	1f
+		jz	4f
 		mov	edx, [lan_dmz_ip]	# edx free here
+	#	DEBUG_DWORD edx, "DMZ_IP"
+	#	DEBUG_DWORD [eax+esi+node_addr], "node.addr"
 		# check if it has DMZ IP
 		cmpd	edx, [eax + esi + node_addr]
-		jnz	1f
+		jnz	4f
+	#	DEBUG "dmz node found"
 		or	edi, 1<<31	# mark found
-1:	ARRAY_ENDL
+	4:
+	########
+
+
+############## END NODE ONLINE
+2:
+	ARRAY_ENDL
 
 	# ~(1<<31) & edi: lo: online nodes, hi: total nodes
 	mov	eax, edi	# see cluster_check_dmz_ip$
 
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_PING_RESULT
-	jb	1f
-	printc 11, "[cluster nodes] "
-	#DEBUG_DWORD edi #(online + offline == total?)
-	printc 10, "online: "
-	movzx	edx, di
-	call	printdec32
-	shr	edi, 16
-	and	edi, 0x7fff	# high bit indicates DMZ ip found
-	sub	edi, edx
-	jz	1f
-	printc 12, " offline: "
-	mov	edx, edi
-	call	printdec32
-1:
+	CLOUD_VERBOSITY_BEGIN PING_RESULT
+		printc 11, "[cluster nodes] "
+		#DEBUG_DWORD edi #(online + offline == total?)
+		printc 10, "online: "
+		movzx	edx, di
+		call	printdec32
+		shr	edi, 16
+		and	edi, 0x7fff	# high bit indicates DMZ ip found
+		sub	edi, edx
+		jz	1f
+		printc 12, " offline: "
+		mov	edx, edi
+		call	printdec32
+	1:
+		call	newline
+	CLOUD_VERBOSITY_END
 
 	call	cluster_check_dmz_ip$	# in: eax top bit: 1=DMZ IP present in cluster
 
 	popad
 	ret
 
+
 cluster_check_dmz_ip$:
 	testb	[cloud_flags], MAINTAIN_DMZ$
 	jz	1f
 	# check for DMZ IP and take over IP.
 	test	eax, 1<<31	# see above (edi destroyed)
-	jnz	1f
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_DMZ_IP
-	jb	2f
-	printc 12, " taking DMZ IP "
-2:	mov	eax, [lan_dmz_ip]
+	jz	2f
+1:	ret
+2:
+
+	CLOUD_VERBOSITY_BEGIN ACTION_DMZ_IP
+		printc 12, " taking DMZ IP "
+		DEBUG_DWORD eax
+	CLOUD_VERBOSITY_END
+
+	mov	eax, [lan_dmz_ip]
 	call	arp_table_getentry_by_ipv4 # in: eax = ipv4; out: ecx + edx
 	jc	3f
 	movb	[ecx + edx + arp_entry_status], 0
@@ -798,14 +842,11 @@ cluster_check_dmz_ip$:
 	call	net_print_ipv4
 	printc 14, " obtained"
 
-1:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_DMZ_IP
-	jb	2f
-	call	newline
-2:
+1:
 	ret
 
 91:	printlnc 4, "DMZ ip taken"
-	jmp	1b
+	ret
 
 
 
@@ -901,42 +942,43 @@ CL_PAYLOAD_START = 18	# sock readpeer: src.ip,src.port,dst.ip,dst.port,src.mac
 
 # in: esi,ecx = packet
 cloudnet_handle_packet:
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_RX
-	jb	1f
-	printc 11, " rx "
 
-.if 1	# SOCK_READPEER (getsockflag;jz/jc?)
-	# readpeer:
-	mov	eax, [esi]		# peer ip
-	mov	dx, word ptr [esi + 4]	# peer port
-	xchg	dl, dh
-	call	print_addr$
+	CLOUD_VERBOSITY_BEGIN RX
+		printc 11, " rx "
 
-	add	esi, 12	# mac
-	pushcolor 8
-	call	printspace
-	call	net_print_mac
-	popcolor
-	sub	esi, 12
+	.if 1	# SOCK_READPEER (getsockflag;jz/jc?)
+		# readpeer:
+		mov	eax, [esi]		# peer ip
+		mov	dx, word ptr [esi + 4]	# peer port
+		xchg	dl, dh
+		call	print_addr$
 
-	print "->"
+		add	esi, 12	# mac
+		pushcolor 8
+		call	printspace
+		call	net_print_mac
+		popcolor
+		sub	esi, 12
 
-	mov	eax, [esi+ 6]		# peer ip
-	mov	dx, word ptr [esi + 10]	# peer port
-	xchg	dl, dh
-	call	print_addr$
-	call	newline
-	print "    "
-.endif
-	push	esi
-	lea	edi, [esi + 12]	# mac
-	add	esi, CL_PAYLOAD_START
-	sub	ecx, CL_PAYLOAD_START
-	call	cloudnet_packet_print
-	add	ecx, CL_PAYLOAD_START
-	pop	esi
+		print "->"
 
-1:
+		mov	eax, [esi+ 6]		# peer ip
+		mov	dx, word ptr [esi + 10]	# peer port
+		xchg	dl, dh
+		call	print_addr$
+		call	newline
+		print "    "
+	.endif
+		push	esi
+		lea	edi, [esi + 12]	# mac
+		add	esi, CL_PAYLOAD_START
+		sub	ecx, CL_PAYLOAD_START
+		call	cloudnet_packet_print
+		add	ecx, CL_PAYLOAD_START
+		pop	esi
+	CLOUD_VERBOSITY_END
+
+
 	# detect message
 	.macro ISMSG name, label
 		push_	edi esi ecx
@@ -1025,11 +1067,12 @@ cloudnet_handle_packet:
 
 3:	# persist
 	call	[eax + oofs_persistent_api_save] # XXX sometimes eax = 0 here!
+
 	# update local node in nodelist
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_UPDATE
-	jb	3f
-	printc 8, " (local) "
-3:
+	CLOUD_VERBOSITY_BEGIN ACTION_UPDATE
+		printc 8, " (local) "
+	CLOUD_VERBOSITY_END
+
 	push	esi
 	lea	esi, [eax + cluster_node_persistent]
 	mov	edi, [cloud_nic]
@@ -1076,10 +1119,12 @@ cloudnet_handle_packet:
 	cmpd	[esi + 6], -1	# destination broadcast?
 	jnz	9f
 .endif
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_RESPOND
-	jb	1f
-	printc 13, " respond "
-1:	mov	edx, [esi]	# src ip
+
+	CLOUD_VERBOSITY_BEGIN ACTION_RESPOND
+		printc 13, " respond "
+	CLOUD_VERBOSITY_END
+
+	mov	edx, [esi]	# src ip
 	push eax
 	call	[eax + send]
 	pop eax
@@ -1089,10 +1134,11 @@ cloudnet_handle_packet:
 .endif
 	ret
 # pong
-9:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_IGNORE
-	jb	1f
-	printlnc 13, " ignore"
-1:	ret
+9:
+	CLOUD_VERBOSITY_BEGIN ACTION_IGNORE
+		printlnc 13, " ignore"
+	CLOUD_VERBOSITY_END
+	ret
 
 
 # not hello, check ping
@@ -1104,18 +1150,18 @@ cloudnet_handle_packet:
 	pushad
 	mov	eax, [esi]	# SOCK READPEER ip
 
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_RX
-	jb	3f
-	printc 11, " rx ping "
-	mov	eax, [esi]		# peer ip
-	mov	dx, word ptr [esi + 4]	# peer port
-	xchg	dl, dh
-	call	print_addr$
-	call	printspace
-	add	esi, 12	# ipv4 + port *2
-	call	net_print_mac
-	sub	esi, 12
-3:
+	CLOUD_VERBOSITY_BEGIN RX
+		printc 11, " rx ping "
+		mov	eax, [esi]		# peer ip
+		mov	dx, word ptr [esi + 4]	# peer port
+		xchg	dl, dh
+		call	print_addr$
+		call	printspace
+		add	esi, 12	# ipv4 + port *2
+		call	net_print_mac
+		sub	esi, 12
+	CLOUD_VERBOSITY_END
+
 	mov	edx, [clock]	# ???
 
 	ARRAY_LOOP [cluster_nodes], NODE_SIZE, ebx, ecx, 1f
@@ -1139,13 +1185,14 @@ cloudnet_handle_packet:
 	call	net_print_ip
 	call	newline
 
-		# send hello to the unknown node
-		cmpb	[cloud_verbosity], CLOUD_VERBOSITY_ACTION_RESPOND
-		jb	4f
+	# send hello to the unknown node
+	CLOUD_VERBOSITY_BEGIN ACTION_RESPOND
 		printc 13, " respond "
-	4:	mov	edx, [esi]	# src ip
-		mov	eax, [cluster_node]
-		call	[eax + send]
+	CLOUD_VERBOSITY_END
+
+	mov	edx, [esi]	# src ip
+	mov	eax, [cluster_node]
+	call	[eax + send]
 
 	#pushad
 	#call	cloud_send_hello	# in: eax = dest
@@ -1153,12 +1200,14 @@ cloudnet_handle_packet:
 
 	jmp	2f
 
-1:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_RX
-	jb	3f
-	printc 13, " update node "
-	lea	esi, [ebx + ecx + node_node_hostname]
-	call	println
-3:	mov	[ebx + ecx + node_clock], edx
+1:
+	CLOUD_VERBOSITY_BEGIN RX
+		printc 13, " update node "
+		lea	esi, [ebx + ecx + node_node_hostname]
+		call	println
+	CLOUD_VERBOSITY_END
+
+	mov	[ebx + ecx + node_clock], edx
 	mov	[ebx + ecx + node_addr], eax # update IP
 	# TODO also: ifconfig ip change event handler to update local node_addr
 2:	popad
@@ -1787,12 +1836,13 @@ cluster_node_factory:
 	jc	92f
 
 ##################################################################
-1:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_INIT_NODE
-	jb	10f
-	printc 10, " * got table: "
-	PRINT_CLASS
-	call	newline
-10:
+1:
+	CLOUD_VERBOSITY_BEGIN INIT_NODE
+		printc 10, " * got table: "
+		PRINT_CLASS
+		call	newline
+	CLOUD_VERBOSITY_END
+
 .data SECTION_DATA_BSS
 table:.long 0
 .text32
@@ -1802,33 +1852,36 @@ table:.long 0
 	mov	edx, offset class_cluster_node
 	xor	ebx, ebx
 
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_INIT_NODE
-	jb	10f
-	printc 13, " lookup cluster_node"
-10:
+	CLOUD_VERBOSITY_BEGIN INIT_NODE
+		printc 13, " lookup cluster_node"
+	CLOUD_VERBOSITY_END
+
 	call	[eax + oofs_table_api_lookup]	# out: ecx=index
 	jnc	1f
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_INIT_NODE
-	jb	10f
-	printc 4, " not found"
-10:
+
+	CLOUD_VERBOSITY_BEGIN INIT_NODE
+		printc 4, " not found"
+	CLOUD_VERBOSITY_END
 
 	# edx=class_cluster_node
 	mov	eax, [table]
 	mov	ecx, 512
 	call	[eax + oofs_table_api_add]	# edx=class -> eax=instance
 	jc	93f
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_INIT_NODE
-	jb	2f
-	printc 9, " - added cluster_node to oofs"
+
+	CLOUD_VERBOSITY_BEGIN INIT_NODE
+		printc 9, " - added cluster_node to oofs"
+	CLOUD_VERBOSITY_END
+
 	jmp	2f
 
 ##################################################################
 # in: ecx = oofs_vol entry number
-1:	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_INIT_NODE
-	jb	10f
-	call	newline
-10:
+1:
+	CLOUD_VERBOSITY_BEGIN INIT_NODE
+		call	newline
+	CLOUD_VERBOSITY_END
+
 	mov	eax, [esp]	# oofs_vol
 	mov	eax, [eax + net_persistence]	# 'root': oofs
 	#printc 9, "cluster_node: oofs.load_entry "
@@ -1842,15 +1895,15 @@ table:.long 0
 #mov [eax+cluster_era], dword ptr 0
 #mov [eax + cluster_birthdate], dword ptr 0x365b77dc
 
-	cmpb	[cloud_verbosity], CLOUD_VERBOSITY_INIT_NODE
-	jb	10f
-	printc 10, " * got cluster node: "
-	pushd	[eax + node_age]
-	pushd	[eax + cluster_era]
-	pushstring "cluster era: %d  node age: %d\n"
-	call	printf
-	add	esp, 12
-10:
+	CLOUD_VERBOSITY_BEGIN INIT_NODE
+		printc 10, " * got cluster node: "
+		pushd	[eax + node_age]
+		pushd	[eax + cluster_era]
+		pushstring "cluster era: %d  node age: %d\n"
+		call	printf
+		add	esp, 12
+	CLOUD_VERBOSITY_END
+
 	mov	[esp], eax
 	call	[eax + oofs_persistent_api_save]
 
