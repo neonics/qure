@@ -421,6 +421,11 @@ paging_alloc_page_idmap:
 	# clear the page - we don't want to trash the PD.
 	# TODO: this will fail when paging is enabled, but,
 	# so will the call to paging_idmap_page.
+
+# XXX Unfortunately this does not work
+#pushf
+#cli
+#call paging_disable
 	push_ edi ecx
 	push	eax
 	mov	edi, eax
@@ -430,7 +435,8 @@ paging_alloc_page_idmap:
 	rep	stosd	# IF this generates page fault, surround disable PG
 	pop	eax
 	pop_ ecx edi
-
+#call paging_enable
+#popf
 
 	# map in PDE as page table (PT)
 	sub	esi, ebx

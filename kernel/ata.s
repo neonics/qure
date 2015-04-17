@@ -744,7 +744,7 @@ ata_list_drive:
 	# 13) wait DRQ
 
 	push	dx
-	PRINTc	15, "* ATA"
+	PRINTc	11, "* ATA"
 	mov	dl, ah
 	call	printhex1
 	PRINTc	15, " Drive "

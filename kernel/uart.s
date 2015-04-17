@@ -8,6 +8,7 @@
 
 UART_DEBUG = 0
 
+UART_POLLING = 0	# 1: send bytes one at a time; 0: use IRQ and buffer
 ##############################################################################
 # Constants
 # serial ports: 3f8 2f8
@@ -315,7 +316,7 @@ uart_init:
 	PRINTFLAG al, UART_FLAG_FIFO, "FIFO ", ""
 
 	# allocate rx/tx buffers
-	mov	eax, 8#4200
+	mov	eax, 8#4200	# use 8 or so for testing
 
 	add	eax, 3	# dword align for rep stosd
 	and	al, ~3
@@ -585,7 +586,6 @@ uart_get:
 	ret
 ############################################################
 # Send Packet
-UART_POLLING = 0
 
 # in: ebx = device
 # in: esi = packet
@@ -593,6 +593,7 @@ UART_POLLING = 0
 # out: CF = 1: tx buffer full, try again soon
 # out: esi = points to data not in buffer
 # out: ecx = datalen not in buffer
+.global uart_send
 uart_send:
 
 .if UART_POLLING
@@ -659,12 +660,16 @@ uart_send:
 	mov	dx, [ebx + dev_io]
 	add	dl, UART_REG_IE
 	in	al, dx
-	DEBUG_BYTE al, "IE"
+	.if UART_DEBUG > 1
+		DEBUG_BYTE al, "IE"
+	.endif
 	or	al, UART_REG_IE_THRE	# let us know when xmit reg emty
 	out	dx, al
 	inc al	# delay
 	in	al, dx
-	DEBUG_BYTE al, "IE"
+	.if UART_DEBUG > 1
+		DEBUG_BYTE al, "IE"
+	.endif
 
 	pop_	ecx eax edx
 	# set CF if ecx != 0
@@ -695,7 +700,7 @@ uart_sendbyte:
 	mov	dx, [ebx + dev_io]
 	add	dl, UART_REG_LS
 0:	in	al,dx
-	test	al, UART_REG_LS_TEMPT	# 0x20
+	test	al, UART_REG_LS_TEMT	# 0x20
 	jz	0b
 	mov	al, ah
 	sub	dl, UART_REG_LS
@@ -896,7 +901,9 @@ uart_isr_tx$:	# Send (0b0010)
 	and	al, ~ UART_REG_IE_THRE
 	# and al, 0b1101b
 	out	dx, al	# disable THRE
-	DEBUG_BYTE al,"IRQ: IE"
+	.if UART_DEBUG
+		DEBUG_BYTE al,"IRQ: IE"
+	.endif
 	ret
 
 

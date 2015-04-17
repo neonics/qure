@@ -193,7 +193,7 @@ ll_insert_sorted$:
 
 LL_DEBUG = 0
 
-# in: esi = [mem_handles]
+# in: esi = handle struct pointer (handle_ll_el_addr/size with first, next, value)
 # in: edi = offset of handle_??_first
 # in: ebx: handle to place in the list, still part of it
 ll_update_left$:

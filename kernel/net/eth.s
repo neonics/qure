@@ -83,6 +83,7 @@ eth_type: .word 0	# 0x0008	# ipv4 (network byte order MSB)
 	# 0x88a2 ATA over ethernet
 	# 0x88a8 provider bridging IEE 801.1ad
 	# 0x88e5 mac security IEE 802.1AE
+	# 0x88d9 microsoft point2point,p2multipoint,p2broadcast; discovery
 	# 0x88f7 precision time protocol IEE 1588
 	# 0x8906 fibre channel over ethernet
 	# 0x9000 configuration test protocol (loop)
@@ -163,6 +164,7 @@ net_eth_print:
 .data
 DECL_PROTO_STRUCT_START eth
 DECL_PROTO_STRUCT_W 0,             "LLC",  net_llc_handle, net_llc_print,  PROTO_PRINT_LLC
+DECL_PROTO_STRUCT_W 0x88d9,        "LLC",  net_llc_handle, net_llc_print,  PROTO_PRINT_LLC
 DECL_PROTO_STRUCT_W ETH_PROTO_IPV4,"IPv4", net_ipv4_handle, net_ipv4_print, PROTO_PRINT_IPv4
 DECL_PROTO_STRUCT_W ETH_PROTO_ARP, "ARP",  net_arp_handle, net_arp_print,  PROTO_PRINT_ARP
 DECL_PROTO_STRUCT_W ETH_PROTO_IPV6,"IPv6", net_ipv6_handle, net_ipv6_print, PROTO_PRINT_IPv6

@@ -149,7 +149,7 @@ dev_print:
 	pop	esi
 	popcolor
 
-	call	[ebx + dev_api_print]
+	INVOKEVIRTUAL dev print ebx # call	[ebx + dev_api_print]
 
 	.if DEV_PRINT_IO
 	push	esi

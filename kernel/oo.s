@@ -1677,8 +1677,8 @@ OBJ_STRUCT_SIZE = .
 #
 # DECLARE_CLASS_BEGIN foo, superclass
 # field: .long 0
-# DECLARE_CLASS_METHOD methodname, method_pointer
-# DECLARE_CLASS_END
+# DECLARE_CLASS_METHOD methodname, method_pointer [, (OVERRIDE|DECLARE|STATIC)]*
+# DECLARE_CLASS_END foo
 
 
 .macro DECLARE_CLASS_BEGIN name, super=OBJ, offs=0
