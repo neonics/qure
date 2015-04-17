@@ -317,7 +317,7 @@ stats_task_switches: .long 0
 	.endif
 
 	jnc	991f
-	SCHED_UPGRADE_GRAPH 1
+	SCHED_UPDATE_GRAPH 1
 	shr	eax, 16
 991:	call	printcharc
 
@@ -776,7 +776,7 @@ call task_update_time_resume$
 	#    [esp] = eip, cs, eflags, esp, ss
 	iret
 
-88:	SCHED_UPDATE_GRAPH 1
+88:;	SCHED_UPDATE_GRAPH 1
 	jmp	8b
 
 
