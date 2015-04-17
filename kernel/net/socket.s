@@ -136,9 +136,6 @@ socket_close:
 	push	edx
 
 	mov	edx, [socket_array]
-		cmp	eax, [edx + array_index]
-		ja	9f
-
 	cmp	dword ptr [edx + eax + sock_port], -1
 	jz	8f
 
@@ -173,7 +170,6 @@ socket_close:
 	pop	edx
 	ret
 
-9:	printc 12, "socket_close: invalid socket"
 0:	printc 12, "; caller: "
 	mov	edx, [esp + 4]
 	call	debug_printsymbol
