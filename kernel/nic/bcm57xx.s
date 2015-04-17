@@ -1154,11 +1154,6 @@ bcm57_ifdown:
 # Interrupt Service Routine
 bcm57_isr:
 	pushad
-	push	ds
-	push	es
-	mov	eax, SEL_compatDS
-	mov	ds, eax
-	mov	es, eax
 	mov	ebx, edx	# see irq_isr and (dev_)add_irq_handler
 
 	.if BCM57_DEBUG
@@ -1177,8 +1172,6 @@ bcm57_isr:
 	.endif
 ########################################################################
 	# EOI is handled by IRQ_SHARING code
-	pop	es
-	pop	ds
 	popad	# edx ebx eax
 	iret
 
