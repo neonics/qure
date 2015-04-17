@@ -691,6 +691,7 @@ COLOR_STACK_SIZE = 4
 .global sprintdec8
 .global printlnc
 .global default_screen_update
+.global screen_update
 
 ###############################################################################
 # structures, data, code
@@ -1217,24 +1218,55 @@ screen_buf_flush:
 	popad
 	.endif
 
+	#	mov	edx, edi	# cur pos
 	.if VIRTUAL_CONSOLES
-	mov	[ebx + console_screen_buf_pos], edi
+	xchg	[ebx + console_screen_buf_pos], edi
 8:	pop	ebx
 	.else
-	mov	[screen_buf_pos], edi
+	xchg	[screen_buf_pos], edi
 	.endif
+
+		.if 1 # NEW!
+		# edx = cur pos
+		# edi = prev pos
+			pushad
+		#	mov	edi, [realsegflat]
+		#	add	edi, [screen_update]
+		#	call	edi
+			#call	[screen_update]
+
+		.data
+		screen_update_recursion: .byte 0
+		.text32
+			mov	al, [screen_update_recursion]
+			or	al, al
+			jz	1f
+			# TODO: display warning somewhere
+			push	edi
+			mov	edi, 160
+			mov	ax, 0xf4 << 8 | '!'
+			stosw
+			pop	edi
+			jmp	2f
+		1:
+			incb	[screen_update_recursion]
+			mov	eax, [screen_update]
+			or	eax, eax
+			jz	3f
+			call	eax
+		3:
+			decb	[screen_update_recursion]
+		2:
+			popad
+		.endif
+
+
 	pop	es
 		pop	edx
 	pop	ecx
 	pop	esi
 	pop	edi
-9:	
-
-	.if 0 # NEW!
-		mov	edi, [realsegflat]
-		add	edi, [screen_update]
-		call	edi
-	.endif
+9: # unused
 	ret
 .endif
 
