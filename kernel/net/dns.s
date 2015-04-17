@@ -188,6 +188,8 @@ cmd_dnsd:
 9:	ret
 
 net_service_dnsd_main:
+	call	resolve_wan_ip	# set up [internet_ip] for other services aswell
+
 	xor	eax, eax
 	mov	edx, IP_PROTOCOL_UDP << 16 | 53
 	mov	ebx, SOCK_READPEER	#SOCK_LISTEN
@@ -215,6 +217,27 @@ net_service_dnsd_main:
 	ret
 9:	printlnc 4, "dnsd: failed to open socket"
 	ret
+
+
+# out: CF = 1: no internet_ip
+resolve_wan_ip:
+	.data SECTION_DATA_BSS
+	internet_ip: .long 0
+	.text32
+	cmp	dword ptr [internet_ip], 0
+	clc
+	jnz	9f
+	push	eax
+	push	esi
+	LOAD_TXT "cloudns.neonics.com"
+	call	dns_resolve_name
+	pop	esi
+	or	eax, eax
+	mov	[internet_ip], eax
+	pop	eax
+	jnz	9f
+	stc
+9:	ret
 
 
 
@@ -1006,21 +1029,8 @@ dns_answer_question$:
 	jnz	9f	# no answer
 1:
 	#################################################
-		.data SECTION_DATA_BSS
-		internet_ip: .long 0
-		.text32
-		cmp	dword ptr [internet_ip], 0
-		jnz	1f
-		push	eax
-		push	esi
-		LOAD_TXT "cloudns.neonics.com"
-		call	dns_resolve_name
-		pop	esi
-		or	eax, eax
-		mov	[internet_ip], eax
-		pop	eax
-		jz	92f
-	1:
+	call	resolve_wan_ip
+	jc	92f
 	#################################################
 	# eax = ip
 	# esi = name
