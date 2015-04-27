@@ -75,45 +75,47 @@ httpd_handle_client:
 	mov	edx, 6	# minimum request size: "GET /\n"
 0:	mov	ecx, 10000
 	KAPI_CALL socket_peek
-	jc	9f
+	jc	408f	# timeout
 
 	jecxz	22f	# connection closed
 
-	# XXX had kernel error due to ecx being negatice
+	# XXX had kernel error due to ecx being negative
 	# at http_check_request_complete rep scas.
 	cmp	ecx, 4096
 	ja	5f
 
 	lea	edx, [ecx + 1]	# new minimum request size
 
-	push	eax
-	push	edx
+	push_	eax edx
 	call	http_check_request_complete
-	pop	edx
-	pop	eax
-	jc	4f	# invalid request
+	pop_	edx eax
+	jc	400f	# invalid request
 	jnz	0b	# incomplete
 
-	call	net_service_tcp_http	# takes care of socket_close
+	push	eax
+	call	net_service_tcp_http
+	pop	eax
+#TODO:enable:	jc	1f
+
+11:	KAPI_CALL socket_flush
+2:	KAPI_CALL socket_close
 	ret
 
-	22: DEBUG "socket closed while reading"
-	jmp 2f
+1:	KAPI_CALL socket_write
+	jmp	11b
 
-9:	printlnc 4, "httpd: timeout, closing connection"
-	LOAD_TXT "HTTP/1.1 408 Request timeout\r\n\r\n"
-	call	strlen_
-	KAPI_CALL socket_write
-1:	KAPI_CALL socket_flush
-2:	KAPI_CALL socket_close
-0:	ret
+
+22:;	DEBUG "socket closed while reading"
+	jmp	2b
+
+408:	printlnc 4, "httpd: timeout, closing connection"
+	LOAD_TXT "HTTP/1.1 408 Request timeout\r\n\r\n", esi, ecx, 1
+	jmp	1b
 
 5:	printlnc 4, "httpd: negative packet length (socket buffer corrupt?), closing with 400"
-
-4:	LOAD_TXT "HTTP/1.1 400 Bad request\r\n\r\n"
-	call	strlen_
-	KAPI_CALL socket_write
+400:	LOAD_TXT "HTTP/1.1 400 Bad request\r\n\r\n", esi, ecx, 1
 	jmp	1b
+
 
 # out: CF = 1: invalid request (request might be incomplete but complete enough
 #  to determine the error, i.e., first line received)
@@ -245,6 +247,9 @@ http_check_request_complete:
 
 DEBUG_EXPR = 0
 
+# Postcondition: socket open, all data written.
+# socket_flush will be called by caller.
+#
 # in: eax = socket index
 # in: esi = request data (complete)
 # in: ecx = request data len
@@ -252,7 +257,6 @@ net_service_tcp_http:
 	push	ebp
 	mov	ebp, esp
 
-	#sub	esp, 16 # reserve some space for header pointers.
 	pushd	0;	HTTP_STACK_HOSTIP	= 36	# IP value when Host header is IP
 	pushd	0;	HTTP_STACK_FNAME	= 32	# file name buffer
 	pushd	eax;	HTTP_STACK_SOCK		= 28	# net socket
@@ -264,15 +268,20 @@ net_service_tcp_http:
 	pushd	0;	HTTP_STACK_HDR_HOST	= 4
 	pushd	0;	HTTP_STACK_HDR_RESOURCE	= 0
 	HTTP_STACKARGS = 40
+	# allocate filename buffer on stack
+	sub	esp, ~3&(MAX_PATH_LEN+3)
+	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FNAME], esp
 
 	call	http_parse_header	# in: esi,ecx; out: edx=uri, ebx=host
 
+	pushd	offset 101f		# return address for www_err_response
 	mov	esi, offset www_code_400$
 	jc	www_err_response
 
 	# Send a response
 	cmp	edx, -1	# no GET / found in headers
 	jz	www_err_response
+	add	esp, 4			# pop return address for www_err_response
 
 	.if NET_HTTP_DEBUG
 		pushcolor 13
@@ -289,29 +298,35 @@ net_service_tcp_http:
 		popcolor
 	.endif
 
-	cmp	word ptr [edx], '/' | 'C'<<8
-	jnz	1f
+	call	www_handle_request$
 
-	call	www_send_screen
-
-100:	mov	esp, ebp
+100:	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
+	jnc	101f
+	# method indicated error, send error response
+	call	strlen_
+	KAPI_CALL socket_write
+101:
+	mov	esp, ebp
 	pop	ebp
 	ret
 
+
+www_handle_request$:
+# /C
+	cmpw	[edx], '/' | 'C'<<8
+	jnz	1f
+	cmpb	[edx+2], 0
+	jnz	1f
+	jmp	www_send_screen
+# /D
 1:	cmpw	[edx], '/' | 'D' << 8	# gzip test
 	jnz	1f
 	cmpb	[edx + 2], 0	# avoid prefix matches
 	jnz	1f
-
-	call	www_gzip_test
-
-	jmp	100b
+	jmp	www_gzip_test
 
 ###################################################
-
 1:	# serve custom file:
-	sub	esp, ~3&(MAX_PATH_LEN+3)
-	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FNAME], esp
 
 	.section .strings
 	www_docroot$: .asciz "/c/www/"
@@ -379,12 +394,13 @@ net_service_tcp_http:
 	inc	ecx
 1:
 	mov	esi, edx	# uri
+	# calculate uri length without query
 	push	ecx
 	call	strlen_
 		# strip query
 		push_	edi ecx
 		mov	edi, edx
-		mov	al, '?'
+		mov	al, '?'		# TODO: scan '#'
 		repnz	scasb
 		jnz	1f
 		mov	byte ptr [edi-1], 0
@@ -392,17 +408,18 @@ net_service_tcp_http:
 		mov	ecx, edi
 		sub	ecx, edx
 		# dec ecx?
-		1:
+	1:
 		pop_	ecx edi
 	add	ecx, [esp]
 	add	esp, 4
+
 	cmp	ecx, MAX_PATH_LEN - WWW_DOCROOT_STR_LEN -1
 	mov	esi, offset www_code_414$
 	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
 	jae	www_err_response
 
 	# calculate path
-0:	mov	edi, esp#offset www_file$
+0:	mov	edi, [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME] # esp#offset www_file$
 	mov	esi, offset www_docroot$
 	mov	ecx, WWW_DOCROOT_STR_LEN
 	rep	movsb
@@ -410,63 +427,64 @@ net_service_tcp_http:
 	# append hostname, if any
 	cmp	ebx, -1
 	jz	1f
-	mov	edi, esp#offset www_file$
+	mov	edi, [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME] # esp#offset www_file$
 	mov	esi, ebx
 	call	fs_update_path
 	mov	word ptr [edi - 1], '/'
 	push	eax
 	#mov	eax, offset www_file$
-	lea	eax, [esp+4]
+	#lea	eax, [esp+4]
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME]
 	KAPI_CALL fs_stat
 	pop	eax
 	jnc	1f
 	# unknown host
 	mov	ebx, -1
-	jmp	0b
+	jmp	0b	# re-calculate path, skip adding hostname
 1:
 
 FS_DIRENT_ATTR_DIR=0x10
 
-	mov	edi, esp	# filename stack buf
+	mov	edi, [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME]
 	mov	esi, edx	# uri
 	inc	esi		# skip leading /
 	call	fs_update_path	# in: edi=base/output, esi=rel; out: [edi+*]
 
 	# check whether path is still in docroot:
 	mov	esi, offset www_docroot$
-	mov	edi, esp#offset www_file$
+	mov	edi, [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME]
 	mov	ecx, WWW_DOCROOT_STR_LEN - 1 # skip null terminator
 	repz	cmpsb
 	jnz	404f
 
 	# now, if it is a directory, append index.html
-	lea	eax, [esp]	# file name pointer
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME]
 	KAPI_CALL fs_stat	# in: eax=path; out:ecx=fsize,al=flags,CF
 				# XXX ecx = 0x800, not fsize!
 	jc	404f
 	test	al, offset FS_DIRENT_ATTR_DIR
 	jz	1f		# not a directory
 
-	mov	edi, esp	# filename buffer
+	mov	edi, [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME]
 	LOAD_TXT "./index.html"
 	call	fs_update_path
 	# no need to check escape from docroot.
 1:
 	.if NET_HTTP_DEBUG > 1
 		printc 13, "Serving file: '"
-		mov	esi, esp	# filename buffer
+		mov	esi, [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME]
 		call	print
 		printc 13, "' "
 	.endif
 
-	lea	eax, [esp]	# filename
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME]
 	xor	edx, edx	# fs_open flags argument
 	KAPI_CALL fs_open	# out: eax=handle, ecx=filesize
 	jc	404f
 	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FSIZE], ecx
 	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FHANDLE], eax
 #####################################
-# [esp]=socket
+# [esp]=socket	# XXX probably not anymore!
 # eax = file handle
 	call	fs_handle_get_mtime	# out: esi -> 8 bytes
 	jc	1f	# error getting mtime, skip ETag check
@@ -504,13 +522,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FHANDLE]
 	KAPI_CALL fs_close
 
-	LOAD_TXT "HTTP/1.1 304 Not Modified\r\nConnection: close\r\n\r\n", esi, ecx, 1
-	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
-	KAPI_CALL socket_write
-	KAPI_CALL socket_flush
-	KAPI_CALL socket_close
-	printlnc 10, "304"
-	jmp	90f
+	jmp	304f
 1:
 #####################################
 # esi = -> 2 dwords mtime
@@ -534,7 +546,7 @@ FS_DIRENT_ATTR_DIR=0x10
 
 	# get the mime
 	push	esi		# preserve mtime
-	lea	esi, [esp + 4]	# filename
+	mov	esi, [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME]
 	call	http_get_mime	# out: esi
 	mov	ebx, esi	# remember mime
 	pop	esi		# mtime ptr
@@ -543,7 +555,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	call	_www_send_200$	# in: eax=tcp_conn,esi=mtime, ebx=mime
 
 	# send file contents
-10:	push	ecx
+10:	push	ecx	# STACKREF
 	cmp	ecx, 2048
 	jb	11f
 	mov	ecx, 2048
@@ -646,19 +658,20 @@ FS_DIRENT_ATTR_DIR=0x10
 	jnc 1f; DEBUG "ERROR closing file";1:
 
 	# DONE!
+	clc
+	ret
+
+304:	LOAD_TXT "HTTP/1.1 304 Not Modified\r\nConnection: close\r\n\r\n", esi, ecx, 1
 	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
-	KAPI_CALL socket_flush
-	KAPI_CALL socket_close
-	jmp	90f
+	KAPI_CALL socket_write
+	printlnc 10, "304"
+	clc
+	ret
 
 404:	mov	esi, offset www_code_404$
 	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
 	jmp	www_err_response
-
 ##################################
-90:	mov	esp, ebp
-	pop	ebp
-	ret
 
 
 # send http headers for a 200 OK.
@@ -1394,8 +1407,8 @@ www_content2$:	.asciz "</body></html>\r\n"
 # JUMP target: do not call!
 # in: ebp = stack pointer: replaces esp with ebp and pops ebp
 www_err_response:
-	mov	esp, ebp		# for convenience jumping
-	pop	ebp
+#	mov	esp, ebp		# for convenience jumping
+#	pop	ebp
 
 	.if NET_HTTP_DEBUG
 		mov	ecx, 4
@@ -1429,9 +1442,7 @@ www_err_response:
 	mov	esi, offset www_content2$
 	call	strlen_
 	KAPI_CALL socket_write
-
-	KAPI_CALL socket_flush
-	KAPI_CALL socket_close
+	clc
 	ret
 
 # in: eax = tcp conn
@@ -1461,14 +1472,11 @@ www_gzip_test:
 	mov	eax, ebx
 	call	mfree
 
-	mov	eax, [esp + 4*4]
-	KAPI_CALL socket_flush
-	KAPI_CALL socket_close
 	pop_	edi edx ecx ebx eax
+	clc
 	ret
 
 91:	pop_	edi edx ecx ebx eax
-	add	esp, 4
 	mov	esi, offset www_code_500$
 	jmp	www_err_response
 
@@ -1479,7 +1487,7 @@ www_send_screen:
 	KAPI_CALL socket_write
 
 .section .strings
-_color_css$:
+_www_screen_pre$:
 .ascii "<html><head><style type='text/css'>"
 .ascii "pre {background-color: black}\n"
 .ascii ".a{color:black}\n.ba{background-color:black}\n"
@@ -1499,9 +1507,13 @@ _color_css$:
 .ascii ".o{color:yellow}\n.bo{background-color:yellow}\n"
 .ascii ".p{color:white}\n.bp{background-color:white}\n"
 .asciz "</style></head><body><pre>\n"
+_www_screen_post$:
+.asciz "</pre></body></html>\n"
+.data SECTION_DATA_BSS
+_www_scr$: .space 80 * 32 # 13	# line buffer
 .text32
 
-	mov	esi, offset _color_css$
+	mov	esi, offset _www_screen_pre$
 	call	strlen_
 	KAPI_CALL socket_write
 
@@ -1522,11 +1534,8 @@ SEND_BUFFER = 1
 	mov	ecx, 25
 .endif
 0:	push	ecx
-#######
+####### send a line of the screen
 	mov	ecx, 80
-	.data SECTION_DATA_BSS
-	_www_scr$: .space 80 * 32 # 13
-	.text32
 	mov	edi, offset _www_scr$
 	push	eax
 	xor	dl, dl	# cur color
@@ -1575,11 +1584,8 @@ SEND_BUFFER = 1
 	# (however better than now where EOL's are not closed!)
 	mov	[edi], dword ptr ('<'|'/'<<8|'s'<<16|'p'<<24)
 	add	edi, 4
-	mov	[edi], dword ptr ('a'|'n'<<8|'>'<<16)
-	add	edi, 3
-
-	mov	[edi], byte ptr '\n'
-	inc	edi
+	mov	[edi], dword ptr ('a'|'n'<<8|'>'<<16|'\n'<<24)
+	add	edi, 4
 	pop	eax
 #######
 	mov	esi, offset _www_scr$
@@ -1592,11 +1598,10 @@ SEND_BUFFER = 1
 
 	pop	fs
 
-	LOAD_TXT "</pre></body></html>\n"
+	mov	esi, offset _www_screen_post$
 	call	strlen_
 	KAPI_CALL socket_write
-	KAPI_CALL socket_flush
-	KAPI_CALL socket_close
+	clc
 	ret
 
 .include "../lib/gzip.s"
