@@ -14,7 +14,7 @@ NET_TCP_OPT_DEBUG	= 0	# only used in copy_options
 NET_IP_DEFAULT_MSS	= 576
 NET_TCP_DEFAULT_MSS	= NET_IP_DEFAULT_MSS - 40	# i.e. 536
 
-.struct 0
+.struct 0	# TCP packet
 tcp_sport:	.word 0
 tcp_dport:	.word 0
 tcp_seq:	.long 0	# 4f b2 f7 fc decoded as relative seq nr 0..
@@ -151,7 +151,7 @@ TCP_MTU = ETH_MAX_PACKET_SIZE - ETH_HEADER_SIZE - IPV4_HEADER_SIZE - TCP_HEADER_
 TCP_CONN_REUSE_TIMEOUT	= 30 * 1000	# 30 seconds
 TCP_CONN_CLEAN_TIMEOUT	= 5 * 60 * 1000	# 5 minutes
 TCP_CONN_BUFFER_SIZE	= 2 * 1500 # 2048
-.struct 0
+.struct 0	# TCP_CONN structure
 # Buffers: not circular, as NIC's need contiguous region.
 # The recv and send buf contain the data to be PSH'd.
 tcp_conn_recv_buf:	.long 0	# malloc'd address
@@ -419,7 +419,7 @@ net_tcp_conn_newentry:
 	bswap	edx
 	mov	[eax + tcp_conn_local_port], edx
 
-	mov	[eax + tcp_conn_local_seq], dword ptr 0
+	mov	[eax + tcp_conn_local_seq], dword ptr 0x1337c0de	# for wireshark rel seq calc
 	mov	[eax + tcp_conn_remote_seq], dword ptr 0
 	mov	[eax + tcp_conn_local_seq_ack], dword ptr 0
 	mov	[eax + tcp_conn_remote_seq_ack], dword ptr 0
@@ -1112,7 +1112,6 @@ net_tcp_handle:
 	MUTEX_UNLOCK TCP_CONN
 	jmp	9f
 
-
 0:
 ########
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_FIN
@@ -1135,6 +1134,7 @@ net_tcp_handle:
 1:;	.if NET_TCP_DEBUG
 		printc TCP_DEBUG_COL_RX, "FIN "
 	.endif
+	# XXX TODO: inject FIN at proper window pos, i.e., verify all sequences received.
 	inc	dword ptr [eax + tcp_conn_remote_seq]
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_RX
 
@@ -1202,10 +1202,9 @@ net_tcp_handle:
 	# on receiving a SYN+ACK to our SYN
 	# since this method is not called unless the connection is known,
 	# this test, which would match portscanners, would not be executed.
-	mov	dl, [esp + tcp_flags + 1]
+	mov	dl, [esi + tcp_flags + 1]
 	and	dl, TCP_FLAG_SYN|TCP_FLAG_ACK
 	cmp	dl, TCP_FLAG_SYN|TCP_FLAG_ACK
-	#cmp	[esi + tcp_flags + 1], byte ptr (TCP_FLAG_SYN)|(TCP_FLAG_ACK)
 	jnz	1f
 	# got a SYN+ACK for a known connection: must be one we initiated.
 	MUTEX_SPINLOCK TCP_CONN
@@ -1263,7 +1262,7 @@ net_tcp_handle:
 ## in: esi = tcp payload
 ## in: ecx = tcp payload len
 tcp_rx_sock:
-	.if 1
+.if 1
 	push	eax
 	push	edx
 	# in: eax = ip
@@ -1289,9 +1288,9 @@ tcp_rx_sock:
 0:	pop	edx
 	pop	eax
 	ret
-9: DEBUG "!! NO socket: ip=";call net_print_ip;DEBUG_DWORD edx,"proto|port"
-jmp 0b
-	.else
+9:	DEBUG "!! NO socket: ip="; call net_print_ip;DEBUG_DWORD edx,"proto|port"
+	jmp	0b
+.else
 
 	MUTEX_SPINLOCK TCP_CONN
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE
@@ -1299,7 +1298,7 @@ jmp 0b
 	mov	eax, [eax + tcp_conn_sock]
 	MUTEX_UNLOCK TCP_CONN
 	call	net_socket_write
-	.endif
+.endif
 	ret
 
 # in: eax = tcp_conn array index
