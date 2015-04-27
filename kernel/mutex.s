@@ -111,7 +111,7 @@ mutex_spinlock:
 	dec	ecx
 	jz	2b
 .endif
-	YIELD
+	YIELD	# XXX might want to add a non-spinlock method and YIELD_MUTEX
 
 1:	lock bts dword ptr [mutex], eax
 	jc	0b
@@ -119,11 +119,10 @@ mutex_spinlock:
 	pop	ecx
 .endif
 
-.if MUTEX_DEBUG
 	pop	eax
+.if MUTEX_DEBUG
 	jmp	mutex_record_lock$
 .else
-	pop	eax
 	ret	4
 .endif
 
@@ -240,16 +239,29 @@ mutex_print:
 	call	mutex_calc_col_width$
 1:
 
-	mov	ecx, NUM_MUTEXES
 	printc_ 11, "mutex: "
+	mov	ecx, NUM_MUTEXES
 	mov	edx, [mutex]
 	call	nprintbin
 	printc_ 11, " current task: "
 	pushd	[scheduler_current_task_idx]
 	call	_s_printhex4
+	printc_ 11, " clock_ms: "
+	pushd	[clock_ms]
+	call	_s_printhex8
 	call	newline
 	mov	ebx, edx
 
+	printc 15, "MUTEX"
+	movzx	ecx, byte ptr [mutex_col_width$]
+	sub	ecx, 5-1	# -1 for the '='
+	jle	1f
+2:	call	printspace
+	loop	2b
+1:
+	printlnc 15, " owner    clock    pid  sequence caller"
+
+	mov	ecx, NUM_MUTEXES
 	mov	esi, offset mutex_owner
 	mov	edi, offset mutex_names
 ########
@@ -299,6 +311,7 @@ mutex_print:
 	mov	edx, [edx + task_pid]
 	call	printhex4
 	call	printspace
+
 	mov	edx, [mutex_lock_seq + eax * 4]
 	call	printhex8
 
@@ -397,6 +410,7 @@ __MUTEX_DECLARE = 1
 # lock, cmpxchg, xadd, mov, inc, dec, adc, sbb, bt, bts, btc, btr, not, neg, or, and
 
 # A fail-fast semaphore lock.
+# (Only used in schedule.s)
 #
 # This macro does a single check, leaving the semaphore in a locked state
 # regardless of whether the lock succeeded.
@@ -416,11 +430,12 @@ __MUTEX_DECLARE = 1
 		or	eax, eax
 	.endif
 	.ifnc 0,\nolocklabel
-		jnz	\nolocklabel	# task list locked - abort.
+		jnz	\nolocklabel	# already locked - abort.
 	.endif
 .endm
 
-
+# (Used in schedule.s and ata.s)
+#
 # This is a semi-spinlock, as it does not use CPU time when it fails
 # to acquire a lock. A lock is typically not going to become free unless
 # an interrupt occurs (unless perhaps on SMP systems).
@@ -429,9 +444,11 @@ __MUTEX_DECLARE = 1
 # Since the timer interrupt is essential for scheduling,
 # and since this is the only way the scheduler is called,
 # and since on a single-CPU system the scheduler is the only 'process'
-# that can obtain a lock,
-# halting is the most efficient way to wait for a semaphore to become free
+# that can obtain a lock (indirectly, by scheduling the task holding the lock),
+# halting is the most efficient way to wait for a semaphore to become free,
 # besides triggering the scheduler.
+# NOTE: the assumption is that the task holding the lock is suspended because
+# it waits on an interrupt, which should hardly ever be the case!
 #
 # On an SMP system, potentially [pit_timer_interval] milliseconds are wasted,
 # in the case where IRQ's are only executed by one CPU at a time,
@@ -480,7 +497,7 @@ __MUTEX_DECLARE = 1
 109:
 .endm
 
-
+# (Only used in schedule.s and ata.s)
 .macro SEM_UNLOCK sem
 	mov	dword ptr \sem, 0
 .endm
@@ -490,6 +507,8 @@ __MUTEX_DECLARE = 1
 ################################################################################
 # Read/Write Locking
 #
+# This is the true semaphore locking mechanism, where multiple read locks
+# can be held, and only 1 write lock.
 
 ################################################################################
 # Jcc breakdown:
@@ -525,7 +544,7 @@ __MUTEX_DECLARE = 1
 	lock inc dword ptr \sem
 	YIELD#_SEM [\sem]
 	jmp	990b
-999:	
+999:
 .endm
 
 #		 INC    ADD 1
@@ -581,7 +600,7 @@ __MUTEX_DECLARE = 1
 	# x) LOCK_WRITE's INC cannot be a cause since it is preceeded by a SUB,
 	#    which results in a zero or negative change that cannot contribute
 	#    to sem being too positive.
-	# SF = 1: sem was -2. Causes:
+	# SF = 1: sem was <=-2. Causes:
 	# 1) too many UNLOCK_READ (bug), or:
 	# 2) LOCK_WRITE attempted (dec -1->-2, now -2->-1).
 	#    LOCK_WRITE will increment (-1->0) and try again.
