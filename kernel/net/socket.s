@@ -9,13 +9,15 @@ NET_SOCKET_LOG_UDP_DROP = 0
 
 SOCKET_BUFSIZE	= 2048
 
+SOCK_USE_SEM = 1		# 1: use semaphore; 0: (old) use mutex
+
 # socket options:
 SOCK_LISTEN	= 0x80000000
 SOCK_STREAM	= 0x40000000	# 1: continuous buffer; 0: packetized buffer
 # address family:
 SOCK_AF_MASK	= 0x0000000f
 SOCK_AF_IP	= 0x00000000	# backwards compat
-SOCK_AF_ETH	= 0x00000001	
+SOCK_AF_ETH	= 0x00000001
 # NOTE: ignored: the above option is automatically determined based on IP_PROTOCOL_TCP.
 # Options affecting socket packetized read/peek contents (i.e. deliver):
 # READPEER: the ordering will be as listed here:
@@ -40,7 +42,10 @@ sock_cust:	.long 0	# custom data depending on socket (sock idx)
 sock_conn:	.long 0 # custom connection information (tcp_conn idx)
 SOCK_STRUCT_SIZE = .
 .data SECTION_DATA_BSS
-socket_array: .long 0
+.if SOCK_USE_SEM
+socket_array_sem:.long 0	# READ/WRITE semaphore
+.endif
+socket_array:	.long 0		# protected by MUTEX_SOCK / [socket_array_sem]
 .text32
 # in: eax = sock_addr (ip)
 # in: edx = sock_proto << 16 | sock_port
@@ -55,13 +60,28 @@ socket_open:
 	push	ecx
 	mov	esi, eax	# ip
 	mov	edi, edx	# proto, port
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, eax, edx, 9f
 	cmp	[eax + edx + sock_port], dword ptr -1
-	jz	1f
+	jz	1f	# found a free entry
 	ARRAY_ENDL
-9:	ARRAY_NEWENTRY [socket_array], SOCK_STRUCT_SIZE, 4, 9f
-1:	
+9:
+.if SOCK_USE_SEM
+	# switch to write lock
+	UNLOCK_READ [socket_array_sem]
+	LOCK_WRITE [socket_array_sem]
+.endif
+	ARRAY_NEWENTRY [socket_array], SOCK_STRUCT_SIZE, 4, 9f
+.if SOCK_USE_SEM
+	# switch back to read lock
+	UNLOCK_WRITE [socket_array_sem]
+	LOCK_READ [socket_array_sem]
+.endif
+1:
 	mov	[eax + edx + sock_port], edi	# also sets proto
 	mov	[eax + edx + sock_flags], ebx
 	mov	edi, ebx
@@ -114,7 +134,12 @@ socket_open:
 	.endif
 
 1:	mov	eax, edx
-9:	MUTEX_UNLOCK SOCK
+9:
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
+	MUTEX_UNLOCK SOCK
+.endif
 	pop	ecx
 	pop	esi
 	pop	edx
@@ -131,7 +156,11 @@ socket_open:
 
 KAPI_DECLARE socket_close
 socket_close:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	edx
 
@@ -166,7 +195,12 @@ socket_close:
 	jz	1f
 	call	buffer_free
 
-1:	MUTEX_UNLOCK SOCK
+1:
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
+	MUTEX_UNLOCK SOCK
+.endif
 	pop	edx
 	ret
 
@@ -243,7 +277,11 @@ socket_print:
 
 KAPI_DECLARE socket_get_lport
 socket_get_lport:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	mov	edx, [socket_array]
 	movzx	edx, word ptr [edx + eax + sock_port]
@@ -270,7 +308,12 @@ socket_get_lport:
 	pop	eax
 	mov	[ebx + eax + sock_port], dx
 9:	pop	ebx
-8:	MUTEX_UNLOCK SOCK
+8:
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
+	MUTEX_UNLOCK SOCK
+.endif
 	ret
 
 
@@ -345,12 +388,20 @@ socket_peek:
 # in: eax = socket
 # out: ZF = 1: it's a streaming(tcp) socket; 0: it's a packet socket.
 socket_is_stream:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	push	eax
 	add	eax, [socket_array]
 	cmp	word ptr [eax + sock_proto], IP_PROTOCOL_TCP
 	pop	eax
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	ret
 
 .data SECTION_DATA_BSS
@@ -364,8 +415,13 @@ socket_buffer_sem:	.long 0
 # [in: ecx = timeout]
 # out: esi = buffer (see buffer.s)
 # out: ecx = available data
+# out: CF = 1: timed out
 socket_buffer_read:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	edi
 	push	ebx
@@ -375,13 +431,16 @@ socket_buffer_read:
 	add	ebx, [clock_ms]
 
 0:	mov	edi, [socket_array]
-		xor	ecx, ecx
 		test	dword ptr [edi + eax + sock_flags], SOCK_CLOSED
 		jnz	61f
 	mov	esi, [edi + eax + sock_in_buffer]
 	mov	ecx, [esi + buffer_index]
 	mov	edi, [esi + buffer_start]
+.if SOCK_USE_SEM
+	UNLOCK_READ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	sub	ecx, edi
 #	jnbe	1f	# if edx is 0
 	cmp	ecx, edx
@@ -391,15 +450,19 @@ socket_buffer_read:
 	# packets may arrive that fill the buffer, but may not provide enough
 	# accumulated data to satisfy edx (min data).
 	# Thus, YIELD_SEM may return several times before this method returns.
-	cmp	ebx, [clock_ms]
-	jb	2f
+	cmp	ebx, [clock_ms]	# for inf t/o: 0xffffffff > clock_ms = false;
+	jb	2f		# timeout time past (jb=jc:CF=1)
 	mov	edi, ebx
 	cmp	ebx, -1
 	jz	3f		# infinite time (49 days)
 	sub	edi, [clock_ms]	# time left in ms
 3:	YIELD_SEM (offset socket_buffer_sem), edi
 ########
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	jmp	0b
 
 1:	cmp	dword ptr [socket_buffer_sem], 0
@@ -414,7 +477,11 @@ socket_buffer_read:
 	jmp	2b
 
 61:	DEBUG "sock closed"
+.if SOCK_USE_SEM
+	UNLOCK_READ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	stc
 	jmp	2b	# this skips socket_buffer_sem
 
@@ -426,7 +493,11 @@ socket_buffer_read:
 # out: CF: 1: write fail (unsupported proto)
 KAPI_DECLARE socket_write
 socket_write:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	eax
 	add	eax, [socket_array]
@@ -449,13 +520,21 @@ socket_write_tcp$:
 	call	net_tcp_sendbuf
 
 9:	pop	eax
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	ret
 
 # flushes pending writes
 KAPI_DECLARE socket_flush
 socket_flush:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	eax
 	add	eax, [socket_array]
@@ -464,13 +543,21 @@ socket_flush:
 	mov	eax, [eax + sock_conn]
 	call	net_tcp_sendbuf_flush
 9:	pop	eax
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	ret
 
 # a TCP socket is closed remotely: signal any pending readers.
 # in: edx = socket index
 net_socket_deliver_close:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	ASSERT_ARRAY_IDX edx, [socket_array], SOCK_STRUCT_SIZE
 	push	edx
 	add	edx, [socket_array]
@@ -479,7 +566,12 @@ net_socket_deliver_close:
 	or	dword ptr [edx + sock_flags], SOCK_CLOSED
 	pop	edx
 	lock inc dword ptr [socket_buffer_sem]
-9:	MUTEX_UNLOCK SOCK
+9:
+.if SOCK_USE_SEM
+	UNLOCK_READ [socket_array_sem]
+.else
+	MUTEX_UNLOCK SOCK
+.endif
 	ret
 
 # TCP socket usage:
@@ -517,7 +609,11 @@ sock_accept_sem: .long 0
 # out: edx = peer socket
 # out: CF: socket_open error
 net_sock_deliver_accept:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	.if NET_SOCKET_DEBUG
 		DEBUG "SOCK DELIVER ACCEPT"
@@ -533,17 +629,29 @@ net_sock_deliver_accept:
 	pop	ebx	# flags
 	and	ebx, ~SOCK_LISTEN
 	or	ebx, SOCK_PEER | SOCK_ACCEPTABLE
+.if SOCK_USE_SEM
+	UNLOCK_READ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	call	socket_open
 	jc	91f
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	mov	edx, eax
 	pop	eax
 	mov	ebx, [socket_array]
 	mov	[ebx + edx + sock_cust], eax
 	mov	[ebx + edx + sock_conn], ecx
 	pop	ebx
+.if SOCK_USE_SEM
+	UNLOCK_READ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	lock inc dword ptr [sock_accept_sem] # notify scheduler
 	clc
 	ret
@@ -558,7 +666,11 @@ net_sock_deliver_accept:
 # out: CF
 KAPI_DECLARE socket_accept
 socket_accept:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	esi
 	push	ebx
@@ -566,11 +678,20 @@ socket_accept:
 	add	ebx, ecx
 	jmp	1f
 
-0:	MUTEX_UNLOCK SOCK
+0:
+.if SOCK_USE_SEM
+	UNLOCK_READ [socket_array_sem]
+.else
+	MUTEX_UNLOCK SOCK
+.endif
 
 	YIELD_SEM (offset sock_accept_sem)
 
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 1:	ARRAY_LOOP [socket_array], SOCK_STRUCT_SIZE, esi, edx, 9f
 	test	[esi + edx + sock_flags], dword ptr SOCK_PEER
 	jz	2f
@@ -588,7 +709,11 @@ socket_accept:
 	clc
 9:	pop	ebx
 	pop	esi
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	ret
 
 
@@ -600,7 +725,11 @@ net_sock_deliver_icmp:
 	mov	eax, [edx + ipv4_dst]
 	mov	edx, IP_PROTOCOL_ICMP << 16	# no port for icmp
 #	call	net_socket_deliver
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	call	net_socket_find_	# out: edx
 	jc	9f
 
@@ -609,7 +738,12 @@ net_sock_deliver_icmp:
 	xor	edx, edx	# in: dx = [port]
 	call	net_socket_in_append$ # in: esi = payload; ecx = payload len
 
-9:	MUTEX_UNLOCK SOCK
+9:
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
+	MUTEX_UNLOCK SOCK
+.endif
 	pop	edx
 	pop	eax
 	ret
@@ -620,7 +754,11 @@ net_sock_deliver_icmp:
 net_sock_deliver_raw:
 	push	eax
 	push	edx
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	# in: dx = proto
 	call	net_socket_find_af_eth_	# out: edx
 	jc	9f
@@ -630,7 +768,12 @@ net_sock_deliver_raw:
 	xor	edx, edx	# in: dx = [port] (N/A for ARP)
 	call	net_socket_in_append$ # in: esi = payload; ecx = payload len
 
-9:	MUTEX_UNLOCK SOCK
+9:
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
+	MUTEX_UNLOCK SOCK
+.endif
 	pop	edx
 	pop	eax
 	ret
@@ -643,7 +786,11 @@ net_sock_deliver_raw:
 # in: ecx = udp payload len
 # (out: CF = undefined)
 net_socket_deliver_udp:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	push	edx	# stackref errormsg
 	push	ebx
 	push	eax	# stackref errormsg
@@ -667,7 +814,11 @@ net_socket_deliver_udp:
 	mov	dx, [esi - UDP_HEADER_SIZE + udp_sport]
 	call	net_socket_find_	# out: edx
 	jnc	2f
+.if SOCK_USE_SEM
+	UNLOCK_READ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	# create peer socket:
 	mov	edx, eax	# in: edx = peer ip
 	mov	eax, ebx	# in: eax = server socket
@@ -677,7 +828,11 @@ net_socket_deliver_udp:
 	call	net_sock_deliver_accept # out: edx = peer socket
 	pop	ecx
 	jc	92f
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 
 2:	# edx = peer socket index
 	##mov	eax, [socket_array]
@@ -688,7 +843,12 @@ net_socket_deliver_udp:
 	mov	edx, [esi - UDP_HEADER_SIZE + udp_sport]# in: edx = [dport] [sport]
 	call	net_socket_in_append$	# in: eax=sock,esi,ecx,edx
 ########
-0:	MUTEX_UNLOCK SOCK
+0:
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
+	MUTEX_UNLOCK SOCK
+.endif
 9:	pop	eax
 	pop	ebx
 	pop	edx
@@ -799,9 +959,17 @@ net_socket_in_append$:
 # out: edx = socket idx
 # OUT: CF = 1: no matching socket
 net_socket_find:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	call	net_socket_find_
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	ret
 
 # precondition: MUTEX_SOCK locked
@@ -866,9 +1034,17 @@ net_socket_find_af_eth_:
 # in: edx = [proto] [port]
 # out: edx = socket idx
 net_socket_find_remote:
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	call	net_socket_find_remote_
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	ret
 
 # in: eax = remote ip
@@ -901,7 +1077,11 @@ net_socket_find_remote_:
 # in: esi, ecx: packet
 net_socket_deliver:
 DEBUG "SOCK DELIVER"
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	push	edi
 	push	ebx
 	push	ebp
@@ -922,7 +1102,11 @@ DEBUG "SOCK DELIVER"
 0:	pop	ebp
 	pop	ebx
 	pop	edi
+.if SOCK_USE_SEM
+	UNLOCK_READ_ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	ret
 ########
 2:	mov	eax, edx
@@ -938,7 +1122,11 @@ net_socket_write:
 	.if NET_SOCKET_DEBUG
 		DEBUG_DWORD eax, "SOCK WRITE"
 	.endif
+.if SOCK_USE_SEM
+	LOCK_READ [socket_array_sem]
+.else
 	MUTEX_SPINLOCK SOCK
+.endif
 	ASSERT_ARRAY_IDX eax, [socket_array], SOCK_STRUCT_SIZE
 	push	ebx
 	push	eax
@@ -950,7 +1138,11 @@ net_socket_write:
 	lock inc dword ptr [socket_buffer_sem]
 0:	pop	eax
 	pop	ebx
+.if SOCK_USE_SEM
+	UNLOCK_READ [socket_array_sem]
+.else
 	MUTEX_UNLOCK SOCK
+.endif
 	ret
 9:	printc 4, "net_socket_write: in_buffer null for socket "
 	push edx; mov edx, [esp +4]; call printhex8; pop edx;
