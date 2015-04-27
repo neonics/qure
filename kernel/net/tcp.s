@@ -1712,8 +1712,10 @@ net_tcp_sendbuf:
 	call	net_tcp_sendbuf_flush_partial$
 
 	mov	ecx, edx
-	or	ecx, ecx
-	jnz	0b	# go again
+# due to jecxz above ecx can't be 0
+#	or	ecx, ecx
+#	jnz	0b	# go again
+	jmp	0b
 
 0:	pop	edx
 	pop	ebx
@@ -1782,17 +1784,18 @@ net_tcp_sendbuf_flush_partial$:
 	mov	edx, [ebx + tcp_conn_remote_mss]
 	mov	ecx, [ebx + tcp_conn_send_buf_len]
 	sub	ecx, edx
-	js	1f
+	js	1f	# packet shorter than mss
 	mov	[ebx + tcp_conn_send_buf_len], ecx	# update remaining len
 	mov	ecx, edx
-	jz	3f
+	jz	3f	# packet equal to mss: 'rewind' buffer
 	add	[ebx + tcp_conn_send_buf_start], ecx
-	jmp	2f
+	jmp	2f	# send the mss packet
 3:	mov	[ebx + tcp_conn_send_buf_start], dword ptr 0
-	jmp	2f
+	jmp	2f	# send the mss packet
 
-1:
-	xor	ecx,ecx	# make sure ecx=0 in case we jz 2f
+
+1:	# buf len < mss: compact buffer
+	xor	ecx, ecx	# make sure ecx=0 in case we jz 2f
 	xor	esi, esi
 	xchg	esi, [ebx + tcp_conn_send_buf_start]
 	or	esi, esi
@@ -1878,8 +1881,11 @@ net_tcp_fin:
 # in: dh = 0: use own buffer; 1: esi has room for header before it
 # in: esi = payload
 # in: ecx = payload len
+# out; CF = 1: payload too large / can't get buffer / nic send fail
 net_tcp_send:
 	ASSERT_ARRAY_IDX eax, [tcp_connections], TCP_CONN_STRUCT_SIZE, TCP_CONN
+
+	# XXX should use MSS
 	cmp	ecx, 1536 - TCP_HEADER_SIZE - IPV4_HEADER_SIZE - ETH_HEADER_SIZE
 	jb	0f
 	printc	4, "tcp payload too large: "
