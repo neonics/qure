@@ -126,16 +126,25 @@
 			<li>memory location independent</li>
 			<li>manually optimized</li>
 			<li>unwindable to bootloader - 'hot restart'</li>
+			<li>32 bit protected mode</li>
+			<li>task scheduler</li>
 			<li>Device drivers:
 				<ul>
 					<li>generic ATA (harddisk)</li>
 					<li>generic ATAPI (cdrom)</li>
 					<li>PCI</li>
+
 					<li>AMD AM79C971 PCNet Fast network controller</li>
 					<li>Intel 8254x PCI/PCI-X_Gigabit Ethernet Controller</li>
 					<li>Realtek 8139 Ethernet Controller</li>
+					<li>Broadcom NetXtreme BCM57xx driver</li>
+
 					<li>VMWare SVGA II</li>
-					<li>USB EHCI</li>
+					<li>USB EHCI/OHCI</li>
+
+					<li>Ensoniq AudioPCI-97</li>
+					<li>SoundBlaster mono/Pro/16/16ASP/AWE32</li>
+					<li>Intel 82801 ICH AC'97 Audio Controller</li>
 				</ul>
 			</li>
 			<li>File systems:
@@ -161,6 +170,7 @@
 					<li>HTTP (daemon)</li>
 					<li>SIP responder</li>
 					<li>SSH (daemon - extremely experimental)</li>
+					<li>TFTP (daemon)</li>
 					<li>CloudNet Cluster Protocol</li>
 				</ul>
 			</li>
