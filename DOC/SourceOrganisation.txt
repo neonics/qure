@@ -30,6 +30,7 @@ TODO: hyperlink to the source reference for *.s and html for *.txt
 	   Makefile
 	   bootloader.s			# the bootsector (first stage bootloader)
 	   sector1.s			# everything that didn't fit in the bootsector (second stage)
+	   pxeboot.s			# PXE bootloader for network booting
 
 
 
@@ -100,6 +101,7 @@ TODO: hyperlink to the source reference for *.s and html for *.txt
 
 	   partition.s			# IBM Partition filesystem driver
 	   fs.s				# file system mounting, file attribute manipulation, kernel api and base classes
+	   fs/
 	     fat.s			# read-only FAT16 filesystem
 	     iso9660.s			# ISO9660 CDROM filesystem
 	     sfs.s			# simple block file system
@@ -156,6 +158,7 @@ TODO: hyperlink to the source reference for *.s and html for *.txt
 	     httpd.s			# (TCP) HTTP 1.1 Daemon
 	     smtp.s			# (TCP) nonpersistent SMTP server
 	     ssh.s			# experimental, very unfinished
+	     tftp.s			# (UDP) TFTP server (for PXE booting)
 
 	     cloudnet.s			# persistent cluster management protocol and daemons
 
@@ -164,8 +167,9 @@ TODO: hyperlink to the source reference for *.s and html for *.txt
 	   nic/				# PCI driver implementations
 	     am79c971.s			# AMD PCNet Fast Ethernet Controller driver
 	     i8254.s			# Intel PCI/PCI-X Gigabit Ethernet Controller driver
-	     rtl8139.s			# RealTek 8139 compatible
-	     (ne2k.s)			# (not committed) NE2000 compatible
+	     rtl8139.s			# RealTek 8139 compatible driver
+	     (ne2k.s)			# (not committed) NE2000 compatible driver
+	     bcm57xx.s			# Broadcom NetXtreme BCM57xx driver
 
 	   pcibridge/			# Motherboard Chipset drivers
 	     i440.s			# Intel 440 BX/ZX/DC Host Bridge (dummy) driver
@@ -175,6 +179,7 @@ TODO: hyperlink to the source reference for *.s and html for *.txt
 	   sound/			# Soundcard drivers
 	     es1371.s			# Ensoniq AudioPCI-97 driver
 	     sb.s			# revived SoundBlaster mono/Pro/16/16ASP/AWE32 driver from 1995
+	     ac97.s			# Intel 82801 ICH AC'97 Audio Controller
 
 	   usb/				# Universal Serial Bus Host drivers
 	     usb.s			# EHCI
@@ -195,7 +200,7 @@ TODO: hyperlink to the source reference for *.s and html for *.txt
 
 	 lib/				# algorithms
 	   base64.s			# fast and small base64 encode/decode
-	   crc32.s			# extremely small CRC32 (intented for NIC hardware packet filtering)
+	   crc32.s			# extremely small CRC32 (intended for NIC hardware packet filtering)
 	   gzip.s			# experimental gzip/gunzip (intended for httpd)
 	   sha.s			# SHA1
 	   browser.s			# experimental webbrowser (extremely early stage)
@@ -210,12 +215,15 @@ TODO: hyperlink to the source reference for *.s and html for *.txt
 
 
 	 sandbox/			
-	   Makefile			# asm/ builder
 	   elf.cpp			# attempt to compile an ELF file against the kernel
-	   lib.c			# idem
-	   libc.ld			# idem
-	   test.c			# idem
 	   exe/				# idem
+	     Makefile
+	     lib.c			# kernel method declarations
+	     libc.ld			# linker file
+	     test.c			# attempt to compile an ELF file against the kernel
+
+	     				# -- uncommitted: --
+	   Makefile			# asm/ builder
 	   asm/				# attempt to generate an assembler by generating all opcodes and parse the disassembly
 	   compression/			# various compression algorithms
 	   link/			# linker tests
@@ -236,7 +244,7 @@ TODO: hyperlink to the source reference for *.s and html for *.txt
 	   font.cpp			# font converstion utility
 	   genopcodemacros.pl		# generated the code included in macros.s to use i686+ instructions (cmov etc) when available
 	   iso9660.cpp			# ISO9660 file parser - used to compare with iso9660.s debug values
-	   linkchecker.pl		# verifies all hyperlinks in the website point
+	   linkchecker.pl		# verifies all hyperlinks in the website point to existing files
 	   malloc.cpp			# early prototype of mem.s
 	   ql.pl			# QEmu logfile annotator (prints source lines along with the opcodes)
 	   reloc.pl			# compressed kernel relocation table generator and parser
@@ -246,6 +254,8 @@ TODO: hyperlink to the source reference for *.s and html for *.txt
 	   symtab.pl			# kernel symbol table generator and parser
 	   template.html		# default website template
 	   template.pl			# flexible templating utility with index generation
+	   tftp.pl			# TFTP client for testing kernel/net/tftp.s
+	   treedoc.sh			# generates HTML directory tree of kernel sources
 	   txt2html.pl			# text to html converter (used on DOC/)
 	   write.cpp			# kernel floppy boot image creator
 
@@ -255,6 +265,7 @@ TODO: hyperlink to the source reference for *.s and html for *.txt
 	   .index			# attributed list of .txt files (menu)
 	   *.txt			# Musings, Ideas, Ponderings of possibility and potential
 	   pci.ids			# pci vendor and device code reference
+	   Design/			# details on some of the implementations
 	   Screenshots/			# some early development screenshots
 	   Specs/			# third party hardware and software standards specifications
 	   memio/			# IO, Memory, and Interrupt reference
@@ -294,21 +305,21 @@ to a 'kernel' folder (and renaming 'kernel/' to 'src/).
 Structure then (code and build related only)
 
 
-	kernel/	exports kernel.lib (klib)
+	kernel/		# exports kernel.lib (klib)
 	  16/		# bootloader library
 	  lib/		# standardized algorithms (crc/sha/md5/base64/sort)
 	  bootloader/	# source
 	  kernel/	# source
 	    debugger/	# kernel debug support
 	    kapi/	# kernel api implementation
-	    lib/
-	    net/
+	    lib/	# kernel library (arrays, memory, buffers)
+	    net/	# networking stack
 	      net.s	# core
 	      socket.s	# kernel api
 	      route.s	# network routing
-	      *.s	# network protocol device driver
+	      *.s	# network protocol driver
 
-	    exe/
+	    exe/	# executable object loading
 	    fs/		# file system kernel interface (base classes and kernel api)
 	    pcibridge/	# south (or north?) bridge motherboard drivers
 	    nic/	# network interface card device drivers
