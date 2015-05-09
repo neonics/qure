@@ -1174,8 +1174,25 @@ malloc_internal$:
 	jmp	0b
 
 #######################################################################
+# Get total heap size
+# out: edx:eax
+.global mem_get_heap
+mem_get_heap:
+.if MEM_FEATURE_STRUCT
+	push	ebx
+	mov	ebx, [mem_kernel]
+	mov	edx, [ebx + mem_heap_size + 4]
+	mov	eax, [ebx + mem_heap_size + 0]
+	pop	ebx
+.else
+	mov	edx, [mem_heap_size + 4]
+	mov	eax, [mem_heap_size + 0]
+.endif
+	ret
+
 # sums all allocated handles.
 # out: edx:eax
+.global mem_get_used
 mem_get_used:
 	push	ebx
 .if MEM_FEATURE_STRUCT
@@ -1197,6 +1214,7 @@ mem_get_used:
 	pop	ebx
 	ret
 
+.global mem_get_reserved
 mem_get_reserved:
 .if MEM_FEATURE_STRUCT
 	mov	edx, [mem_kernel]
@@ -1209,6 +1227,7 @@ mem_get_reserved:
 	xor	edx, edx
 	ret
 
+.global mem_get_free
 mem_get_free:
 .if MEM_FEATURE_STRUCT
 	mov	edx, [mem_kernel]

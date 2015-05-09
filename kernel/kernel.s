@@ -223,10 +223,6 @@ include "dma.s", dma
 	.global mreallocz
 	.global mfree
 	.global mdup
-	.global mem_heap_size
-	.global mem_get_used
-	.global mem_get_reserved
-	.global mem_get_free
 
 	# dev/pci
 	.global class_nulldev

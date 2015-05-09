@@ -1080,7 +1080,8 @@ WWW_EXPR_T_STRING=2 # 2 = string (in: esi,ecx)
 WWW_EXPR_T_DEC32= 3 # 3 = decimal32 (out: edx)
 WWW_EXPR_T_HEX8	= 4 # 4 = hex8
 
-.long (99f - .)/10	# number of expressions
+WWW_EXPR_STRUCT_SIZE = 10
+.long (99f - .)/WWW_EXPR_STRUCT_SIZE	# number of expressions
 STRINGPTR "kernel.revision";	.byte 1,3;.long KERNEL_REVISION
 STRINGPTR "kernel.uptime";	.byte 3,2;.long kernel_get_uptime
 STRINGPTR "kernel.stats.ts";	.byte 2,3;.long stats_task_switches
@@ -1091,14 +1092,13 @@ STRINGPTR "include";		.byte 3,0;.long expr_include
 STRINGPTR "kernel.size";	.byte 3,1;.long expr_krnl_get_size
 STRINGPTR "kernel.code.size";	.byte 3,1;.long expr_krnl_get_code_size
 STRINGPTR "kernel.data.size";	.byte 3,1;.long expr_krnl_get_data_size
-STRINGPTR "mem.heap.size";	.byte 2,1;.long mem_heap_size
 .else
 STRINGPTR "kernel.size";	.byte 1,1;#.long kernel_end - kernel_start
 	.long kernel_code_end - kernel_code_start + kernel_end - data_0_start
 STRINGPTR "kernel.code.size";	.byte 1,1;.long kernel_code_end - kernel_code_start
 STRINGPTR "kernel.data.size";	.byte 1,1;.long kernel_end - data_0_start
-STRINGPTR "mem.heap.size";	.byte 2,1;.long mem_heap_size
 .endif
+STRINGPTR "mem.heap.size";	.byte 3,1;.long mem_get_heap
 STRINGPTR "mem.heap.allocated";	.byte 3,1;.long mem_get_used
 STRINGPTR "mem.heap.reserved";	.byte 3,1;.long mem_get_reserved
 STRINGPTR "mem.heap.free";	.byte 3,1;.long mem_get_free
@@ -1278,7 +1278,7 @@ www_expr_handle:
 	pop	ecx
 	jz	1f	# found
 
-	add	ebx, 10	# struct size
+	add	ebx, WWW_EXPR_STRUCT_SIZE
 	dec	edx
 	jg	0b
 		DEBUG "no matches for expr:"
@@ -1343,6 +1343,7 @@ www_expr_handle:
 	jnz	9f	# unknown type
 	# data type: size: edx:eax
 	# todo: format
+	# XXX concurrency
 	.data SECTION_DATA_BSS
 	_tmp_fmt$: .space 32
 	_tmp_expr_buf$: .space 1024
