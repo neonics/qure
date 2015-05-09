@@ -134,11 +134,11 @@ sub process {
 	$self->_fill( "TITLE",	$opts{title} );
 	$self->_fill( "TAGLINE",$opts{tagline} );
 	$self->_fill( "CSS",    join("\n",
-		map { "    <link rel='stylesheet' type='text/css' href='$_'/>" }
+		map { "    <link rel='stylesheet' type='text/css' href='$_'/><!-- added via $0 commandline -->" }
 		@{$opts{css}} )
 	);
 	$self->_fill( "JS",    join("\n",
-		map { "    <script  type='text/javascript' src='$_'></script>" }
+		map { "    <script  type='text/javascript' src='$_'></script><!-- added via $0 commandline -->" }
 		@{$opts{js}} )
 	);
 
