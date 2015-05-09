@@ -37,7 +37,8 @@ A temporary simple fix is to .org the kernel at the current load address (0x0001
 however this address can change if the bootloader changes.
 
 A more advanced fix is to extract the relocation information (or implement
-COFF/ELF kernel loading in realmode). This is implemented in this commit.
+COFF/ELF kernel loading in realmode). This is implemented in [commit:92958438
+this commit].
 The ramdisk entries are changed: the relocation table is inserted directly
 after the kernel. It will appear to miss .data relocations due to the GAS -R
 option (fold .data into .text).
