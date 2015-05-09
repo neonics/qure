@@ -8,9 +8,9 @@ $addr = sockaddr_in(4000, $addr) or die "can't create address: $!";
 
 socket( SOCKET, PF_INET, SOCK_DGRAM, getprotobyname("udp") ) or die $!;
 
-my $msg = 'flood test' . ( ' ' x 1000 );
+my $msg = 'flood test';# . ( ' ' x 1000 );
 print "Message: [$msg]\n";
 
-for ( $i=0; $i<3000; $i++) {
+for ( $i=0; $i<1000; $i++) {
 send( SOCKET, $msg, 0, $addr ) or die $!;
 }
