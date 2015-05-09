@@ -48,7 +48,7 @@ sub check
 
 	return isfile( $f )
 	? ( $LOGLEVEL ? "  * $f [1;32m OK [0m\n" : "" )
-	: "  * $f [1;31m NOT FOUND [0m\n";
+	: "  * $f [1;31m NOT FOUND (declared in: $source)[0m\n";
 }
 
 sub isfile {
