@@ -5,7 +5,10 @@ use lib $FindBin::Bin;
 use Template;
 
 
-%OPT = { 'autop' => 1 };
+my %OPT = (
+	autop => 1,
+	GIT_VIEW_COMMIT_URL => 'https://github.com/neonics/qure/commit',
+);
 
 grep { $_ eq '--no-autop' } @ARGV
 and do { $OPT{autop} = 0; @ARGV = grep { $_ ne '--no-autop' } @ARGV; 1};
@@ -144,6 +147,9 @@ $c=~ s@(?<!\t)\[(https?://.*?)\]@<a href="$1" class="$_[0]">$1</a>@g;
 
 # [src: filename]
 $c=~ s@(?<!\t)\[(src):\s*(.*?)\s*\]@"<a class='n $1 $_[0]' href='src/".&sfile($2)."'>".&sname($2)."</a>"@ges;
+
+# [commit:sha]
+$c=~ s@(?<!\t)\[(commit):\s*([a-fA-F0-9]+)\s*(.*?)\]@"<a class='n $1 $_[0]' href='$OPT{GIT_VIEW_COMMIT_URL}/$2'>".&sname($3//$2)."</a>"@ges;
 
 # [type: message], generic
 $c=~ s@(?<!\t)\[(\S+?):\s*(.*?)\]@<span class='n $1 $_[0]'>$1: $2</span>@gs;
