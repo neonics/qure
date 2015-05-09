@@ -956,8 +956,12 @@ kernel_callgate:
 	pop_	eax ecx edi
 	jz	1f
 	printc	0xf4, "Kernel callgate called from illegal address: "
-	pushd	[esp + 8]
-	call	_s_printhex8
+	push	edx
+	mov	edx, [esp + 8 + 4]
+	call	printhex8
+	call	printspace
+	call	debug_printsymbol
+	pop	edx
 	call	newline
 	jmp	2f	# skip the privileged caller call
 1:
