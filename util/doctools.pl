@@ -3,6 +3,12 @@
 # To see the documentation, run:
 #
 #  pod2man doctools.pl | nroff -man
+#
+#  if
+#
+#  perldoc (this file)
+#
+# doesn't work.
 
 
 $W = "\x1b[1;33m";
