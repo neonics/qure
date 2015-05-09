@@ -27,6 +27,8 @@ close IN;
 
 my $c = "\n".join "", @l;
 
+allowed_html( qw/aside/ );
+
 $c=~ s@&@&amp;@g;
 $c=~ s@<@&lt;@g;
 
@@ -186,3 +188,13 @@ or do {
 print $t->process( $c );
 };
 
+
+ sub esc2 { die esc(@_); }
+
+
+sub allowed_html(;$) {
+	my ($tags) = ref $_[0] ? \@{ shift } : [ shift ];
+	$tags =  join( '|', @$tags );
+	#$c =~ s/(<($tags)>)(.*?)(<\/\2>)/die( "1: $1\n\n2:$2\n\n3:$3\n\n4:$4\n\n")/ges;
+	$c =~ s/(<($tags)>)(.*?)(<\/\2>)/esc($1).$3.esc($4)/ges;
+}

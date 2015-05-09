@@ -56,3 +56,6 @@ span.n.footnote.open {
 }
 
 .n.src { font-family: courier, fixed-width; }
+
+
+aside { display: block; margin: 1em 2em; padding-left: 1em; border-left: 2px solid green; }
