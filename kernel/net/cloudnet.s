@@ -8,6 +8,7 @@
 .global cmd_cloud
 
 CLOUD_PACKET_DEBUG = 0
+# Also see CLUSTER_DEBUG (way) further down
 
 CLOUD_LOCAL_ECHO = 1
 
@@ -32,7 +33,6 @@ CLOUD_VERBOSITY_PING		= 2	# prints ping action
 CLOUD_VERBOSITY_PING_RESULT	= 1	# prints online nodes
 CLOUD_VERBOSITY_PING_NODELIST	= 3	# prints times for each node
 CLOUD_VERBOSITY_NODE_OFFLINE	= 2	# prints name, ip, mac of offline nodes
-
 
         .macro CLOUD_VERBOSITY_BEGIN level
                 cmpb    [cloud_verbosity], CLOUD_VERBOSITY_\level
@@ -1058,12 +1058,14 @@ cloudnet_handle_packet:
 	ja	52f	# remote has newer date: out of date. respond?
 	# jb: remote has older birthdate, update local.
 1:	mov	[eax + cluster_birthdate], edx	# record cluster birthdate
-	printc 14, " adopt cluster birthdate "	# XXX TODO do not adopt in same era!
-	call	print_datetime
-	printc 14, " for era "
-	mov	edx, [eax + cluster_era]
-	call	printdec32
-	call	newline
+	.if CLUSTER_DEBUG
+		printc 14, " adopt cluster birthdate "	# XXX TODO do not adopt in same era!
+		call	print_datetime
+		printc 14, " for era "
+		mov	edx, [eax + cluster_era]
+		call	printdec32
+		call	newline
+	.endif
 
 3:	# persist
 	call	[eax + oofs_persistent_api_save] # XXX sometimes eax = 0 here!
