@@ -63,7 +63,7 @@ build-deps:
 	@as -o /dev/null /dev/null || (echo "missing binutils" && false)
 	@gcc --version > /dev/null || (echo "missing gcc" && false)
 	@perl -v > /dev/null || (echo "missing perl" && false)
-	@convert > /dev/null || (echo "missing imagemagic" && false)
+	@which convert > /dev/null || (echo "missing imagemagic" && false)
 	@genisoimage --version > /dev/null || (echo "missing genisoimage" && false)
 
 clean: site-clean
