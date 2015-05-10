@@ -4,7 +4,8 @@
   Bootsector.txt
   Abstraction.txt
 
-Architecture.txt
+!301 Architecture.txt notes/MemoryModel.txt
+=Architecture
   SourceOrganisation.txt
   Storage.txt
   Net.txt
@@ -78,6 +79,7 @@ Architecture.txt
   notes/CallingConvention.txt
   notes/AddressSpaceLimitations.txt
   notes/TaskSwitching.txt
+  notes/MemoryModel.txt
   =Reference
     IO.txt
     Interrupts.txt

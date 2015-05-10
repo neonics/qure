@@ -20,6 +20,8 @@ $Z = "\x1b[0m";
 	ignoremissing => 0
 );
 
+@responses = ();	# redirects
+
 while ( $ARGV[0] =~ /^-/ )
 {
 	my $opt = shift @ARGV;
@@ -36,11 +38,15 @@ $options{dir}=~s@/$@@;
 my $command = shift @ARGV;
 
 $command eq 'list' and do {
-	print strip_type( map { $_->{n}."\n" } grep {!$_->{label}} get_index() );
+	print strip_type( map { $_->{n}."\n" }
+	#grep {!$_->{label}}
+	get_index() );
 } or $command eq 'genlinks' and do {
 	print genlinks( get_index() );
 } or $command eq 'unlisted' and do {
 	print difflist();
+} or $command eq 'redirects' and do {
+	print redirects();
 } or die <<"EOF";
 unknown command: $command
 
@@ -52,8 +58,8 @@ options:
 	-t <type>	filter on file extensions ("html", "txt"); default none
 	-i		ignore missing files
 
-commands:\n\tlist genlinks unlisted
-See the POD documentation for more (pod2man doctools.pl | nroff -man)
+commands:\n\tlist genlinks unlisted redirects
+See the POD documentation for more (perldoc $0  --or--  pod2man $0 | nroff -man)
 EOF
 
 =pod
@@ -85,6 +91,8 @@ genlinks	generate a HTML TOC of all the files.
 
 unlisted	lists files in the directory not present in the index.
 		this option requires there to be an index.
+
+redirects	prints a list of redirects
 
 =head1 DESCRIPTION
 
@@ -135,6 +143,22 @@ will produce:
 	  </li>
 
 (NOTE: at current, nested <ul> elements will appear under <ul> rather than <li>)
+
+
+Further, HTTP redirect responses can be declared for moved documents:
+
+	!301 Old.txt New.txt
+
+is intended to produce a
+
+	301 Permanently Moved
+	Location: New.html
+
+when requesting the old URL. This is accomplished by storing a file with the
+redirect codes (TBD) that the webserver will consult when a document is not
+found.
+
+
 =cut
 
 sub get_index {
@@ -159,13 +183,27 @@ sub process_index {
 		{ n=>$_, d=>$ldn } } @_;
 	#map { printf "%d %s\n", $_->{d}, $_->{n}} @_;
 	@_ = grep { $_->{n}=~ /\.$options{type}$/ } @_ if $options{type};
-	@_ = map { $_->{n} =~ /^=/ and $_->{label}=$'; $_ } @_;
+	map { $_->{n} =~ /^=/ and $_->{label}=$' } @_;
+	@_ = grep { if ( $_->{n} =~ /^\!(\d\d\d) (\S+) (\S+)/ ) { $_->{n} = $3; $_->{response}=[$1,$2,$3]; push @responses, $_; 0 } else {1} } @_;
+	#die Dumper \@_;
 	@_ = grep { my $a=$_->{n}; chomp $a; $_->{label} || -f $options{dir}."/".$a
 		or do { warn "${W}WARNING: missing $options{dir}/$_->{n}$Z"; $options{ignoremissing}} } @_;
 }
 
 sub strip_type {
 	map { s/\.$options{type}$//; $_ } @_;
+}
+
+
+sub redirects {
+	get_index();
+
+	print map {
+		sprintf "%d %s.html %s.html\n",
+			$_->{response}[0],
+			($_->{response}[1] =~ /^(.*?)\.(txt|html)$/)[0],
+			($_->{response}[2] =~ /^(.*?)\.(txt|html)$/)[0];
+	} @responses;
 }
 
 sub difflist {
@@ -244,7 +282,7 @@ sub genlinks
 		@_),
 		$opts{tree} ? reptag( $lastdepth, "</ul>\n" ) : "",
 	"</ul>\n",
-	!$opts{mtime} ? "" : <<EOF );
+	!$opts{mtime} ? "" : <<HTML );
 
 <style type="text/css">
 span.new { margin-left: 1em; background-color: #0f0; font-style: italic; font-size: smaller}
@@ -335,7 +373,7 @@ function addlabels( id, maxhours ) {
 
 addlabels( 'doclist', $opts{maxhours});
 </script>
-EOF
+HTML
 
 }
 
