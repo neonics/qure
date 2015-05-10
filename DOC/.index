@@ -39,12 +39,12 @@
 =Design
   Design/TCP_Protocol.txt
   Instructions.txt
+  Alert.txt			# NEW
   Filesystem.txt
     OOFS.txt
     GitFS.txt
     VersionControl.txt
       Git.txt
-  Alert.txt			# NEW
 # Funny.txt
 # GithubHackLog.txt
 # HoneyPot.txt
