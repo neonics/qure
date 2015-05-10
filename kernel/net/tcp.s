@@ -1167,7 +1167,8 @@ net_tcp_handle:
 	pop	eax
 	MUTEX_UNLOCK TCP_CONN
 
-	jc	9f	# don't ack: already sent FIN	# XXX maybe must send ACK
+	# ack the fin regardless - maybe packetloss
+	#jc	9f	# don't ack: already sent FIN	# XXX maybe must send ACK
 	# havent sent fin, rx'd fin: tx fin ack
 
 	push	edx
@@ -1957,7 +1958,6 @@ net_tcp_send:
 	bswap	ebx
 	mov	[edi + tcp_seq], ebx
 	add	[eax + tcp_conn_local_seq], ecx
-
 	mov	ebx, [eax + tcp_conn_remote_seq]
 	mov	[eax + tcp_conn_remote_seq_ack], ebx
 	bswap	ebx
@@ -1968,8 +1968,8 @@ net_tcp_send:
 	test 	dl, TCP_FLAG_FIN
 	jz	1f
 	or	[eax + tcp_conn_state], byte ptr TCP_CONN_STATE_FIN_TX
-	inc	dword ptr [eax + tcp_conn_local_seq]	# count FIN as octet
-	push	ebx	# mark the sequence
+	inc	dword ptr [eax + tcp_conn_local_seq]	# count FIN as octet in next seq
+	push	ebx	# mark the FIN sequence
 	mov	ebx, [eax + tcp_conn_local_seq]
 	mov	[eax + tcp_conn_tx_fin_seq], ebx
 	pop	ebx
@@ -2001,6 +2001,8 @@ net_tcp_send:
 	mov	[edi + tcp_checksum], word ptr 0
 	mov	[edi + tcp_urgent_ptr], word ptr 0
 
+	push	edx
+
 	jecxz	0f
 	push	esi
 	push	edi
@@ -2018,13 +2020,13 @@ net_tcp_send:
 0:
 	# calculate checksum
 
-	push	edx
 	mov	edx, [ebp]		# in: edx = ipv4 src, dst ptr
 	add	edx, [tcp_connections]
 	add	edx, offset tcp_conn_local_addr
 	mov	esi, edi		# in: esi = tcp frame pointer
 	add	ecx, TCP_HEADER_SIZE	# in: ecx = tcp frame len
 	call	net_tcp_checksum
+
 	pop	edx
 
 	# packet is ready to be sent. Update tcp_conn first, since the
@@ -2037,6 +2039,7 @@ net_tcp_send:
 	add	eax, [tcp_connections]
 	mov	dh, [eax + tcp_conn_state]
 
+	# XXX should move
 	cmp	dl, TCP_FLAG_SYN	# 
 	jnz	1f
 	or	dh, TCP_CONN_STATE_SYN_TX
