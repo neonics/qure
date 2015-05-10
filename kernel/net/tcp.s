@@ -984,7 +984,10 @@ net_ipv4_tcp_handle:
 
 92:	# DROP (1f) or REJECT (9f)
 	.if 1
-		printc 0x8c, "tcp: DROP SYN: flood"
+		printc 0x8c, "tcp: ";
+		mov	eax, [edx + ipv4_src]
+		call	net_print_ip
+		printc 0x8c, ": DROP SYN: flood"
 
 		.data
 		.global tcp_synflood_dropcount
@@ -1055,6 +1058,8 @@ net_tcp_count_peer_connections:
 	.endif
 
 	ARRAY_LOOP      [tcp_connections], TCP_CONN_STRUCT_SIZE, edi, ebx, 9f
+	cmpd	[edi + ebx + tcp_conn_state], -1	# do not count reusable entries
+	jz	1f
 	cmp	ecx, [edi + ebx + tcp_conn_remote_addr]
 	jnz	1f
 	cmp	dx, [edi + ebx + tcp_conn_local_port]
