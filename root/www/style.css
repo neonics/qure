@@ -25,37 +25,45 @@
 
 			#content > h1.title { font-family: courier; font-size: normal; font-style: italic; }
 
-span.n.footnote:before {
-	color: blue;
-	content: "*)";
-	font-family: helvetica; /* size, width depend on this */
-	font-size: 9pt;
-	font-weight: bold;
-	vertical-align: top;
-}
-span.n.footnote:after {
-	content: "";
-}
+/* override */
+span.n::before { content: ""; }
+span.n::after { content: ""; }
 
 span.n.footnote {
-	/* show only '*)' */
-	display: inline-block;
-	box-sizing: content-box;
-	height: 1em;
-	width: 7pt;
-	overflow: hidden;
+	position: relative; /* for .footnote-nr */
+}
 
+span.n.footnote-nr::before {
+	color: blue;
+	display: inline-block;
+	vertical-align: super;
 	font-style: italic;
+	content: "*)";
 }
-span.n.footnote.open {
-	display: inline;
-	width: auto;
-	overflow: initial;
+
+span.n.footnote-body {
+	display: none;
+
+	position: absolute;
+	z-index: 10;
+	bottom: 1em; left: 1em;
 	border: 2px solid blue;
-	font-baseline: super;
+	background-color: #f4f4f4;
+	padding: 2px .5em;
+	border-radius: 2px;
+	min-width: 20em;
 }
+
+span.n.footnote.open > .n.footnote-body {
+	display: inline-block;
+}
+
 
 .n.src { font-family: courier, fixed-width; }
 
 
 aside { display: block; margin: 1em 2em; padding-left: 1em; border-left: 2px solid green; }
+
+h2.toc { font-size: inherit; font-style: italic; color: #444; }
+
+pre { font-size: initial; }

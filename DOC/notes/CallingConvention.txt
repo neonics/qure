@@ -1,7 +1,7 @@
 Notes on Calling Conventions
 ============================
 
-[Skip to english|#stack]
+[#stack|Skip to english]
 
 
 # 2012-03-02

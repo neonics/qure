@@ -8,6 +8,7 @@ use Template;
 my %OPT = (
 	autop => 1,
 	GIT_VIEW_COMMIT_URL => 'https://github.com/neonics/qure/commit',
+	RFC_URL => 'http://tools.ietf.org/html/',
 );
 
 grep { $_ eq '--no-autop' } @ARGV
@@ -129,18 +130,24 @@ $c=~ s@\n(<li>[^\n]+</li>)\n@ <ul>$1</ul>\n@g;
 $c=~ s@\n+[-\*] ([^\n]+(\n  [^\n]*)*)@\n<li>$1</li>@g;
 $c=~ s@\n((<li>.*?</li>\n)+)@\n<ul>\n$1</ul>\n@gs;
 
+# preserve simple footnote-like references
+$c =~ s@\n\[(\d+)\]@"\n".&esc("<b>\[$1\]</b>")@eg;
+
 labels();
 
 sub labels {
-# [label|site]
-$c=~ s@(?<!\t)\[([^\|\]]+)\|([^\]]+)\]@<a class="$_[0]" href="$2">$1</a>@g;
-
 # [#label] : anchor ref (same as [label|#label])
-$c=~ s@(?<!\t)\[#([^\]]+)\]@<a class="$_[0]" href="#$1">$1</a>@g;
+$c=~ s@(?<!\t)\[(#[^\]\|]+)\s*\|?\s*(.*?)\]@"<a class='$_[0]' href='$1'>".($2||$1)."</a>"@ge;
 # [=label] : anchor definition
 $c=~ s@(?<!\t)\[=([^\]]+)\]@<a class="$_[0]" name="$1"></a>@g;
 # [!note]
 $c=~ s@(?<!\t)\[!([^\]]+)\]@<div class='note $_[0]'>$1</div>@g;
+
+# [label|http://site] XXX change - confusing
+$c=~ s@(?<!\t)\[([^\|\]]+)\|(http[^\]]+)\]@<a class="$_[0] TAG0" href="$2.html">$1</a>@g;
+# [label|localref] XXX change - confusing
+$c=~ s@(?<!\t)\[([^\|\]]+)\|([^\]]+)\]@<a class="$_[0] TAG0" href="$t->{RELPFX}$2.html">$1</a>@g;
+
 
 # [http://....]  (same as [label|site] but without 'label|')
 $c=~ s@(?<!\t)\[(https?://.*?)\]@<a href="$1" class="$_[0]">$1</a>@g;
@@ -149,7 +156,14 @@ $c=~ s@(?<!\t)\[(https?://.*?)\]@<a href="$1" class="$_[0]">$1</a>@g;
 $c=~ s@(?<!\t)\[(src):\s*(.*?)\s*\]@"<a class='n $1 $_[0]' href='src/".&sfile($2)."'>".&sname($2)."</a>"@ges;
 
 # [commit:sha]
-$c=~ s@(?<!\t)\[(commit):\s*([a-fA-F0-9]+)\s*(.*?)\]@"<a class='n $1 $_[0]' href='$OPT{GIT_VIEW_COMMIT_URL}/$2'>".&sname($3//$2)."</a>"@ges;
+$c=~ s@(?<!\t)\[(commit):\s*([a-fA-F0-9]+)\s*(.*?)\]@"<a class='n $1 $_[0]' href='$OPT{GIT_VIEW_COMMIT_URL}/$2'>".&sname($3||$2)."</a>"@ges;
+
+# [rfc]
+$c=~ s@(?<!\t)\[(rfc\d+)\s*\|?\s*(.*?)\]@"<a class='n $1 $_[0]' href='$OPT{RFC_URL}/$1'>".&sname($2//$1)."</a>"@ges;
+
+
+# [footnote: message]
+$c=~ s@(?<!\t)\[(footnote):\s*(.*?)\]@<span class='n $1 $_[0]'><span class='n $1-nr'></span><span class='n $1-body'>$2</span></span>@gs;
 
 # [type: message], generic
 $c=~ s@(?<!\t)\[(\S+?):\s*(.*?)\]@<span class='n $1 $_[0]'>$1: $2</span>@gs;
@@ -157,7 +171,7 @@ $c=~ s@(?<!\t)\[(\S+?):\s*(.*?)\]@<span class='n $1 $_[0]'>$1: $2</span>@gs;
 shift and return;
 # [Foo] ; local txt/html doc ref
 # [Foo#anchor] aswell
-$c=~ s@(?<!\t)\[([^\]\.#]+)(#[^\]\.]*)?\]@<a href="$1.html$2">$1</a>@g;
+$c=~ s@(?<!\t|>)\[([^\]\.#]+)(#[^\]\.]*)?\s*\|?(.*?)\]@"<a class='TAG1' href='$t->{RELPFX}$1.html$2'>".($3||$1)."</a>"@ge;
 }
 
 sub sfile { my $tmp = shift; $tmp=~ s@/@_@g; $tmp=~ s/(#.*?)?$/.html$1/; $tmp }

@@ -10,6 +10,7 @@ sub new {
 	bless {
 		xml	=> undef,
 		relpath	=> "",
+		base	=> "",
 		templatefile=> 'default',
 		menuxml	=> undef,
 		title	=> "",
@@ -34,6 +35,8 @@ sub usage {
 	--cid <cid>	specify element ID to receive dynamic content
 	-p <p>		relative path to css/, js/, img/, style/ paths.
 	--relpath <p>	alias for -p.
+	-d <p>		document base, used for relative label references.
+	--base <p>	alias for -d
 	--onload <str>	append <str> to the javascript onload handler.
 	--menuxml <xml>	specifies a menu.xml file to load using AJAX.
 	--title	<t>	specify title.
@@ -56,6 +59,7 @@ sub args {
 		$a eq '-s' and do { push $self->{styles}, shift @args;1} or
 		$a eq '--cid' and do { $self->{cid} = shift @args;1 } or
 		$a eq '-p' || $a eq '--relpath' and do { $self->{relpath} = shift @args;1} or
+		$a eq '-d' || $a eq '--base' and do { $self->{base} = shift @args;1} or
 		$a eq '--onload' and do { $self->{onload} = shift @args;1} or
 		$a eq '--menuxml' and do { $self->{menuxml} = shift @args; 1} or
 		$a eq '--title' and do { $self->{title} = shift @args;1} or
@@ -96,11 +100,25 @@ ${CONTENT}
 </html>
 EOF
 
+	if ( $self->{base} )
+	{
+		my $base = $self->{base}; $base =~ s@/*$@/@;
+		my $f = $args[0];
+		$f =~ s/^$base// or die "document '$ARGV[0]' not within --base '$base'";
+		$self->{DEPTH} = split( m@/@, $f ) -1;
+		$self->{RELPFX} = '../' x $self->{DEPTH};
+	}
+	else
+	{
+		$self->{DEPTH} = 0;
+		$self->{RELPFX} = '';
+	}
+
 	$self->{onload} = sprintf( "template( %s, '%s', [%s], %s, %s); %s",
 		defined($self->{xml}) ? "'$self->{xml}'" : "null",
 		$self->{relpath},
 		join(',', map{ "'$_'"} @{$self->{styles}}),
-		defined $self->{menuxml} ? "'$self->{menuxml}'" : "null",
+		defined $self->{menuxml} ? "'$self->{RELPFX}$self->{menuxml}'" : "null",
 		defined $self->{cid} ? "'$self->{cid}'" : "null",
 		$self->{onload}
 	)

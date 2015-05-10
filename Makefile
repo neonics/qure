@@ -198,13 +198,15 @@ root/www/doc/%.html: DOC/%.txt $(HTMLDEPS)
 	@[ -d root/www/doc/Design ] || mkdir root/www/doc/Design
 	@echo "  HTML  $@"
 	@util/txt2html.pl \
+		--base DOC \
 		--rawtitle $(lastword $(subst /, ,$<)) \
 		-t util/template.html \
 		--css /style.css \
+		--js /_.js \
 		--js /site.js \
 		--toc \
 		-p ${RP} \
-		--onload "template( null, '${RP}', [], 'menu.xml');" \
+		--menuxml 'menu.xml' \
 		$< > $@
 
 root/www/doc/%.html: RP = $(shell echo $(patsubst %,../,$(subst /, ,$(dir $<)))|sed -e 's/ //g')www.neonics.com/

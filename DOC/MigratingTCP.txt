@@ -2,6 +2,7 @@ Migrating TCP Connections
 =========================
 * (see [NetFork])
 * (see [CloudNet])
+* (see [Design/TCP_Protocol])
 
 Nodes in a local cluster may want to function as more than backups
 that step in when the DMZ node becomes unavailable.

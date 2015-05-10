@@ -3,13 +3,12 @@
 _(function(_) {
 
 	function mouseEventInstaller(el) {
-		_(el)	.on( 'mouseenter', function(){console.log("ENTER", this, arguments); el.classList.add('open')} )
-				.on( 'mouseleave', function(){console.log("LEAVE", this, arguments); el.classList.remove('open')} )
+		_(el)	.on( 'mouseenter', function(){ el.classList.   add('open') } )
+				.on( 'mouseleave', function(){ el.classList.remove('open') } )
 	}
 
-
 	_.cn("footnote").each( function(el) {
-		mouseEventInstaller( _(el) );
+		mouseEventInstaller( el );
 	} )
 
 	_("aside").each( function(el) {

@@ -1,4 +1,3 @@
-/* Code further maintained at [git:~/code/js3d/lib/]_.js  */
 /**
  *
  * @author Kenney Westerhof <kenney@neonics.com>
@@ -30,7 +29,21 @@
 			return ret;
 		},
 
-		getclass = function(obj) { return obj.constructor.toString().match( /function (\w+)/ )[1]; },
+		getclass = function(obj) {
+
+			if ( obj.constructor === lib )
+				return lib;
+
+			var m = obj.constructor.toString().match( /function (\w+)/ );
+			if ( m !== null ) return m[1];
+
+			m = (obj.prototype || obj.__proto__).toString().match( /\[object (\w+)\]/ );
+			if ( m !== null ) return m[1];
+
+			console.warn("getclass: cannot determine type:", obj );
+
+			return 'object';
+		},
 
 		loaded = function() {
 			log("DOMContentLoaded", rootLib.events, lib.events );//this, "lib: ", lib);
@@ -52,6 +65,12 @@ lib.fn = lib.prototype = {
 			var t = typeof(sel),
 				c = t == 'object' ? getclass( sel ) : undefined
 				;
+
+			if ( t == 'object' && c === lib )
+			{
+				this.context = this[0] = sel.context;
+				return this;
+			}
 
 			if (!sel) return this;
 			switch ( t )
