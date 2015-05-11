@@ -1133,7 +1133,7 @@ net_tcp_handle:
 		printc 11, "dup FIN "
 	jmp	2f
 	.else
-	jnz	2f
+	jnz	2f	# don't count the FIN again
 	.endif
 
 1:;	.if NET_TCP_DEBUG
@@ -1201,7 +1201,7 @@ net_tcp_handle:
 		call	net_socket_deliver_close
 	1:	pop_	edx eax
 
-	#ret
+	#ret # XXX might result in extra ACK
 ########
 0:	
 	# this is only meant for locally initiated connections,
@@ -1238,6 +1238,7 @@ net_tcp_handle:
 	pushad
 	call	net_tcp_conn_send_ack	# dup acks! (only on SYN|ACK)
 	popad
+
 1:
 ################
 	call	net_tcp_handle_payload$ #XXX used to send ACK - removed.
@@ -1252,9 +1253,14 @@ net_tcp_handle:
 		printlnc	TCP_DEBUG_COL_RX, ">"
 	.endif
 	call	net_tcp_handle_psh	# flushes buffer to socket
-	ret
+	#ret
 0:
-
+	# TODO: remove duplicate packets
+	# TODO: check if there was data
+	# TODO: re-send next packet in segment /RST if old ack
+	pushad
+	call	net_tcp_conn_send_ack	# dup acks!
+	popad
 9:
 	.if NET_TCP_DEBUG
 		printlnc	TCP_DEBUG_COL_RX, ">"
