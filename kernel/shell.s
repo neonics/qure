@@ -504,7 +504,7 @@ key_right$:
 	jmp	start1$
 
 key_insert$:
-	xor	byte ptr [eax + cmdline_insertmode], 1
+	xor	byte ptr [ebx + cmdline_insertmode], 1
 	jmp	start1$
 
 key_escape$:
