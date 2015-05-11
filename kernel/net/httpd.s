@@ -316,14 +316,12 @@ www_handle_request$:
 	cmpw	[edx], '/' | 'C'<<8
 	jnz	1f
 	cmpb	[edx+2], 0
-	jnz	1f
-	jmp	www_send_screen
+	jz	www_send_screen
 # /D
 1:	cmpw	[edx], '/' | 'D' << 8	# gzip test
 	jnz	1f
 	cmpb	[edx + 2], 0	# avoid prefix matches
-	jnz	1f
-	jmp	www_gzip_test
+	jz	www_gzip_test
 
 ###################################################
 1:	# serve custom file:
@@ -661,6 +659,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	clc
 	ret
 
+# TODO: use a register (dx) for http status code and collect stats (also of domain)
 304:	LOAD_TXT "HTTP/1.1 304 Not Modified\r\nConnection: close\r\n\r\n", esi, ecx, 1
 	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
 	KAPI_CALL socket_write
@@ -925,15 +924,21 @@ http_parse_header_line$:
 		cmp	byte ptr [edi-2], '\r'
 		jnz	5f
 		dec	edi
-	5:	printc 14, "Referer: "
+	5:
 		mov	byte ptr [edi - 1], 0
 		mov	[ebp + HTTP_STACK_HDR_REFERER], esi
 		mov	ecx, edi
 		sub	ecx, esi
+	.if NET_HTTP_DEBUG
+		printc 14, "Referer: "
 		call	nprint
 		call	printspace
+	.endif
 		jmp	4f
-	3:	printc 4, "referer: no eol"
+	3:
+	.if NET_HTTP_DEBUG
+		printc 4, "referer: no eol"
+	.endif
 	4:	pop_	esi eax ecx
 	.endif
 	jmp	0f
