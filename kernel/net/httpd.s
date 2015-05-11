@@ -429,6 +429,11 @@ www_handle_request$:
 	mov	esi, ebx
 	call	fs_update_path
 	mov	word ptr [edi - 1], '/'
+	.if NET_HTTP_DEBUG > 1
+		DEBUG "path"
+		pushd [ebp - HTTP_STACKARGS + HTTP_STACK_FNAME] # esp#offset www_file$
+		call _s_print
+	.endif
 	push	eax
 	#mov	eax, offset www_file$
 	#lea	eax, [esp+4]
@@ -1146,9 +1151,13 @@ expr_include:
 	#	DEBUGS ebx
 	pushad
 
-	# use static www_file$
+	# clone the path since we modify it and more includes may be present
+	mov	eax, [ebp + 4]
+	call	strdup
+	jc	94f
+	push	eax	# free before return!
 
-	mov	esi, [ebp + 4]#offset www_file$
+	mov	esi, eax	# mov	esi, [ebp + 4]#offset www_file$
 	call	strlen_
 	lea	edi, [esi + ecx]
 0:	cmpb	[edi], '/'
@@ -1166,19 +1175,25 @@ expr_include:
 	inc	edi
 	movb	[edi], 0
 
-	mov	edi, [ebp + 4]#offset www_file$
+	mov	edi, eax	#mov	edi, [ebp + 4]#offset www_file$
 	mov	esi, ebx
-	call	fs_update_path
+
+	.if WWW_EXPR_DEBUG
+		DEBUG "include"
+		DEBUGS edi, "abs"
+		DEBUGS esi, "rel"
+	.endif
+	call	fs_update_path	# abspath edi, relpath esi => abspath @ in.edi, edi=end ofpath
 
 	# check whether path is still in docroot:
 	mov	esi, offset www_docroot$
-	mov	edi, [ebp + 4]#offset www_file$
+	mov	edi, eax # [ebp + 4]#offset www_file$
 	mov	ecx, WWW_DOCROOT_STR_LEN - 1 # skip null terminator
 	repz	cmpsb
 	mov	esi, offset www_code_404$
 	jnz	92f
 
-		mov	eax, [ebp + 4] #offset www_file$
+		#mov	eax, [ebp + 4] #offset www_file$
 		xor	edx, edx	# fs_open flags argument
 		KAPI_CALL fs_open
 		jc	93f
@@ -1204,7 +1219,10 @@ expr_include:
 		mov	eax, edi
 		call	mfree
 
-9:	popad
+9:	pop	eax	# strdupped abspath
+	call	mfree
+
+	popad
 	ret
 91:	printc 4, "illegal www_file$: no /: "
 0:	call	println
@@ -1215,6 +1233,9 @@ expr_include:
 	jmp	0b
 93:	printc 4, "include file not found: "
 	jmp	1b
+
+94:	printc 4, "malloc fail"
+	jmp	9b
 
 # in: eax = socket
 # in: edi = expression
