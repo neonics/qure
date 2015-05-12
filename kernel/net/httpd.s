@@ -257,6 +257,7 @@ net_service_tcp_http:
 	push	ebp
 	mov	ebp, esp
 
+	pushd	0;	HTTP_STACK_HDR_ORIGIN	= 40	# "Origin:" - for "Access-Control-Allow-Origin" response
 	pushd	0;	HTTP_STACK_HOSTIP	= 36	# IP value when Host header is IP
 	pushd	0;	HTTP_STACK_FNAME	= 32	# file name buffer
 	pushd	eax;	HTTP_STACK_SOCK		= 28	# net socket
@@ -267,7 +268,7 @@ net_service_tcp_http:
 	pushd	0;	HTTP_STACK_HDR_REFERER	= 8	# Referer
 	pushd	0;	HTTP_STACK_HDR_HOST	= 4
 	pushd	0;	HTTP_STACK_HDR_RESOURCE	= 0
-	HTTP_STACKARGS = 40
+	HTTP_STACKARGS = 44
 	# allocate filename buffer on stack
 	sub	esp, ~3&(MAX_PATH_LEN+3)
 	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FNAME], esp
@@ -714,8 +715,33 @@ _www_send_200$:
 	pop_	eax edi
 	KAPI_CALL socket_write
 
-	LOAD_TXT "\r\nConnection: close\r\n\r\n"
+
+	push_	ebp edi
+	mov	ebp, [ebp]
+	mov	esi, [ebp - HTTP_STACKARGS + HTTP_STACK_HDR_ORIGIN]
+	or	esi, esi
+	jz	1f	# no "Origin: " header
+
+	# check domain: (XXX suffix check! will match FOO-neonics.com aswell!)
+	push	esi
 	call	strlen_
+	add	esi, ecx
+	#lea	edi, [esi + eax - 11]	# strlen("neonics.com")
+	LOAD_TXT "neonics.com", edi, ecx, 1
+	sub	esi, ecx
+	repz	cmpsb
+	pop	esi
+	jnz	1f	# no match
+
+	LOAD_TXT "\r\nAccess-Control-Allow-Origin: ", esi, ecx, 1
+	KAPI_CALL socket_write
+	mov	esi, [ebp - HTTP_STACKARGS + HTTP_STACK_HDR_ORIGIN]
+	call	strlen_
+	KAPI_CALL socket_write	# XXX allow whatever origin is sent (for now).
+1:	pop_	edi ebp
+
+
+	LOAD_TXT "\r\nConnection: close\r\n\r\n", esi, ecx, 1
 	KAPI_CALL socket_write
 	KAPI_CALL socket_flush
 
@@ -799,7 +825,8 @@ http_get_mime:
 # out: edx = -1 or resource name (GET /x -> /x)
 http_parse_header:
 	push	ebp
-	lea	ebp, [esp + 8]
+	#lea	ebp, [esp + 8]
+	sub	ebp, HTTP_STACKARGS	# this method and callees use [ebp + HTTP_STACK_...]
 	push	eax
 	push	edi
 	mov	edx, -1		# the file to serve
@@ -884,8 +911,25 @@ http_parse_header_line$:
 	pop_	esi ecx
 	jz	4f
 
+	push_	ecx esi
+	LOAD_TXT "Origin: ", edi, ecx, 1
+	repz	cmpsb
+	pop_	esi ecx
+	jz	5f
+
 	clc
 	jmp	9f
+
+################################################
+5:	# Origin header (CORS)
+	add	esi, 8
+	sub	ecx, 8
+	mov	[ebp + HTTP_STACK_HDR_ORIGIN], esi
+	.if NET_HTTP_DEBUG > 1
+		mov	edi, esi
+		printc 9, "Origin: <"
+	.endif
+	jmp	0f
 
 ################################################
 4:	# found If-None-Match header
@@ -979,6 +1023,8 @@ http_parse_header_line$:
 		mov	edi, esi
 	.endif
 
+0:	stc
+	jecxz		9f	# incomplete (no space for newline)
 0:	lodsb
 	cmp	al, ' '
 	jz	0f
