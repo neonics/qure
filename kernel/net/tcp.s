@@ -1084,6 +1084,7 @@ net_tcp_handle:
 		printc	TCP_DEBUG_COL_RX, "<"
 	.endif
 
+### SYN
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_SYN
 	jz	0f
 	.if NET_TCP_DEBUG
@@ -1091,6 +1092,9 @@ net_tcp_handle:
 		printc	TCP_DEBUG_COL_RX, "dup SYN"
 	.endif
 0:
+
+
+### ACK
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_ACK
 	jz	0f
 	.if NET_TCP_DEBUG
@@ -1103,7 +1107,7 @@ net_tcp_handle:
 #	jz	9f	# received final ACK on FIN - connection closed.
 0:
 
-########
+### RST
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_RST
 	jz	0f
 	# mark connection as free, for now
@@ -1115,14 +1119,14 @@ net_tcp_handle:
 	movb	[eax + tcp_conn_state_official], TCP_CONN_STATE_CLOSED
 	pop	eax
 	MUTEX_UNLOCK TCP_CONN
-	jmp	9f
-
+	jmp	9f	# on RST, no other flags matter
 0:
-########
+
+### FIN
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_FIN
 	jz	0f
 
-	# FIN
+	# update connection state
 	MUTEX_SPINLOCK TCP_CONN
 	push	eax
 	add	eax, [tcp_connections]
@@ -1167,23 +1171,6 @@ net_tcp_handle:
 	pop	eax
 	MUTEX_UNLOCK TCP_CONN
 
-	# ack the fin regardless - maybe packetloss
-	#jc	9f	# don't ack: already sent FIN	# XXX maybe must send ACK
-	# havent sent fin, rx'd fin: tx fin ack
-
-	push	edx
-	push	ecx
-#	.if NET_TCP_DEBUG
-#		printc TCP_DEBUG_COL_TX, "tcp: Tx ACK[FIN] "	# printed in net_tcp_send
-#	.endif
-	mov	dl, TCP_FLAG_ACK
-	xor	ecx, ecx
-	# send ACK [FIN]
-	xor	dh, dh
-	call	net_tcp_send
-	pop	ecx
-	pop	edx
-
 	.if NET_TCP_DEBUG
 		call	newline
 	.endif
@@ -1202,8 +1189,8 @@ net_tcp_handle:
 	1:	pop_	edx eax
 
 	#ret # XXX might result in extra ACK
-########
 0:	
+##
 	# this is only meant for locally initiated connections,
 	# on receiving a SYN+ACK to our SYN
 	# since this method is not called unless the connection is known,
@@ -1213,6 +1200,8 @@ net_tcp_handle:
 	cmp	dl, TCP_FLAG_SYN|TCP_FLAG_ACK
 	jnz	1f
 	# got a SYN+ACK for a known connection: must be one we initiated.
+
+	# update connection state (remote seq) for SYN flag
 	MUTEX_SPINLOCK TCP_CONN
 	push_	eax edx
 	add	eax, [tcp_connections]
@@ -1235,32 +1224,43 @@ net_tcp_handle:
 	.if NET_TCP_DEBUG
 		printlnc	TCP_DEBUG_COL_RX, ">"
 	.endif
-	pushad
-	call	net_tcp_conn_send_ack	# dup acks! (only on SYN|ACK)
-	popad
 
 1:
-################
-	call	net_tcp_handle_payload$ #XXX used to send ACK - removed.
+	call	net_tcp_handle_payload$
+
+### PSH
 
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_PSH
 	jz	0f
 	.if NET_TCP_DEBUG
-		printc TCP_DEBUG_COL_RX, "PSH "
+		printlnc TCP_DEBUG_COL_RX, "PSH >"
 	.endif
 	# flush the accumulated payload to the handler/socket
-	.if NET_TCP_DEBUG
-		printlnc	TCP_DEBUG_COL_RX, ">"
-	.endif
 	call	net_tcp_handle_psh	# flushes buffer to socket
 	#ret
+
+###
 0:
 	# TODO: remove duplicate packets
 	# TODO: check if there was data
 	# TODO: re-send next packet in segment /RST if old ack
-	pushad
-	call	net_tcp_conn_send_ack	# dup acks!
-	popad
+
+	# check if we need to send an ACK
+	mov	dl, [esi + tcp_flags + 1]
+	test	dl, ~ TCP_FLAG_ACK	# check for SYN, PSH, FIN
+	jnz	1f			# need to send an ACK
+
+	# check for payload:
+	movzx	edx, byte ptr [esi + tcp_flags]	# headerlen
+	shr	edx, 2
+	and	dl, ~3
+	neg	edx
+	add	edx, ecx
+	jz	0f	# no payload
+1:	call	net_tcp_send_ack
+0:
+
+
 9:
 	.if NET_TCP_DEBUG
 		printlnc	TCP_DEBUG_COL_RX, ">"
@@ -1383,10 +1383,6 @@ net_tcp_handle_payload$:
 
 	pop	eax
 	MUTEX_UNLOCK TCP_CONN
-	# send ack
-#	push	eax
-#	call	net_tcp_conn_send_ack
-#	pop	eax
 
 0:	pop	esi
 	pop	edx
@@ -1398,7 +1394,7 @@ net_tcp_handle_payload$:
 # (out: CF = undefined)
 net_tcp_handle_psh:
 	push	ecx
-	push	edx
+	push	edx	# stackref
 	push	esi
 		# UNTESTED
 		# in: eax = ip
@@ -1678,14 +1674,13 @@ net_tcp_conn_update_ack:
 	ret
 
 
-net_tcp_conn_send_ack:
-	push	edx
-	push	ecx
-	xor	dx, dx
-	xor	ecx, ecx
+# in: eax = socket
+net_tcp_send_ack:
+	push_	edx ecx
+	xor	dx, dx		# no flags (ACK automatic)
+	xor	ecx, ecx	# no payload (esi doesn't need to be set)
 	call	net_tcp_send
-	pop	ecx
-	pop	edx
+	pop_	ecx edx
 	ret
 
 
@@ -2009,6 +2004,7 @@ net_tcp_send:
 
 	push	edx
 
+	# copy payload, if any
 	jecxz	0f
 	push	esi
 	push	edi
