@@ -245,8 +245,6 @@ http_check_request_complete:
 	ret
 
 
-DEBUG_EXPR = 0
-
 # Postcondition: socket open, all data written.
 # socket_flush will be called by caller.
 #
@@ -257,6 +255,7 @@ net_service_tcp_http:
 	push	ebp
 	mov	ebp, esp
 
+	pushd	0;	HTTP_STACK_FBUF_OFFS	= 44	# offset relative to FBUF to read file content (for www_expr)
 	pushd	0;	HTTP_STACK_HDR_ORIGIN	= 40	# "Origin:" - for "Access-Control-Allow-Origin" response
 	pushd	0;	HTTP_STACK_HOSTIP	= 36	# IP value when Host header is IP
 	pushd	0;	HTTP_STACK_FNAME	= 32	# file name buffer
@@ -268,7 +267,7 @@ net_service_tcp_http:
 	pushd	0;	HTTP_STACK_HDR_REFERER	= 8	# Referer
 	pushd	0;	HTTP_STACK_HDR_HOST	= 4
 	pushd	0;	HTTP_STACK_HDR_RESOURCE	= 0
-	HTTP_STACKARGS = 44
+	HTTP_STACKARGS = 48
 	# allocate filename buffer on stack
 	sub	esp, ~3&(MAX_PATH_LEN+3)
 	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FNAME], esp
@@ -538,6 +537,9 @@ FS_DIRENT_ATTR_DIR=0x10
 #	add	eax, 8	# for time
 
 	# allocate 2kb disk buffer and 128 bytes expression buffer
+	# (so far the 128 bytes don't seem to be used.
+	# These will be used for shifting the buffer when an expression
+	# crosses the 2kb buffer boundary).
 	mov	eax, 2048 + 128	# tested: 200kb buffer doesn't improve speed
 	call	mallocz
 	mov	edi, eax
@@ -565,10 +567,17 @@ FS_DIRENT_ATTR_DIR=0x10
 	mov	ecx, 2048
 11:	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_FHANDLE]
 	mov	edi, [ebp - HTTP_STACKARGS + HTTP_STACK_FBUF]
+	add	edi, [ebp - HTTP_STACKARGS + HTTP_STACK_FBUF_OFFS]
 	KAPI_CALL fs_read	# in: edi,ecx,eax
 	jnc 1f; printc 4, "fs_read error"; 1:
 #TODO:	jc
 	sub	[esp], ecx	# subtract the bytes read
+
+	xor	edi, edi
+	xchg	edi, [ebp - HTTP_STACKARGS + HTTP_STACK_FBUF_OFFS]
+	add	ecx, edi	# process the partial expr
+	# set edi to start of buffer (ignore FBUF_OFFS)
+	mov	edi, [ebp - HTTP_STACKARGS + HTTP_STACK_FBUF]
 
 	# evaluate expressions, only if mime is html
 	cmp	ebx, offset _mime_text_html$
@@ -576,7 +585,18 @@ FS_DIRENT_ATTR_DIR=0x10
 ########
 
 	push	ebx
-	push	ecx		# source buf len remaining
+	push	ecx		# STACKREF source buf len remaining
+
+	.if WWW_EXPR_DEBUG
+		call newline; DEBUG "Buffer begin: "
+		mov ecx, 30
+		push esi
+		mov esi, edi
+		call nprint_
+		pop esi
+		call newline
+	.endif
+
 
 	# edi = buf start
 	# ecx = buf len
@@ -585,8 +605,8 @@ FS_DIRENT_ATTR_DIR=0x10
 	call	www_findexpr	# in: edi,ecx; out: edi,ecx
 	jc	3f		# not found at all
 	# expression found - check if it's partial
-# for now skip partial expressions
-#	jz	4f		# potential expression found crossing buffer boundary
+## for now skip partial expressions
+	jnz	4f		# potential expression found crossing buffer boundary
 
 	# edi, ecx = expression
 	lea	edx, [edi - 2]	# start of expression string
@@ -632,6 +652,48 @@ FS_DIRENT_ATTR_DIR=0x10
 	# 3) the last 2+X bytes of the buffer are ${...
 	# in the 4th case, ${....} the entire expression was found at 1b.
 	# for now just skip.
+
+	# Check if this is the last block:
+	cmpd	[esp + 8], 0	# see pop ecx/ebx/ecx below
+	jz	3f	# last block - partial expression won't resolve.
+
+	# ebx = start of unsent data.
+
+	# edi points to start of expression
+	mov	ecx, edi
+	sub	ecx, ebx	# length of unsent data before expression start
+	mov	esi, ebx	# start of buffer
+
+	sub	[esp], ecx	# adjust len unsent data (socket_write adjusts it!)
+	mov	eax, [ebp - HTTP_STACKARGS + HTTP_STACK_SOCK]
+	KAPI_CALL socket_write
+	# TODO: jc
+
+	mov	ebx, edi	# adjust start of unsent data
+
+	# we now move the partial expression to the beginning:
+	mov	esi, edi	# start copy from here
+	mov	ecx, [esp]	# len of unsent data 
+	# store the length of the partial expression, so that the read
+	# will append after this.
+	# ecx should be > 0 and <= 128.
+	mov	[ebp - HTTP_STACKARGS + HTTP_STACK_FBUF_OFFS], ecx
+
+	# reset start of unsent data
+	mov	ebx, [ebp - HTTP_STACKARGS + HTTP_STACK_FBUF] # just in case
+
+	mov	edi, ebx	# copy to start of buf.
+	# we copy backward, and there might be overlap - shouldn't be a problem.
+	rep	movsb	# TODO optimize (although it's probably only < 32 bytes)
+
+	mov	edi, ebx	# set edi properly
+
+	# now we read the next block and try to parse the expression again:
+	pop	ecx	# remaining buflen
+	pop	ebx
+	jmp	7f	
+
+
 3:	mov	edi, ebx # edi is trashed, restore
 	pop	ecx		# restore remaining buffer len
 	pop	ebx		# restore mime pointer
@@ -646,7 +708,7 @@ FS_DIRENT_ATTR_DIR=0x10
 	KAPI_CALL socket_write
 #TODO:	jc
 
-	pop	ecx		# ecx is bytes remaining
+7:	pop	ecx		# ecx is bytes remaining
 	or	ecx, ecx
 	jnz	10b
 
@@ -1060,30 +1122,61 @@ http_parse_header_line$:
 # in: edi = data to scan
 # in: ecx = data len
 # out: edx = argument offset (say, ${include foo}, edx->foo)
-# out: edi, ecx: expression string
+# out: edi, ecx: expression string (when CF=0, ZF=1)
+# out: edi: start of '$' (when CF=0, ZF=0)
+# out: CF = 0: found; 1: not found
+# out: ZF = 0: partial match, 1: no match; ONLY WHEN CF=0;
+#
+# Usage:
+#
+#  call www_find_expr
+#  jc  not_found_at_all
+#  jnz partial_match
+#  jz  complete_match
+#
 www_findexpr:
 	push	esi
+	push	ebx
 	push	eax
 	xor	edx, edx
-
+.if 0
+DEBUG "SCAN:"
+pushcolor 0x2f
+mov esi, edi
+push ecx
+call nprint_
+pop ecx
+popcolor
+.endif
 	mov	al, '$'
-	repnz	scasb
-	jnz	1f	# no expressions
+0:	repnz	scasb
+	jnz	1f		# no expressions
+	lea	ebx, [edi -1]
+	jecxz	6f		# partial match (1 char)
 	cmp	[edi], byte ptr '{'
-	jnz	1f
+#	jnz	1f		# XXX 
+	jz	2f		# found opening
+	# mismatch, keep scanning:
+	jecxz	1f		# no data left and no match
+	jmp	0b		# continue scanning.
+
+2:	# found start
 	inc	edi
+	mov	esi, edi	# start of expr
+
+	dec	ecx		# ecx remaining len
+	jle	6f		# partial match (2 chars)
 
 	# parse expression
-	mov	esi, edi	# start of expr
 
 	#mov	al, '}'
 	#repnz	scasb
 	#jnz	1f
 
-0:	dec	ecx
-	jle	1f
+0:	dec	ecx		# can we load a byte?
+	jle	6f
 	lodsb
-	cmp	al, '\n'
+	cmp	al, '\n'	# newlines not allowed
 	jz	1f
 	cmp	al, '}'
 	jnz	0b
@@ -1091,12 +1184,21 @@ www_findexpr:
 	mov	ecx, esi
 	dec	ecx	# dont count closing '}'
 	sub	ecx, edi
-	clc
+	xor	al, al	# CF=0, ZF=1,
+	#clc
 
 9:	pop	eax
+	pop	ebx
 	pop	esi
 	ret
+# no match
 1:	stc
+	jmp	9b
+
+6:	# 
+	mov	edi, ebx
+	or	esp, esp	# ZF=0
+	clc
 	jmp	9b
 
 
@@ -1309,10 +1411,7 @@ www_expr_handle:
 	push	ebx
 	push	ecx	# expr len
 	push	edi	# expr
-	#lea	esi, [ebp + 4]
-	mov	esi, ebp
-	push	esi
-	xor	esi, esi
+	push	ebp
 	push	eax
 
 	mov	byte ptr [edi + ecx], 0	# '}' -> 0
@@ -1330,13 +1429,12 @@ www_expr_handle:
 1:	pop	edi
 	mov	ecx, [esp + 3*4]
 
-	.if 0
+	.if WWW_EXPR_DEBUG
 		DEBUG "www_expr_handle:"
 		push	esi
 		mov	esi, edi
 		call	nprint
 		pop	esi
-		call	newline
 	.endif
 
 	# find expression info
