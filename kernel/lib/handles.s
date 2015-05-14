@@ -1007,26 +1007,37 @@ handles_alloc$:
 	ret
 
 
-handles_validate_contiguous_address$:
+
+handles_validate_order$:
 	pushf
-	push_	eax ebx ecx edx edi esi	# esi must be last
+	push_	eax ebx ecx edx edi esi
+	pushd	0
+
 	mov	ecx, [esi + handles_num]
 	or	ecx, ecx
 	jz	9f
+
+	lea	eax, [ecx + 1]	# last index + 1 # XXX maybe handles_max
+	HITO	eax		# convert to offset
+	mov	[esp], eax	# store max offset
+
 	mov	esi, [esi + handles_ptr]
 	or	esi, esi
 	jz	9f
 
 	xor	ebx, ebx
 0:
+####### Check sorted by address
 	mov	eax, [esi + ebx + handle_base]
-	# check address prev
 	mov	edi, [esi + ebx + handle_fa_prev]
 	cmp	edi, -1
 	jz	1f
+	cmp	edi, ebx	# check self reference
+	jz	21f
+	cmp	edi, [esp]	# check if within array
+	jnb	31f
+
 	mov	edx, [esi + edi + handle_size]
-or edx, edx
-js 99f
 	add	edx, [esi + edi + handle_base]
 	cmp	edx, eax
 	jnbe	41f
@@ -1035,75 +1046,78 @@ js 99f
 	mov	edi, [esi + ebx + handle_fa_next]
 	cmp	edi, -1
 	jz	1f
+	cmp	edi, ebx	# check self reference
+	jz	22f
+	cmp	edi, [esp]	# check if within array
+	jnb	32f
 	cmp	eax, [esi + edi + handle_base]
 	jnbe	42f
 1:
-	add	ebx, HANDLE_STRUCT_SIZE
-	loop	0b
 
-9:	pop_	esi edi edx ecx ebx eax
+####### Check sorted by size
+	mov	eax, [esi + ebx + handle_size]
+	mov	edi, [esi + ebx + handle_fs_prev]
+	cmp	edi, -1
+	jz	1f
+	cmp	edi, ebx	# check self reference
+	jz	21f
+	cmp	edi, [esp]	# check if within array
+	jnb	31f
+	mov	edx, [esi + edi + handle_size]
+	cmp	edx, eax
+	jnbe	51f
+1:
+	mov	edi, [esi + ebx + handle_fs_next]
+	cmp	edi, -1
+	jz	1f
+	cmp	edi, ebx	# check self reference
+	jz	22f
+	cmp	edi, [esp]	# check if within array
+	jnb	32f
+	mov	edx, [esi + edi + handle_size]
+	cmp	eax, edx
+	jnbe	52f
+1:
+
+#######
+	add	ebx, HANDLE_STRUCT_SIZE
+	#loop	0b
+	dec	ecx
+	jnz	0b
+
+9:	add	esp, 4
+	pop_	esi edi edx ecx ebx eax
 	popf
 	ret
 
-41:	cli
-	printlnc 4, "MEM ERROR: prev(base+size) != curr(base)";
-	DEBUG "curr", 0x04
-	push	edx
+21:	PUSH_TXT "prev idx = idx"
+	jmp	90f
+22:	PUSH_TXT "next idx = idx"
+	jmp	90f
+
+31:	PUSH_TXT "prev idx > num"
+	jmp	90f
+32:	PUSH_TXT "next idx > num"
+	jmp	90f
+
+41:	PUSH_TXT "prev(base+size) != curr(base)";
+	jmp	90f
+42:	PUSH_TXT "curr(base+size) != next(base)";
+	jmp	90f
+
+51:	PUSH_TXT "prev(size) > curr(size)";
+	jmp	90f
+52:	PUSH_TXT "curr(size) > next(size)";
+	jmp	90f
+
+
+90:	printc 4, "MEM ERROR: "
+	call	_s_println
 	mov	edx, ebx
-	call	printdec32
-		DEBUG_DWORD [esi+ebx+handle_base],"base"
-		DEBUG_DWORD [esi+ebx+handle_size],"size"
-		DEBUG_DWORD eax
-	call	newline
-
-	DEBUG "prev", 0x04
-	mov	edx, edi
-	call	printdec32
-	pop	edx
-		DEBUG_DWORD [esi+edi+handle_base],"base"
-		DEBUG_DWORD [esi+edi+handle_size],"size"
-		DEBUG_DWORD edx, "sum"
-		call	newline
-
+	HOTOI	edx	# offset to index
 	add	ebx, esi
-	call	handle_print_$
-	lea	ebx, [esi + edi]
-	call	handle_print_$
-	printlnc 4,"-----------------------------";
-	mov	esi, [esp]
-	call	handles_print
-	int 3
-	sti
-	jmp	9b
-
-42:	cli
-	printlnc 4, "MEM ERROR: curr(base+size) != next(base)";
-	DEBUG "curr", 0x04
-	push	edx
-	mov	edx, ebx
-	call	printdec32
-		DEBUG_DWORD [esi+ebx+handle_base],"base"
-		DEBUG_DWORD [esi+ebx+handle_size],"size"
-		DEBUG_DWORD eax, "sum"
-	call	newline
-
-	DEBUG "next", 0x04
-	mov	edx, edi
-	call	printdec32
-	pop	edx
-		DEBUG_DWORD [esi+edi+handle_base],"base"
-		DEBUG_DWORD [esi+edi+handle_size],"size"
-		call	newline
-
-	add	ebx, esi
-	call	handle_print_$
-	lea	ebx, [esi + edi]
-	call	handle_print_$
-	printlnc 4,"-----------------------------";
-	mov	esi, [esp]
-	call	handles_print
-99:	int 3
-	sti
+	call	handle_print_$	# in: ebx = abs handle ptr, edx = handle idx
+	int3
 	jmp	9b
 
 
@@ -1167,7 +1181,7 @@ handle_get_by_base:
 # out: CF = 0: merged; ebx = new handle. CF=1: no merge, ebx is marked free.
 handle_merge_fa$:
 	CHECK_HANDLE_STRUCT_POINTER
-	push_	eax edx edi esi	# esi must be last
+	push_	eax ecx edx edi esi	# esi must be last
 0:	xor	edi, edi
 
 	# Check if ebx.base follows the previous handle AND is also free
@@ -1216,7 +1230,6 @@ handle_merge_fa$:
 	# remove from the address list
 	mov	[esi + ebx + handle_base], dword ptr 0
 	mov	edi, [esp]	# handles struct ptr
-	push	ecx
 	mov	ecx, [edi + handles_max] # arg for insert_sorted
 	add	edi, offset handles_ll_fa
 	add	esi, offset handle_ll_el_addr
@@ -1224,7 +1237,6 @@ handle_merge_fa$:
 	# add to the reusable handles list
 	add	edi, offset handles_ll_fh - offset handles_ll_fa
 	call	ll_insert_sorted$	# this does a loop on address, unneeded; call append instead?
-	pop	ecx
 	or	byte ptr [esi + ebx + handle_flags], MEM_FLAG_REUSABLE
 
 MERGE_RECURSE = 0
@@ -1239,17 +1251,15 @@ MERGE_RECURSE = 0
 .else
 	add	esi, offset handle_ll_el_size - offset handle_ll_el_addr
 .endif
-	mov	edi, [esp]
+	mov	edi, [esp]	# handles struct ptr
+	mov	ecx, [edi + handles_max] # arg for insert_sorted
 	add	edi, offset handles_ll_fs
 	# remove and insert:
-	#call	ll_unlink$
-	#call	ll_insert_sorted$
-	# better: size has grown, so update right:
-	call	ll_update_right$
-
-	# leave ebx to point to the newly free'd memory.
+	call	ll_unlink$	# must call this before insert_sorted, otherwise idx==nex==prev
+	call	ll_insert_sorted$
+	# leave ebx to point to the newly freed memory.
 	clc
-0:	pop_	esi edi edx eax
+0:	pop_	esi edi edx ecx eax
 	ret
 
 1:	# no matches. mark memory as free.

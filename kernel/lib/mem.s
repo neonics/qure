@@ -47,7 +47,7 @@
 .intel_syntax noprefix
 
 MEM_DEBUG = 0
-MEM_DEBUG2 = 0
+MEM_DEBUG2 = 1		# validate handles structure (does printing...)
 MEM_PRINT_HANDLES = 2	# 1 or 2: different formats.
 
 MEM_FEATURE_STRUCT = 1	# 0: static kernel mem variables; 1: use pointer
@@ -146,7 +146,17 @@ MEM_STRUCT_SIZE = .
 .data
 mem_kernel: .long 1f	# initialize bootstrap memory structure pointer
 # allocate bootstrap memory structure
-1:	.space HANDLES_STRUCT_SIZE - 6*4; .rept 6; .long -1; .endr
+mem_kernel_handles_struct$:	# debug symbol
+1:	.space HANDLES_STRUCT_SIZE - 6*4;
+.if 0
+	.rept 6; .long -1; .endr
+.else	# debug syms:
+_mem_k_h_fa$: .long -1,-1
+_mem_k_h_fs$: .long -1,-1
+_mem_k_h_fh$: .long -1,-1
+.endif
+
+
 	.space MEM_STRUCT_SIZE - HANDLES_STRUCT_SIZE
 .endif
 
@@ -1257,7 +1267,7 @@ mallocz:
 # out: eax
 # out: CF
 mallocz_:
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG "mallocz ";
 		push edx; mov edx,[esp+4]; call debug_printsymbol; pop edx
 	.endif
@@ -1265,7 +1275,7 @@ mallocz_:
 	mov	ecx, eax
 	call	malloc_
 _mallocz_malloc_ret$:	# debug symbol
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG_DWORD eax,"malloc";DEBUG_DWORD ecx; pushf; call newline; popf
 	.endif
 	jc	9f
@@ -1369,9 +1379,13 @@ malloc_:
 #DEBUG_REGSTORE
 	MUTEX_SPINLOCK MEM
 
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG_DWORD eax,"malloc("
 	.endif
+	.if MEM_DEBUG2
+		call mem_validate_handles
+	.endif
+
 #call mem_debug
 	push_	ebx esi
 .if MEM_FEATURE_STRUCT
@@ -1478,8 +1492,10 @@ malloc_:
 		popcolor
 		popf
 	.endif
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG_DWORD eax,")"
+	.endif
+	.if MEM_DEBUG2
 		call mem_validate_handles
 	.endif
 	MUTEX_UNLOCK MEM
@@ -1563,7 +1579,7 @@ malloc_:
 	jz	0f	# no change.
 
 	neg	ecx
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG "+", 0x6f
 	.endif
 1:	# grow
@@ -1592,7 +1608,7 @@ malloc_:
 	push	edi
 	mov	ecx, edx			# new size
 	sub	ecx, [esi + ebx + handle_size]	# - current size = borrow
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG_DWORD ecx,"clr",0x9f
 	.endif
 	mov	edi, [esi + edi + handle_base]
@@ -1611,7 +1627,7 @@ malloc_:
 	# js...
 	cmp	ecx, MEM_SPLIT_THRESHOLD
 	jb	5f	# take it all
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG "B",0x6f
 	.endif
 	# just borrow the bytes, leave the handle as is.
@@ -1625,7 +1641,7 @@ malloc_:
 	jmp	0f
 
 5:	# take all the memory - merge the handles.
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG "M",0x6f
 	.endif
 
@@ -1664,7 +1680,7 @@ malloc_:
 
 ####### allocate a new block and copy the data.
 1:
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG "C",0x6f
 	.endif
 	mov	ecx, [esi + ebx + handle_size]
@@ -1684,14 +1700,17 @@ malloc_:
 	or	[ebx + handle_flags], byte ptr MEM_FLAG_ALLOCATED
 
 	# free the old handle
+	.if MEM_DEBUG2 > 1
+		DEBUG "<", 0x6f
+	.endif
 	.if MEM_DEBUG2
-		DEBUG "<", 0x6f; call mem_validate_handles;
+		call mem_validate_handles;
 	.endif
 
 	MUTEX_UNLOCK MEM
 	push	eax
 	mov	eax, [esi + ebx + handle_base]
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG ".", 0x6f
 	.endif
 	call	mfree	# TODO: optimize, as handle is known
@@ -1701,7 +1720,7 @@ malloc_:
 
 ########
 2:	# shrink: ignore.
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG "-", 0x6f
 	.endif
 ########
@@ -1713,6 +1732,8 @@ malloc_:
 	pop	ebx
 	.if MEM_DEBUG2
 		call mem_validate_handles
+	.endif
+	.if MEM_DEBUG2 > 1
 		DEBUG "]", 0x6f
 	.endif
 	pop	ebp
@@ -1722,11 +1743,11 @@ malloc_:
 # in: eax = mem, edx = new size
 # out: eax = reallocated (memcpy) mem
 mrealloc:
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG_DWORD eax,"mrealloc";DEBUG_DWORD edx
 	.endif
 	MREALLOC malloc
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG_DWORD eax
 	.endif
 	ret
@@ -1818,11 +1839,11 @@ mreallocz_:
 9:	pop	eax
 	jmp	0b
 .else
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG_DWORD eax,"mrealloc";DEBUG_DWORD edx
 	.endif
 	MREALLOC mallocz
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG_DWORD eax
 	.endif
 	ret
@@ -1839,10 +1860,14 @@ mfree:
 mfree_:
 	TIMING_BEGIN
 	MUTEX_SPINLOCK MEM
-	.if MEM_DEBUG2
+	.if MEM_DEBUG2 > 1
 		DEBUG "["
 		DEBUG_DWORD eax,"mfree"
+	.endif
+	.if MEM_DEBUG2
 		call mem_validate_handles
+	.endif
+	.if MEM_DEBUG2 > 1
 		DEBUG ","
 	.endif
 	push	esi
@@ -1854,8 +1879,10 @@ mfree_:
 .endif
 	call	handle_free_by_base
 	pop	esi
-        .if MEM_DEBUG2
+        .if MEM_DEBUG2 
 		call mem_validate_handles
+	.endif
+        .if MEM_DEBUG2 > 1
                 DEBUG "]"
         .endif
 	MUTEX_UNLOCK MEM
@@ -2652,7 +2679,7 @@ mem_validate_handles:
 .else
 	lea	esi, [mem_handles]
 .endif
-	call	handles_validate_contiguous_address$
+	call	handles_validate_order$
 	pop	esi
 	ret
 ############################################################
