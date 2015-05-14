@@ -611,9 +611,9 @@ FS_DIRENT_ATTR_DIR=0x10
 	# edi, ecx = expression
 	lea	edx, [edi - 2]	# start of expression string
 	sub	edx, ebx	# len of unsent data
-	jz	2f		# expression at buffer start
 	mov	esi, ebx	# start of unsent data
 	lea	ebx, [edi + ecx + 1]	# end of expr = new start of unsent data
+	jz	2f		# (flags from sub) expression at buffer start
 	sub	[esp], edx	# update remaining source len
 
 	push	ecx
