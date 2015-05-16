@@ -3102,6 +3102,95 @@ cmd_iproute:
 	ret
 
 
+SHELL_COMMAND "uname"	cmd_uname
+.include "version.h"
+cmd_uname:
+	lodsd
+
+	CMD_UNAME_ALL		= -1	# -a --all
+	CMD_UNAME_KERNEL	= 1	# -s --kernel-name
+	CMD_UNAME_NODE		= 2	# -n --node-name
+	CMD_UNAME_RELEASE	= 4	# -r --kernel-release
+	CMD_UNAME_VERSION	= 8	# -v --kernel-version
+	CMD_UNAME_MACHINE	= 16	# -m --machine
+	CMD_UNAME_PROCESSOR	= 32	# -p --processor
+	CMD_UNAME_HARDWARE	= 64	# -i --hardware-platform
+	CMD_UNAME_OS		= 128	# -o --operating-system
+
+	mov	dl, CMD_UNAME_KERNEL
+	CMD_EXPECTARG 9f
+	xor	dl, dl
+
+	.macro UNAME_ARG flag, const
+		CMD_ISARG "-\flag"
+		jnz	2f
+		or	dl, CMD_UNAME_\const
+	2:
+	.endm
+0:
+	UNAME_ARG "a", ALL
+	UNAME_ARG "s", KERNEL
+	UNAME_ARG "n", NODE
+	UNAME_ARG "r", RELEASE
+	UNAME_ARG "v", VERSION
+	UNAME_ARG "m", MACHINE
+	UNAME_ARG "p", PROCESSOR
+	UNAME_ARG "i", HARDWARE
+	UNAME_ARG "o", OS
+
+	CMD_EXPECTARG 9f
+	jmp	0b
+9:	
+
+1:	# -s
+	shr	dl, 1
+	jnc	1f
+	printc 11, "QuRe "
+
+1:	# -n
+	shr	dl, 1
+	jnc	1f
+	mov	esi, offset hostname
+	call	print
+	call	printspace
+
+1:	# -r
+	shr	dl, 1
+	jnc	1f
+	pushd	KERNEL_REVISION
+	call	_s_printdec32
+	call	printspace
+
+1:	# -v
+	shr	dl, 1
+	jnc	1f
+	LOAD_KERNEL_VERSION_TXT
+	call	print
+	call	printspace
+
+1:	# -m
+	shr	dl, 1
+	jnc	1f
+	print "i486+ "
+
+1:	# -p
+	shr	dl, 1
+	jnc	1f
+
+1:	# -i
+	shr	dl, 1
+	jnc	1f
+
+1:	# -o
+	shr	dl, 1
+	jnc	1f
+	printc 15, "QuRe Intel Assembly Cloud Operating System"
+1:
+
+	call	newline
+	ret
+
+
 .include "../lib/crc32.s"
 
 .endif

@@ -214,9 +214,19 @@ kernel.o: $(KERNEL_SRC) $(HARDWARE_SRC) acpi.s \
 	@$(AS) -o $@ $<
 	@$(call FIXUP,$@)
 
+shell.s: version.h
+
 fs/oofs/oofs.o fs/oofs/export.h: FORCE export.h kapi/export.h export.h
 	@echo "  M     $@"
 	@make -s -C fs/oofs
+
+version.h: BRANCH=$(shell $(GIT) branch | grep -e ^\* | cut -b3-)
+version.h: KERNEL_REVISION=$(shell $(GIT) log --pretty=oneline --abbrev-commit | wc -l)
+version.h: ../.git
+	@echo "  H     $@"
+	@echo "KERNEL_REVISION=$(KERNEL_REVISION)" > $@
+	@echo ".macro LOAD_KERNEL_VERSION_TXT _reg:vararg;LOAD_TXT \"$(BRANCH)-$(KERNEL_REVISION)\",\_reg;.endm" \
+	>> $@
 
 export.h: BRANCH=$(shell $(GIT) branch | grep -e ^\* | cut -b3-)
 export.h: KERNEL_REVISION=$(shell $(GIT) log --pretty=oneline --abbrev-commit | wc -l)
