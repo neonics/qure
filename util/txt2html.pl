@@ -77,7 +77,7 @@ $c=~ s@<pre>(.*?)</pre>\n+@'<pre>'.&esc($1)."</pre>\n"@ges;
 sub p { join("\n", map {"<p>$_</p>"} split "\n\n", $_[0] ) }
 sub trim { $_=$_[0]; s/^\s+//; s/\s*$//; $_ }
 sub keepspace { $_=$_[0]; s/ /&nbsp;/g; $_ }
-sub esc { $_ = shift @_; "{{PACK ".(unpack "H*", $_)."}}" }
+sub esc { $_ = shift @_; "\{\{PACK ".(unpack "H*", $_)."}}" }
 
 # NOTES: pattern:  /(?=X)/:
 #	lookahead:	(?=pat) (?!pat)
@@ -184,7 +184,7 @@ $c=~ s@\n([^<\n]{1,60})\n([^<\n]{70,}\n)@\n$1<br/>\n$2@g;
 $c=p($c);
 
 # unpack
-while ($c =~ s@{{PACK (.*?)}}@pack( "H*", $1)@ge){}
+while ($c =~ s@\{\{PACK (.*?)}}@pack( "H*", $1)@ge){}
 
 ###########
 

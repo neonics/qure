@@ -254,6 +254,7 @@ WWW_N_SRC=$(patsubst %,web/www.neonics.com/%,\
 
 www-neonics: $(WWW_N_SRC)
 	@echo "  SITE  www.neonics.com"
+	@[ -d $(WWW_N) ] || mkdir $(WWW_N)
 	@[ -d web/www.neonics.com ] && ( \
 	make -s --no-print-directory -C web/www.neonics.com ; \
 	cd web/www.neonics.com && \

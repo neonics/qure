@@ -54,9 +54,9 @@ sub args {
 		my $a = shift @args;
 		$a eq '-t' || $a eq '--template'
 			and do { $self->{templatefile} = shift @args;1 } or
-		$a =~ /^--(css|js)$/ and do { push $self->{$1}, $opts{relpath}.shift @args or die "--$1 requires argument" } or
+		$a =~ /^--(css|js)$/ and do { push @{$self->{$1}}, $opts{relpath}.shift @args or die "--$1 requires argument" } or
 		$a eq '-x' and do { $self->{xml} = shift @args;1} or
-		$a eq '-s' and do { push $self->{styles}, shift @args;1} or
+		$a eq '-s' and do { push @{$self->{styles}}, shift @args;1} or
 		$a eq '--cid' and do { $self->{cid} = shift @args;1 } or
 		$a eq '-p' || $a eq '--relpath' and do { $self->{relpath} = shift @args;1} or
 		$a eq '-d' || $a eq '--base' and do { $self->{base} = shift @args;1} or
