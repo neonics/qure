@@ -65,6 +65,7 @@ build-deps:
 	@perl -v > /dev/null || (echo "missing perl" && false)
 	@convert -version | head -1 | grep ImageMagick > /dev/null || (echo "missing imagemagic" && false)
 	@genisoimage --version > /dev/null || (echo "missing genisoimage" && false)
+	@cpio --version | head -1 | grep GNU\ cpio > /dev/null || ( echo "missing cpio" && false )
 
 clean: site-clean
 	@echo "  CLEAN"
