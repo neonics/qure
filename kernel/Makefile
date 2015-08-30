@@ -55,6 +55,7 @@ KERNEL_LINK_FILE = kernel.link-elf
 else
 FIXUP_CMD = ../build/coff.exe $1 --remove-padding .shellcmd 10
 LD_OPTS += --no-leading-underscore
+LD_OPTS += -b pe-i386 -m i386pe
 KERNEL_LINK_FILE = kernel.link
 endif
 
