@@ -108,7 +108,9 @@ dhcp_txn_server_mac:	.long 0	# ip of server offering XXX MAC?
 dhcp_txn_yiaddr:	.long 0	# ip server offered (0 for discover)
 dhcp_txn_router:	.long 0
 dhcp_txn_netmask:	.long 0
-dhcp_txn_state:		.word 0	# lo byte = last sent msg; hi=last rx'd msg
+dhcp_txn_state:		#.word 0	# lo byte = last sent msg; hi=last rx'd msg
+dhcp_txn_state_tx:	.byte 0
+dhcp_txn_state_rx:	.byte 0
 dhcp_txn_flags:		.word 0
 	DHCP_TXN_FLAG_SC	= 1<<0	# Server/Client: 1 = server
 DHCP_TXN_STRUCT_SIZE = .
@@ -184,7 +186,7 @@ dhcp_txn_list:
 	lea	esi, [edx + dev_name]
 	call	print
 	printc 10, " state: rx="
-	movzx	edx, byte ptr [ebx + ecx + dhcp_txn_state + 1]
+	movzx	edx, byte ptr [ebx + ecx + dhcp_txn_state_rx]
 	cmp	dl, 8
 	ja	1f
 	mov	esi, [dhcp_message_type_labels$ + edx * 4]
@@ -192,7 +194,7 @@ dhcp_txn_list:
 	jmp	2f
 1:	call	printhex2
 2:	printc 10, " tx="
-	movzx	edx, byte ptr [ebx + ecx + dhcp_txn_state]
+	movzx	edx, byte ptr [ebx + ecx + dhcp_txn_state_tx]
 	cmp	dl, 8
 	ja	1f
 	mov	esi, [dhcp_message_type_labels$ + edx * 4]
@@ -243,8 +245,7 @@ net_dhcp_request:
 	jc	9f
 1:
 	mov	[eax + dhcp_txn_nic], ebx
-	mov	[eax + dhcp_txn_state], dl
-
+	mov	[eax + dhcp_txn_state_tx], dl
 	NET_BUFFER_GET
 	jc	9f
 	push	edi
@@ -269,7 +270,7 @@ DHCP_OPTIONS_SIZE = 32
 	sub	edi, ecx
 	pop	eax
 
-	mov	dl, [eax + dhcp_txn_state]
+	mov	dl, [eax + dhcp_txn_state_tx]
 	push	eax
 	mov	eax, [eax + dhcp_txn_xid]
 
@@ -389,6 +390,15 @@ ph_ipv4_udp_dhcp_c2s:
 	cmp	word ptr [esi + dhcp_hwaddrtype], (6<<8)|1
 	jnz	92f	# addresstype we don't know about
 
+	# check sender mac - ignore if it's us
+	push_	esi edi
+	lea	edi, [ebx + nic_mac]
+	lea	esi, [esi + dhcp_chaddr]
+	cmpsd
+	jnz	1f
+	cmpsw
+1:	pop_	edi esi
+	jz	9f	# we originated the request - stay silent.
 
 	mov	dl, DHCP_OPT_MSG_TYPE
 	call	net_dhcp_get_option$
@@ -422,16 +432,16 @@ ph_ipv4_udp_dhcp_c2s:
 	call	dhcp_txn_get	# out: ecx + edx
 	jc	1f
 
-		# XXX FIXME - assume received DISCOVER
-		movb	[ecx + edx + dhcp_txn_state+1], DHCP_MT_REQUEST 
-		movb	[ecx + edx + dhcp_txn_state], DHCP_MT_ACK  # premature but
+		# XXX FIXME - assume received (???) DISCOVER
+		movb	[ecx + edx + dhcp_txn_state_rx], DHCP_MT_REQUEST 
+		movb	[ecx + edx + dhcp_txn_state_tx], DHCP_MT_ACK  # premature but
 
 	jmp	2f
-1:	
+1:
 	call	dhcp_txn_new	# out: ecx + edx
 	jc	96f
-		movb	[ecx + edx + dhcp_txn_state+1], DHCP_MT_DISCOVER
-		movb	[ecx + edx + dhcp_txn_state+0], DHCP_MT_OFFER # premature but..
+		movb	[ecx + edx + dhcp_txn_state_rx], DHCP_MT_DISCOVER
+		movb	[ecx + edx + dhcp_txn_state_tx], DHCP_MT_OFFER # premature but..
 2:
 		mov	[ebp - 4], edx
 		mov	[ecx + edx + dhcp_txn_xid], eax
@@ -646,7 +656,7 @@ dhcp_make_tx_resp_packet$:
 
 	movb	[edi + dhcp_options + OPT_OFFS + 0], DHCP_OPT_MSG_TYPE	# dhcp message type
 	movb	[edi + dhcp_options + OPT_OFFS + 1], byte ptr 1	# len
-	mov	dl, [eax + dhcp_txn_state]	# DHCP_MT_OFFER/ACK
+	mov	dl, [eax + dhcp_txn_state_tx]	# DHCP_MT_OFFER/ACK XXX
 	mov	[edi + dhcp_options + OPT_OFFS + 2], dl
 	#mov	[edi + dhcp_options + 2], byte ptr 1	# message type: see dl above
 	OPT_OFFS = OPT_OFFS + 3
@@ -897,10 +907,10 @@ ph_ipv4_udp_dhcp_s2c:
 	jc	16f	# unknown transaction
 	lea	eax, [ecx + edx]
 
-	mov	edx, edi
-	mov	[eax + dhcp_txn_state + 1], dl
+	mov	edx, edi	# received message type
+	mov	[eax + dhcp_txn_state_rx], dl
 
-	mov	dh, [eax + dhcp_txn_state]
+	mov	dh, [eax + dhcp_txn_state_tx]
 	xor	dl, dl
 	or	dx, di
 
