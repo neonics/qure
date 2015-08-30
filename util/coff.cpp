@@ -10,9 +10,9 @@
 struct filehdr {
 unsigned short  h_magic;        /* magic number */
 unsigned short  h_nsections;        /* number of sections */
-long            h_timdat;       /* time & date stamp */
-long            h_symptr;       /* file pointer to symbolic header */
-long            h_nsyms;        /* sizeof(symbolic hdr) */
+int32_t         h_timdat;       /* time & date stamp */
+int32_t         h_symptr;       /* file pointer to symbolic header */
+int32_t         h_nsyms;        /* sizeof(symbolic hdr) */
 unsigned short  h_opthdr;       /* sizeof(optional hdr) */
 unsigned short  h_flags;        /* flags */
 };
@@ -25,39 +25,39 @@ unsigned short  h_flags;        /* flags */
 typedef struct aouthdr {
 short   magic;          /* see above                            */
 short   vstamp;         /* version stamp                        */
-long    tsize;          /* text size in bytes, padded to DW bdry*/
-long    dsize;          /* initialized data "  "                */
-long    bsize;          /* uninitialized data "   "             */
-long    entry;          /* entry pt.                            */
-long    text_start;     /* base of text used for this file      */
-long    data_start;     /* base of data used for this file      */
-long    bss_start;      /* base of bss used for this file       */
-long    gprmask;        /* general purpose register mask        */
-long    cprmask[4];     /* co-processor register masks          */
-long    gp_value;       /* the gp value used for this object    */
+int32_t    tsize;          /* text size in bytes, padded to DW bdry*/
+int32_t    dsize;          /* initialized data "  "                */
+int32_t    bsize;          /* uninitialized data "   "             */
+int32_t    entry;          /* entry pt.                            */
+int32_t    text_start;     /* base of text used for this file      */
+int32_t    data_start;     /* base of data used for this file      */
+int32_t    bss_start;      /* base of bss used for this file       */
+int32_t    gprmask;        /* general purpose register mask        */
+int32_t    cprmask[4];     /* co-processor register masks          */
+int32_t    gp_value;       /* the gp value used for this object    */
 } AOUTHDR;
 #define AOUTHSZ sizeof(AOUTHDR)
 
 
 struct sectionhdr {
 char            s_name[8];      /* section name */
-long            s_paddr;        /* physical address, aliased s_nlib */
-long            s_vaddr;        /* virtual address */
-long            s_size;         /* section size */
-long            s_sectionptr;       /* file ptr to raw data for section */
-long            s_relptr;       /* file ptr to relocation */
-long            s_lnnoptr;      /* file ptr to gp histogram */
+int32_t            s_paddr;        /* physical address, aliased s_nlib */
+int32_t            s_vaddr;        /* virtual address */
+int32_t            s_size;         /* section size */
+int32_t            s_sectionptr;       /* file ptr to raw data for section */
+int32_t            s_relptr;       /* file ptr to relocation */
+int32_t            s_lnnoptr;      /* file ptr to gp histogram */
 unsigned short  s_nreloc;       /* number of relocation entries */
 unsigned short  s_nlnno;        /* number of gp histogram entries */
-long            s_flags;        /* flags */
+int32_t            s_flags;        /* flags */
 };
 
 #define E_SYMNMLEN 8
 typedef union {
 	char e_name[E_SYMNMLEN];
 	struct {
-	  unsigned long e_zeroes;
-	  unsigned long e_offset;
+	  uint32_t e_zeroes;
+	  uint32_t e_offset;
 	} e;
 } SYMNAME;
 
@@ -68,13 +68,13 @@ typedef struct
   union {
 	char e_name[E_SYMNMLEN];
 	struct {
-	  unsigned long e_zeroes;
-	  unsigned long e_offset;
+	  uint32_t e_zeroes;
+	  uint32_t e_offset;
 	} e;
   } e;
   	*/
 	SYMNAME e;
-  unsigned long e_value;
+  uint32_t e_value;
   /**
 	 0: N_UNDEF
 	-1: N_ABS
@@ -427,8 +427,8 @@ void handle_text( struct args args, int handle, unsigned char * buf, struct file
 {
 	#pragma pack(1)
 	struct RELOC {
-		unsigned long addr;
-		unsigned long symidx;
+		uint32_t addr;
+		uint32_t symidx;
 	//	short a, b;
 		/**
 		 0x0006: dir32  ( 6 dec: RELOC_ADDR32)
@@ -500,7 +500,7 @@ void handle_text( struct args args, int handle, unsigned char * buf, struct file
 					oldv+diff
 				);
 
-				*((long*)cp) += diff;
+				*((int32_t*)cp) += diff;
 			}
 			else if ( rsp[k].flags == 20 ) // RELOC_REL32
 			{
@@ -510,7 +510,7 @@ void handle_text( struct args args, int handle, unsigned char * buf, struct file
 						diff & 0xffff, oldv & 0xffff, (oldv+diff)&0xffff
 					);
 				if ( args.link )
-					*((long*)cp) += diff - rsp[k].addr - 4;
+					*((int32_t*)cp) += diff - rsp[k].addr - 4;
 			}
 			else if ( rsp[k].flags == 0x10 ) // 16 bit relocation
 			{
@@ -535,7 +535,7 @@ void handle_text( struct args args, int handle, unsigned char * buf, struct file
 						diff, oldv, oldv+diff
 					);
 
-				//if ( args.link ) *((long*)cp) += diff;
+				//if ( args.link ) *((int32_t*)cp) += diff;
 			}
 
 			if ( args.verbose )
