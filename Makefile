@@ -140,9 +140,9 @@ build/malloc.exe: util/malloc.cpp
 	@echo "  C     $@"
 	@g++ -std=c++0x -o $@ $<
 
-build/font.exe: util/font.cpp
-	@echo "  C     $@"
-	@gcc -x c -std=c99 $< -o $@
+#build/font.exe: util/font.cpp
+#	@echo "  C     $@"
+#	@gcc -x c -std=c99 $< -o $@
 
 build/coff.exe: util/coff.cpp
 	@echo "  C     $@"
