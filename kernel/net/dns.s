@@ -999,8 +999,10 @@ dns_answer_question$:
 
 	# verify name
 	push_	ecx esi edi
+	# lowercase the name
 	call	strlen_
 	inc	ecx
+	call	str_to_lower_	# inplace; in: esi, ecx;
 	LOAD_TXT "cloud.neonics.com.", edi
 	repz	cmpsb
 	pop_	edi esi ecx

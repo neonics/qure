@@ -387,3 +387,37 @@ trim:
 	pop	ebx
 	pop	eax
 	ret
+
+# in: esi, ecx
+.global str_to_lower_
+str_to_lower_:
+	push_	eax ecx esi edi
+
+DEBUGS esi, "pre"
+
+	mov	edi, esi
+0:	lodsb
+	or	al, al
+	jz	0f
+
+	cmp	al, 'A'
+	jb	1f
+
+	cmp	al, 'z'
+	ja	1f
+
+	cmp	al, 'Z'
+	jbe	2f
+
+	cmp	al, 'a'
+	jb	1f
+2:	or	al, 0x20
+	stosb
+	jmp	3f
+
+1:	inc	edi
+3:	loop	0b	# using ecx anyway
+0:
+	pop_	edi esi ecx eax
+DEBUGS esi, "post"
+	ret
