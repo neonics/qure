@@ -1888,7 +1888,7 @@ TASK_PRIV_STACK_DEBUG_BITS	= 0	# bit indices
 .data SECTION_DATA_BSS
 # Since the page size is a power of 2, having a whole number of stacks in
 # a page requires dividing by a power of 2.
-TASK_PRIV_STACK_SHIFT = 1
+TASK_PRIV_STACK_SHIFT = 1	# 0 = 1page (4kb) stack/task. 1 = 2kb, etc.
 task_stack_free:	.long 0	# bit array; 1 indicates availability
 task_stack_pages:	.long 0	# ptr array
 .text32
@@ -1923,6 +1923,10 @@ alloc_task_priv_stack:
 	mov	edx, ecx	# remember size
 	repz	scasd	# find dword with at least 1 bit set
 	jz	1f	# no free stacks
+
+	.if TASK_PRIV_STACK_DEBUG
+		DEBUG "reuse stackpage"
+	.endif
 
 	bsf	eax, [edi - 4]	# jz can't happen
 	.if TASK_PRIV_STACK_DEBUG_BITS
@@ -2070,6 +2074,10 @@ alloc_task_priv_stack:
 		DEBUG_DWORD [eax+edx]
 	.endif
 	mov	eax, ecx
+
+	.if TASK_PRIV_STACK_DEBUG
+		call	priv_stack_print$
+	.endif
 	ret
 
 91:	printlnc 4, "alloc_task_priv_stack: cannot allocate array"
@@ -2147,6 +2155,9 @@ free_task_priv_stack:
 	bts	[edi + eax * 4], edx	# set bit - mark free
 
 0:	pop_	edx edi esi
+	.if TASK_PRIV_STACK_DEBUG
+		call	priv_stack_print$
+	.endif
 	ret
 9:	printc 4, "free_tasks_priv_stack: unknown page: "
 	DEBUG_DWORD edx
@@ -2154,6 +2165,28 @@ free_task_priv_stack:
 	int 3
 	jmp	0b
 
+
+priv_stack_print$:
+	pushad
+	mov	esi, [task_stack_free]
+	or	esi, esi
+	jz	9f
+
+	mov	ecx, [esi + array_index]
+	shr	ecx, 2
+	jz	9f
+	call	newline
+	DEBUG "task_stack_free"
+	DEBUG_BYTE cl
+0:	lodsd
+	mov	edx, eax
+	call	printbin32
+	call	printspace
+	loop	0b
+	call	newline
+
+9:	popad
+	ret
 
 ####################################
 # in: eax = pid

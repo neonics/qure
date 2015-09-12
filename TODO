@@ -884,3 +884,24 @@ DONE: pci_list_devices takes about a second after it detected the last device,
 	- it checks all functions (this was it!): this is done because sometimes there
 	  are gaps. TODO: make sure it only scans all functions if function 0
 	  yielded a result (DONE).
+
+TODO: investigate paged memleak (task httpc- reusage?)
+	Every task allocates 3 pages directly, which are
+	freed directly upon task completion.
+	The task_priv_stack is also page allocated, but these
+	are cached and retained allocated using a redundant
+	bitstring free structure. These pages are reused.
+	So, for new tasks, 4 pages are allocated and only 3 released
+	to the general pool, 1 retained as available priv
+	stack.
+
+	The increase in used pages indicates peak requests, usually
+	HTTP floods.
+
+	What's left to do is to free those reserved pages from
+	the priv stack list if they are at the end of
+	the list.
+
+	Further, when TASK_PRIV_STACK_SHIFT is set to 1 in kernel/schedule.s,
+	the free bitstring only displays even bits; in other words,
+	the available partial pages are not compactly stored.

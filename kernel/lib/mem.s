@@ -50,6 +50,9 @@ MEM_DEBUG = 0
 MEM_DEBUG2 = 1		# validate handles structure (does printing...)
 MEM_PRINT_HANDLES = 2	# 1 or 2: different formats.
 
+MALLOC_PAGE_DEBUG = 0		# 0=off, 1=trace, 2=registers
+MALLOC_PAGE_DEBUG_PTR_BIT = 0	# 0=off, 1= set page addr lowest bit to 1 in array
+
 MEM_FEATURE_STRUCT = 1	# 0: static kernel mem variables; 1: use pointer
 	# This feature allows to specify a pointer to the memory
 	# bookkeeping structure to most of the code, making it possible
@@ -2165,6 +2168,11 @@ cmd_mem$:
 	call	cmd_mem_print_addr_range$
 	call	newline
 
+	.if MALLOC_PAGE_DEBUG
+		call	page_phys_print_free$
+		call	priv_stack_print$
+	.endif
+
 ######## print kernel sizes
 1:	test	dword ptr [ebp], CMD_MEM_OPT_KERNELSIZES
 	jz	1f
@@ -2685,7 +2693,7 @@ mem_validate_handles:
 ############################################################
 #
 
-MALLOC_PAGE_DEBUG = 0
+# See MALLOC_PAGE_DEBUG at top
 .data SECTION_DATA_BSS
 mem_pages_sem:		.long 0
 mem_pages:		.long 0
@@ -2695,6 +2703,11 @@ mem_pages_free:		.long 0	# array of bit-strings (size = 1/32th of mem_pages)
 # Allocate a single page
 # out: eax = physical memory address
 malloc_page_phys:
+
+	.if MALLOC_PAGE_DEBUG
+		DEBUG "alloc page"
+	.endif
+
 	LOCK_WRITE [mem_pages_sem]
 	push_	ebx edx esi ecx
 .if MEM_FEATURE_STRUCT
@@ -2704,21 +2717,22 @@ malloc_page_phys:
 	########################
 	mov	esi, [mem_pages_free]
 	or	esi, esi
-	jz	1f
+	jz	1f		# init [mem_pages_free]
 
-	xor	ebx, ebx
+	xor	ebx, ebx	# bit index
 	mov	ecx, [esi + array_index]
 	shr	ecx, 2
-	.if MALLOC_PAGE_DEBUG
+	# XXX a just-in case jz? So far not needed
+	.if MALLOC_PAGE_DEBUG > 1
 		DEBUG_DWORD ecx
 	.endif
 0:	lodsd
-	.if MALLOC_PAGE_DEBUG
+	.if MALLOC_PAGE_DEBUG > 1
 		DEBUG_DWORD eax
 	.endif
 	bsf	edx, eax	# set edx to first bit set in eax
 	jnz	2f		# found
-	add	ebx, 4*32	# increment dword index
+	add	ebx, 4*32	# increment bit index (XXX?)
 	loop	0b
 	.if MALLOC_PAGE_DEBUG
 		DEBUG "no free page"
@@ -2726,21 +2740,33 @@ malloc_page_phys:
 	jmp	1f
 
 2:
+	# edx = bit index in current (eax/[esi-4]) mem_pages_free dword
+	# ebx = absolute bit index, rel to [mem_pages_free]
 	.if MALLOC_PAGE_DEBUG
 		DEBUG "re-use page"; DEBUG_DWORD ebx;DEBUG_DWORD edx
 	.endif
 
 	btr	dword ptr [esi - 4], edx	# mark allocated
 	#jc 99f; DEBUG "ERROR: page already allocated", 0x4f; 99:
-	add	ebx, [mem_pages]
+	add	ebx, [mem_pages]	# XXX!
 	mov	eax, [ebx + edx * 4]
 	.if MALLOC_PAGE_DEBUG
 		DEBUG_DWORD eax
 	.endif
+
+	.if MALLOC_PAGE_DEBUG_PTR_BIT
+	and	eax, ~1
+	andb	[ebx + edx * 4], ~1
+	.endif
+
 	clc
 	jmp	0f	# done
-1:	########################
 
+1:	########################
+	# Alloc a page
+	.if MALLOC_PAGE_DEBUG
+		DEBUG "alloc new page"
+	.endif
 
 	mov	eax, 4096
 .if MEM_FEATURE_STRUCT
@@ -2763,15 +2789,18 @@ malloc_page_phys:
 	sub	[mem_heap_size], eax
 	sbb	[mem_heap_size+4], dword ptr 0
 .endif
-###################
+	###################
+	# [mem_heap_high_start_phys] = address of newly allocated page
 	# register page
-	PTR_ARRAY_NEWENTRY [mem_pages], 4, 9f
+	PTR_ARRAY_NEWENTRY [mem_pages], 4, 9f	# initializes [mem_pages] if needed
 .if MEM_FEATURE_STRUCT
 	mov	ebx, [edi + mem_heap_high_start_phys]
 .else
 	mov	ebx, [mem_heap_high_start_phys]
 .endif
-	mov	[eax + edx], ebx
+
+	# ebx = address of newly allocated heap page
+	mov	[eax + edx], ebx	# [eax+edx] == [ [mem_pages] + dword idx ]
 
 	mov	eax, [mem_pages_free]	# pipelining
 
@@ -2783,7 +2812,7 @@ malloc_page_phys:
 	and	ecx, 31	# bit index
 	and	bl, ~3
 
-	.if MALLOC_PAGE_DEBUG
+	.if MALLOC_PAGE_DEBUG > 1
 		DEBUG_DWORD edx
 		DEBUG_DWORD ebx
 		DEBUG_DWORD ecx
@@ -2796,7 +2825,15 @@ malloc_page_phys:
 	jb	2f
 
 1:	PTR_ARRAY_NEWENTRY [mem_pages_free], 4, 9f	# out: eax+edx
+	.if MALLOC_PAGE_DEBUG
+		DEBUG "alloc mem_pages_free dword"
+	.endif
+
 	# assert ebx == edx
+	cmp	ebx, edx
+	jz	3f
+	PRINTc 0xf4, "malloc_page_phys ASSERTION fail! ebx!=edx"
+	3:
 	mov	dword ptr [eax + ebx], 0 # mark allocated so wont reuse
 	# we ignore edx, and calc it again
 2:
@@ -2808,9 +2845,14 @@ malloc_page_phys:
 .endif
 	clc
 
-0:
+0:	# preserve CF!
+
 	.if MALLOC_PAGE_DEBUG
+		pushf
+		call	newline;
+		DEBUG "MALLOC: "
 		call	page_phys_print_free$
+		popf
 	.endif
 
 
@@ -2828,27 +2870,34 @@ malloc_page_phys:
 mfree_page_phys:
 	# assume that malloc_page_phys is called, [mem_pages(_free)] setup.
 	LOCK_WRITE [mem_pages_sem]
+
+	.if MALLOC_PAGE_DEBUG;
+		DEBUG "freeing page:"; DEBUG_DWORD eax
+	.endif
+
 	push_	edi ecx
 	mov	edi, [mem_pages]
 	mov	ecx, [edi + array_index]
 	shr	ecx, 2
 	repnz	scasd
 	jnz	9f
-	.if MALLOC_PAGE_DEBUG;
-		DEBUG "freeing page:"; DEBUG_DWORD eax
+	sub	edi, 4			# correct scasd
+
+	.if MALLOC_PAGE_DEBUG_PTR_BIT
+	orb	[edi], 1		# set lowest bit to mark free - for DEBUGGING!
 	.endif
-	sub	edi, [mem_pages]
-	sub	edi, 4
-	shr	edi, 2
-	.if MALLOC_PAGE_DEBUG
+
+	sub	edi, [mem_pages]	# convert to relative page pointer offset
+	shr	edi, 2			# convert to dword index
+	.if MALLOC_PAGE_DEBUG > 1
 		DEBUG_DWORD edi
 	.endif
 	mov	ecx, edi
 	shr	edi, 5
 	shl	edi, 2
-	and	ecx, 31
+	and	ecx, 31			# bit index
 
-	.if MALLOC_PAGE_DEBUG
+	.if MALLOC_PAGE_DEBUG > 1
 		DEBUG_DWORD edi
 		DEBUG_DWORD ecx
 	.endif
@@ -2858,6 +2907,8 @@ mfree_page_phys:
 	jc	91f
 
 	.if MALLOC_PAGE_DEBUG
+		call	newline;
+		debug "FREE: "
 		call	page_phys_print_free$
 	.endif
 
@@ -2878,21 +2929,50 @@ mfree_page_phys:
 .if MALLOC_PAGE_DEBUG
 page_phys_print_free$:
 	pushf
-	call	newline
+	#call	newline
 	DEBUG "free:"
 	push_	esi eax  edx
 	mov	esi, [mem_pages_free]
 	mov	ecx, [esi + array_index]
 	shr	ecx, 2
 	DEBUG_BYTE cl
-	inc ecx
+	jz	1f
+
 0:	lodsd
 	mov	edx, eax
 	call	printhex8
 	call	printspace
 	loop	0b
 	call	newline
-	pop_	edx eax esi
+
+	mov	esi, [mem_pages_free]
+	mov	ecx, [esi + array_index]
+	shr	ecx, 2
+	DEBUG_BYTE cl
+0:	lodsd
+	mov	edx, eax
+	call	printbin32
+	call	printspace
+	loop	0b
+	call	newline
+
+	# print page addresses
+	mov	esi, [mem_pages]
+	mov	ecx, [esi + array_index]
+	shr	ecx, 2
+	jz	9f	# shouldn't happen
+0:	lodsd
+	mov	edx, eax
+	call	printhex8
+	call	printspace
+	loop	0b
+	call	newline
+
+9:	pop_	edx eax esi
 	popf
 	ret
+
+1:	DEBUG "no data"
+	call	newline
+	jmp	9b
 .endif
