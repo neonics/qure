@@ -141,7 +141,7 @@ TODO: hyperlink to the source reference for *.s and html for *.txt
 	     eth.s			# Ethernet protocol driver
 
 					# Layer 2:
-	     arp.s			
+	     arp.s			# IP to MAC address resolution
 	     icmp.s			# control
 	     igmp.s			# multicast group management
 	     ipv4.s			# 32 bit internet protocol
