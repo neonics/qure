@@ -153,7 +153,7 @@ $c=~ s@(?<!\t)\[([^\|\]]+)\|([^\]]+)\]@<a class="$_[0] TAG0" href="$t->{RELPFX}$
 $c=~ s@(?<!\t)\[(https?://.*?)\]@<a href="$1" class="$_[0]">$1</a>@g;
 
 # [src: filename]
-$c=~ s@(?<!\t)\[(src):\s*(.*?)\s*\]@"<a class='n $1 $_[0]' href='src/".&sfile($2)."'>".&sname($2)."</a>"@ges;
+$c=~ s@(?<!\t)\[(src):\s*(.*?)\s*\]@"<a class='n $1 $_[0]' href='$t->{RELPFX}src/".&sfile($2)."'>".&sname($2)."</a>"@ges;
 
 # [commit:sha]
 $c=~ s@(?<!\t)\[(commit):\s*([a-fA-F0-9]+)\s*(.*?)\]@"<a class='n $1 $_[0]' href='$OPT{GIT_VIEW_COMMIT_URL}/$2'>".&sname($3||$2)."</a>"@ges;
