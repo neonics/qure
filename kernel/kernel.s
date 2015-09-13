@@ -582,6 +582,8 @@ SCHEDULE_EARLY = 0
 	call	cmd_sshd
 	call	cmd_sipd
 	call	cmd_cloudnetd
+	call	cmd_socksd
+	call	cmd_telnetd
 	YIELD	# give scheduler a chance to run daemons
 
 OPEN_SHELL_DEFAULT = 1	# see .if 1 below - kcons also prints the message

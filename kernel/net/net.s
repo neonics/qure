@@ -269,6 +269,8 @@ net_buffers_print:
 .include "net/smtp.s"
 .include "net/sip.s"
 .include "net/ssh.s"
+.include "net/socks.s"
+.include "net/telnet.s"
 
 .include "net/cloudnet.s"
 
