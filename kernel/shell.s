@@ -1560,18 +1560,26 @@ cmd_touch$:
 	mov	esi, eax
 	mov	edi, esp
 	call	fs_update_path
-	jc	8f
+	jc	91f
 
 	mov	eax, esp
 	KAPI_CALL fs_create	# in: eax=name, edx=POSIX flags
-	jc	8f
+	jc	92f
+	DEBUG "Directory/File created"
 	KAPI_CALL fs_close
+	jc	93f
 ########
 8:	mov	esp, ebp
 	pop	ebp
 	ret
 9:	printlnc 4, "usage: touch <filename>"
 	ret
+91:	printlnc 4, "fs_update_path failed"
+	jmp	8b
+92:	printlnc 4, "fs_create failed"
+	jmp	8b
+93:	printlnc 4, "fs_close failed"
+	jmp	8b
 
 # in: edi = dest buffer
 # in: ebx = shell
