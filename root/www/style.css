@@ -67,3 +67,8 @@ aside { display: block; margin: 1em 2em; padding-left: 1em; border-left: 2px sol
 h2.toc { font-size: inherit; font-style: italic; color: #444; }
 
 pre { font-size: initial; }
+
+form.comment { display: flex; margin-top: 1em; }
+form.comment fieldset { background-color: #eee; padding: .5em; }
+form.comment input,
+form.comment textarea { width: 100%; }

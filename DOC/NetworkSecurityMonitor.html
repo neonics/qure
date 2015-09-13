@@ -1,0 +1,136 @@
+
+<!--
+<style type='text/css' scoped='scoped'>
+${include ../style.css}
+</style>
+-->
+
+<h1>Network Security Monitor</h1>
+
+<p>
+Since I'm receiving a lot of requests
+<aside>
+These are:
+<ul>
+<li> Network Services
+	<ul>
+		<li> SMTP proxy scanning
+		<li> SSH login attempts
+		<li> SIP VoIP routing
+		<li> unauthorized DNS requests
+		<li> HTTP Referer ''bash'' shell exploits
+		<li> Web Applications
+			<ul> probing the login forms for
+				<li> phpmyadmin
+				<li> wordpress
+				<li> tomcat
+			</ul>
+	</ul>
+</ul>
+</aside>
+,
+that can't be possibly made by anyone who's seen the front page,
+I've implemented a new command ''bl'' to consult a blocklist service
+using a reverse DNS lookup. It will be tested by being executed on every SSH
+request as soon as caching DNS responses is implemented.
+
+<p>
+Having the system pass on an incoming flood of identical requests to
+a service it makes use of would make it an unwitting contributor in
+deteriorating network quality.
+</p>
+
+<aside>
+This is because the cluster is intended to provide a fail-safe for single
+system failure. A secondary objective is then to maintain network system
+integrity to keep the communication lines reliable.
+</aside>
+
+
+<h2>Distributed Statistics Database over DNS</h2>
+
+<p>
+Such services may be automatically notified of suspect requests by
+collecting protocol statistics on IP addresses and allow a DNS zone
+transfer. Such services may agree on a data sharing and load balancing
+protocol by providing name redirection.
+</p>
+
+<p>
+DNS itself does not offer any standard for aggregrating statistics
+of such measuring stations, but it does allow dynamic registration
+which allows a simple script to periodically aggregate the distributed
+statistics database.
+</p>
+
+<p>
+IP addresses that are detected to send requests they have no reason to,
+will be automatically added to a cluster wide blocklist. 
+</p>
+
+<p>
+The first implementation of a local blocklist will be for each node to persist
+an array of IP addresses, and offer a reverse DNS multicast lookup service on a ''cloud'' subdomain.
+Every node will cache the response persistently after verification that the incoming
+request is indeed to be categorized as such. It will warn that it is accepting a connection
+from an untrusted IP before accepting it. It will persist this IP's initial packet.
+If it causes the system to halt, when it is rebooted it will have confirmed that serving such
+packets causes system instability.
+If the request is handled normally, the IP is cleared and persisted as such. It will then not count
+toward adding the IP to a shared blocklist.
+</p>
+
+<p>
+Hosts whose requests end up all or mostly in a ''404'' will be suspect, as will hosts that result in a ''500''.
+This latter HTTP response code is to be implemented as a debug hook or exception in the HTTP server daemon at port 80,
+when it is informed a child thread serving the connection has encountered a bug.
+The ''httpc'' thread/task will then be suspended in the debugger and further requests from the IP ignored.
+
+Thus, ''httpd'' will register a debug hook or ''SIGCHLD''-like signal handler (since the child thread can be resumed at
+breakpoints) which is invoked by the exception handler (idt.s) / debugger.
+This signal handler executing in httpd merely sends the 500 status code and closes the socket before returning to the
+debugger. A flag is set to only return a 503 service unavailable upon any request, should the network queue remain
+scheduled.
+</p>
+
+
+
+<h2>Exploit</h2>
+
+<p>
+Running an obscure open source 100% assembly kernel that incorporates none of any existing software
+may have many disadvantages, but therefore also advantages.
+</p>
+
+<p>
+The kernel is only exploitable through undetected bugs.
+Executable code is limited to a precompiled image. Memory usage is only a few hundred kilobyte, and therefore
+most of the address space is empty.
+</p>
+
+<h3>Development</h3>
+
+<p>
+Whenever a bug presents itself, the machine is programmed to enter debug mode and suspend the scheduler.
+This results in the node not multicasting it's presence, whereby at most 2 minutes (minus 4 milliseconds)
+later another node will take over. The maximum of 2 minutes is due to the frequency of cluster synchronisation
+being 1 minute, which corresponds nicely to the order of magnitude of the TCP MSL cool-down time,
+allowing a remote TCP to determine that an address has become unresponsive. When they try again a minute later,
+the system seems to have recovered.
+</p>
+
+<p>
+Development (improvement) of the kernel then usually involves running a stable (committed) kernel revision as DMZ
+until a new revision is committed, which will then run parallel to the first. The second will
+will be updated as long as the first one keeps running. When the first one fails, the second one takes over.
+From that point on, the first is brought up to date, and they are alternatively rebooted to test the improvement - no going
+back, unless it occurs that both systems are halted, in which case local changes are stashed and the latest revision
+restarted. A third instance is then added to contain the stashed changes to isolate the faulty change halting development.
+This feature is then disabled, the stability of the third including the stashed changes verified, and the secondary node
+updated with the stable stashed changes. At the time when isolated feature works, the changes are bumped: the primary
+node is brought up to date with the latest working revision. Should it fail, it would fallback to the secondary running
+an older stable revision. It in turn would fall back to the third. By the time the second is failing, the first has been
+restarted, queued for another test. 
+</p>
+
+

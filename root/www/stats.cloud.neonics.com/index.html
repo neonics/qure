@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<!--
+<?xml version="1.0"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+	<head>
+		<title>QuRe - Intel Assembly Cloud Operating System</title>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+		<!-- non-html 5
+		<meta http-equiv="Cache-control" content="no-cache"/>
+		<meta http-equiv="Pragma" content="no-cache"/>
+		<meta http-equiv="Expires" content="Sat, Oct 12, 2013 23:07:16 CEST"/>
+		-->
+
+		<script type="text/javascript" src="http://www.neonics.com/js/xml.js"></script>
+		<script type="text/javascript" src="http://www.neonics.com/js/template.js"></script>
+		<link rel="stylesheet" type="text/css" href="http://www.neonics.com/css/layout.css"/>
+		<link rel="stylesheet" type="text/css" href="http://www.neonics.com/css/style.css"/>
+		<style type="text/css">
+		${include ../style.css}
+		</style>
+	</head>
+	<body onload="template(null,'http://www.neonics.com/',[],'menu.xml');" >
+		<div id="main">
+<!-- -->
+
+<h1>Site statistics</h2>
+
+<xmp>
+	<tag category="security"/>
+</xmp>
+
+<p>
+The idea of this page is that it might contain
+statistics on the requests made of the kernel beyond:
+
+<pre>
+	${site.stats}
+(the number of kernel calls, task switches, and HTTP requests).
+[TODO: remove these lines when the tag works]
+[TODO: extract content from template and apply template]
+</pre>
+
+</p>
+
+
+See <a href="http://cloud.neonics.com/doc/NetworkSecurityMonitor.html">Network Security Monitor</a>.
+
+${include ../comment.inc}
+
+<!-- -->
+		</div>
+	</body>
+</html>
