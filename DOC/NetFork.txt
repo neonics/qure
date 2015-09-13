@@ -34,7 +34,10 @@ The process of development must continue beyond LAN boundaries. Requirements:
 * Depends DNS registration
 
 Broadcasts are not propagated onto the internet. Node looks up ''cloud.neonics.com'',
-finds the nameserver(s) for it, and send the UDP packet. It will repeat this until a response is received. If responses are sent but not received, it can detect whether the remote node is online by accessing a well known service - DNS, HTTP on the same IP - using a request (which [should work|http://www.google.com/#q=cloud.neonics.com]). An IP mirror service can be established, echoing back the requestors ID for a distributed IP detection service (say, http://cloud.neonics.com/?IP), and other URLS can be established that transmit a status over TCP, if the router doesn't do UDP NAT properly.
+finds the nameserver(s) for it, and send the UDP packet. It will repeat this
+until a response is received. If responses are sent but not received, it can
+detect whether the remote node is online by accessing a well known service -
+DNS, HTTP on the same IP - using a request (which [should work|http://www.google.com/#q=cloud.neonics.com]). An IP mirror service can be established, echoing back the requestors ID for a distributed IP detection service (say, http://cloud.neonics.com/?IP), and other URLS can be established that transmit a status over TCP, if the router doesn't do UDP NAT properly.
 Local machines should figure out whether they have that public IP.
 Depends on individual node communication – 'chat' – using the udp bcast thingy. The originator will also scan the list of clusters to see whether there are remote clusters (using IP & lanmask = lanip), and if not, send an udp packet.
 
