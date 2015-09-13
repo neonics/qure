@@ -2968,12 +2968,17 @@ cmd_stats:
 	printc 15, " Kernel calls: "
 	mov	edx, [stats_kernel_calls]
 	call	printdec32
+	call	newline
 	.if 1	# this may be dropped at some point
-	printc 15, " HTTP requests: "
+	printc 11, "Requests:"
+	printc 15, " HTTP: "
 	mov	edx, [stats_httpd_requests]
 	call	printdec32
-	.endif
+	printc 15, " DNS: "
+	mov	edx, [stats_dnsd_requests]
+	call	printdec32
 	call	newline
+	.endif
 	ret
 
 cmd_inspect_str:

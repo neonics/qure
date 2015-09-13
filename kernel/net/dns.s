@@ -9,6 +9,12 @@ NET_DNS_DEBUG = 0	# 1 = log requests; 2 = more extensive debug
 
 DNS_MAX_NAME_LEN = 80
 
+.data SECTION_DATA_STATS
+.global stats_dnsd_requests
+stats_dnsd_requests: .long 0
+.text32
+
+
 # Messages over UDP follow the below format.
 # Messages over TCP are prefixed with a word indicating the message length,
 # not counting the word.
@@ -202,6 +208,8 @@ net_service_dnsd_main:
 0:	mov	ecx, 10000
 	KAPI_CALL socket_read
 	jc	0b
+
+	incd	[stats_dnsd_requests]
 
 	push	eax
 	# SOCK_READPEER effect handling:
