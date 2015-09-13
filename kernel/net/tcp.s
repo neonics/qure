@@ -2275,14 +2275,19 @@ net_tcp_handle_syn$:
 	lea	esi, [esi + tcp_options]
 	xor	eax, eax
 0:	lodsb
-	or	al, al
-	jz	0f	#TCP_OPT_END	= 0	# 0		end of options (no len/data)
-	cmp	al, 1	#TCP_OPT_NOP = 1
+	cmp	al, TCP_OPT_END	# end of options (no len/data)
+	jz	0f
+	cmp	al, TCP_OPT_NOP
 	jz	1f
-	cmp	al, 2	#TCP_OPT_MSS
+	cmp	al, TCP_OPT_MSS
 	jz	2f
-	cmp	al, 3	#TCP_OPT_WS  .byte 2, 4; .word winscale
+	cmp	al, TCP_OPT_WS  #.byte 2, 4; .word winscale
 	jz	3f
+	cmp	al, TCP_OPT_SACKP
+	jz	4f
+	cmp	al, TCP_OPT_TSECHO
+	jz	8f
+
 
 	DEBUG_BYTE al, "TCP: unimplemented option"
 	# unimplemented option: at least 2 bytes:opcode,len
@@ -2293,6 +2298,27 @@ net_tcp_handle_syn$:
 	jl	0f	# TODO: warn: short option
 	lea	esi, [esi + eax - 2]	# len includes option+len fields
 	jmp	1f	# continue parsing options
+
+# options
+8:	# TCP_OPT_TSECHO
+	sub	ecx, 10
+	jl	0f	# TODO: warn
+	lodsb
+	cmp	al, 10
+	jnz	0f	# TODO: warn
+	lodsd
+	lodsd
+	jmp	1f
+
+4:	#TCP_OPT_SACKP
+	sub	ecx, 2	# opcode, len field
+	jl	0f	# TODO: warn
+	lodsb
+	cmp	al, 2	# len must be 2
+	jnz	0f	# TODO: warn
+	# TODO: set SACKP flag on connection
+	jmp	1f
+
 
 3:	#TCP_OPT_WS	= 3	# 3,3,b  [SYN]	window scale
 	sub	ecx, 2	# account for opt code and len field
