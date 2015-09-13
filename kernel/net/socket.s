@@ -2,7 +2,12 @@
 # Sockets
 #
 # Only AF_INET supported.
-
+#
+# NOTE: for speed, it may be better to have socket_write etc, which buffer
+# data, available to the process without KAPI, and have socket_write etc
+# do KAPI calls to flush/actually send the data.
+# Downside is possible data corruption. Perhaps far call or a simple DPL
+# might do the trick.
 
 NET_SOCKET_DEBUG = 0
 NET_SOCKET_LOG_UDP_DROP = 0
@@ -327,12 +332,12 @@ KAPI_DECLARE socket_read
 socket_read:
 	push	edx
 	mov	edx, 1
-	call	socket_buffer_read
+	call	socket_buffer_read	# in: edx=min, ecx=timeout
 	jc	9f
 	mov	edx, [esi + buffer_start]
-	call	socket_is_stream
+	call	socket_is_stream	# out: ZF
 	jnz	1f	# not tcp
-0:	add	[esi + buffer_start], ecx
+0:	add	[esi + buffer_start], ecx	# possible concurrency isue
 	add	esi, edx
 	clc
 9:	pop	edx
@@ -434,6 +439,8 @@ socket_buffer_read:
 		test	dword ptr [edi + eax + sock_flags], SOCK_CLOSED
 		jnz	61f
 	mov	esi, [edi + eax + sock_in_buffer]
+		or	esi, esi
+		jz	62f
 	mov	ecx, [esi + buffer_index]
 	mov	edi, [esi + buffer_start]
 .if SOCK_USE_SEM
@@ -477,6 +484,7 @@ socket_buffer_read:
 	jmp	2b
 
 61:	DEBUG "sock closed"
+601:
 .if SOCK_USE_SEM
 	UNLOCK_READ [socket_array_sem]
 .else
@@ -484,6 +492,10 @@ socket_buffer_read:
 .endif
 	stc
 	jmp	2b	# this skips socket_buffer_sem
+
+
+62:	DEBUG "no sock buffer!"
+	jmp	601b
 
 # in: eax = socket index
 # in: esi = data
