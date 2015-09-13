@@ -393,8 +393,6 @@ trim:
 str_to_lower_:
 	push_	eax ecx esi edi
 
-DEBUGS esi, "pre"
-
 	mov	edi, esi
 0:	lodsb
 	or	al, al
@@ -419,5 +417,4 @@ DEBUGS esi, "pre"
 3:	loop	0b	# using ecx anyway
 0:
 	pop_	edi esi ecx eax
-DEBUGS esi, "post"
 	ret
