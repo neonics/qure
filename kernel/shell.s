@@ -3201,4 +3201,127 @@ cmd_uname:
 
 .include "../lib/crc32.s"
 
+##
+
+SHELL_COMMAND "bl"	cmd_blocklist
+
+cmd_blocklist:
+	enter	32,0	# 123.123.123.123.bl.blocklist.de
+	mov	edi, esp
+
+	lodsd
+	lodsd
+	or	eax, eax
+	jz	91f
+
+	call	net_parse_ipv4
+	jc	92f
+
+	bswap	eax
+
+	.rept 4
+	movzx	edx, al
+	call	sprintdec32
+	mov	al, '.'
+	stosb
+	shr	eax, 8
+	.endr
+	LOAD_TXT "bl.blocklist.de", esi, ecx, 0
+	rep	movsb
+
+	mov	esi, esp
+	print "Looking up "
+	call	print
+	print ": "
+
+	call	blocklist_cache_get
+	jz	1f	# cached
+	call	dns_resolve_name
+	call	blocklist_cache_put
+1:	jc	93f
+
+	call	net_print_ipv4
+	print	" ("
+	mov	esi, eax
+	and	eax, 0x00ffffff
+	cmp	eax, 127
+	jnz	94f
+	shr	esi, 24
+	sub	esi, 2
+	js	94f
+	cmp	esi, 21-2
+	ja	49f
+	mov	esi, [blocklist_desc$ + esi * 4]
+	call	print
+49:	println	")"
+
+0:	leave
+	ret
+91:	println "missing ip address argument"
+	jmp	0b
+92:	println "argument not an ip address"
+	jmp	0b
+93:	println "not found"
+	jmp	0b
+94:	printc 12, "unknown, not 127.0.0.2-127.0.0.21"
+	jmp	49b
+
+.data
+blocklist_desc$:
+
+STRINGPTR "amavis"		# 127.0.0.2
+STRINGPTR "apacheddos"		# 127.0.0.3
+STRINGPTR "asterisk"		# 127.0.0.4
+STRINGPTR "badbot"		# 127.0.0.5
+STRINGPTR "ftp"			# 127.0.0.6
+STRINGPTR "imap"		# 127.0.0.7
+STRINGPTR "ircbot"		# 127.0.0.8
+STRINGPTR "mail"		# 127.0.0.9
+STRINGPTR "pop3"		# 127.0.0.10
+STRINGPTR "regbot"		# 127.0.0.11
+STRINGPTR "rfi-attack"		# 127.0.0.12
+STRINGPTR "sasl"		# 127.0.0.13
+STRINGPTR "ssh"			# 127.0.0.14
+STRINGPTR "w00tw00t"		# 127.0.0.15
+STRINGPTR "portflood"		# 127.0.0.16
+STRINGPTR "sql-injection"	# 127.0.0.17
+STRINGPTR "webmin"		# 127.0.0.18
+STRINGPTR "trigger-spam"	# 127.0.0.19
+STRINGPTR "manuall"		# 127.0.0.20
+STRINGPTR "bruteforcelogin"	# 127.0.0.21
+
+blocklist_cache$: .long 0
+.text32
+
+# Retrieves a cached value.
+#
+# When ZF =1 (jz cached$),
+# then 
+#   whn CF = 1 (jc not_blacklisted$)
+#   when CF = 0 (jnc blacklisted$), eax = blacklist code
+# else ZF = 0 (jnz not_cached$), and CF, eax undetermined
+#
+# out: ZF = 1: cache hit
+# out: CF = 1: not blacklisted
+# out: eax: 127.0.0.[2-21] IF ZF=1 and CF=0
+blocklist_cache_get:
+	push	esi
+	mov	esi, [blocklist_cache$]
+	or	esi, esi
+	jz	1f
+	clc
+	or	esp, esp	# not zero - not cached.
+9:	pop	esi
+	ret
+
+1:	# no cache
+	or	esp, esp
+	# CF undetermined
+	# eax undetermined
+	jmp	9b
+
+blocklist_cache_put:
+	ret
+
+
 .endif

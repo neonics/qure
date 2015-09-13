@@ -1122,6 +1122,7 @@ dns_resolve_ptr:
 
 # in: esi = domain name
 # out: eax = ipv4 address
+.global dns_resolve_name
 dns_resolve_name:
 	push	edx
 	mov	edx, DNS_TYPE_A << 16 | DNS_CLASS_IN
