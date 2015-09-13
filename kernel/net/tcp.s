@@ -1074,7 +1074,7 @@ net_tcp_count_peer_connections:
 	ret
 	
 # in: eax = tcp_conn array index
-# in: edx = ip frame
+# in: edx = ipv4 frame
 # in: esi = tcp frame
 # in: ecx = tcp frame len
 # (out: CF = undefined)
@@ -1101,7 +1101,9 @@ net_tcp_handle:
 		printc TCP_DEBUG_COL_RX, "ACK "
 	.endif
 	push	eax
+		push	edx
 	call	net_tcp_conn_update_ack
+		pop	edx
 	cmp	eax, -1
 	pop	eax
 #	jz	9f	# received final ACK on FIN - connection closed.
@@ -1195,9 +1197,11 @@ net_tcp_handle:
 	# on receiving a SYN+ACK to our SYN
 	# since this method is not called unless the connection is known,
 	# this test, which would match portscanners, would not be executed.
+	push	edx
 	mov	dl, [esi + tcp_flags + 1]
 	and	dl, TCP_FLAG_SYN|TCP_FLAG_ACK
 	cmp	dl, TCP_FLAG_SYN|TCP_FLAG_ACK
+	pop	edx
 	jnz	1f
 	# got a SYN+ACK for a known connection: must be one we initiated.
 
@@ -1246,16 +1250,20 @@ net_tcp_handle:
 	# TODO: re-send next packet in segment /RST if old ack
 
 	# check if we need to send an ACK
+	push	edx	# backup ipv4 frame
 	mov	dl, [esi + tcp_flags + 1]
 	test	dl, ~ TCP_FLAG_ACK	# check for SYN, PSH, FIN
+	pop	edx
 	jnz	1f			# need to send an ACK
 
 	# check for payload:
+	push	edx
 	movzx	edx, byte ptr [esi + tcp_flags]	# headerlen
 	shr	edx, 2
 	and	dl, ~3
 	neg	edx
 	add	edx, ecx
+	pop	edx
 	jz	0f	# no payload
 1:	call	net_tcp_send_ack
 0:
