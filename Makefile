@@ -159,6 +159,7 @@ build/symtab.exe: util/symtab.cpp
 
 .PHONY: site-init site www-neonics site-check
 
+# disabled dep: root/www/download/os.iso.gz
 site:	site-init site-doc www-neonics site-check
 	touch root
 
@@ -171,11 +172,12 @@ site-init:
 	@#[ -f root/www/download/boot.img.gz ] && rm root/www/download/boot.img.gz || true
 	@#[ -f root/www/download/os.iso.gz ] && rm root/www/download/os.iso.gz || true
 
-root/www/download/os.iso.gz: $(ISO_DEPS) | site-init
+root/www/download/os.iso.gz: $(ISO_DEPS) os.iso | site-init
 	@echo "  ISO   $@"
 	@[ -f root/www/download/os.iso.gz ] && rm root/www/download/os.iso.gz || true
+	@cp os.iso root/www/download/os.iso && gzip root/www/download/os.iso
 	@#gzip build/boot.img -c > root/www/download/boot.img.gz
-	touch root/www/download/os.iso.gz
+	#touch root/www/download/os.iso.gz
 	#@genisoimage -P Neonics -quiet -input-charset utf-8 -o os.iso.site \
 	#	-r -b boot/boot.img \
 	#	$(ISO_ARGS) \
