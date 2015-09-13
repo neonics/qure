@@ -144,7 +144,7 @@ $c=~ s@(?<!\t)\[=([^\]]+)\]@<a class="$_[0]" name="$1"></a>@g;
 $c=~ s@(?<!\t)\[!([^\]]+)\]@<div class='note $_[0]'>$1</div>@g;
 
 # [label|http://site] XXX change - confusing
-$c=~ s@(?<!\t)\[([^\|\]]+)\|(http[^\]]+)\]@<a class="$_[0] TAG0" href="$2.html">$1</a>@g;
+$c=~ s@(?<!\t)\[([^\|\]]+)\|(http[^\]]+)\]@<a class="$_[0] TAG0" href="$2">$1</a>@g;
 # [label|localref] XXX change - confusing
 $c=~ s@(?<!\t)\[([^\|\]]+)\|([^\]]+)\]@<a class="$_[0] TAG0" href="$t->{RELPFX}$2.html">$1</a>@g;
 
