@@ -2630,28 +2630,66 @@ cmd_mem_print_graph$:
 .endif
 	xor	edx, edx
 
-3:	.if 1
-	PRINT_START
-	mov	ah, [esi + edx + handle_flags]
-	and	ah, 0b1
-	shl	ah, 2
-	add	ah, 9
-	shl	ah, 4
-	mov	al, [esi + edx + handle_size]
-	stosw
-	PRINT_END
+3:	
+	.if 1
+		mov	eax, [esi + edx + handle_size]
+		push	ecx
+		xor	ecx, ecx
+		bsr	ecx, eax
+		jecxz	5f
+
+		mov	ah, [esi + edx + handle_flags]
+		and	ah, MEM_FLAG_ALLOCATED # 0b1
+		shl	ah, 2
+		add	ah, 9
+		shl	ah, 4
+
+		mov	al, cl
+		call	_size_to_char$
+	4:	call	printcharc
+		loop	4b
+	5:
+		xor	ax, ax
+		call	printcharc
+
+		pop	ecx
 	.else
-	push	edx
-	movzx	edx, byte ptr [esi + edx + handle_flags]
-	call	printhex2
-	call	printspace
-	pop	edx
+		mov	eax, [esi + edx + handle_size]
+		call	_handle_size_to_char$
+		mov	ah, [esi + edx + handle_flags]
+		and	ah, MEM_FLAG_ALLOCATED # 0b1
+		shl	ah, 2
+		add	ah, 9
+		shl	ah, 4
+		call	printcharc
 	.endif
 	add	edx, HANDLE_STRUCT_SIZE
 	loop	3b
 	pop	eax
 	pop	esi
 	call	newline
+	ret
+
+# in: eax
+# out: al
+_handle_size_to_char$:
+	#push	edx
+	#mov	edx, eax
+	#bsr	eax, edx
+	#pop	edx
+	bsr	eax, eax
+	jz	1f
+# in: al
+# out: al
+_size_to_char$:
+	cmp	al, 26
+	jae	2f
+	add	al, 'a'
+	ret
+2:	sub	al, 26
+	add	al, 'A'
+	ret
+1:	mov	al, '0'
 	ret
 
 # in: eax = size to allocate
