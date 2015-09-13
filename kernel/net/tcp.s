@@ -1300,7 +1300,7 @@ tcp_rx_sock:
 	xchg	dl, dh
 	mov	eax, [eax + tcp_conn_remote_addr]
 	MUTEX_UNLOCK TCP_CONN
-	call	net_socket_find_remote
+	call	net_socket_find_remote	# in: eax=ip, edx=proto/port; out: edx=socket idx
 	jc	9f
 #	DEBUG "Got socket"
 	mov	eax, edx
@@ -1308,8 +1308,33 @@ tcp_rx_sock:
 0:	pop	edx
 	pop	eax
 	ret
-9:	DEBUG "!! NO socket: ip="; call net_print_ip;DEBUG_DWORD edx,"proto|port"
-	jmp	0b
+
+9:	DEBUG "!! NO socket: ip=";
+	call net_print_ip
+	printchar ':'
+	xchg	dl, dh	# XXX edx corrupted (PROTO/PORT)
+	movzx	edx, dx
+	call	printdec32
+	call	newline;
+
+	pop	edx	# ipv4 frame
+	pop	eax	# tcp connection index
+	pushad
+	MUTEX_SPINLOCK TCP_CONN
+	mov	esi, [tcp_connections]
+	mov	ebx, eax	# conn idx
+	call	net_tcp_conn_print$
+	MUTEX_UNLOCK TCP_CONN
+	popad	
+	pushad
+	mov	esi, edx	# ipv4 frame
+	# in: esi = ipv4 frame
+	# in: ecx = max frame len - we don't know anymore
+	mov	ecx, 1536
+	call	net_ipv4_print
+	popad
+	#DEBUG_DWORD edx,"proto|port"
+	ret
 .else
 
 	MUTEX_SPINLOCK TCP_CONN
