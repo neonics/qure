@@ -213,7 +213,16 @@ root/www/doc/%.html: DOC/%.txt $(HTMLDEPS)
 root/www/doc/%.html: RP = $(shell echo $(patsubst %,../,$(subst /, ,$(dir $<)))|sed -e 's/ //g')www.neonics.com/
 root/www/doc/%.html: DOC/%.html $(HTMLDEPS)
 	@echo "  HTML  $@"
-	@util/template.pl -t util/template.html -p ${RP} --toc --menuxml menu.xml $< > $@
+	@util/template.pl \
+		--base DOC \
+		-t util/template.html \
+		--css /style.css \
+		--js /_.js \
+		--js /site.js \
+		-p ${RP} \
+		--toc \
+		--menuxml menu.xml \
+		$< > $@
 
 root/www/doc/menu.xml: root/www/doc-menu.xml
 	@cp $< $@
