@@ -674,6 +674,7 @@ call newline
 	pop	dword ptr [esp + 8]
 	#jmp	schedule_isr
 
+# KEEP-WITH-NEXT fallthrough
 
 # This method is called immediately after an interrupt is handled,
 # and it is the tail part of the irq_proxy.
@@ -889,7 +890,7 @@ call task_update_time_suspend$
 
 	test	[eax + edx + task_flags], dword ptr TASK_FLAG_DONE #| TASK_FLAG_SUSPENDED
 	jz	1f
-	lea	ebx, [eax + edx]
+2:/*?*/	lea	ebx, [eax + edx]
 	call	task_cleanup$	# in: ebx
 2:	mov	[eax + edx + task_flags], dword ptr -1
 	jmp	0f
@@ -897,11 +898,11 @@ call task_update_time_suspend$
 0:
 
 ########
-	mov	ecx, [eax + array_index]	# 8 loop check
+	mov	ecx, [eax + array_index]	# 8 loop check # XXX 2b possible infinite loop
 	xor	ebx, ebx	# count non-completed tasks
 
 0:	bt	dword ptr [eax + edx + task_flags], TASK_FLAG_DONE_SHIFT
-	adc	ebx, 0
+	adc	ebx, 0	# XXX this counts completed tasks!
 
 	add	edx, SCHEDULE_STRUCT_SIZE
 	cmp	edx, [eax + array_index]
@@ -912,12 +913,15 @@ call task_update_time_suspend$
 	js	9f
 
 	test	dword ptr [eax + edx + task_flags], TASK_FLAG_DONE
-	jnz	2b
+	jnz	2b	# XXX target changed
 	test	dword ptr [eax + edx + task_flags], TASK_FLAG_SUSPENDED
 	jnz	0b
 	test	dword ptr [eax + edx + task_flags], TASK_FLAG_RUNNING
-	jnz	0b
+	jnz	0b	# probably only happens on SMP; TODO: add debug target label
 
+	# potential task found.
+
+	# check semaphore/yield timeout
 	test	dword ptr [eax + edx + task_flags], TASK_FLAG_WAIT_IO
 	jz	1f	# can schedule
 	mov	edi, [eax + edx + task_io_sem_ptr]
@@ -925,7 +929,7 @@ call task_update_time_suspend$
 #	jz	92f	# no sem: error
 	jz	3f	# no sem: simple timeout
 	cmp	dword ptr [edi], 0
-	jnz	2f	# have data
+	jnz	2f	# have data	# XXX might need ja/jg/jnbe
 3:	mov	edi, [eax + edx + task_io_sem_timeout]
 	cmp	[clock_ms], edi
 	jb	0b
@@ -935,6 +939,8 @@ call task_update_time_suspend$
 	and	dword ptr [eax + edx + task_flags], ~TASK_FLAG_WAIT_IO
 1:
 
+	# task runnable
+
 	.if SCHEDULE_DEBUG_GRAPH
 		mov	bl, 2
 		cmp	edx, [scheduler_current_task_idx]
@@ -942,7 +948,7 @@ call task_update_time_suspend$
 
 		push eax
 		mov eax, [eax + edx + task_label]
-		mov eax, [eax]
+		mov eax, [eax]	# XXX page fault: eax = 2020200a (HTTP buffer overflow?)
 		cmp eax, 'n'|'e'<<8|'t'<<16
 		jnz 2f
 		mov bl, 7
@@ -1303,14 +1309,6 @@ task_cleanup$:
 	call	mfree
 	pop	eax
 	ret
-
-.if 1
-	pushf
-	pushd	cs
-	push	dword ptr offset 0f
-	jmp	schedule_isr
-.endif
-
 
 
 #############################################################################
@@ -1754,10 +1752,10 @@ task_setup_stack$:
 	pop	eax
 	.endif
 
+	# prepare stack
 	add	eax, JOB_STACK_SIZE
 	and	eax, ~0xf
 
-	# prepare stack
 	.if SCHEDULE_JOBS == 0
 	sub	eax, 8
 	# if edx is changed above:
@@ -2805,7 +2803,7 @@ mov edx, [eax + ebx + task_stack0_top]
 	.endif
 
 
-	.if 0
+	.if 1
 	mov	edx, [eax + ebx + task_schedcount]
 	pushcolor 0x3
 	call	printdec32
