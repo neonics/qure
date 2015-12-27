@@ -464,6 +464,9 @@ SCHEDULE_EARLY = 0
 	call	newline
 	call	bios_init_serial
 
+	# add serial hook to screen_update
+	call	serial_log_init
+
 .if SHOWOFF
 	MORE
 .endif
@@ -544,7 +547,6 @@ SCHEDULE_EARLY = 0
 	call	sprintdec32
 3:	mov	esi, offset 0b
 	call	cmd_mount$
-
 
 	I "Enabling networking"
 	call	newline

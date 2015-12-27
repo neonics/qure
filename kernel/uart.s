@@ -995,3 +995,66 @@ uart_isr_ls$:	# Line Status change (0b1100)
 	ret
 
 
+#####################################
+# Add hook to screen update
+.global serial_log_init
+serial_log_init:
+	mov     esi, [class_instances]
+	mov     edx, offset class_uart
+	PTR_ARRAY_ITER_START esi, ecx, eax
+	call    class_instanceof
+	jnz     1f
+	print "Hooking serial logging to "
+	mov     ebx, eax
+	lea	esi, [ebx + dev_name]
+	call	println
+	jmp	2f
+1:      PTR_ARRAY_ITER_NEXT esi, ecx, eax
+	printlnc 12, "No serial interface found"
+	jmp	3f	# not found
+
+2:	# hook a serial method:
+	mov	[serial_log_dev], eax
+	#mov	eax, offset default_screen_update#1f
+	mov	eax, offset 1f	# 'offset' needed!
+	#mov	[screen_update], eax	# XXX used in scroll - will break it! pgup OK, pgdown hangs
+	# NOTE XXX FIXME TODO screen_update is purely meant for rendering,
+	# so we must have another hook for printing (appending content).
+	jmp	3f
+
+.data
+serial_log_dev: .long 0
+serial_log_msg: .ascii "serial print called: prev_pos="
+serial_log_pp:	.ascii "00000000"; .ascii " next pos="
+serial_log_cp:	.ascii "00000000"; .ascii " \r\n\0"
+SERIAL_LOG_MSG_SIZE = . - serial_log_msg
+.text32
+
+1:	#int 3# serial print handler
+	#PRINT "SERIAL PRINT HOOK!";
+	#ret
+
+	# in: edx = cur pos
+	# in: edi = prev pos
+	ENTER_CPL0
+	pushad
+	.if 0
+		LOAD_TXT "serial print called!\r\n", esi, ecx, 1
+	.else
+		mov	ecx, edi
+		mov	edi, offset serial_log_cp
+		call	sprinthex8
+
+		mov	edx, ecx
+		mov	edi, offset serial_log_pp
+		call	sprinthex8
+		mov	esi, offset serial_log_msg
+		mov	ecx, SERIAL_LOG_MSG_SIZE
+	.endif
+	mov	ebx, [serial_log_dev]
+1:	call	uart_send
+	jc	1b
+	popad
+
+3:	ret
+
