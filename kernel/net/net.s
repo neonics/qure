@@ -10,7 +10,7 @@ NET_QUEUE_DEBUG = 0
 NET_ARP_DEBUG = NET_DEBUG
 NET_IPV4_DEBUG = NET_DEBUG
 
-NET_RX_QUEUE_MIN_SIZE = 8
+NET_RX_QUEUE_MIN_SIZE = 16#8
 
 #############################################################################
 	.macro PRINT_IP initoffs

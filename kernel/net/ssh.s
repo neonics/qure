@@ -5,6 +5,7 @@
 .intel_syntax noprefix
 
 SSHD_MAX_CLIENTS	= 1
+SSHD_DEBUG		= 0
 
 .data SECTION_DATA_BSS
 sshd_num_clients:	.word 0
@@ -47,7 +48,6 @@ net_service_sshd_main:
 
 
 sshd_handle_client:
-	LOAD_TXT "421 Too many clients, try again later\r\n"
 	cmp	word ptr [sshd_num_clients], SSHD_MAX_CLIENTS
 	jae	sshd_close
 
@@ -86,7 +86,9 @@ sshd_client:
 	jecxz	1f
 	pushad
 	mov	ebp, esp
-	DEBUG_DWORD eax, "client socket"
+	.if SSHD_DEBUG > 1
+		DEBUG_DWORD eax, "client socket"
+	.endif
 	call	sshd_parse
 	popad
 	jnc	0b
@@ -100,10 +102,7 @@ sshd_client:
 	jmp	1b
 
 # in: eax = sock
-# in: esi = asciz message
 sshd_close:
-	#call	strlen_
-	#KAPI_CALL socket_write
 	KAPI_CALL socket_flush
 	KAPI_CALL socket_close
 	ret
@@ -112,12 +111,14 @@ sshd_parse:
 	printc 10, "SSHD RX "
 	DEBUG_DWORD ecx
 	DEBUG_BYTE [esi + ssh_packet_payload], "msg"
-	push_	ecx esi eax
-0:	lodsb
-	call	printchar
-	loop	0b
+	.if SSHD_DEBUG > 1
+		push_	ecx esi eax
+	0:	lodsb
+		call	printchar
+		loop	0b
+		pop_	eax esi ecx
+	.endif
 	call	newline
-	pop_	eax esi ecx
 
 	# special care:
 	cmpb	[esi + ssh_packet_payload], 1	# SSH_MSG_DISCONNECT (defined below)
@@ -304,46 +305,67 @@ sshd_parse_kex_init:	# state 1: KEX INIT (key exchange)
 	# initialized after each KEX.
 
 
-	DEBUG_DWORD ecx, "Data avail"
+	.if SSHD_DEBUG
+		DEBUG_DWORD ecx, "Data avail"
+	.endif
 	lodsd
 	bswap	eax
-	DEBUG_DWORD eax, "Packet length"
+	.if SSHD_DEBUG
+		DEBUG_DWORD eax, "Packet length"
+	.endif
 	lodsb
 	movzx	ebx, al
-	DEBUG_BYTE al, "Padding"
+	.if SSHD_DEBUG
+		DEBUG_BYTE al, "Padding"
+	.endif
 	lodsb
-	DEBUG_BYTE al, "MSG code (expect 0x14 KEX INIT)"
-	call	newline
+	.if SSHD_DEBUG
+		DEBUG_BYTE al, "MSG code (expect 0x14 KEX INIT)"
+		call	newline
+	.endif
 	sub	ecx, 4 + 1 + 1
 
-	DEBUG_DWORD ecx
-	printc 10, "COOKIE: "
+	.if SSHD_DEBUG > 1
+		DEBUG_DWORD ecx
+		printc 10, "COOKIE: "
+	.endif
 	push	ecx
 	mov	ecx, 16
 0:	lodsb
 	mov	dl, al
-	call	printhex2
+	.if SSHD_DEBUG > 1
+		call	printhex2
+	.endif
 	loop	0b
 	pop	ecx
+
 	sub	ecx, 16
 	jle	99f
-	call	newline
+	.if SSHD_DEBUG > 1
+		call	newline
+	.endif
 
 	.macro SSH_PRINT_ALGS label
-		DEBUG_DWORD ecx
+		.if SSHD_DEBUG
+			DEBUG_DWORD ecx
+		.endif
 		lodsd
 		bswap	eax
-		DEBUG_DWORD eax, "\label"
+		.if SSHD_DEBUG
+			DEBUG_DWORD eax, "\label"
+		.endif
 		sub	ecx, eax
 		sub	ecx, 4
 		jle	99f
 		# sanity check:
 		cmp	ecx, 4096
 		jae	98f
-		push	ecx
-		mov	ecx, eax
-		call	nprintln_
-		pop	ecx
+		.if SSHD_DEBUG
+			push	ecx
+			mov	ecx, eax
+			call	nprintln_
+			pop	ecx
+		.endif
 	.endm
 
 	SSH_PRINT_ALGS "kex_algorithms"
@@ -357,36 +379,52 @@ sshd_parse_kex_init:	# state 1: KEX INIT (key exchange)
 	SSH_PRINT_ALGS "languages_c2s"
 	SSH_PRINT_ALGS "languages_s2c"
 
-	DEBUG_DWORD ecx
+	.if SSHD_DEBUG
+		DEBUG_DWORD ecx
+	.endif
 	lodsb
-	DEBUG_BYTE al, "KEX first packet follows"
-	call	newline
+	.if SSHD_DEBUG
+		DEBUG_BYTE al, "KEX first packet follows"
+		call	newline
+	.endif
 	dec	ecx
 	jle	99f
 
-	DEBUG_DWORD ecx
+	.if SSHD_DEBUG
+		DEBUG_DWORD ecx
+	.endif
 	lodsd
-	DEBUG_DWORD eax, "Reserved"
-	call	newline
+	.if SSHD_DEBUG
+		DEBUG_DWORD eax, "Reserved"
+		call	newline
+	.endif
 	sub	ecx, 4
 	jl	99f
 
-	DEBUG_DWORD ecx
-	DEBUG_DWORD ebx, "Expect reserved"
+	.if SSHD_DEBUG
+		DEBUG_DWORD ecx
+		DEBUG_DWORD ebx, "Expect reserved"
+	.endif
 	sub	ecx, ebx
 	jl	99f
 	jz	1f
-	printc 4, "trailing bytes"
+	.if SSHD_DEBUG
+		printc 4, "trailing bytes"
+	.endif
 	jmp	9f
 1:
 	# padding MUST be at least 4 bytes.
 	# padding is multiple of largest(8, cipher block size)
 	mov	ecx, ebx
 0:	lodsb
-	mov	dl, al
-	call	printhex2
+	.if SSHD_DEBUG
+		mov	dl, al
+		call	printhex2
+	.endif
 	loop	0b
-	call	newline
+	.if SSHD_DEBUG
+		call	newline
+	.endif
 
 	printlnc 10, "SSH KEX Init";
 

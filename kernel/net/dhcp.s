@@ -312,7 +312,7 @@ DHCP_OPTIONS_SIZE = 32
 	pop_	edi esi ecx
 	.else
 	mov	[edi + dhcp_options + 9], byte ptr 4	# len
-	mov	[edi + dhcp_options + 10], dword ptr ('Q'|'u'<<8|'R'<<16|'e'<<24)
+	mov	[edi + dhcp_options + 10], dword ptr ('Q'|'u'<<8|'R'<<16|'e'<<24)	# TODO: use hostname!
 	.endif
 
 	mov	[edi + dhcp_options + 14], byte ptr DHCP_OPT_CLIENT_ID

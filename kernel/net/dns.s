@@ -205,7 +205,7 @@ net_service_dnsd_main:
 	KAPI_CALL socket_print
 	call	newline
 
-0:	mov	ecx, 10000
+0:	mov	ecx, -1			# ininite wait
 	KAPI_CALL socket_read
 	jc	0b
 

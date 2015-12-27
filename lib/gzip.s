@@ -175,7 +175,7 @@
 
 
 .struct 0	# GZIP header: 10 bytes
-gzip_magic: .word 0; GZIP_MAGIC = 0x8b1f
+gzip_magic: .word 0; GZIP_MAGIC = 0x8b1f	# ZLIB: 9c78
 gzip_cm:	.byte 0		# compression method
 	# 0..7 reserved
 	GZIP_CM_DEFLATE = 8	

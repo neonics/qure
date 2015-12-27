@@ -1069,7 +1069,7 @@ class_deleteinstance:
 # in: eax = object ptr
 # in: edx = class ptr
 # out: ZF = 1 if eax's class or superclass is the class in edx
-# out: CF = !ZF (i.e.: jz=jc)
+# out: CF = !ZF (i.e.: jz=jnc, jnz=jc)
 class_instanceof:
 	or	eax, eax
 	jz	9f

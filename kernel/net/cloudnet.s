@@ -1068,7 +1068,9 @@ cloudnet_handle_packet:
 	.endif
 
 3:	# persist
-	call	[eax + oofs_persistent_api_save] # XXX sometimes eax = 0 here!
+	#call	[eax + oofs_persistent_api_save] # XXX sometimes eax = 0 here!
+	mov	eax, [cluster_node]
+	INVOKEVIRTUAL oofs_persistent save
 
 	# update local node in nodelist
 	CLOUD_VERBOSITY_BEGIN ACTION_UPDATE

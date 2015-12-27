@@ -6,6 +6,16 @@
 # Layout:
 # 0000-0200: sector 0. Only .text used. subsections/.data prohibited.
 # 0200-....: all allowed.
+#
+# It doesn't care where it's loaded, but BIOS typically calls it at
+# 0x7c00 (https://en.wikibooks.org/wiki/X86_Assembly/Bootloaders#Technical_Details)
+# TODO: verify
+
+# cs = 0c70
+# ds = 0c70
+# es = b800
+# ss = f7c0
+# bp = ffbe
 
 .equ RELOCATE, 1
 .equ BLACK_PRINT_REGISTERS, 0
@@ -188,10 +198,13 @@ msg_presskey$: .asciz "Press Key"
 white: 	
 	#cli
 .if WHITE_PRESSKEY
+	jmp	1f
+presskey:
 	mov	si, offset msg_presskey$
 	call	print
 	xor	ah, ah
 	int	0x16
+1:
 .endif
 	# bp = sp = saved registers ( 9BE0; top: 9C00 = 7C00 + 2000 )
 
