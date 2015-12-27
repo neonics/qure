@@ -101,9 +101,9 @@ Here we see 3 states before ESTABLISHED and 7 after it: asymmetrical.
 State grammar for the three-way-handshake state transition diagram:
 
 
-			# legend:
-			# | event;
-			# -(xxxx)-> action/state transition
+							# legend:
+							# | event;
+							# -(xxxx)-> action/state transition
 
 
 	0000 CLOSED
@@ -186,6 +186,7 @@ The mapping of the TCP states then is:
 	TCP_CONN_STATE_CLOSED           = 1111 1111	# same as TIME_WAIT!
 
 
+=== Reducing state space ===
 
 The connection state register can hold 8 bits, and thus represent 256
 different states, 245 of which are invalid according to [rfc:RFC793].
@@ -197,8 +198,9 @@ of possible state transitions from infinite to 8*7*6*5*4*3*2*1 = 40320.
 
 
 The state transitioning code will not allow a FIN bit to be set until all 4
-SYN bits are set. Therefore, there are 4*3*2*1 = 24 possible SYN states so
-far. This goes for the FIN states too, making a total of 24*24 = 576 possible states.
+SYN bits are set[footnote: for RFC compliant connections].
+Therefore, there are 4*3*2*1 = 24 possible SYN states so
+far. This goes for the FIN states too, making a total of 24+24 = 48 possible states.
 
 Each high pair of bits in a nybble deals with sending the flag, and
 each low pair deals with receiving the flag. This is done in such a way
@@ -494,3 +496,424 @@ the ACK flag ACKs the SYN flag, but TCP inserts the conversation boundaries[foot
 into the conversation tracker: it counts it as a byte of content, without it taking
 any space. This makes the conversation sequential.
 
+
+== Optional SYN response ==
+
+The TCP is configurable to only respond with a SYN packet when it has
+something to say. This saves the client an extra packet.
+
+
+
+=== new
+
+Such a SYN sequence looks like:
+
+		Client		Server		(where client is the connection
+
+	10:[1]	tx SYN
+	20:			tx ACK
+	30:	tx PSH,FIN			# assuming a HTTP request fits in 1 packet
+	40:			tx ACK,SYN
+	50:	tx ACK
+	60:			tx PSH
+				..
+	70:			tx PSH,FIN
+	80:	tx ACK
+
+HERE
+[2] A note on the labels: this is a design used by the Commodore and MSX
+models implementing BASIC,
+who'se editor remembered each line in the program by it's number, which
+introduces an abstraction level of 9 lines of code between each statement.
+These extra lines were space to add modifications. It was likely reasoned
+that it should not take more than 9 statements to amend one statement.
+Pre and postfix fixups could be placed on ''x9'' and ''x1'' line numbers
+respectively in the form of ''gosub'' statements - or a few more could
+be used, starting earlier. Each statement is expected to begin consecutively
+after the previous statement (except for reference statemnts which were
+typically hardly used).
+Here, it is used to denote th same thing, without needing long labels
+that require to indent the code too far to the right to make this
+editable on a text console.
+Having source files with the line numbers explicitly listed in the content
+would allow to insert space at any line using simple shell scripts. Using
+implicit line numbers would require using a built-in feature of the editor.
+
+
+
+10: connect
+
+Here, the client does not know the server supports both PSH and SYN
+in the same packet.
+
+20: accept1
+
+The server responds that it has something to say in response,
+without yet knowing the content of the request.
+It might, instead of ACK-ing the SYN, delay the ACK, and send 
+a SYN instead. In this case, the server has a response ready
+without having to know the request, knowing it will not even
+bother to read the request, thus saving the client from sending
+the first request segment. It might do this to deny service to
+to a service maintenance window. It might do this to redirect
+the client to another host; however, this case is less common,
+since multiple domains can be served, which may have diffrent
+redirection settings.
+
+
+30: send request
+
+The client sends a "GET /\n" request, the shortest supported;
+<aside>
+or
+	GET /doc/Design/TCP_Protocol.html HTTP/1.1
+	Host: cloud.neonics.com
+in the payload of the packet, having no bearing on the flags,
+and indicates the request is complete (PSH), and also that it has no
+further requests to make (FIN), since it might remember the ''Connection:
+close'' http headers this host always sends, as it currently does not
+implement checking for new requests on the same connection (which a simple
+''jmp'' will fix), because it always closes the TCP connection after
+serving a request, as it does not yet receive a response code value
+from the request handler.
+</aside>
+
+
+40: receive request, send response request
+
+The server responds that it has accepted the transmitted segment,
+and, assuming the client does not support a payload and a SYN flag
+simultaneously, sends only the SYN in response, besides acknowldging
+the client's SYN. 
+
+
+Regarding sending a SYN,ACK: this step normally occurs in stead of 20.
+
+<aside>
+vim: should have a second indent shortcut. could set indent level to 4,
+and require double indent where 1 is required now. Would have to
+learn a new shortcut to indent a page; the current one is 3 characters,
+to double indent would be 4. Using visual mode would require me to
+select the text twice.
+</aside>
+
+
+50: receive
+
+The client responds to acknowledge the server's request to respond.
+
+60: respond
+
+The response data is delivered in a number of segments, whose boundaries are
+indified by a PSH flag. This flag is set when the server deems the response is
+complete enough for it to be passed to the next layer of the protocol stack.
+For HTTP responses, this is the case on several semantic levels.
+
+First, there is the window limitation. We will assume here, that the PSH flag
+indicates that the data stored in the receiving TCP window will is a complete
+message to be passed to the next step in the communication. The first
+occurrence of this is initiated by the client: it should send a PSH flag
+when it's packet contans the end-of-request terminator symbol. In the case
+of HTTP/0.9 this is either ''\r\n'' or ''\n'', whereas for HTTP/1.0+ this is
+that, doubled.
+
+The response consists of HTTP headers and content, based off of the MIME
+content encoding scheme. The response headers indicate the kind of content,
+and therefore, the area of software that will be processing the data. In the
+case of HTML, it will be a DOM Parser. In the case of CSS or JavaScript,
+it will be the respective language parsers, which in turn operate on the DOM.
+In the case of media, the data will ideally be stored directly in
+memory-mapped video memory.
+
+70: done, out.
+
+The server sends both the last packet of the last segment of the response,
+and indicates to the socket layer that the response is complete. Had the
+server been incrementally sending HTML to the DOM parser, the constructing
+of the DOM then would then be nearly complete.
+
+80: received end of response.
+
+The client tells the server that the connection close request has been
+accepted, whereby the connection resources can be released (barring
+the packet loss induced retransmission loop).
+
+
+=== Most efficient
+
+Here is a communication where both the request and the response fit in 1
+packet:
+
+
+	10:	C:  -> SYN,PSH,"GET /",FIN
+	20:	S: <-  ACK,SYN,PSH,"404", FIN
+	30:	C:  -> ACK
+
+30: Response acknowledgement:
+
+We keep the extra round trip at the end to reversely apply handshake
+consistency. This last ACK contains the SYN and FIN virtual bytes
+aswell as the segment payload "404".
+
+20: request acknowledgement and response
+
+Similarly, the server ACK's the 5 bytes constituting the complete
+client-to-server request communication,
+and sends a complete response, consting of ACKnowledgement of the
+entire request (ack_nr=7: SYN + "GET /" + FIN),
+(connection initialisation, request reception, connection termination).
+
+10:
+
+The client makes a complete request, by requesting to send data (SYN),
+sending it ("GET /"), flagging it as ready to be PSH-ed to the next layer,
+<aside>
+(say the HTTP protocol layer),
+</aside>
+and indicating it has no further requests. 
+
+
+Unfortunately the current TCP specification indicates that when SYN
+is set, no other flags should be set but ACK.
+Therefore, requesting clients should not do so unless they have
+prior knowledge that the server TCP implements such efficient connections.
+
+=== Option Negotiation ===
+
+A new custom option will be used (one allocated from the unallocated space)
+as a basis extension point. Other custom TCP features such as [TCP
+Handoff|MigratingTCP]
+will be implemented as extensions from this option.
+
+Basically, TCP Options 35-252 are
+[reserved|http://www.iana.nl/assignments/tcp-parameters/tcp-parameters.xhtml#tcp-parameters-1],
+with a handful of options being in use without IANA authorisation, which we
+will not use. A big portion, the range 79-252 has no known use. We'll
+therefore settle on using option number ''144'', in line with CloudNet's LAN
+MCAST address ''224.0.0.144'' [TODO: currently 244.0.0.123; .115-.250 is
+unassigned].
+
+The option will be a holographic version of the TCP options structure, but
+only reusing the NOP opcode, and reserving the existing opcodes. It will not
+need a 'end-of-options' marker since it is contained.
+
+The option negotiation will be based off of the [CloudNet] UDP protocol,
+which sends a 'Hello' packet with node and cluster identification.
+This payload, being in the header, must be rather small (options themselves
+are limited to 255 bytes, and an MSS of 576  (0x240) bytes is guaranteed)
+For now, the first sub-opcode of the option will be a four byte signature:
+either "QuRe" or ''0x1337c0de''.
+
+The tcp option will then consist of:
+
+	tcp_option:
+		.byte FREE_TCP_OPTION_NUMBER
+		.byte 2 + payload.length
+	payload:
+
+		hello: .byte 1; .ascii "QuRe" # [1]
+
+
+		
+	[1] or .long 0x1337code in NBO[footnote:Network Byte Order]
+
+
+The TCP Fast-Open option [rfc7413] is very similar but only deals with
+the SYN flag, not the FIN flag. No cookie exchange is used; there is no
+need for the server to validate the capability of the client since
+the option itself already indicates the capability. Instead there is
+a constant cookie being used equally by client and server. The initiation
+of connections may only contain PSH,FIN, and payload, if the client has
+received the option from the server.
+The discovery is then as follows:
+
+	10:	C:  -> SYN,    opt=QuRe
+	20:	S: <-  SYN,ACK,opt=QuRe
+	30:	C:  ->     ACK,data,PSH,FIN
+	40:	S: <-      ACK,data,PSH,FIN
+
+30:	Here the capability has been negotiated, and is applied immediately to
+the connection. 
+
+A second connection will proceed as follows:
+
+	10:	C:  -> SYN,    opt=QuRe,data,(PSH(,FIN?)?
+	20:	S: <-  SYN,ACK,opt=QuRe,data,(PSH(,FIN?)?
+	30:	C:  ->     ACK
+
+Clients with advance knowledge that the server supports such connections
+may use them. This knowledge may come from membership of the cluster
+and a kernel revision supporting the feature. Such features might also
+be explicitly negotiated via the CloudNet protocol.
+
+
+===== Further extensions
+
+As we have discussed above, the first enhancement that negotiating the TCP option
+brings is to loosen the TCP restrictions by allowing SYN, payload, PSH, and
+FIN flags in a single packet.
+
+====== TCP Handoff
+
+Second, "TCP Handoff" will be explicitly enabled by the server. This means
+that the server will allow a TCP option to be specified together with a PSH.
+
+The TCP Handoff option looks as follows:
+
+	tcp_option:
+		.byte FREE
+		.byte 2 + payload_len
+	payload:
+		handoff: .byte 2; .long IP
+
+Note that we do not allow to specify a different port than the TCP connection
+specifies by default. This is because the handoff option is a load-balancing proxy
+mechanism for well-known services. We will however reserve the option:
+
+			.byte 3; .word port
+
+Ofcourse, for IPv6, the same option applied, except that the IP address field
+will be accommodating.
+
+
+Consider this complete sequence of a scenario where an unaware WAN Client makes
+a request to a DMZ Proxy server:
+
+	10:	C -> P		SYN,data,    PSH,FIN
+	20:	P -> S 		SYN,data,    PSH,FIN,opt=tcp_handoff
+	30:	S -> P		ACK
+	40:	S -> C		SYN,data,ACK,PSH,FIN
+	50:	C -> S		ACK
+	
+10: The Client uses standard TCP, no QuRe option, to request a web URL.
+
+20: the Proxy, having parsed the request (rx PSH) forwards the packet 
+    to the appropriate cluster node, requesting to hand off Client to it.
+
+30: the Server ACKnowledges. Since it does not need to send the request
+    response to the proxy, it does not need to go through response connection
+    setup. The ACK then acknowledges the SYN,data,FIN aswell as the handoff.
+
+40: the Server directly responds to the Client. This is possible for WAN
+    clients, since the address will be ''route''d to the internet gateway,
+    which merely forwards packets at the IP level.
+    and for clients that indicate the encompassing TCP option capability.
+
+50: the Client converses with the Server through NAT.
+
+
+Problems:
+
+At 40, the NAT firewall internet gateway may not allow the packets since they
+conflict with it's mapping C to P.
+
+At 50, the firewall must update the NAT table to forward TCP packets for
+that specific connection (tcp_sport/dport, ip_src/dst) bypassing P.
+
+
+A normal request sequence for 'lame' clients (`echo "GET /" | nc cloud 80`)
+
+		C   S
+	10:	----> 		SYN
+	20:	<----		SYN,ACK
+	30:	---->		ACK
+	40:	---->		PSH
+	50:	---->		FIN
+	60:	<----		PSH,ACK
+	70:	<----		FIN,ACK
+	80:	---->		ACK
+
+
+A smarter client will combine 30 and 40; a QuRe TCP will also combine 50.
+
+
+A compatible scenario is the following:
+
+		C   P  S
+	10:	----> 		SYN
+	20:	<----		SYN,ACK
+	30:	---->		ACK
+	40:	---->		PSH
+	50:	---->		FIN
+
+	51:	    --->	SYN,PSH,FIN,opt=tcp_handoff
+	52:	    <---	ACK,opt=QuRe
+
+	60:	<-------	PSH,ACK
+	70:	<-------	FIN,ACK
+	80:	------->	ACK
+
+For 60,70 to work, the firewall must route at IP level and not at TCP (port) level.
+For 80 to work, the firewall must route at TCP port level.
+
+Therefore:
+
+		C   P  S
+	51:	    --->	SYN,PSH,FIN,opt=QuRe.tcp_handoff
+	52:	    <---	SYN,PSH,FIN,ACK,opt=QuRe
+
+	60:	<---		PSH,ACK
+	70:	<---		FIN,ACK
+	80:	--->		ACK
+
+For longer connections:
+
+		C   P  S
+	10:	----> 		SYN
+	20:	<----		SYN,ACK
+	30:	---->		ACK
+
+	40:	---->		PSH
+	41:	    -->		SYN,PSH,opt=QuRe
+	42:	    <--		SYN,ACK,PSH,opt=QuRe
+	43:	    <--		PSH,FIN,opt=QuRe
+	50:	<----		PSH,ACK
+
+	60:	<----		FIN,ACK
+	70:	---->		ACK
+	80:	---->		FIN
+	90:	<----		ACK
+
+
+
+=== normal 
+
+
+A normal sequence looks like:
+
+	init:
+		C:  -> SYN
+		S: <-  ACK,SYN
+		C:  -> ACK
+	loop1:
+		C:  -> PSH	# ACK implicit for state synchronisation [1]
+		
+		S: <-  ACK
+	loop2:
+		S: <-  ACK,PSH	# PSH on <-.window.full or 
+		C:  -> ACK
+	done:
+		S:  <- FIN
+		C:  -> ACK,FIN
+		S: <-  ACK
+
+	[1] in this diagram an ACK is explicit only when data sent by the peer
+	in the previous message is being acknowledged.
+
+
+Here we see that the client keeps the transmission connection open, in case
+the content is able to specify more resources to load from the same server
+address. For HTTP connections, this is usually the case when the requested
+content type is text/html (<link>, <style>, <script>) or text/css (@import).
+For binary data such as images, the response may be chunk-encoded, making
+it possible to post another request over the synchronized TCP line.
+
+
+
+
+
+
+
+== Debugging ==
+
+The TCP conversation

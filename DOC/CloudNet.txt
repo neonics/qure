@@ -16,6 +16,7 @@ The machine that is not using the gateway's forward IP regularly pings the IP,
 and when there is no response, reconfigures itself with the IP.
 
 == 'Master/Slave' ==
+[=DMZ]
 
 In this setup, only one instance on the LAN has obtained the public IP, and is
 called the 'master' or DMZ node. It is aware of other instances using a multicast

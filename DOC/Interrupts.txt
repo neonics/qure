@@ -143,3 +143,48 @@ using the current `cs`.
 These IRQ handlers are registered using [src:kernel/idt.s#add_irq_handler];
 devices should simply call [src:kernel/dev.s#dev_add_irq_handler] which
 uses the `dev_irq` and `dev_api_isr` device object fields.
+
+
+==
+2015-07-19
+
+When a TCP connection is reset,
+the kernel can call a process registered signal,
+such as with
+
+	pushd	offset my_close_handler
+	KAPI_CALL net_tcp_on_close
+
+providing the socket. The process is then left with dealing with
+mutexes on it's own. (kernel could provide thread-shared atomic memory:
+applications simply place such data in a specially named segment,
+which the kernel maps in such a way that write operations are detected.
+The task executing a write memory operation on non-writable shared memory
+will YIELD to an implicit 'thread-locked' semaphore.
+
+Such synchronous boundaries can be, and must be, declared at the task level,
+so that complex operations can be atomic (i.e. always a 'correct' state 
+for shared data).
+
+On a uniprocessor, only one thread may execute at a time, and so, sequencing
+such concurrent threads this way is the most efficient, since a thread waiting
+to access memory must let the other thread release the memory.
+
+TCP rx RST events are however simply handled thus:
+
+	mov	ecx, timeout
+	mov	edx, 1	# at least 1 byte
+	KAPI_CALL socket_read
+	jc	timeout_or_no_socket
+
+	# ecx could be:
+	# - timeout	unchanged: no socket / rx RST
+	# - 0 timed out
+	# edx could be: 
+	# - bytes available
+	# - 0: timed out
+	# - -1 eof
+	# eax could be:
+	# - unchanged (socket)
+	# - -1: eof, disconnected (requires saving eax for socket_close).
+	# - negative values: error codes
