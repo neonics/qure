@@ -2640,12 +2640,11 @@ cmd_mem_print_graph$:
 
 		mov	ah, [esi + edx + handle_flags]
 		and	ah, MEM_FLAG_ALLOCATED # 0b1
-		shl	ah, 2
-		add	ah, 9
-		shl	ah, 4
+		add	ah, 7	# 7 or 8
 
 		mov	al, cl
 		call	_size_to_char$
+		inc	cl
 	4:	call	printcharc
 		loop	4b
 	5:
