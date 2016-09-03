@@ -161,8 +161,9 @@ tcp_conn_recv_buf_len:  .long 0	# length of buffered data
 
 tcp_conn_send_buf:	.long 0	# malloc'd address
 tcp_conn_send_buf_size:	.long 0	# malloc'd size
-tcp_conn_send_buf_start:.long 0 # payload offset start in buf
+tcp_conn_send_buf_start:.long 0 # unsent payload offset start in buf
 tcp_conn_send_buf_len:	.long 0	# size of unsent data
+tcp_conn_send_buf_seq:	.long 0	# tcp_conn_send_buf[0] sequence nr
 
 tcp_conn_tx_fin_seq:	.long 0
 tcp_conn_tx_syn_seq:	.long 0
@@ -173,12 +174,13 @@ tcp_conn_local_addr:	.long 0	# NEEDS to be adjacent to tcp_conn_remote_addr
 tcp_conn_remote_addr:	.long 0	# ipv4 addr
 tcp_conn_local_port:	.word 0
 tcp_conn_remote_port:	.word 0
-tcp_conn_local_seq_base:.long 0
-tcp_conn_local_seq:	.long 0
-tcp_conn_local_seq_ack:	.long 0	# last received tcp.ack_nr
-tcp_conn_remote_seq_base:.long 0
-tcp_conn_remote_seq:	.long 0	# remote's last received seq
-tcp_conn_remote_seq_ack:.long 0	# our ack to remote's seq
+tcp_conn_local_seq_base:.long 0	# first sequence nr
+tcp_conn_local_seq:	.long 0	# local sequence number
+tcp_conn_local_seq_ack:	.long 0	# last local sequence nr acked by remote
+tcp_conn_remote_seq_base:.long 0# first sequence nr
+tcp_conn_remote_seq:	.long 0	# last received remote's seq
+tcp_conn_remote_seq_ack:.long 0	# our ack of remote's sequence nr (last received tcp.ack_nr)
+tcp_conn_remote_win:	.long 0	# Remote window size
 tcp_conn_rx_syn_remote_seq: .long 0	# remote's seq when it sent a FIN
 tcp_conn_sock:		.long 0	# -1 = no socket; peer socket
 tcp_conn_handler:	.long 0	# -1 or 0 = no handler
@@ -199,6 +201,7 @@ tcp_conn_state:		.byte 0
 	TCP_CONN_STATE_FIN_ACK_RX	= 128
 
 	TCP_CONN_STATE_LINGER = 0b11011111	# TIME_WAIT; all but FIN_ACK_TX
+tcp_conn_rx_rst:	.byte 0	# indicates an RST has been received: do not send any more packets
 # rfc793:
 tcp_conn_state_official:	.byte 0
 # states:
@@ -408,6 +411,7 @@ net_tcp_conn_newentry:
 	xchg	edx, [esp]	# [esp]=eax retval; edx = ipv4
 
 	movb	[eax + tcp_conn_state], 0
+	movb	[eax + tcp_conn_rx_rst], 0	# temporary
 	movb	[eax + tcp_conn_state_official], 0
 	mov	[eax + tcp_conn_sock], dword ptr -1
 	mov	edi, [esp + 8]
@@ -437,6 +441,7 @@ net_tcp_conn_newentry:
 	mov	[edx + tcp_conn_send_buf_size], dword ptr TCP_CONN_BUFFER_SIZE
 1:	mov	[edx + tcp_conn_send_buf_start], dword ptr 0
 	mov	[edx + tcp_conn_send_buf_len], dword ptr 0
+	mov	[edx + tcp_conn_send_buf_seq], dword ptr 0x1337c0de + 1
 
 	# allocate receive buffer
 	cmp	dword ptr [edx + tcp_conn_recv_buf], 0
@@ -514,6 +519,11 @@ net_tcp_conn_update:
 		DEBUG "seq"
 		DEBUG_DWORD ebx
 	.endif
+
+	movzx	ebx, word ptr [esi + tcp_windowsize]
+	xchg	bl, bh
+	# TODO: shl ebx, tcp window scale option
+	mov	[eax + tcp_conn_remote_win], ebx
 
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_ACK
 	jz	0f
@@ -1128,6 +1138,7 @@ net_tcp_handle:
 	add	eax, [tcp_connections]
 	movb	[eax + tcp_conn_state], TCP_CONN_STATE_LINGER
 	movb	[eax + tcp_conn_state_official], TCP_CONN_STATE_CLOSED
+	orb	[eax + tcp_conn_rx_rst], 1
 	pop	eax
 	MUTEX_UNLOCK TCP_CONN
 	jmp	9f	# on RST, no other flags matter
@@ -1261,7 +1272,7 @@ net_tcp_handle:
 	# check if we need to send an ACK
 	push	edx	# backup ipv4 frame
 	mov	dl, [esi + tcp_flags + 1]
-	test	dl, ~ TCP_FLAG_ACK	# check for SYN, PSH, FIN
+	test	dl, ~ (TCP_FLAG_ACK|TCP_FLAG_RST)	# check for SYN, PSH, FIN
 	pop	edx
 	jnz	1f			# need to send an ACK
 
@@ -1516,8 +1527,8 @@ net_tcp_conn_update_ack:
 		# use the official states:
 		pushad
 		mov	bl, [eax + tcp_conn_state_official]
-		movzx	esi, bl
 		.if NET_TCP_DEBUG > 1
+			movzx	esi, bl
 			DEBUG "update ACK"
 			call	tcp_conn_print_state_official$
 		.endif
@@ -1726,6 +1737,8 @@ net_tcp_send_ack:
 	ret
 
 
+# public, called from socket layer.
+#
 # appends the data to the tcp connection's send buffer; on overflow,
 # it flushes the buffer (sends it), and appends the remaining data.
 # This is repeated until all the data has been transfered to the buffer.
@@ -1812,6 +1825,7 @@ _append$:
 	mov	ecx, edx
 	ret
 
+
 # uses tcp_conn_send_buf*
 # in: eax = tcp conn idx
 # effect: sends as much max-sized packets as are in the buffer,
@@ -1843,11 +1857,23 @@ net_tcp_sendbuf_flush_partial$:
 
 
 1:	# buf len < mss: compact buffer
-	xor	ecx, ecx	# make sure ecx=0 in case we jz 2f
+
+.if 0 # EXPERIMENTAL
+	mov	ecx, edx	# set payload len to mss in case we don't compact
+	# calculate nr of bytes in buffer that are acked
+	mov	edx, [ebx + tcp_conn_local_seq_ack]
+	sub	edx, [ebx + tcp_conn_send_buf_seq]
+	# edx is the max number of bytes we can remove from the buffer start,
+	# as the rest is not yet acked.
+	cmp	edx, [ebx + tcp_conn_send_buf_start]
+	jb	2f	# less bytes acked than send_buf_start: don't compact
+.endif
+	xor	ecx, ecx	# make sure ecx=0 in case we jz/jb 2f
 	xor	esi, esi
 	xchg	esi, [ebx + tcp_conn_send_buf_start]
 	or	esi, esi
 	jz	2f	# buf already compacted
+	add	[ebx + tcp_conn_send_buf_seq], esi # update buffer start seq
 	mov	ecx, [ebx + tcp_conn_send_buf_len]
 	mov	edi, [ebx + tcp_conn_send_buf]
 	add	esi, edi
@@ -1861,6 +1887,7 @@ net_tcp_sendbuf_flush_partial$:
 
 	jecxz	1f
 
+	call	net_tcp_remote_windowcheck
 	xor	dx, dx # no tcp flags
 	call	net_tcp_send
 	jmp	0b
@@ -1869,6 +1896,7 @@ net_tcp_sendbuf_flush_partial$:
 	ret
 
 
+# public - called from socket layer
 # uses tcp_conn_send_buf*
 # in: eax = tcp conn idx
 net_tcp_sendbuf_flush:
@@ -1900,6 +1928,7 @@ net_tcp_sendbuf_flush:
 2:	MUTEX_UNLOCK TCP_CONN
 
 	jecxz	1f
+	call	net_tcp_remote_windowcheck
 	mov	dx, TCP_FLAG_PSH # | 1 << 8	# nocopy
 	call	net_tcp_send
 	jmp	0b
@@ -1909,6 +1938,46 @@ net_tcp_sendbuf_flush:
 	pop	esi
 	pop	edx
 	ret
+
+# in: eax = tcp conn idx
+# in: ecx = payload len
+# effect: YIELDs until the peer window has some space or the connection is terminated
+# out: CF: 0 = ok, 1 = connection closed
+net_tcp_remote_windowcheck:
+	# Check if we are sending data
+	or	ecx, ecx
+	jz	9f
+
+0:
+	# check the remote window size
+	MUTEX_SPINLOCK TCP_CONN
+	push_	eax edx
+	add	eax, [tcp_connections]
+	mov	edx, [eax + tcp_conn_remote_win]
+	sub	edx, [eax + tcp_conn_local_seq]
+	add	edx, [eax + tcp_conn_local_seq_ack]
+	cmp	edx, ecx
+	pop_	edx eax
+	MUTEX_UNLOCK TCP_CONN
+	jnb	9f	# will fit in window
+
+	# will overflow window.
+
+	YIELD 
+
+	# Check if the connection is closed by now (RST received etc)
+	MUTEX_SPINLOCK TCP_CONN
+	push	eax
+	add	eax, [tcp_connections]
+	cmpb	[eax + tcp_conn_rx_rst], 1	# received RST?
+	jz	1f				# yes - skip next check
+	cmpb	[eax + tcp_conn_state_official], TCP_CONN_STATE_CLOSED
+1:	pop	eax
+	MUTEX_UNLOCK TCP_CONN
+	jnz	0b
+	stc	# connection closed, abort/return.
+9:	ret
+
 
 
 # in: eax = tcp_conn_idx
@@ -1949,6 +2018,19 @@ net_tcp_send:
 	stc
 	ret
 0:
+
+
+# BEGIN RETRANSMISSION QUEUE
+	jecxz 1f	# no payload (SYN/FIN ignored for now)
+
+	MUTEX_SPINLOCK TCP_CONN
+	push_	eax
+	add	eax, [tcp_connections]
+	pop_	eax
+	MUTEX_UNLOCK TCP_CONN
+1:
+# END RETRANSMISSION QUEUE
+
 	push	edi
 	push	esi
 	push	ebx
@@ -1998,13 +2080,13 @@ net_tcp_send:
 	mov	[edi + tcp_sport], ebx
 
 	mov	ebx, [eax + tcp_conn_local_seq]
-	bswap	ebx
+	bswap	ebx					# convert to NBO
 	mov	[edi + tcp_seq], ebx
-	add	[eax + tcp_conn_local_seq], ecx
+	add	[eax + tcp_conn_local_seq], ecx		# our next seq nr
 
 	mov	ebx, [eax + tcp_conn_remote_seq]
-	mov	[eax + tcp_conn_remote_seq_ack], ebx	# we ack their seq
-	bswap	ebx
+	mov	[eax + tcp_conn_remote_seq_ack], ebx	# we ack the seq
+	bswap	ebx					# conv to NBO
 	mov	[edi + tcp_ack_nr], ebx # dword ptr 0	# maybe ack
 	pop	ebx
 
