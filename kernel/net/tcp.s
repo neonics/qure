@@ -500,6 +500,14 @@ net_tcp_conn_update:
 
 	mov	ebx, [esi + tcp_seq]
 	bswap	ebx
+
+	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_FIN
+	jz	1f
+	inc	ebx
+	# for now ignore whether we already have RXed a FIN and if we have,
+	# assume the tcp_seq + FIN is the same as before.
+	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_RX
+1:
 	mov	[eax + tcp_conn_remote_seq], ebx
 	.if NET_TCP_CONN_DEBUG > 1
 		DEBUG "seq"
@@ -1146,8 +1154,8 @@ net_tcp_handle:
 		printc TCP_DEBUG_COL_RX, "FIN "
 	.endif
 	# XXX TODO: inject FIN at proper window pos, i.e., verify all sequences received.
-	inc	dword ptr [eax + tcp_conn_remote_seq]
-	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_RX
+	#inc	dword ptr [eax + tcp_conn_remote_seq]
+	#or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_RX
 
 2:
 	# byte not allowed - using word.
