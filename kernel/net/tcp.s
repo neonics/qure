@@ -175,10 +175,11 @@ tcp_conn_local_port:	.word 0
 tcp_conn_remote_port:	.word 0
 tcp_conn_local_seq_base:.long 0
 tcp_conn_local_seq:	.long 0
-tcp_conn_local_seq_ack:	.long 0
+tcp_conn_local_seq_ack:	.long 0	# last received tcp.ack_nr
 tcp_conn_remote_seq_base:.long 0
-tcp_conn_remote_seq:	.long 0
-tcp_conn_remote_seq_ack:.long 0
+tcp_conn_remote_seq:	.long 0	# remote's last received seq
+tcp_conn_remote_seq_ack:.long 0	# our ack to remote's seq
+tcp_conn_rx_syn_remote_seq: .long 0	# remote's seq when it sent a FIN
 tcp_conn_sock:		.long 0	# -1 = no socket; peer socket
 tcp_conn_handler:	.long 0	# -1 or 0 = no handler
 tcp_conn_remote_mss:	.long 0	# Maximum Segment Size peer supports (.word; long for easy math)
@@ -500,13 +501,13 @@ net_tcp_conn_update:
 
 	mov	ebx, [esi + tcp_seq]
 	bswap	ebx
-
 	test	[esi + tcp_flags + 1], byte ptr TCP_FLAG_FIN
 	jz	1f
 	inc	ebx
 	# for now ignore whether we already have RXed a FIN and if we have,
 	# assume the tcp_seq + FIN is the same as before.
 	or	byte ptr [eax + tcp_conn_state], TCP_CONN_STATE_FIN_RX
+	mov	[eax + tcp_conn_rx_syn_remote_seq], ebx
 1:
 	mov	[eax + tcp_conn_remote_seq], ebx
 	.if NET_TCP_CONN_DEBUG > 1
@@ -1510,7 +1511,7 @@ net_tcp_conn_update_ack:
 	add	eax, [tcp_connections]
 	mov	ebx, [esi + tcp_ack_nr]
 	bswap	ebx
-	mov	[eax + tcp_conn_local_seq_ack], ebx	# XXX
+	mov	[eax + tcp_conn_local_seq_ack], ebx	# XXX also done in net_tcp_conn_update
 
 		# use the official states:
 		pushad
@@ -1990,8 +1991,8 @@ net_tcp_send:
 	pop	edi
 
 	# copy connection state
-	push	ebx
 	add	eax, [tcp_connections]
+	push	ebx
 
 	mov	ebx, [eax + tcp_conn_local_port]
 	mov	[edi + tcp_sport], ebx
@@ -2000,8 +2001,9 @@ net_tcp_send:
 	bswap	ebx
 	mov	[edi + tcp_seq], ebx
 	add	[eax + tcp_conn_local_seq], ecx
+
 	mov	ebx, [eax + tcp_conn_remote_seq]
-	mov	[eax + tcp_conn_remote_seq_ack], ebx
+	mov	[eax + tcp_conn_remote_seq_ack], ebx	# we ack their seq
 	bswap	ebx
 	mov	[edi + tcp_ack_nr], ebx # dword ptr 0	# maybe ack
 	pop	ebx
