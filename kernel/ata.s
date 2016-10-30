@@ -2070,8 +2070,8 @@ ata_wait_irq:
 
 1:	cmp	byte ptr [ata_irq + eax], 0
 	jnz	1f
-	YIELD
-	#hlt
+	#YIELD
+	hlt
 	loop	1b
 	printc 4, "ata_wait_irq: timeout"
 	stc

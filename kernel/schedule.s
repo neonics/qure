@@ -255,10 +255,12 @@ task_queue_sem:	.long -1	# -1: scheduling disabled
 .global scheduler_current_task_idx
 scheduler_current_task_idx: .long -1
 scheduler_prev_task_idx: .long -1	# for debug
+scheduler_rr_task_idx: .long -1	# round-robin task index
 
 .data SECTION_DATA_BSS
 pid_counter:	.long 0
 task_queue:	.long 0
+idle_pid:	.long 0	# The PID of the idle task.
 tls:		.long 0 # task/thread local storage (not SMP friendly perhaps?)
 .tdata
 tls_pid:	.long 0	# not used - no tls setup in this file.
@@ -476,6 +478,7 @@ scheduler_init:
 	jc	9f
 
 	mov	[scheduler_current_task_idx], edx
+	mov	[scheduler_rr_task_idx], edx	# init round robin offset
 	LOAD_TXT "kernel"
 	mov	[eax + edx + task_label], esi
 	mov	[eax + edx + task_flags], dword ptr TASK_FLAG_RUNNING|TASK_FLAG_TASK
@@ -512,6 +515,7 @@ scheduler_init:
 	push	cs
 	push	dword ptr offset idle_task
 	call	schedule_task
+	mov	[idle_pid], eax
 	#call	task_suspend
 	ret
 
@@ -899,10 +903,20 @@ call task_update_time_suspend$
 
 ########
 	mov	ecx, [eax + array_index]	# 8 loop check # XXX 2b possible infinite loop
+	mov	edx, [scheduler_rr_task_idx]	# round robin offset
+	# increment round robin index
+	lea	ebx, [edx + SCHEDULE_STRUCT_SIZE]
+	cmp	ebx, ecx			# [eax + array_index]
+	jb	10f
+	xor	ebx, ebx
+10:	mov	[scheduler_rr_task_idx], ebx
+
 	xor	ebx, ebx	# count non-completed tasks
 
+# loop:
 0:	bt	dword ptr [eax + edx + task_flags], TASK_FLAG_DONE_SHIFT
-	adc	ebx, 0	# XXX this counts completed tasks!
+	cmc
+	adc	ebx, 0
 
 	add	edx, SCHEDULE_STRUCT_SIZE
 	cmp	edx, [eax + array_index]
@@ -912,12 +926,18 @@ call task_update_time_suspend$
 1:	sub	ecx, SCHEDULE_STRUCT_SIZE	# 8 loop check
 	js	9f
 
+	cmp	dword ptr [eax + edx + task_flags], -1
+	jz	0b	# skip done tasks (NEW)
 	test	dword ptr [eax + edx + task_flags], TASK_FLAG_DONE
-	jnz	2b	# XXX target changed
+	jnz	81f	# set tassk_flags to -1 and continue loop
 	test	dword ptr [eax + edx + task_flags], TASK_FLAG_SUSPENDED
 	jnz	0b
 	test	dword ptr [eax + edx + task_flags], TASK_FLAG_RUNNING
 	jnz	0b	# probably only happens on SMP; TODO: add debug target label
+
+	mov	edi, [idle_pid]
+	cmp	[eax + edx + task_pid], edi
+	jz	0b	# ignore the idle task
 
 	# potential task found.
 
@@ -967,17 +987,24 @@ call task_update_time_suspend$
 	1:	SCHED_UPDATE_GRAPH bl
 	.endif
 
-	.if TASK_SWITCH_DEBUG > 2
-		or	edx, edx
-		jz	1f
+	.if TASK_SWITCH_DEBUG # > 2
 		DEBUGS [eax + edx + task_label]
-	1:
 	.endif
 	clc
 	ret
 # 8 loop handler
-9:	or	ebx, ebx
+9:
+	or	ebx, ebx
 	jz	1f	# we have some tasks, none of which are schedulable
+	# we have tasks but none of which are schedulable: run the idle task.
+	push_	ebx ecx eax
+	mov	eax, [idle_pid]
+	call	task_get_by_pid # eax -> ebx+ecx
+	mov	edx, ecx
+	pop_	eax ecx ebx
+	.if TASK_SWITCH_DEBUG
+		DEBUG "IDLE"
+	.endif
 	stc
 	ret
 
@@ -990,11 +1017,17 @@ call task_update_time_suspend$
 92:	printlnc 4, "Task WAIT_IO without IO sem"
 	jmp	1b
 
+81:	# handle DONE task
+	mov	[eax + edx + task_flags], dword ptr -1
+	jmp	0b
+
 ##########################################################################
+# XXX not reached?
 1:	pushad
 	DO_SCHEDULER_DEBUG_TOP
 	popad
 	iret
+
 
 
 # out: ax
@@ -2621,6 +2654,11 @@ cmd_tasks:
 	cmp	ebx, [scheduler_current_task_idx]
 	jnz	1f
 	color	TASK_PRINT_BG_COLOR | 15
+	jmp	2f
+
+1:	cmp	ebx, [scheduler_rr_task_idx]
+	jnz	1f
+	color	TASK_PRINT_BG_COLOR | 11
 	jmp	2f
 
 1:	cmp	[eax + ebx + task_flags], dword ptr -1
