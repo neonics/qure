@@ -356,7 +356,7 @@ DHCP_OPTIONS_SIZE = 32
 #8:	# unused label
 	pop	esi
 #	jc	9f
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 
 9:	ret
 
@@ -574,7 +574,7 @@ dhcp_server_tx_disc_resp:
 
 	# send packet
 	pop	esi
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 9:	ret
 
 91:	printlnc 12, "DHCP SERVER: error allocating packet"

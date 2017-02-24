@@ -380,7 +380,7 @@ cloud_packet_send:
 		sub ecx, esi
 		call net_packet_print
 	.endif
-	NET_BUFFER_SEND		# automatic free
+	NET_BUFFER_SEND_CALC_ECX	# automatic free
 	pop	eax
 	jnc	1f
 	printc 4, "net_buf_send fail"
@@ -909,7 +909,7 @@ cluster_reboot_node:
 	add	ecx, UDP_HEADER_SIZE
 
 	mov	[edi], dword ptr 0x1337c0de
-	add	edi, 4	# for NET_BUFFER_SEND
+	add	edi, 4	# for NET_BUFFER_SEND_CALC_ECX
 .if 1
 	mov	eax, [esi - IPV4_HEADER_SIZE + ipv4_src]
 	mov	edx, [esi + IPV4_HEADER_SIZE + ipv4_dst]
@@ -925,7 +925,7 @@ cluster_reboot_node:
 
 
 	pop	esi
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 	jc	91f
 
 9:	popad

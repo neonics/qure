@@ -537,7 +537,7 @@ net_igmp_send:
 	call	net_igmp_checksum$	# in: esi, ecx
 
 	pop	esi
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 	pop	edx
 	pop	eax
 	jc	92f

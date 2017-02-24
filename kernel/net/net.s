@@ -9,6 +9,7 @@ NET_DEBUG = 0
 NET_QUEUE_DEBUG = 0
 NET_ARP_DEBUG = NET_DEBUG
 NET_IPV4_DEBUG = NET_DEBUG
+NET_BUFFERS_DEBUG = 0
 
 NET_RX_QUEUE_MIN_SIZE = 16#8
 
@@ -89,15 +90,22 @@ PROTO_STRUCT_SIZE = .
 #
 #############################################################################
 .data SECTION_DATA_BSS
-ipv4_id$: .word 0
-NET_TX_BUFFER_SIZE = 0x600	# 1536
-net_buffers: .long 0	# ptr_array
-net_buffer_index: .long 0
-NET_BUFFERS_NUM = 4
-net_tx_buffers_sem: .long 0
+ipv4_id$:		.word 0
+NET_TX_BUFFER_SIZE	= 0x600	# 1536
+NET_BUFFERS_NUM		= 4
+net_buffers:		.long 0	# ptr_array
+net_buffer_index:	.long 0
+net_tx_buffers_sem:	.long 0
+net_tx_buffers_usage:	.long 0	# array
 .text32
 ##############################################################################
+.if 1 # NET_BUFFERS_DEBUG
+
 .macro DEBUG_NET_BUF
+	call	_debug_net_buf$
+.endm
+
+_debug_net_buf$:
 	push	ecx
 	push	eax
 	push	edx
@@ -139,46 +147,201 @@ net_tx_buffers_sem: .long 0
 	pop	edx
 	pop	eax
 	pop	ecx
+	ret
+
+.macro DEBUG_NET_BUF_USAGE
+	call	_debug_net_buf_usage$
 .endm
 
+_debug_net_buf_usage$:
+	pushad
+	call newline
+	DEBUG "net_tx_buffers_usage: "
+	mov	esi, [net_tx_buffers_usage]
+	DEBUG_DWORD [esi+array_capacity]
+	DEBUG_DWORD [esi+array_index]
+	call newline
+	mov ecx, [esi+array_index]
+	shr ecx, 2 # bytes to dwords
+	100: jecxz 101f
+	lodsd
+	DEBUG_DWORD eax; call newline
+	loop 100b
+	101:
+	popad
+	ret
+.endif
+
+
+# in: edx = array_index - 4 of [net_buffers]
+net_tx_buffers_usage_allocate$:
+	push_	eax edx
+	# make sure the usage buffer is of proper size
+	.if NET_BUFFERS_DEBUG
+		DEBUG_DWORD edx, "net_tx_buf_usage_alloc"
+	.endif
+	mov	eax, [net_tx_buffers_usage]
+	or	eax, eax
+	jnz	1f
+0:	PTR_ARRAY_NEWENTRY [net_tx_buffers_usage], (31+NET_BUFFERS_NUM)>>5, 9f	# out: eax+edx
+	.if NET_BUFFERS_DEBUG
+		DEBUG_DWORD edx, "allocated tx_buf_usage"
+	.endif
+1:
+	mov	edx, [esp]	# restore edx
+	add	edx, 31
+	shr	edx, 5		# div 32
+	cmp	edx, [eax + array_capacity]
+	jnb	0b		# possible inf loop..
+
+#	.if NET_BUFFERS_DEBUG
+#		DEBUG_NET_BUF_USAGE
+#		DEBUG_NET_BUF
+#	.endif
+
+1:	clc
+0:	pop_	edx eax
+	ret
+9:	printlnc 0x4f, "net_tx_buffers_usage_allocate: malloc error"
+	stc
+	jmp	0b
+
+# in: eax = [net_buffers]
+# out: CF = 1: no free buffers
+# out: edx = CF ? -1 : free buffer index
+net_buffer_find_free$:
+	push_	edi ecx eax
+	mov	edi, [net_tx_buffers_usage]	# is initialized by net_buffer_allocate
+	mov	ecx, [edi + array_index]
+	mov	eax, -1	# 1 bits indicate in use; -1 means all buffers in dword are used
+	shr	ecx, 2
+
+	.if NET_BUFFERS_DEBUG
+		DEBUG_DWORD ecx, "net_buf_find_free numdwords"
+		DEBUG_DWORD [edi]
+	.endif
+
+	jz	91f	# empty
+	repz	scasd	# find a dword with at least 1 bit set to 0
+	jz	92f
+	sub	edi, 4	# found at [edi - 4]
+	# calculate bit offset:
+	xor	eax, [edi]	# mov eax, [edi]; not eax;
+
+	.if NET_BUFFERS_DEBUG
+		DEBUG_DWORD edi,"ptr"
+		DEBUG_DWORD eax
+	.endif
+
+	bsf	ecx, eax	# set ecx to first bit set in eax
+	jz	1f		# should not happen
+	.if NET_BUFFERS_DEBUG
+		DEBUG_BYTE cl, "bit"
+	.endif
+	mov	edx, 1		# mark ..
+	shl	edx, cl		# .. the buffer ..
+	or	[edi], edx	# .. as used
+	sub	edi, [net_tx_buffers_usage]
+	shl	edi, 5
+	or	edi, ecx
+	.if NET_BUFFERS_DEBUG
+		DEBUG_DWORD edi
+	.endif
+
+	# now edi is the buffer number to use
+	lea	edx, [edi * 4]
+	.if NET_BUFFERS_DEBUG
+		DEBUG_DWORD edx, "net_buffer_find_free bufidx"
+	.endif
+	clc
+
+9:	pop_	eax ecx edi
+	ret
+92:	DEBUG "not found"
+91:	stc
+	mov	edx, -1
+	jmp	9b
+
+1:	# this should not happen: a dword is found that is not -1 but has no bits 0
+	int 3
+	stc
+	jmp 9b
 
 # out: eax = mem address of NET_TX_BUFFER_SIZE bytes, paragraph aligned
 # modifies: edx
 net_buffer_allocate$:
 	PTR_ARRAY_NEWENTRY [net_buffers], NET_BUFFERS_NUM, 9f	# out: eax + edx
 	jc	9f
-	mov	[net_buffer_index], edx
-	add	edx, eax
+
+	call	net_tx_buffers_usage_allocate$
+	jc	9f
+
+	mov	[net_buffer_index], edx		# round robin
+	add	edx, eax			# collapse eax + edx
 	mov	eax, NET_TX_BUFFER_SIZE + 16
 	call	mallocz
 	mov	[edx], eax
-	jnc	1f
+	jc	9f
+
+	# TODO: mark buffer as used
+
+	jmp	1f
 9:	printlnc 0x4f, "net_buffer_allocate: malloc error"
 	stc
-	pop_	edx eax
-	ret
-# KEEP-WITH-NEXT (1f)
+	jmp	9f
+# KEEP-WITH-NEXT (1f, 2f)
 
 # XXX TODO FIXME: currently round robin without usage check!
 # Proposed solution: add bitstring marking buffer occupation
 #
 # out: edi
+NET_BUFFER_GET_ROUND_ROBIN = 0 # XXX TEMP TEST - 1 works
 net_buffer_get:
+	push_ eax ecx
+	SEM_SPINLOCK [net_tx_buffers_sem]
+	pop_ ecx eax
+
 	push_	eax edx
 	mov	eax, [net_buffers]
 	or	eax, eax
-	jz	net_buffer_allocate$
-	mov	edx, [net_buffer_index]
+	jz	net_buffer_allocate$	# continues at 1 or 9
+.if NET_BUFFER_GET_ROUND_ROBIN
+	mov	edx, [net_buffer_index]	# round robin
 	add	edx, 4
+.else
+5:	call	net_buffer_find_free$
+#	jnc	5f
+#	DEBUG "net_buffer_get YIELD"
+#	YIELD
+#	jmp	5b
+	jc	91f
+5:
+.endif
+	.if NET_BUFFERS_DEBUG
+		DEBUG_DWORD edx, "bufidx"
+		DEBUG_DWORD [eax+array_capacity]
+	.endif
+
+	# sanity check for buf idx
 	cmp	edx, [eax + array_capacity]
 	jb	0f
-	xor	edx, edx	# round robin
+.if NET_BUFFER_GET_ROUND_ROBIN
+	xor	edx, edx		# round robin
+.else
+DEBUG "jumping 92f"
+	jmp	92f
+.endif
+
+
 0:	mov	[net_buffer_index], edx
 	cmp	edx, [eax + array_index]
 	mov	eax, [eax + edx]
 	jnb	net_buffer_allocate$
-1:	add	eax, 15
+1:	
+.if 0	# TEMP disable paragraph align for finding buffer during NET_BUFFER_FREE
+	add	eax, 15
 	and	al, 0xf0
+.endif
 	mov	edi, eax
 
 	# clear buffer
@@ -188,10 +351,19 @@ net_buffer_get:
 	rep	stosd
 	sub	edi, NET_TX_BUFFER_SIZE
 	pop	ecx
-
-	pop_	edx eax
+	.if NET_BUFFERS_DEBUG
+		DEBUG_NET_BUF
+		DEBUG_NET_BUF_USAGE
+	.endif
 	clc
+
+9:	pop_	edx eax
+	SEM_UNLOCK [net_tx_buffers_sem]
 	ret
+92:
+91:	printlnc 4, "net tx: no free buffers"
+	stc
+	jmp	9b
 
 # out: edi
 .macro NET_BUFFER_GET
@@ -222,15 +394,96 @@ net_buffer_send:
 # in: edi = end of data in buffer
 # in: ebx = nic
 # modifies: ecx
-.macro NET_BUFFER_SEND
+.macro NET_BUFFER_SEND_CALC_ECX
 	mov	ecx, edi
 	sub	ecx, esi
 	call	net_buffer_send$
+	NET_BUFFER_FREE
 .endm
 
-.macro NET_BUFFER_FREE
-	# TODO
+# in: esi = start of buffer
+# in: ecx = buf len
+# in: ebx = nic
+.macro NET_BUFFER_SEND
+	call	net_buffer_send$
+	NET_BUFFER_FREE
 .endm
+
+
+.if NET_BUFFER_GET_ROUND_ROBIN
+  .macro NET_BUFFER_FREE
+  .endm
+.else
+  .macro NET_BUFFER_FREE
+	call	net_buffer_free$
+  .endm
+
+# in: esi = buffer
+net_buffer_free$:
+	pushf
+	pushad
+
+	.if NET_BUFFERS_DEBUG
+		call newline
+		DEBUG "net_buffer_free: "
+		DEBUG_DWORD esi
+	.endif
+	# find the buffer index
+	mov	eax, esi
+	mov	edi, [net_buffers]
+	mov	ecx, [edi + array_index]
+	shr	ecx, 2
+	repnz	scasd
+	jnz	91f
+	# edi - 4 = match
+	lea	ecx, [edi - 4]
+	sub	ecx, [net_buffers]
+	# edx = buf index (dword based)
+	shr	ecx, 2	# bit index
+
+
+	mov	edx, ecx
+	shr	edx, 5
+	and	ecx, 31
+
+	.if NET_BUFFERS_DEBUG
+		DEBUG_DWORD edx
+		DEBUG_DWORD ecx
+
+		call newline
+		DEBUG_NET_BUF
+		call newline
+		DEBUG "PRE:"
+		DEBUG_NET_BUF_USAGE
+	.endif
+
+	mov	edi, [net_tx_buffers_usage]
+	mov	eax, 1
+	shl	eax, cl
+	not	eax
+	andd	[edi + edx], eax # clear usage bit
+
+	.if NET_BUFFERS_DEBUG
+		call newline
+		DEBUG "POST:"
+		DEBUG_NET_BUF_USAGE
+	.endif
+
+9:	popad
+	popf
+	ret
+
+91:	printc 4, "net_buffer_free: unknown buffer: ";
+	mov	edx, eax
+	call	printhex8
+	call	newline
+	DEBUG_NET_BUF
+	DEBUG_NET_BUF_USAGE
+	jmp	9b
+
+.endif
+
+
 
 net_buffers_print:
 	printc 11, "tx buffers: "
@@ -243,6 +496,29 @@ net_buffers_print:
 	mov	eax, NET_TX_BUFFER_SIZE
 	call	print_size
 	call	newline
+	mov	esi, [net_buffers]
+	mov	ecx, [esi + array_index]
+	shr	ecx, 2
+0:	print " - "
+	lodsd
+	mov	edx, eax
+	call	printhex8
+	call	newline
+	loop	0b
+
+	.if NET_BUFFER_GET_ROUND_ROBIN
+	.else
+	print "usage: "
+	mov	esi, [net_tx_buffers_usage]
+	mov	ecx, [esi + array_index]
+	shr	ecx, 2
+0:	lodsd
+	mov	edx, eax
+	call	printbin32
+	printchar ' '
+	loop 0b
+	call newline
+	.endif
 	ret
 
 ##############################################################################
@@ -839,10 +1115,17 @@ NET_RX_BUFFER_SIZE	= 0x600	# 1536
 #   tail = new starting point for inject
 # out: eax + edx
 net_rx_queue_newentry:
+
 	push	ecx
 	mov	eax, [net_rx_queue]
 	or	eax, eax
 	jz	1f
+
+.if NET_QUEUE_DEBUG
+	call	net_rx_queue_hprint
+	DEBUG_DWORD [netq_sem]
+.endif
+
 
 	mov	ecx, NET_RX_QUEUE_STRUCT_SIZE
 	mov	edx, [net_rx_queue_tail]
@@ -933,7 +1216,9 @@ net_rx_queue_newentry:
 	jz	3b
 	# fallthrough
 4:	
-.if NET_QUEUE_DEBUG
+
+.if NET_QUEUE_DEBUG > 1
+call	net_rx_queue_hprint
 printlnc 4,"netq full";
 pushad;call net_rx_queue_print_;popad;
 .endif
@@ -973,6 +1258,38 @@ stc;jmp 9b	# code below unstable
 
 	jmp	1b
 
+.if NET_QUEUE_DEBUG
+net_rx_queue_hprint:
+	call	newline
+	pushcolor 7
+	push_	ebx esi edx
+	xor	esi,esi
+0:	mov	edx, [eax + esi + net_rx_queue_status]
+	mov	bl, 7
+	cmp	esi, [net_rx_queue_tail]
+	jnz	2f
+	add	bl, 4
+2:
+	cmp	esi, [net_rx_queue_head]
+	jnz 2f
+	or	bl, 0x10
+2:
+	push ebx; color bl; pop ebx
+	call	printhex1
+	color 7
+	call	printspace
+
+	add	esi, NET_RX_QUEUE_STRUCT_SIZE
+	cmp	esi, [eax + array_capacity]
+	jb	0b
+	pop_	edx esi ebx
+	popcolor
+	#pushad
+	#call net_rx_queue_print_
+	#popad
+	ret
+.endif
+
 # out: eax + edx
 # out: CF = no entry
 # EFFECT: move head to next
@@ -982,36 +1299,8 @@ net_rx_queue_get:
 	stc
 	jz	9f
 .if NET_QUEUE_DEBUG
-call newline
-pushcolor 7
-push ebx
-push esi
-xor esi,esi
-0: mov edx, [eax + esi + net_rx_queue_status]
-
-mov bl, 7
-cmp esi, [net_rx_queue_tail]
-jnz 2f
-add bl, 4
-2:
-cmp esi, [net_rx_queue_head]
-jnz 2f
-or bl, 0x10
-2:
-push ebx; color bl; pop ebx
-call printhex1
-color 7
-call printspace
-
-add esi, NET_RX_QUEUE_STRUCT_SIZE
-cmp esi, [eax + array_capacity]
-jb 0b
-pop esi
-pop ebx
-popcolor
-#pushad
-#call net_rx_queue_print_
-#popad
+call	net_rx_queue_hprint
+DEBUG "net_rx_queue_get", 0x1f
 .endif
 
 	mov	edx, [net_rx_queue_head]

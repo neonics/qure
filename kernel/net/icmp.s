@@ -367,7 +367,7 @@ net_ipv4_icmp_send_ping:
 	call	get_time_ms
 	xchg	eax, [esp]
 
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 	pop	ebx
 9:	ret
 
@@ -705,7 +705,7 @@ protocol_icmp_ping_response:
 	.endif
 
 	pop	esi
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 9:	ret
 1:	pop	esi
 	ret

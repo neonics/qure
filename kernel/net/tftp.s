@@ -622,7 +622,7 @@ tftp_send_packet:
 		call	net_packet_print
 		popad
 	.endif
-	NET_BUFFER_SEND	# TODO: check code path for buffer release
+	NET_BUFFER_SEND_CALC_ECX # TODO: check code path for buffer release
 	ret
 
 tftp_code_end:

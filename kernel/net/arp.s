@@ -773,7 +773,8 @@ protocol_arp_response:
 		call	net_packet_hexdump
 	.endif
 
-	call	[ebx + nic_api_send]
+	#call	[ebx + nic_api_send]
+	NET_BUFFER_SEND
 9:	ret
 
 
@@ -850,7 +851,7 @@ arp_probe:
 	call	net_arp_header_put
 	mov	[edi - ARP_HEADER_SIZE - ARP_IPV4_PAYLOAD_SIZE + arp_src_ip], dword ptr 0
 	pop	esi
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 9:	ret
 
 # in: eax = dest ip (BCAST)
@@ -882,7 +883,7 @@ arp_unarp:
 	pop	eax
 	stosd
 	pop	esi
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 9:	ret
 
 
@@ -923,7 +924,7 @@ arp_request:
 	call	net_arp_header_put
 
 	pop	esi
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 	jc	92f
 
 	.if NET_ARP_DEBUG

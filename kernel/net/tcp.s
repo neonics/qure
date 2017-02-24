@@ -2192,7 +2192,8 @@ net_tcp_send:
 	pop	esi
 	add	ecx, edi	# add->mov ?
 	sub	ecx, esi
-	call	[ebx + nic_api_send]
+	#call	[ebx + nic_api_send]
+	NET_BUFFER_SEND
 	jc	9f
 9:	pop	ebp
 	pop	eax
@@ -2322,7 +2323,7 @@ net_tcp_tx_rst$:
 	# send packet
 
 	pop	esi
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 
 9:	pop	edi
 	pop	esi
@@ -2567,7 +2568,7 @@ mov [edx + tcp_conn_remote_mss], eax
 	# send packet
 
 	pop	esi
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 	jc	91f
 
 	mov	eax, [ebp - 4]

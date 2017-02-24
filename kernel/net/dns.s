@@ -719,7 +719,7 @@ net_dns_service:
 	pop	edi	# payload end
 	jc	9f
 	pop	esi	# packet start
-	NET_BUFFER_SEND	# in: ebx=nic,edi=packet end,esi=packet start
+	NET_BUFFER_SEND_CALC_ECX # in: ebx=nic,edi=packet end,esi=packet start
 	ret
 
 9:	pop	edi	# packet start
@@ -1490,7 +1490,7 @@ net_dns_request:
 	stosd
 
 	pop	esi
-	NET_BUFFER_SEND
+	NET_BUFFER_SEND_CALC_ECX
 
 0:	pop	edx
 	pop	ecx
