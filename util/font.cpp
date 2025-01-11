@@ -138,7 +138,7 @@ int main(int argc, char** argv)
 		{
 			int	charnr, x, y, w, h, xoffs, yoffs, page, chnl;
 			if ( 10 != sscanf( in, "char id=%d x=%d y=%d width=%d height=%d xoffset=%d yoffset=%d xadvance=%d page=%d chnl=%d\n",
-				&charnr, &x, &y, &w, &h, &xoffs, &yoffs, &page, &chnl ) )
+				&charnr, &x, &y, &w, &h, &xoffs, &yoffs, &xadvance, &page, &chnl ) )
 			{ printf("Can't parse file: error at line %d\n", linenr ); return 1;}
 			while (*in++ != '\n'); linenr++;
 
